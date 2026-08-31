@@ -176,7 +176,9 @@ export function VistaPedidos({ vista }: { vista: Vista }) {
 
       {/* Filtros */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="relative min-w-0 flex-1 sm:max-w-xs">
+        {/* En móvil el buscador ocupa su propia línea: compartiéndola con los dos
+            desplegables se quedaba en un campo de un carácter. */}
+        <div className="relative w-full min-w-0 sm:w-auto sm:flex-1 sm:max-w-xs">
           <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
           <Input
             value={q}

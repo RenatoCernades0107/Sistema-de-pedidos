@@ -11,7 +11,7 @@ import { METODOS, saldoDe, type MetodoPago, type Pedido } from "@/lib/dominio";
 import { money } from "@/lib/formato";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Campo } from "@/components/ui/campo";
 import {
   Dialog,
   DialogClose,
@@ -79,14 +79,21 @@ export function RegistrarAbono({ pedido: p }: { pedido: Pedido }) {
         </DialogHeader>
 
         <form onSubmit={guardar} noValidate className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="monto" className="text-xs font-medium">
-              Monto <span className="text-destructive">*</span>
-            </Label>
+          <Campo
+            label="Monto"
+            requerido
+            error={form.formState.errors.monto?.message}
+            ayuda={
+              monto > 0 && monto <= saldo
+                ? restante > 0
+                  ? `Quedaría un saldo de ${money(restante)}.`
+                  : "El pedido quedaría pagado."
+                : `Entre ${money(0.01)} y ${money(saldo)}.`
+            }
+          >
             <div className="flex items-center gap-2">
               <span className="text-muted-foreground text-sm">S/</span>
               <Input
-                id="monto"
                 type="number"
                 step="0.01"
                 min={0.01}
@@ -112,23 +119,9 @@ export function RegistrarAbono({ pedido: p }: { pedido: Pedido }) {
                 Todo
               </Button>
             </div>
-            {form.formState.errors.monto ? (
-              <p className="text-destructive text-xs">{form.formState.errors.monto.message}</p>
-            ) : (
-              <p className="text-muted-foreground text-xs">
-                {monto > 0 && monto <= saldo
-                  ? restante > 0
-                    ? `Quedaría un saldo de ${money(restante)}.`
-                    : "El pedido quedaría pagado."
-                  : `Entre ${money(0.01)} y ${money(saldo)}.`}
-              </p>
-            )}
-          </div>
+          </Campo>
 
-          <div className="flex flex-col gap-1.5">
-            <Label className="text-xs font-medium">
-              Método de pago <span className="text-destructive">*</span>
-            </Label>
+          <Campo label="Método de pago" requerido>
             <Select
               value={form.watch("metodo")}
               onValueChange={(v) => v && form.setValue("metodo", v as MetodoPago)}
@@ -144,7 +137,7 @@ export function RegistrarAbono({ pedido: p }: { pedido: Pedido }) {
                 ))}
               </SelectContent>
             </Select>
-          </div>
+          </Campo>
 
           <DialogFooter>
             <DialogClose render={<Button variant="outline" type="button" />} nativeButton>

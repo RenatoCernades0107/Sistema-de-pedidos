@@ -5,7 +5,6 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Info, Pencil } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { esquemaFormDatos, esquemaFormEnvio, FORMATO_DOCUMENTO } from "@/lib/esquemas";
 import { fechaCompleta } from "@/lib/formato";
@@ -29,7 +28,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Campo, Opciones } from "@/components/ui/campo";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
@@ -145,6 +144,7 @@ export function EditarDatos({ pedido: p }: { pedido: Pedido }) {
           </div>
 
           <Campo
+            grupo
             label="Tipo de pedido"
             requerido
             error={form.formState.errors.tipos?.message}
@@ -209,7 +209,7 @@ export function EditarDatos({ pedido: p }: { pedido: Pedido }) {
             />
           </Campo>
 
-          <Campo label="Lugar de entrega" requerido>
+          <Campo grupo label="Lugar de entrega" requerido>
             {p.esProvincia ? (
               <>
                 <p className="text-sm">Agencia</p>
@@ -243,7 +243,7 @@ export function EditarDatos({ pedido: p }: { pedido: Pedido }) {
             </Campo>
           )}
 
-          <Campo label="Fecha prometida">
+          <Campo grupo label="Fecha prometida">
             <p className="tnum text-sm">{fechaCompleta(p.fechaPrometida)}</p>
             <p className="text-muted-foreground text-xs">
               Se fija al registrar el pedido y ya no se cambia: es el compromiso
@@ -253,6 +253,7 @@ export function EditarDatos({ pedido: p }: { pedido: Pedido }) {
 
           {p.tipoPago === "credito" && (
             <Campo
+              grupo
               label="Plazo del crédito"
               error={form.formState.errors.plazoCredito?.message}
             >
@@ -501,7 +502,7 @@ export function EditarEnvio({ pedido: p }: { pedido: Pedido }) {
             </Campo>
           </div>
 
-          <Campo label="Estado del flete">
+          <Campo grupo label="Estado del flete">
             <label className="flex cursor-pointer items-center gap-2.5 text-sm">
               <Checkbox
                 checked={!!form.watch("fletePagado")}
@@ -547,65 +548,6 @@ const envioDe = (p: Pedido): CamposEnvio => ({
 });
 
 /* ── Piezas compartidas ── */
-
-function Campo({
-  label,
-  requerido,
-  error,
-  children,
-}: {
-  label: string;
-  requerido?: boolean;
-  error?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex min-w-0 flex-col gap-1.5">
-      <Label className="text-xs font-medium">
-        {label}
-        {requerido && <span className="text-destructive ml-0.5">*</span>}
-      </Label>
-      {children}
-      {error && <p className="text-destructive text-xs">{error}</p>}
-    </div>
-  );
-}
-
-/** Con un solo valor se comporta como radio; con varios, como casillas. */
-function Opciones({
-  valores,
-  onToggle,
-  opciones,
-}: {
-  valores: string[];
-  onToggle: (v: string) => void;
-  opciones: { valor: string; label: string }[];
-}) {
-  return (
-    <div className="flex flex-wrap gap-2">
-      {opciones.map((o) => {
-        const activo = valores.includes(o.valor);
-        return (
-          <button
-            key={o.valor}
-            type="button"
-            onClick={() => onToggle(o.valor)}
-            aria-pressed={activo}
-            className={cn(
-              "rounded-lg border px-3 py-1.5 text-sm transition-colors",
-              "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
-              activo
-                ? "border-primary/40 bg-primary/8 text-foreground font-medium"
-                : "text-muted-foreground hover:text-foreground hover:border-foreground/20",
-            )}
-          >
-            {o.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
 
 function Aviso({ children }: { children: React.ReactNode }) {
   return (

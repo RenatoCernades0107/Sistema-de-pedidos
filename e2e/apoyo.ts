@@ -44,12 +44,12 @@ export async function sesionDe(usuario: keyof typeof USUARIOS) {
  * Registra un pedido a provincia con la misma función que usa la app y lo deja en
  * el taller, que es donde Operaciones puede verlo.
  *
- * Se crea por RPC y no rellenando el formulario a propósito: el formulario no
- * asocia sus etiquetas a los campos, así que un test que lo recorriera dependería
- * de la estructura del DOM y se rompería con cualquier retoque visual. Lo que
- * estas pruebas verifican es lo que la Fase 4 añadió —que la escritura llega a la
- * base, que sobrevive a una recarga y que cada rol solo puede lo suyo—, y eso pasa
- * por la misma función `crear_pedido` en los dos caminos.
+ * Se crea por RPC y no rellenando el formulario a propósito: lo que estas pruebas
+ * verifican es lo que la Fase 4 añadió —que la escritura llega a la base, que
+ * sobrevive a una recarga y que cada rol solo puede lo suyo—, y eso pasa por la
+ * misma función `crear_pedido` en los dos caminos; rellenar el formulario en cada
+ * una solo alargaría la corrida. El camino largo tiene su propia prueba en
+ * `formulario-nuevo-pedido.spec.ts`.
  */
 export async function crearPedidoDePrueba(etiqueta: string) {
   const supabase = await sesionDe("administracion");

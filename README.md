@@ -1,36 +1,67 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Pedidos Plexiacril — la app
 
-## Getting Started
+Next.js 16 (App Router) sobre Supabase. El modelo de datos y los roles están en el
+[`README.md` de la raíz](../README.md); el porqué de cada decisión, en [`plan.md`](../plan.md).
+Esto es lo que hace falta para levantarla, probarla y desplegarla.
 
-First, run the development server:
+## Levantarla
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev            # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Hace falta un `.env.local` con las dos variables de [`.env.example`](.env.example). Las dos son
+públicas a propósito: la clave publicable viaja al navegador y lo que protege los datos es la RLS,
+no esconderla.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Usuarios de desarrollo (contraseña `plexi2026` en los tres, cambiar antes de que entren datos
+reales): `ana` (administración), `carla` (logística), `miguel` (operaciones). **Se entra con el
+usuario, no con el correo**: el correo es el identificador interno de Supabase Auth y
+`email_de_usuario()` traduce uno en otro antes de autenticar.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Probarla
 
-## Learn More
+```bash
+npm run lint
+npm run build
+npm run e2e            # Playwright; levanta `next dev` solo si no lo encuentra
+```
 
-To learn more about Next.js, take a look at the following resources:
+Los tests de punta a punta corren **contra la base real**, que es la única que hay. Cada prueba crea
+sus propias filas con el cliente prefijado `E2E` y las borra al terminar; ninguna toca los 23 pedidos
+del seed. Las pruebas del esquema son SQL y van aparte: `supabase/tests/README.md`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Desplegarla en Vercel
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. Importar el repositorio en Vercel con **Root Directory = `web/`**. El resto lo detecta solo
+   (Next.js, `npm run build`, salida en `.next`).
+2. Cargar las dos variables de `.env.example` en *Settings → Environment Variables*, en los tres
+   entornos (Production, Preview y Development). No hay secretos del servidor que añadir.
+3. En Supabase, *Authentication → URL Configuration*: poner el dominio de Vercel como **Site URL** y
+   añadirlo a **Redirect URLs**. Sin esto la sesión se crea y se pierde al primer refresco.
+4. Desplegar y entrar una vez con cada rol. Lo que conviene mirar: que `/` reparta a cada uno a su
+   vista, que la lista traiga pedidos (si no, es la RLS o las variables) y que un cambio de estado
+   sobreviva a una recarga.
 
-## Deploy on Vercel
+Para correr los tests contra el despliegue en vez de contra `localhost`:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+E2E_URL=https://<dominio>.vercel.app npm run e2e
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Cómo está armado
+
+- `app/(app)/` — las vistas por rol. El layout carga los pedidos una vez y las cuatro páginas
+  filtran sobre el mismo conjunto; `acciones.ts` son las Server Actions, el único camino de
+  escritura.
+- `app/login/`, `proxy.ts` — sesión. En Next 16 `middleware.ts` está deprecado: el refresco de la
+  sesión y el desvío al login viven en `proxy.ts`.
+- `lib/dominio.ts` — el contrato de tipos y los permisos por rol que usa la UI. La seguridad de
+  verdad está en Postgres; esto solo decide qué se pinta.
+- `lib/pedidos-servidor.ts` — lee la vista que le toca al rol (`pedidos_admin` / `_logistica` /
+  `_operaciones`) y arma el `Pedido` que espera la UI.
+- `lib/esquemas.ts` — los Zod que comparten formulario y Server Action.
+- `components/ui/` — primitivas sobre Base UI. `campo.tsx` es el que enlaza etiqueta, control, ayuda
+  y error; todo campo de formulario pasa por ahí.
+- `supabase/migrations/` — la fuente de verdad del modelo.

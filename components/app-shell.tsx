@@ -65,6 +65,16 @@ export function AppShell({
     <div className="flex min-h-dvh flex-col">
       <CommandMenu abierto={cmd.abierto} setAbierto={cmd.setAbierto} />
 
+      {/* Con teclado, la cabecera y el menú se recorren en cada página antes de
+          llegar a los pedidos. Este enlace se salta el cromo; solo aparece al
+          enfocarlo. */}
+      <a
+        href="#contenido"
+        className="bg-background focus:ring-ring sr-only rounded-lg border px-3 py-2 text-sm font-medium focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50 focus:ring-2"
+      >
+        Saltar al contenido
+      </a>
+
       {/* Cromo: casi invisible. El color se reserva para los datos. */}
       <header className="bg-background/85 sticky top-0 z-30 border-b backdrop-blur-md">
         <div className="flex h-14 items-center gap-3 px-4">
@@ -84,6 +94,8 @@ export function AppShell({
           <button
             type="button"
             onClick={() => cmd.setAbierto(true)}
+            aria-label="Buscar pedido"
+            aria-keyshortcuts="Meta+K Control+K"
             className={cn(
               "text-muted-foreground hover:border-ring/40 hover:text-foreground group flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-sm transition-colors",
               "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
@@ -105,7 +117,7 @@ export function AppShell({
       <div className="flex flex-1">
         {/* Sidebar */}
         <aside className="bg-sidebar hidden w-56 shrink-0 border-r p-3 md:block">
-          <nav className="flex flex-col gap-0.5">
+          <nav aria-label="Vistas" className="flex flex-col gap-0.5">
             <p className="eyebrow px-2.5 pt-2 pb-2">
               Vistas · {permisos.nombre}
             </p>
@@ -166,11 +178,17 @@ export function AppShell({
           </nav>
         </aside>
 
-        <main className="min-w-0 flex-1 pb-20 md:pb-0">{children}</main>
+        {/* `tabIndex={-1}` para que el enlace de salto pueda dejar el foco aquí. */}
+        <main id="contenido" tabIndex={-1} className="min-w-0 flex-1 pb-20 md:pb-0">
+          {children}
+        </main>
       </div>
 
       {/* Tabs móviles */}
-      <nav className="bg-background/90 fixed inset-x-0 bottom-0 z-30 flex border-t pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden">
+      <nav
+        aria-label="Vistas"
+        className="bg-background/90 fixed inset-x-0 bottom-0 z-30 flex border-t pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden"
+      >
         {nav.map((item) => {
           const activo = pathname === item.href;
           const Icono = item.icono;

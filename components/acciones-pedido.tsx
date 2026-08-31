@@ -20,6 +20,7 @@ import {
 } from "@/lib/dominio";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Campo as CampoBase } from "@/components/ui/campo";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -109,8 +110,7 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
         </header>
 
         <div className="flex flex-col gap-4 p-4">
-          <div>
-            <Label className="eyebrow mb-2 block">Mover el pedido a</Label>
+          <CampoBase grupo label="Mover el pedido a" claseEtiqueta="eyebrow">
             {validas.length === 0 ? (
               <p className="text-muted-foreground flex items-center gap-2 text-sm">
                 <Lock className="size-3.5 shrink-0" />
@@ -149,7 +149,7 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
                 Para entregar hace falta el número de factura.
               </p>
             )}
-          </div>
+          </CampoBase>
 
           <Campo
             etiqueta="Ubicación actual"
@@ -292,6 +292,11 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
   );
 }
 
+/**
+ * Bloqueado, el valor es un párrafo y no hay control al que apuntar: el conjunto
+ * se nombra como grupo. Editable, es un `Select` y la etiqueta se enlaza con su
+ * disparador.
+ */
 function Campo({
   etiqueta,
   bloqueado,
@@ -302,14 +307,19 @@ function Campo({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-1.5">
-      <Label className="eyebrow flex items-center gap-1.5">
-        {etiqueta}
-        {bloqueado && (
-          <Lock className="size-3 opacity-60" aria-label="solo lectura" />
-        )}
-      </Label>
+    <CampoBase
+      grupo={bloqueado}
+      claseEtiqueta="eyebrow flex items-center gap-1.5"
+      label={
+        <>
+          {etiqueta}
+          {bloqueado && (
+            <Lock className="size-3 opacity-60" role="img" aria-label="solo lectura" />
+          )}
+        </>
+      }
+    >
       {children}
-    </div>
+    </CampoBase>
   );
 }

@@ -7,7 +7,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowLeft, Upload } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { esquemaFormNuevoPedido, FORMATO_DOCUMENTO } from "@/lib/esquemas";
 import { hoy } from "@/lib/fecha";
@@ -28,7 +27,7 @@ import {
 import { fechaCompleta } from "@/lib/formato";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Campo, Opciones } from "@/components/ui/campo";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -211,6 +210,7 @@ export function NuevoPedidoForm() {
           </div>
 
           <Campo
+            grupo
             label="Tipo de pedido"
             requerido
             ayuda="Un pedido puede combinar varios trabajos."
@@ -287,7 +287,7 @@ export function NuevoPedidoForm() {
               />
             </Campo>
 
-            <Campo label="Archivos de diseño" ayuda="Planos, PDF o imágenes del trabajo.">
+            <Campo grupo label="Archivos de diseño" ayuda="Planos, PDF o imágenes del trabajo.">
               <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed p-4 text-center text-sm">
                 <Upload className="mb-2 size-4 opacity-50" />
                 Arrastra planos, PDF o imágenes
@@ -313,7 +313,7 @@ export function NuevoPedidoForm() {
         </Seccion>
 
         <Seccion n={2} titulo="Entrega" nota="Define si el pedido es local o de provincia">
-          <Campo label="¿A dónde va?" requerido>
+          <Campo grupo label="¿A dónde va?" requerido>
             <Opciones
               valores={[destino]}
               onToggle={(v) => {
@@ -447,7 +447,7 @@ export function NuevoPedidoForm() {
                   </Campo>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Campo label="Estado del flete">
+                  <Campo grupo label="Estado del flete">
                     <label className="flex cursor-pointer items-center gap-2.5 text-sm">
                       <Checkbox
                         checked={!!form.watch("fletePagado")}
@@ -473,7 +473,7 @@ export function NuevoPedidoForm() {
                 transition={{ duration: 0.18 }}
                 className="flex flex-col gap-4 overflow-hidden"
               >
-                <Campo label="Lugar de entrega" requerido>
+                <Campo grupo label="Lugar de entrega" requerido>
                   <Opciones
                     valores={[entrega]}
                     onToggle={(v) => form.setValue("entrega", v as Campos["entrega"])}
@@ -519,7 +519,7 @@ export function NuevoPedidoForm() {
         </Seccion>
 
         <Seccion n={3} titulo="Pago">
-          <Campo label="Tipo de pago" requerido>
+          <Campo grupo label="Tipo de pago" requerido>
             <Opciones
               valores={[tipoPago]}
               onToggle={(v) => form.setValue("tipoPago", v as Campos["tipoPago"])}
@@ -572,6 +572,7 @@ export function NuevoPedidoForm() {
 
           {tipoPago === "credito" && (
             <Campo
+              grupo
               label="Plazo del crédito"
               requerido
               ayuda={
@@ -684,75 +685,6 @@ function Seccion({
       </header>
       <div className="flex flex-col gap-4 p-4">{children}</div>
     </section>
-  );
-}
-
-function Campo({
-  label,
-  requerido,
-  ayuda,
-  error,
-  children,
-}: {
-  label: string;
-  requerido?: boolean;
-  ayuda?: string;
-  error?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex min-w-0 flex-col gap-1.5">
-      <Label className="text-xs font-medium">
-        {label}
-        {requerido && <span className="text-destructive ml-0.5">*</span>}
-      </Label>
-      {children}
-      {error ? (
-        <p className="text-destructive text-xs">{error}</p>
-      ) : ayuda ? (
-        <p className="text-muted-foreground text-xs">{ayuda}</p>
-      ) : null}
-    </div>
-  );
-}
-
-/**
- * Botonera de opciones. Con `valores` de un solo elemento se comporta como una
- * radio; con varios, como casillas. Es el mismo control porque para quien
- * registra es el mismo gesto: tocar lo que aplica.
- */
-function Opciones({
-  valores,
-  onToggle,
-  opciones,
-}: {
-  valores: string[];
-  onToggle: (v: string) => void;
-  opciones: { valor: string; label: string }[];
-}) {
-  return (
-    <div className="flex flex-wrap gap-2">
-      {opciones.map((o) => {
-        const activo = valores.includes(o.valor);
-        return (
-          <button
-            key={o.valor}
-            type="button"
-            onClick={() => onToggle(o.valor)}
-            aria-pressed={activo}
-            className={cn(
-              "rounded-lg border px-3 py-1.5 text-sm transition-colors",
-              "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
-              activo
-                ? "border-primary/40 bg-primary/8 text-foreground font-medium"
-                : "text-muted-foreground hover:text-foreground hover:border-foreground/20",
-            )}
-          >
-            {o.label}
-          </button>
-        );
-      })}
-    </div>
   );
 }
 
