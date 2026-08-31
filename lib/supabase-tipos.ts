@@ -577,6 +577,7 @@ export type Database = {
         Row: {
           activo: boolean
           creado_en: string
+          debe_cambiar_password: boolean
           email: string
           id: string
           nombre: string
@@ -586,6 +587,7 @@ export type Database = {
         Insert: {
           activo?: boolean
           creado_en?: string
+          debe_cambiar_password?: boolean
           email: string
           id: string
           nombre: string
@@ -595,6 +597,7 @@ export type Database = {
         Update: {
           activo?: boolean
           creado_en?: string
+          debe_cambiar_password?: boolean
           email?: string
           id?: string
           nombre?: string
@@ -966,6 +969,7 @@ export type Database = {
         Args: { activa: boolean }
         Returns: undefined
       }
+      marcar_password_cambiada: { Args: never; Returns: undefined }
       sigla_de: {
         Args: { tipos: Database["public"]["Enums"]["tipo_pedido"][] }
         Returns: string

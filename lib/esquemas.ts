@@ -131,6 +131,7 @@ export const esquemaFormNuevoPedido = z
     cantidad: z.coerce.number().positive("La cantidad tiene que ser mayor que cero"),
     destino: z.enum(["local", "provincia"]),
     entrega: lugarEntrega,
+    ubicacion,
     direccion: z.string().trim().optional(),
     departamentoId: z.coerce.number().int().positive().optional(),
     provinciaId: z.coerce.number().int().positive().optional(),
@@ -283,8 +284,9 @@ export const esquemaNuevoPedido = z
     abonoInicial: dinero,
     metodoPago,
     responsableId: z.uuid().nullable(),
-    // `ubicacion_actual` no viaja: la deduce la acción del lugar de entrega. Un
-    // pedido nace donde se registra, y eso no lo elige el formulario.
+    // Dónde queda físicamente el pedido al registrarlo. No se deduce del lugar de
+    // entrega: un pedido que se entrega en tienda puede nacer en el taller.
+    ubicacion,
     detalle: z.string(),
     observaciones: z.string().trim().nullable(),
   })
@@ -376,7 +378,34 @@ export const esquemaAbono = z.object({
   metodo: metodoPago,
 });
 
+/* ── Contraseña ─────────────────────────────────────────────────────────────── */
+
+/**
+ * Supabase Auth se conforma con 6 caracteres. Aquí se piden 8 porque la primera
+ * contraseña de una cuenta la eligió otra persona y ya circuló por un chat: la
+ * que la reemplaza no puede ser igual de corta que la que hubo que tirar.
+ *
+ * El techo no es una preferencia: bcrypt solo mira los primeros 72 bytes, y
+ * GoTrue rechaza lo que pase de ahí con un error que no explica nada.
+ */
+export const LARGO_MINIMO_PASSWORD = 8;
+export const LARGO_MAXIMO_PASSWORD = 72;
+
+export const esquemaCambioPassword = z
+  .object({
+    password: z
+      .string()
+      .min(LARGO_MINIMO_PASSWORD, `Al menos ${LARGO_MINIMO_PASSWORD} caracteres`)
+      .max(LARGO_MAXIMO_PASSWORD, `Como máximo ${LARGO_MAXIMO_PASSWORD} caracteres`),
+    confirmacion: z.string(),
+  })
+  .refine((v) => v.password === v.confirmacion, {
+    path: ["confirmacion"],
+    message: "Las dos contraseñas no coinciden",
+  });
+
 export type NuevoPedido = z.output<typeof esquemaNuevoPedido>;
 export type DatosEditables = z.output<typeof esquemaDatosEditables>;
 export type DatosEnvio = z.output<typeof esquemaEnvio>;
 export type CambioEstado = z.output<typeof esquemaCambioEstado>;
+export type CambioPassword = z.output<typeof esquemaCambioPassword>;

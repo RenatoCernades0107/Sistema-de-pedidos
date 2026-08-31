@@ -7,6 +7,10 @@ cargarEnv({ path: ".env.local", quiet: true });
 
 export default defineConfig({
   testDir: "./e2e",
+  /* Baja la marca de "cambia tu contraseña" a las tres cuentas del seed. Sin
+     esto, la migración que la introdujo deja a las tres atascadas en esa pantalla
+     y no pasa ninguna prueba. */
+  globalSetup: "./e2e/preparar.ts",
   /* La base es la de producción y no hay otra, así que los tests van en serie:
      dos navegadores moviendo el mismo pedido a la vez probarían otra cosa. */
   fullyParallel: false,

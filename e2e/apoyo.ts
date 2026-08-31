@@ -41,6 +41,28 @@ export async function sesionDe(usuario: keyof typeof USUARIOS) {
 }
 
 /**
+ * Pone o quita la marca de "todavía tiene que cambiar la contraseña".
+ *
+ * Va con la sesión de Administración porque la única política de UPDATE sobre
+ * `usuarios` es la suya; el camino que usa la app —`marcar_password_cambiada`—
+ * solo sirve para bajarse la marca uno mismo, y aquí hace falta ponérsela a otro.
+ *
+ * Ninguna prueba cambia una contraseña de verdad: eso dejaría el seed distinto de
+ * como lo encontró y la corrida siguiente no podría entrar.
+ */
+export async function marcarCambioPendiente(
+  usuario: keyof typeof USUARIOS,
+  pendiente: boolean,
+) {
+  const supabase = await sesionDe("administracion");
+  const { error } = await supabase
+    .from("usuarios")
+    .update({ debe_cambiar_password: pendiente })
+    .eq("usuario", USUARIOS[usuario]);
+  if (error) throw new Error(`No se pudo marcar a ${usuario}: ${error.message}`);
+}
+
+/**
  * Registra un pedido a provincia con la misma función que usa la app y lo deja en
  * el taller, que es donde Operaciones puede verlo.
  *

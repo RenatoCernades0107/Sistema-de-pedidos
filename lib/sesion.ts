@@ -9,7 +9,12 @@ export interface Perfil {
   /** Lo que la persona escribe para entrar. El correo es interno. */
   usuario: string;
   rol: Rol;
+  /** Sigue usando la contraseña con la que le crearon la cuenta. */
+  debeCambiarPassword: boolean;
 }
+
+/** Lo único que puede ver quien todavía no ha cambiado su contraseña. */
+export const RUTA_CAMBIO_PASSWORD = "/cambiar-contrasena";
 
 /**
  * Quién está pidiendo esta página. Devuelve `null` si no hay sesión o si la
@@ -29,18 +34,37 @@ export const perfilActual = cache(async (): Promise<Perfil | null> => {
 
   const { data } = await supabase
     .from("usuarios")
-    .select("id, nombre, usuario, rol, activo")
+    .select("id, nombre, usuario, rol, activo, debe_cambiar_password")
     .eq("id", user.id)
     .maybeSingle();
 
   if (!data?.activo) return null;
 
-  return { id: data.id, nombre: data.nombre, usuario: data.usuario, rol: data.rol };
+  return {
+    id: data.id,
+    nombre: data.nombre,
+    usuario: data.usuario,
+    rol: data.rol,
+    debeCambiarPassword: data.debe_cambiar_password,
+  };
 });
 
+/**
+ * Sesión válida y contraseña ya cambiada. Es la puerta por la que pasan el layout
+ * de `(app)`, la raíz y las tres guardas de abajo, así que basta con comprobarlo
+ * aquí para que no haya vista que se salte el cambio.
+ *
+ * El proxy no lo mira: leer el perfil en cada petición sería una consulta a
+ * Supabase por archivo servido, y lo que hay que impedir es que se *renderice*
+ * una vista, no que se resuelva una ruta.
+ *
+ * La propia pantalla de cambio no llama a esto —usa `perfilActual`— o se
+ * redirigiría a sí misma sin fin.
+ */
 export async function exigirSesion(): Promise<Perfil> {
   const perfil = await perfilActual();
   if (!perfil) redirect("/login");
+  if (perfil.debeCambiarPassword) redirect(RUTA_CAMBIO_PASSWORD);
   return perfil;
 }
 
