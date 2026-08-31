@@ -894,6 +894,7 @@ export type Database = {
           id: string | null
           lugar_entrega: Database["public"]["Enums"]["lugar_entrega"] | null
           motivo: string | null
+          nombre_cliente: string | null
           observaciones: string | null
           provincia: string | null
           responsable: string | null

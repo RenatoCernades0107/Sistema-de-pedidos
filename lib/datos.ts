@@ -1,10 +1,14 @@
-import type { EnvioProvincia, Pedido } from "./dominio";
+import type { Adjunto, EnvioProvincia, Pedido } from "./dominio";
 
 /* Este archivo dejó de ser el origen de datos de la app en la Fase 3 y ahora solo
    alimenta `scripts/gen-seed.cjs`. La semilla no trae los campos que la base
    deriva o resuelve por join (`tieneFactura`, los ids del ubigeo), así que se
    escriben fuera del tipo `Pedido` en vez de inventarlos aquí. */
-type PedidoSemilla = Omit<Pedido, "responsableId" | "tieneFactura" | "envio"> & { envio?: Omit<EnvioProvincia, "departamentoId" | "provinciaId"> };
+type PedidoSemilla = Omit<Pedido, "responsableId" | "tieneFactura" | "envio" | "adjuntos"> & {
+  envio?: Omit<EnvioProvincia, "departamentoId" | "provinciaId">;
+  // El id del adjunto lo pone Postgres al sembrar, igual que el del pedido.
+  adjuntos: Omit<Adjunto, "id">[];
+};
 
 /** Fecha de referencia del prototipo: define qué está vencido y qué vence hoy. */
 export const HOY = "2026-08-29";

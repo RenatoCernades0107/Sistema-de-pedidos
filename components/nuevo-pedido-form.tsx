@@ -1,13 +1,17 @@
 "use client";
 
 import Link from "next/link";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowLeft, Upload } from "lucide-react";
+import { ArrowLeft, Upload, X } from "lucide-react";
+import { toast } from "sonner";
 import { useStore } from "@/lib/store";
+import { subirAdjuntos } from "@/lib/adjuntos-navegador";
+import { ACEPTA, validarArchivo } from "@/lib/adjuntos";
 import { esquemaFormNuevoPedido, FORMATO_DOCUMENTO } from "@/lib/esquemas";
 import { hoy } from "@/lib/fecha";
 import {
@@ -17,6 +21,7 @@ import {
   PLAZOS,
   PRODUCTOS,
   TIPOS,
+  UBICACIONES,
   admiteDecimales,
   siglaDe,
   sumarDias,
@@ -46,6 +51,27 @@ export function NuevoPedidoForm() {
   const router = useRouter();
   const { permisos, crearPedido, trabajadores, ubigeo, pendiente } = useStore();
 
+  /* Los planos se quedan en memoria hasta que el pedido exista: la carpeta del
+     bucket cuelga de su uuid, y el uuid lo pone Postgres al registrarlo. */
+  const [archivos, setArchivos] = useState<File[]>([]);
+  const entradaArchivos = useRef<HTMLInputElement>(null);
+
+  const anadir = (elegidos: File[]) => {
+    const buenos: File[] = [];
+    for (const archivo of elegidos) {
+      const problema = validarArchivo(archivo);
+      if (problema) toast.error("Ese archivo no vale", { description: problema });
+      else buenos.push(archivo);
+    }
+    // Por nombre y tamaño: elegir dos veces la misma carpeta es lo normal.
+    setArchivos((previos) => [
+      ...previos,
+      ...buenos.filter(
+        (b) => !previos.some((p) => p.name === b.name && p.size === b.size),
+      ),
+    ]);
+  };
+
   const form = useForm<Campos>({
     resolver: zodResolver(esquema),
     mode: "onTouched",
@@ -56,6 +82,7 @@ export function NuevoPedidoForm() {
       cantidad: 1,
       destino: "local",
       entrega: "tienda",
+      ubicacion: "taller",
       tipoDocumento: "DNI",
       fletePagado: false,
       fechaPrometida: "",
@@ -70,6 +97,7 @@ export function NuevoPedidoForm() {
   const tipos = (form.watch("tipos") ?? []) as TipoPedido[];
   const destino = form.watch("destino");
   const entrega = form.watch("entrega");
+  const ubicacion = form.watch("ubicacion");
   const tipoPago = form.watch("tipoPago");
   const tipoDocumento = form.watch("tipoDocumento");
   /* La provincia cuelga del departamento con una FK compuesta en la base, así que
@@ -123,6 +151,7 @@ export function NuevoPedidoForm() {
       cantidad: Number(v.cantidad),
       esProvincia,
       entrega: esProvincia ? "agencia" : v.entrega,
+      ubicacion: v.ubicacion,
       direccion: v.direccion || null,
       envio: esProvincia
         ? {
@@ -151,7 +180,19 @@ export function NuevoPedidoForm() {
       observaciones: v.observaciones || null,
     });
     // El código lo pone Postgres, así que hasta que no conteste no hay a dónde ir.
-    if (resultado.ok && resultado.codigo) router.push(`/pedidos/${resultado.codigo}`);
+    if (!resultado.ok || !resultado.codigo) return;
+
+    /* Los planos van después del alta y no antes: hasta aquí no había pedido al
+       que colgarlos. Si alguno falla, el pedido ya está registrado y se dice
+       cuál faltó; perder el alta por un archivo sería mucho peor. */
+    if (archivos.length > 0) {
+      const { errores } = await subirAdjuntos(resultado.codigo, "diseno", archivos);
+      for (const error of errores) {
+        toast.error("El pedido se registró, pero un archivo no subió", { description: error });
+      }
+    }
+
+    router.push(`/pedidos/${resultado.codigo}`);
   });
 
   return (
@@ -287,15 +328,68 @@ export function NuevoPedidoForm() {
               />
             </Campo>
 
-            <Campo grupo label="Archivos de diseño" ayuda="Planos, PDF o imágenes del trabajo.">
-              <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed p-4 text-center text-sm">
+            <Campo
+              grupo
+              label="Archivos de diseño"
+              ayuda="Planos, PDF o imágenes del trabajo. Hasta 10 MB cada uno."
+            >
+              <div
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  anadir(Array.from(e.dataTransfer.files));
+                }}
+                className="text-muted-foreground flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed p-4 text-center text-sm"
+              >
                 <Upload className="mb-2 size-4 opacity-50" />
                 Arrastra planos, PDF o imágenes
+                <input
+                  ref={entradaArchivos}
+                  type="file"
+                  multiple
+                  accept={ACEPTA}
+                  className="sr-only"
+                  aria-label="Elegir archivos de diseño"
+                  onChange={(e) => {
+                    anadir(Array.from(e.target.files ?? []));
+                    e.target.value = "";
+                  }}
+                />
                 <div className="mt-2">
-                  <Button type="button" variant="outline" size="sm">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => entradaArchivos.current?.click()}
+                  >
                     Elegir archivos
                   </Button>
                 </div>
+
+                {archivos.length > 0 && (
+                  <ul className="mt-3 flex w-full flex-col gap-1">
+                    {archivos.map((archivo) => (
+                      <li
+                        key={`${archivo.name}-${archivo.size}`}
+                        className="bg-muted/40 flex items-center gap-2 rounded-md py-1 pr-1 pl-2 text-left"
+                      >
+                        <span className="min-w-0 flex-1 truncate text-xs">{archivo.name}</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-6 shrink-0"
+                          aria-label={`Quitar ${archivo.name}`}
+                          onClick={() =>
+                            setArchivos((previos) => previos.filter((p) => p !== archivo))
+                          }
+                        >
+                          <X className="size-3" />
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </Campo>
           </div>
@@ -502,6 +596,19 @@ export function NuevoPedidoForm() {
               </motion.div>
             )}
           </AnimatePresence>
+
+          <Campo
+            grupo
+            label="¿Dónde está el pedido ahora?"
+            requerido
+            ayuda="Es la ubicación física, no el lugar de entrega: un pedido que se entrega en tienda puede quedarse en el taller."
+          >
+            <Opciones
+              valores={[ubicacion]}
+              onToggle={(v) => form.setValue("ubicacion", v as Campos["ubicacion"])}
+              opciones={Object.entries(UBICACIONES).map(([valor, label]) => ({ valor, label }))}
+            />
+          </Campo>
 
           <Campo
             label="Fecha prometida"

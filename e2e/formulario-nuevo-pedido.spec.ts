@@ -44,6 +44,14 @@ test("Administración registra un pedido local buscando los campos por su etique
 
   await page.getByLabel("Cantidad (unidades)").fill("2");
 
+  // La ubicación se elige al registrar: por defecto el taller, aquí la tienda.
+  const donde = page.getByRole("group", { name: "¿Dónde está el pedido ahora?" });
+  await expect(donde.getByRole("button", { name: "En taller" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await donde.getByRole("button", { name: "En tienda" }).click();
+
   const manana = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
   await page.getByLabel("Fecha prometida").fill(manana);
 
@@ -59,4 +67,6 @@ test("Administración registra un pedido local buscando los campos por su etique
   await expect(page.getByRole("heading", { name: CLIENTE })).toBeVisible();
   // 150 − 50: el saldo se calcula en la base, no se envía.
   await expect(page.getByText("S/ 100.00").first()).toBeVisible();
+  // La ubicación elegida llegó a Postgres: el pedido nace en tienda, no en taller.
+  await expect(page.getByRole("combobox", { name: "Ubicación actual" })).toContainText("En tienda");
 });

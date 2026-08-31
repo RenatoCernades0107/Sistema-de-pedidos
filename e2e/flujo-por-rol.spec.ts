@@ -51,15 +51,15 @@ test("Administración lo ve donde toca y le registra un abono", async ({ page })
   await expect(page.getByText("S/ 180.00").first()).toBeVisible();
 });
 
-test("Operaciones mueve el estado y no ve el dinero ni al cliente", async ({ page }) => {
+test("Operaciones mueve el estado, ve al cliente y no ve el dinero", async ({ page }) => {
   await entrar(page, "operaciones");
 
   await page.goto("/taller");
   await expect(page.getByText(codigo).first()).toBeVisible();
 
   await page.goto(`/pedidos/${codigo}`);
-  // El taller produce sin saber de quién es el pedido ni cuánto cuesta.
-  await expect(page.getByText("E2E flujo por rol")).toHaveCount(0);
+  // El taller atiende llamadas por el pedido: sabe de quién es, no cuánto cuesta.
+  await expect(page.getByRole("heading", { name: "E2E flujo por rol" })).toBeVisible();
   await expect(page.getByText("S/ 180.00")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Editar" })).toHaveCount(0);
 
@@ -91,7 +91,9 @@ test("Logística lo pone en tránsito y lo manda a la agencia", async ({ page })
   await expect(page.getByText("En tránsito").first()).toBeVisible();
 
   // Logística sí mueve la caja: cambia la ubicación.
-  await page.getByRole("combobox").first().click();
+  // Por su nombre y no por su posición: el detalle tiene varios desplegables y
+  // el orden cambia en cuanto la pantalla gana un panel.
+  await page.getByRole("combobox", { name: "Ubicación actual" }).click();
   await alGuardar(page, () => page.getByRole("option", { name: "En agencia" }).click());
   await page.reload();
   await expect(page.getByText("En agencia").first()).toBeVisible();

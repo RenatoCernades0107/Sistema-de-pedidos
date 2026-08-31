@@ -19,7 +19,9 @@
  *      columna fuera del GRANT da 42501 aunque lleve el mismo valor que ya tenía.
  *
  * Lo que no está aquí es a propósito: el código del pedido, el historial, la
- * auditoría, `monto_pagado` y las fechas de cierre los escribe Postgres.
+ * auditoría, `monto_pagado` y las fechas de cierre los escribe Postgres. Los
+ * archivos tienen su propio archivo, `adjuntos-acciones.ts`: el binario no pasa
+ * por el servidor de Next, solo la fila que lo registra.
  */
 
 import { refresh } from "next/cache";
@@ -121,8 +123,8 @@ export async function crearPedido(entrada: unknown): Promise<Resultado> {
     p_monto_total: v.montoTotal,
     p_lugar_entrega: v.entrega,
     p_direccion_entrega: sinValor(v.entrega === "domicilio" ? v.direccion : null),
-    // Un pedido nace donde se registra; el taller lo mueve cuando lo recoge.
-    p_ubicacion_actual: v.entrega === "taller" ? "taller" : "tienda",
+    // Dónde está el pedido ahora, tal como lo eligió quien lo registra.
+    p_ubicacion_actual: v.ubicacion,
     p_fecha_prometida: v.fechaPrometida,
     p_detalle: v.detalle,
     p_observaciones: sinValor(v.observaciones),

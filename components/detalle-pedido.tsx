@@ -5,14 +5,8 @@ import { motion } from "motion/react";
 import {
   ArrowLeft,
   Check,
-  FileText,
-  ImageIcon,
   Lock,
-  Paperclip,
-  Receipt,
-  ScrollText,
   TriangleAlert,
-  Upload,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
@@ -29,7 +23,6 @@ import {
   pasosDelFlujo,
   saldoDe,
   venceCreditoEl,
-  type Adjunto,
   type Pedido,
 } from "@/lib/dominio";
 import {
@@ -44,6 +37,7 @@ import { BARRA_ESTADO, EstadoBadge } from "@/components/estado-badge";
 import { AccionesPedido } from "@/components/acciones-pedido";
 import { EditarDatos, EditarEnvio } from "@/components/editar-pedido";
 import { RegistrarAbono } from "@/components/registrar-abono";
+import { AdjuntosPedido } from "@/components/adjuntos-pedido";
 import { Button } from "@/components/ui/button";
 
 export function DetallePedido({ codigo }: { codigo: string }) {
@@ -317,7 +311,7 @@ export function DetallePedido({ codigo }: { codigo: string }) {
           )}
 
           <Panel titulo="Archivos">
-            <Adjuntos pedido={p} />
+            <AdjuntosPedido pedido={p} />
           </Panel>
 
           <Panel titulo="Historial de estados">
@@ -509,75 +503,6 @@ const Vacio = ({
 }: {
   children?: React.ReactNode;
 }) => <span className="text-muted-foreground/70 italic">{children}</span>;
-
-const ICONO_ADJUNTO = {
-  diseno: FileText,
-  factura: Receipt,
-  guia: ScrollText,
-  foto_entrega: ImageIcon,
-} as const;
-
-function Adjuntos({ pedido: p }: { pedido: Pedido }) {
-  const { permisos } = useStore();
-  const visibles: Adjunto[] = permisos.verEnvioCompleto
-    ? p.adjuntos
-    : p.adjuntos.filter(
-        (a) => a.tipo === "diseno" || a.tipo === "foto_entrega",
-      );
-
-  if (visibles.length === 0) {
-    return (
-      <div className="text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm">
-        <Paperclip className="mx-auto mb-2 size-4 opacity-50" />
-        Sin archivos todavía
-      </div>
-    );
-  }
-
-  return (
-    <ul className="flex flex-wrap gap-2">
-      {visibles.map((a) => {
-        const Icono = ICONO_ADJUNTO[a.tipo];
-        return (
-          <li key={a.nombre}>
-            <div className="bg-muted/40 focus-within:border-ring/40 hover:border-ring/40 flex items-center gap-2.5 rounded-lg border py-2 pr-1.5 pl-2.5 transition-colors">
-              <button
-                type="button"
-                className="focus-visible:ring-ring flex min-w-0 items-center gap-2.5 rounded text-left focus-visible:ring-2 focus-visible:outline-none"
-              >
-                <span className="bg-card grid size-7 shrink-0 place-items-center rounded-md border">
-                  <Icono className="text-muted-foreground size-3.5" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block max-w-[16ch] truncate text-xs font-medium">
-                    {a.nombre}
-                  </span>
-                  <span className="text-muted-foreground block text-2xs">
-                    {a.peso}
-                  </span>
-                </span>
-              </button>
-            </div>
-          </li>
-        );
-      })}
-      <li>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-muted-foreground h-full gap-1.5"
-        >
-          <Upload className="size-3.5" />
-          Subir
-        </Button>
-      </li>
-    </ul>
-  );
-}
-
-/* Borrar un adjunto vuelve en la Fase 5, junto con la subida. Quitar solo la fila
-   de `adjuntos` dejaría el archivo huérfano en el bucket, ocupando sitio y sin
-   nada que lo apunte: el borrado tiene que ir con Storage o no ir. */
 
 function PanelPago({ pedido: p }: { pedido: Pedido }) {
   const saldo = saldoDe(p);

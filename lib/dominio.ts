@@ -75,6 +75,9 @@ export interface EntradaAuditoria {
 }
 
 export interface Adjunto {
+  /** El uuid de la fila. Es lo que se manda para pedir la URL firmada o borrarlo:
+   *  la ruta dentro del bucket no sale del servidor. */
+  id: string;
   tipo: TipoAdjunto;
   nombre: string;
   peso: string;
@@ -189,6 +192,14 @@ export const METODOS: Record<MetodoPago, string> = {
   otro: "Otro",
 };
 
+/** Cómo se llama cada archivo en pantalla. La sigla vive en la base. */
+export const ADJUNTOS: Record<TipoAdjunto, string> = {
+  diseno: "Diseño",
+  factura: "Factura",
+  guia: "Guía de remisión",
+  foto_entrega: "Foto de entrega",
+};
+
 export const DOCUMENTOS: Record<TipoDocumento, string> = {
   DNI: "DNI",
   CE: "Carné de extranjería",
@@ -207,7 +218,8 @@ export interface PermisosRol {
   descripcion: string;
   vistas: Vista[];
   vistaInicial: Vista;
-  /** El nombre del cliente es dato comercial: el taller produce sin saberlo. */
+  /** El nombre del cliente. Lo ven los tres roles: el taller atiende llamadas
+   *  por el pedido y con el código solo no sabe de cuál le hablan. */
   verCliente: boolean;
   /**
    * El teléfono del cliente lo leen quienes coordinan la entrega. Corregirlo va
@@ -223,6 +235,9 @@ export interface PermisosRol {
   asignarResponsable: boolean;
   /** Corregir los datos de la agencia y de quien recoge en un envío a provincia. */
   editarEnvio: boolean;
+  /** Subir y borrar los archivos del pedido. Es la misma condición que impone la
+   *  política `adjuntos_storage_escritura`: el taller lee planos, no los cambia. */
+  adjuntarArchivos: boolean;
 }
 
 export const ROLES: Record<Rol, PermisosRol> = {
@@ -241,6 +256,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     editarUbicacion: true,
     asignarResponsable: true,
     editarEnvio: true,
+    adjuntarArchivos: true,
   },
   logistica: {
     nombre: "Logística",
@@ -257,13 +273,14 @@ export const ROLES: Record<Rol, PermisosRol> = {
     editarUbicacion: true,
     asignarResponsable: true,
     editarEnvio: true,
+    adjuntarArchivos: true,
   },
   operaciones: {
     nombre: "Operaciones",
-    descripcion: "Ve datos de producción sin el cliente · solo edita el estado",
+    descripcion: "Ve el cliente y los datos de producción · solo edita el estado",
     vistas: ["taller"],
     vistaInicial: "taller",
-    verCliente: false,
+    verCliente: true,
     verTelefonoCliente: false,
     verMontos: false,
     verEnvioCompleto: false,
@@ -273,6 +290,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     editarUbicacion: false,
     asignarResponsable: false,
     editarEnvio: false,
+    adjuntarArchivos: false,
   },
 };
 

@@ -7,7 +7,7 @@ import { clienteServidor } from "./supabase-servidor";
  *
  * Cada rol consulta **su** vista: el taller no puede pedir columnas que no ve
  * ni aunque quisiera, porque no existen en `pedidos_operaciones`. Lo que falta
- * en una vista llega aquí como hueco (cliente vacío, montos en cero), y la UI ya
+ * en una vista llega aquí como hueco (teléfono vacío, montos en cero), y la UI ya
  * sabe no pintarlo — los permisos de `dominio.ts` y los de Postgres dicen lo
  * mismo. Nada de esto es la seguridad: la seguridad es la RLS.
  */
@@ -52,7 +52,7 @@ export async function cargarPedidos(rol: Rol): Promise<Pedido[]> {
   const [adjuntos, historial, abonos, auditoria] = await Promise.all([
     supabase
       .from("adjuntos")
-      .select("pedido_id, tipo, nombre_archivo, tamano_bytes")
+      .select("id, pedido_id, tipo, nombre_archivo, tamano_bytes")
       .in("pedido_id", ids),
     supabase
       .from("historial_pedido")
@@ -100,7 +100,6 @@ export async function cargarPedidos(rol: Rol): Promise<Pedido[]> {
 
     return {
       codigo: texto(f.codigo),
-      // El taller no recibe el nombre del cliente: su vista no tiene la columna.
       cliente: texto(f.nombre_cliente),
       telefonoCliente: textoONulo(f.telefono_cliente),
       tipos: (f.tipos_pedido as Pedido["tipos"]) ?? [],
@@ -148,6 +147,7 @@ export async function cargarPedidos(rol: Rol): Promise<Pedido[]> {
           }
         : undefined,
       adjuntos: (porPedido.adjuntos.get(id) ?? []).map((a) => ({
+        id: a.id,
         tipo: a.tipo,
         nombre: a.nombre_archivo,
         peso: pesoTexto(a.tamano_bytes),
