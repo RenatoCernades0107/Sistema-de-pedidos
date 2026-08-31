@@ -7,7 +7,7 @@ import { z } from "zod";
 import { Info, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
-import { DEPARTAMENTOS } from "@/lib/datos";
+import { esquemaFormDatos, esquemaFormEnvio, FORMATO_DOCUMENTO } from "@/lib/esquemas";
 import { fechaCompleta } from "@/lib/formato";
 import {
   DOCUMENTOS,
@@ -49,62 +49,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-/** Cuántos decimales trae un número tal como lo escribió el usuario. */
-const decimalesDe = (n: number) => (String(n).split(".")[1] ?? "").length;
-
-const FORMATO_DOCUMENTO = {
-  DNI: { regex: /^\d{8}$/, largo: 8, ayuda: "8 dígitos" },
-  CE: { regex: /^[A-Za-z0-9]{9,12}$/, largo: 12, ayuda: "9 a 12 caracteres" },
-} as const;
-
 /* ────────────────────────────────────────────────────────────
    Datos del pedido — solo Administración
    ──────────────────────────────────────────────────────────── */
 
-const esquemaDatos = z
-  .object({
-    cliente: z.string().trim().min(3, "Escribe el nombre del cliente"),
-    telefonoCliente: z.string().trim().optional(),
-    tipos: z
-      .array(z.enum(["CL", "CM", "SP", "PT", "AC"]))
-      .min(1, "Elige al menos un tipo de pedido"),
-    producto: z
-      .enum(["cajas", "porta_afiches", "pivotante", "letreros", "letras", "displays", "otro"])
-      .optional(),
-    cantidad: z.coerce.number().positive("La cantidad tiene que ser mayor que cero"),
-    entrega: z.enum(["tienda", "taller", "domicilio", "agencia"]),
-    direccion: z.string().trim().optional(),
-    detalle: z.string().trim().optional(),
-    observaciones: z.string().trim().optional(),
-    plazoCredito: z.coerce.number().optional(),
-  })
-  .superRefine((v, ctx) => {
-    if (v.tipos.includes("PT") && !v.producto) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["producto"],
-        message: "Un producto terminado necesita su tipo",
-      });
-    }
-    if (!admiteDecimales(v.tipos) && !Number.isInteger(v.cantidad)) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["cantidad"],
-        message: "Solo números enteros. Los decimales son para las planchas.",
-      });
-    }
-    if (admiteDecimales(v.tipos) && decimalesDe(v.cantidad) > 2) {
-      ctx.addIssue({ code: "custom", path: ["cantidad"], message: "Como máximo 2 decimales" });
-    }
-    if (v.entrega === "domicilio" && !v.direccion) {
-      ctx.addIssue({ code: "custom", path: ["direccion"], message: "Falta la dirección" });
-    }
-  });
+const esquemaDatos = esquemaFormDatos;
 
 type CamposDatos = z.input<typeof esquemaDatos>;
 
 export function EditarDatos({ pedido: p }: { pedido: Pedido }) {
-  const { editarDatos } = useStore();
+  const { editarDatos, pendiente } = useStore();
   const [abierto, setAbierto] = useState(false);
 
   const form = useForm<CamposDatos>({
@@ -133,8 +87,8 @@ export function EditarDatos({ pedido: p }: { pedido: Pedido }) {
     setAbierto(v);
   };
 
-  const guardar = form.handleSubmit((v) => {
-    editarDatos(p.codigo, {
+  const guardar = form.handleSubmit(async (v) => {
+    const resultado = await editarDatos(p.codigo, {
       cliente: v.cliente,
       telefonoCliente: v.telefonoCliente || null,
       tipos: v.tipos as TipoPedido[],
@@ -149,7 +103,8 @@ export function EditarDatos({ pedido: p }: { pedido: Pedido }) {
       plazoCredito:
         p.tipoPago === "credito" ? ((Number(v.plazoCredito) || null) as PlazoCredito | null) : null,
     });
-    setAbierto(false);
+    // Solo se cierra si la base aceptó: si no, lo escrito se perdería.
+    if (resultado.ok) setAbierto(false);
   });
 
   return (
@@ -343,7 +298,9 @@ export function EditarDatos({ pedido: p }: { pedido: Pedido }) {
             <DialogClose render={<Button variant="outline" type="button" />} nativeButton>
               Cancelar
             </DialogClose>
-            <Button type="submit">Guardar cambios</Button>
+            <Button type="submit" disabled={pendiente}>
+              {pendiente ? "Guardando…" : "Guardar cambios"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -368,33 +325,12 @@ const valoresDe = (p: Pedido): CamposDatos => ({
    Envío a provincia — Administración y Logística
    ──────────────────────────────────────────────────────────── */
 
-const esquemaEnvio = z
-  .object({
-    departamento: z.string().min(1, "Elige el departamento"),
-    provincia: z.string().trim().optional(),
-    agencia: z.string().trim().optional(),
-    personaQueRecoge: z.string().trim().optional(),
-    tipoDocumento: z.enum(["DNI", "CE"]),
-    numeroDocumento: z.string().trim().optional(),
-    telefono: z.string().trim().optional(),
-    montoFlete: z.coerce.number().min(0, "No puede ser negativo"),
-    fletePagado: z.boolean(),
-    observacionesEnvio: z.string().trim().optional(),
-  })
-  .superRefine((v, ctx) => {
-    if (v.numeroDocumento && !FORMATO_DOCUMENTO[v.tipoDocumento].regex.test(v.numeroDocumento)) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["numeroDocumento"],
-        message: `El ${v.tipoDocumento} tiene ${FORMATO_DOCUMENTO[v.tipoDocumento].ayuda}`,
-      });
-    }
-  });
+const esquemaEnvio = esquemaFormEnvio;
 
 type CamposEnvio = z.input<typeof esquemaEnvio>;
 
 export function EditarEnvio({ pedido: p }: { pedido: Pedido }) {
-  const { editarEnvio } = useStore();
+  const { editarEnvio, pendiente, ubigeo } = useStore();
   const [abierto, setAbierto] = useState(false);
 
   const form = useForm<CamposEnvio>({
@@ -406,15 +342,21 @@ export function EditarEnvio({ pedido: p }: { pedido: Pedido }) {
   const tipoDocumento = (form.watch("tipoDocumento") ?? "DNI") as TipoDocumento;
   const documento = FORMATO_DOCUMENTO[tipoDocumento];
 
+  /* La provincia cuelga del departamento con una FK compuesta: elegir "Trujillo"
+     bajo Piura es un 23503, así que la lista se recorta al departamento elegido. */
+  const departamentoId = Number(form.watch("departamentoId")) || null;
+  const provinciaId = Number(form.watch("provinciaId")) || null;
+  const provincias = ubigeo.find((d) => d.id === departamentoId)?.provincias ?? [];
+
   const abrir = (v: boolean) => {
     if (v) form.reset(envioDe(p));
     setAbierto(v);
   };
 
-  const guardar = form.handleSubmit((v) => {
-    editarEnvio(p.codigo, {
-      departamento: v.departamento,
-      provincia: v.provincia || null,
+  const guardar = form.handleSubmit(async (v) => {
+    const resultado = await editarEnvio(p.codigo, {
+      departamentoId: Number(v.departamentoId),
+      provinciaId: Number(v.provinciaId) || null,
       agencia: v.agencia || null,
       personaQueRecoge: v.personaQueRecoge || null,
       tipoDocumento: v.tipoDocumento,
@@ -424,7 +366,7 @@ export function EditarEnvio({ pedido: p }: { pedido: Pedido }) {
       fletePagado: !!v.fletePagado,
       observacionesEnvio: v.observacionesEnvio || null,
     });
-    setAbierto(false);
+    if (resultado.ok) setAbierto(false);
   });
 
   return (
@@ -450,26 +392,51 @@ export function EditarEnvio({ pedido: p }: { pedido: Pedido }) {
             <Campo
               label="Departamento"
               requerido
-              error={form.formState.errors.departamento?.message}
+              error={form.formState.errors.departamentoId?.message}
             >
               <Select
-                value={form.watch("departamento")}
-                onValueChange={(v) => v && form.setValue("departamento", v)}
+                value={departamentoId ? String(departamentoId) : ""}
+                onValueChange={(v) => {
+                  if (!v) return;
+                  form.setValue("departamentoId", Number(v), { shouldValidate: true });
+                  // Cambiar de departamento invalida la provincia anterior.
+                  form.setValue("provinciaId", undefined);
+                }}
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue>{form.watch("departamento") || "Selecciona…"}</SelectValue>
+                  <SelectValue>
+                    {ubigeo.find((d) => d.id === departamentoId)?.nombre ?? "Selecciona…"}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {DEPARTAMENTOS.map((d) => (
-                    <SelectItem key={d} value={d}>
-                      {d}
+                  {ubigeo.map((d) => (
+                    <SelectItem key={d.id} value={String(d.id)}>
+                      {d.nombre}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </Campo>
             <Campo label="Provincia">
-              <Input placeholder="Ej. Trujillo" {...form.register("provincia")} />
+              <Select
+                value={provinciaId ? String(provinciaId) : ""}
+                disabled={!departamentoId}
+                onValueChange={(v) => v && form.setValue("provinciaId", Number(v))}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue>
+                    {provincias.find((x) => x.id === provinciaId)?.nombre ??
+                      (departamentoId ? "Selecciona…" : "Elige el departamento")}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {provincias.map((x) => (
+                    <SelectItem key={x.id} value={String(x.id)}>
+                      {x.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </Campo>
           </div>
 
@@ -556,7 +523,9 @@ export function EditarEnvio({ pedido: p }: { pedido: Pedido }) {
             <DialogClose render={<Button variant="outline" type="button" />} nativeButton>
               Cancelar
             </DialogClose>
-            <Button type="submit">Guardar cambios</Button>
+            <Button type="submit" disabled={pendiente}>
+              {pendiente ? "Guardando…" : "Guardar cambios"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -565,8 +534,8 @@ export function EditarEnvio({ pedido: p }: { pedido: Pedido }) {
 }
 
 const envioDe = (p: Pedido): CamposEnvio => ({
-  departamento: p.envio?.departamento ?? "",
-  provincia: p.envio?.provincia ?? "",
+  departamentoId: p.envio?.departamentoId ?? undefined,
+  provinciaId: p.envio?.provinciaId ?? undefined,
   agencia: p.envio?.agencia ?? "",
   personaQueRecoge: p.envio?.personaQueRecoge ?? "",
   tipoDocumento: p.envio?.tipoDocumento ?? "DNI",

@@ -1,445 +1,313 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useMemo, useOptimistic, useTransition } from "react";
 import { toast } from "sonner";
-import { HOY, PEDIDOS } from "./datos";
+import { hoy } from "./fecha";
+import * as acciones from "@/app/(app)/acciones";
+import type { Resultado } from "@/app/(app)/acciones";
+import type { Departamento, Trabajador } from "./catalogos-servidor";
+import type { DatosEditables, DatosEnvio, NuevoPedido } from "./esquemas";
 import {
-  DOCUMENTOS,
   ESTADOS,
   LUGARES,
   METODOS,
-  PRODUCTOS,
   ROLES,
   UBICACIONES,
-  etiquetaTipos,
-  siglaDe,
+  saldoDe,
   type Estado,
-  type EnvioProvincia,
   type MetodoPago,
-  type LugarEntrega,
   type Pedido,
-  type PlazoCredito,
-  type ProductoTerminado,
   type Rol,
-  type TipoDocumento,
-  type TipoPago,
-  type TipoPedido,
   type Ubicacion,
 } from "./dominio";
 
-/** Lo que Administración puede corregir de un pedido ya registrado. */
-export interface DatosEditables {
-  cliente: string;
-  telefonoCliente: string | null;
-  tipos: TipoPedido[];
-  producto: ProductoTerminado | null;
-  cantidad: number;
-  entrega: LugarEntrega;
-  direccion: string | null;
-  detalle: string;
-  observaciones: string | null;
-  plazoCredito: PlazoCredito | null;
-}
-
-/** Lo que llega del formulario de registro. El código lo pone el store. */
-export interface DatosNuevoPedido {
-  cliente: string;
-  telefonoCliente: string | null;
-  tipos: TipoPedido[];
-  producto: ProductoTerminado | null;
-  cantidad: number;
-  esProvincia: boolean;
-  entrega: LugarEntrega;
-  direccion: string | null;
-  envio: EnvioProvincia | null;
-  fechaPrometida: string;
-  tipoPago: TipoPago;
-  plazoCredito: PlazoCredito | null;
-  montoTotal: number;
-  /** Solo se usa con `tipoPago === "a_cuenta"`. Al contado se cobra el total. */
-  abonoInicial: number;
-  metodoPago: MetodoPago;
-  responsable: string | null;
-  detalle: string;
-  observaciones: string | null;
-}
-
 interface Store {
   rol: Rol;
-  setRol: (r: Rol) => void;
+  /** Nombre de quien tiene la sesión abierta. Firma el historial y la auditoría. */
+  usuario: string;
   permisos: (typeof ROLES)[Rol];
   pedidos: Pedido[];
+  /** Catálogos de la base: lo que alimenta los desplegables que escriben ids. */
+  trabajadores: Trabajador[];
+  ubigeo: Departamento[];
+  /** Hay una escritura en vuelo. Sirve para deshabilitar botones. */
+  pendiente: boolean;
   pedido: (codigo: string) => Pedido | undefined;
-  crearPedido: (datos: DatosNuevoPedido) => string;
-  cambiarEstado: (codigo: string, estado: Estado, motivo?: string) => void;
-  cambiarUbicacion: (codigo: string, ubicacion: Ubicacion) => void;
-  asignarResponsable: (codigo: string, responsable: string | null) => void;
-  registrarAbono: (codigo: string, monto: number, metodo: MetodoPago) => void;
-  editarDatos: (codigo: string, cambios: DatosEditables) => void;
-  editarEnvio: (codigo: string, cambios: EnvioProvincia) => void;
-  eliminarAdjunto: (codigo: string, nombre: string) => void;
+  crearPedido: (datos: NuevoPedido) => Promise<Resultado>;
+  cambiarEstado: (
+    codigo: string,
+    estado: Estado,
+    extra?: { motivo?: string | null; numeroFactura?: string | null },
+  ) => Promise<Resultado>;
+  cambiarUbicacion: (codigo: string, ubicacion: Ubicacion) => Promise<Resultado>;
+  asignarResponsable: (codigo: string, responsableId: string | null) => Promise<Resultado>;
+  registrarAbono: (codigo: string, monto: number, metodo: MetodoPago) => Promise<Resultado>;
+  editarDatos: (codigo: string, cambios: DatosEditables) => Promise<Resultado>;
+  editarEnvio: (codigo: string, cambios: DatosEnvio) => Promise<Resultado>;
 }
-
-/* Nombre de columna real y cómo se muestra cada valor en la auditoría.
-   El log tiene que decir "Corte láser → Corte manual", no "CL → CM". */
-const COLUMNA: Record<string, string> = {
-  cliente: "nombre_cliente",
-  telefonoCliente: "telefono_cliente",
-  tipos: "tipos_pedido",
-  producto: "tipo_producto_terminado",
-  cantidad: "cantidad",
-  entrega: "lugar_entrega",
-  direccion: "direccion_entrega",
-  detalle: "detalle",
-  observaciones: "observaciones",
-  plazoCredito: "plazo_credito_dias",
-  departamento: "departamento",
-  provincia: "provincia",
-  agencia: "nombre_agencia",
-  personaQueRecoge: "nombre_persona_recoge",
-  tipoDocumento: "tipo_documento",
-  numeroDocumento: "numero_documento",
-  telefono: "telefono_persona_recoge",
-  montoFlete: "monto_flete",
-  fletePagado: "flete_pagado",
-  observacionesEnvio: "observaciones_envio",
-};
-
-const mostrar = (campo: string, valor: unknown): string => {
-  if (valor === null || valor === undefined || valor === "") return "—";
-  switch (campo) {
-    case "tipos":
-      return etiquetaTipos(valor as TipoPedido[]);
-    case "producto":
-      return PRODUCTOS[valor as ProductoTerminado];
-    case "entrega":
-      return LUGARES[valor as LugarEntrega];
-    case "tipoDocumento":
-      return DOCUMENTOS[valor as TipoDocumento];
-    case "plazoCredito":
-      return `${valor} días`;
-    case "fletePagado":
-      return valor ? "pagado" : "por pagar";
-    case "montoFlete":
-      return `S/ ${Number(valor).toFixed(2)}`;
-    default:
-      return String(valor);
-  }
-};
-
-/** `tipos` es un array: comparado por referencia siempre parecería haber cambiado. */
-const mismoValor = (a: unknown, b: unknown) =>
-  Array.isArray(a) || Array.isArray(b)
-    ? JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
-    : (a ?? null) === (b ?? null);
 
 const Ctx = createContext<Store | null>(null);
 
+/** Un cambio pintado antes de que el servidor conteste. */
+interface Parche {
+  codigo: string;
+  cambios: Partial<Pedido>;
+}
+
+const soles = (n: number) => `S/ ${n.toFixed(2)}`;
+
+/** Nada que guardar: se avisa igual, porque un clic sin efecto ni aviso parece un fallo. */
+const sinCambios = (): Resultado => {
+  toast("Sin cambios que guardar");
+  return { ok: true };
+};
+
 /**
- * "Ahora" en el prototipo es HOY con la hora real del reloj, no la fecha de la
- * máquina. Si fuera la fecha real, un pedido entregado hoy quedaría cerrado "en
- * el futuro" respecto a HOY y saldría de la lista en el mismo clic.
- * Con Supabase esto pasa a ser `now()` en el servidor.
+ * El rol y el nombre llegan de la sesión, resueltos en el servidor por el layout
+ * de `(app)`. Nadie los elige desde el navegador.
  */
-const ahora = () => `${HOY}T${new Date().toTimeString().slice(0, 5)}`;
-
-/* El código se dicta por teléfono, así que el alfabeto no tiene
-   caracteres que se confundan al oído ni a la vista (O/0, I/1). */
-const ALFABETO = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const sufijo = () =>
-  Array.from({ length: 4 }, () => ALFABETO[Math.floor(Math.random() * ALFABETO.length)]).join("");
-
-export function StoreProvider({ children }: { children: React.ReactNode }) {
-  const [rol, setRolState] = useState<Rol>("administracion");
-  const [pedidos, setPedidos] = useState<Pedido[]>(PEDIDOS);
-
-  const usuarioActual = ROLES[rol].nombre;
-
-  const editar = useCallback(
-    (codigo: string, fn: (p: Pedido) => Pedido) =>
-      setPedidos((prev) => prev.map((p) => (p.codigo === codigo ? fn(p) : p))),
-    [],
+export function StoreProvider({
+  children,
+  rol,
+  usuario,
+  pedidos: delServidor,
+  trabajadores,
+  ubigeo,
+}: {
+  children: React.ReactNode;
+  rol: Rol;
+  usuario: string;
+  pedidos: Pedido[];
+  trabajadores: Trabajador[];
+  ubigeo: Departamento[];
+}) {
+  /*
+   * Los pedidos son los del servidor, no una copia editable: cada Server Action
+   * termina en `refresh()`, que vuelve a renderizar este layout y los trae de
+   * nuevo. Lo único que se guarda en el navegador es el cambio en vuelo, y solo
+   * mientras dura la transición: si el servidor lo rechaza, React descarta el
+   * valor optimista él solo y la pantalla vuelve a la verdad de la base.
+   */
+  const [pedidos, aplicarParche] = useOptimistic(
+    delServidor,
+    (previos: Pedido[], parche: Parche) =>
+      previos.map((p) => (p.codigo === parche.codigo ? { ...p, ...parche.cambios } : p)),
   );
 
-  const registrarCambio = (
-    p: Pedido,
-    campo: string,
-    anterior: string,
-    nuevo: string,
-    usuario: string,
-  ): Pedido["auditoria"] => [{ usuario, campo, anterior, nuevo, fecha: ahora() }, ...p.auditoria];
+  const [pendiente, iniciarTransicion] = useTransition();
 
   /**
-   * Registrar un pedido. `contado` cobra el total en el acto y deja el abono hecho;
-   * `a_cuenta` cobra lo que se haya adelantado; `credito` no cobra nada todavía.
+   * El patrón de toda escritura: pintar el cambio, llamar a la acción, y contar el
+   * resultado. Va envuelto en una promesa porque el `await` tiene que ocurrir
+   * *dentro* de la transición —si no, React la da por terminada y el parche
+   * optimista desaparece antes de que conteste el servidor—, pero los diálogos
+   * necesitan saber si cerrarse o no.
    */
-  const crearPedido = useCallback(
-    (datos: DatosNuevoPedido) => {
-      const codigo = `${datos.esProvincia ? "P" : "L"}${siglaDe(datos.tipos)}_${HOY.slice(0, 4)}_${sufijo()}`;
+  const mutar = useCallback(
+    (
+      parche: Parche | null,
+      accion: () => Promise<Resultado>,
+      alExito?: () => void,
+    ): Promise<Resultado> =>
+      new Promise((resolver) => {
+        iniciarTransicion(async () => {
+          if (parche) aplicarParche(parche);
+          const resultado = await accion();
+          if (resultado.ok) alExito?.();
+          else toast.error("No se guardó", { description: resultado.error });
+          resolver(resultado);
+        });
+      }),
+    [aplicarParche],
+  );
 
-      const montoPagado =
+  const buscar = useCallback(
+    (codigo: string) => delServidor.find((p) => p.codigo === codigo),
+    [delServidor],
+  );
+
+  const crearPedido = useCallback(
+    async (datos: NuevoPedido) => {
+      // Sin parche optimista: el pedido todavía no tiene código, y el código lo
+      // inventa Postgres. Se espera y se navega.
+      const resultado = await acciones.crearPedido(datos);
+      if (!resultado.ok) {
+        toast.error("No se registró el pedido", { description: resultado.error });
+        return resultado;
+      }
+
+      const cobrado =
         datos.tipoPago === "contado"
           ? datos.montoTotal
           : datos.tipoPago === "a_cuenta"
             ? Math.min(datos.abonoInicial, datos.montoTotal)
             : 0;
+      const saldo = datos.montoTotal - cobrado;
 
-      const nuevo: Pedido = {
-        codigo,
-        cliente: datos.cliente,
-        telefonoCliente: datos.telefonoCliente,
-        tipos: datos.tipos,
-        producto: datos.tipos.includes("PT") ? datos.producto : null,
-        cantidad: datos.cantidad,
-        estado: "registrado",
-        motivo: null,
-        // Un pedido nace donde se registra; el taller lo mueve cuando lo recoge.
-        ubicacion: datos.entrega === "taller" ? "taller" : "tienda",
-        entrega: datos.entrega,
-        direccion: datos.entrega === "domicilio" ? datos.direccion : null,
-        fechaPrometida: datos.fechaPrometida,
-        fechaCreacion: HOY,
-        fechaEntrega: null,
-        fechaAnulacion: null,
-        tipoPago: datos.tipoPago,
-        plazoCredito: datos.tipoPago === "credito" ? datos.plazoCredito : null,
-        montoTotal: datos.montoTotal,
-        montoPagado,
-        responsable: datos.responsable,
-        detalle: datos.detalle,
-        observaciones: datos.observaciones,
-        numeroFactura: null,
-        esProvincia: datos.esProvincia,
-        envio: datos.esProvincia && datos.envio ? datos.envio : undefined,
-        adjuntos: [],
-        abonos:
-          montoPagado > 0
-            ? [{ fecha: HOY, monto: montoPagado, metodo: datos.metodoPago, usuario: usuarioActual }]
-            : [],
-        historial: [{ estado: "registrado", usuario: usuarioActual, rol, fecha: ahora() }],
-        auditoria: [],
-      };
-
-      setPedidos((prev) => [nuevo, ...prev]);
-
-      const saldo = datos.montoTotal - montoPagado;
-      toast.success(`Pedido ${codigo} registrado`, {
+      toast.success(`Pedido ${resultado.codigo} registrado`, {
         description: `${datos.cliente} · entrega ${
           datos.esProvincia ? "a provincia" : LUGARES[datos.entrega].toLowerCase()
-        } · ${saldo > 0 ? `saldo de S/ ${saldo.toFixed(2)}` : "pagado"}`,
+        } · ${saldo > 0 ? `saldo de ${soles(saldo)}` : "pagado"}`,
       });
-
-      return codigo;
+      return resultado;
     },
-    [rol, usuarioActual],
+    [],
   );
 
   const cambiarEstado = useCallback(
-    (codigo: string, estado: Estado, motivo?: string) => {
-      if (pedidos.find((p) => p.codigo === codigo)?.estado === estado) return;
-      editar(codigo, (p) => ({
-        ...p,
-        estado,
-        motivo: motivo ?? (estado === "observado" || estado === "anulado" ? p.motivo : null),
-        fechaEntrega: estado === "entregado" ? ahora().slice(0, 10) : p.fechaEntrega,
-        // Anular también cierra el pedido, y hay que poder saber qué día fue.
-        fechaAnulacion: estado === "anulado" ? ahora().slice(0, 10) : p.fechaAnulacion,
-        historial: [
-          ...p.historial,
-          { estado, usuario: usuarioActual, rol, fecha: ahora(), motivo: motivo ?? null },
-        ],
-        auditoria: registrarCambio(p, "estado", ESTADOS[p.estado], ESTADOS[estado], usuarioActual),
-      }));
-      toast.success(`${codigo} → ${ESTADOS[estado]}`, {
-        description: `Registrado por ${usuarioActual}`,
-      });
+    (codigo: string, estado: Estado, extra?: { motivo?: string | null; numeroFactura?: string | null }) => {
+      const actual = buscar(codigo);
+      if (!actual) return Promise.resolve(sinCambios());
+      if (actual.estado === estado) return Promise.resolve(sinCambios());
+
+      const motivo = extra?.motivo?.trim() || null;
+      const numeroFactura = extra?.numeroFactura?.trim() || null;
+
+      return mutar(
+        {
+          codigo,
+          cambios: {
+            estado,
+            motivo,
+            // Las dos fechas de cierre las escribe la base; se adelantan aquí solo
+            // para que el pedido no salte de vista y vuelva mientras se guarda.
+            fechaEntrega: estado === "entregado" ? hoy() : null,
+            fechaAnulacion: estado === "anulado" ? hoy() : null,
+            tieneFactura: actual.tieneFactura || Boolean(numeroFactura),
+          },
+        },
+        () => acciones.cambiarEstado({ codigo, estado, motivo, numeroFactura }),
+        () =>
+          toast.success(`${codigo} → ${ESTADOS[estado]}`, {
+            description: `Registrado por ${usuario}`,
+          }),
+      );
     },
-    [editar, pedidos, rol, usuarioActual],
+    [buscar, mutar, usuario],
   );
 
   const cambiarUbicacion = useCallback(
     (codigo: string, ubicacion: Ubicacion) => {
-      // Un cambio que no cambia nada no se registra: el trigger de Postgres hará lo mismo.
-      if (pedidos.find((p) => p.codigo === codigo)?.ubicacion === ubicacion) return;
-      editar(codigo, (p) => ({
-        ...p,
-        ubicacion,
-        auditoria: registrarCambio(
-          p,
-          "ubicacion_actual",
-          UBICACIONES[p.ubicacion],
-          UBICACIONES[ubicacion],
-          usuarioActual,
-        ),
-      }));
-      toast.success(`${codigo} ahora está ${UBICACIONES[ubicacion].toLowerCase()}`);
+      if (buscar(codigo)?.ubicacion === ubicacion) return Promise.resolve(sinCambios());
+
+      return mutar(
+        { codigo, cambios: { ubicacion } },
+        () => acciones.cambiarUbicacion({ codigo, ubicacion }),
+        () => toast.success(`${codigo} ahora está ${UBICACIONES[ubicacion].toLowerCase()}`),
+      );
     },
-    [editar, pedidos, usuarioActual],
+    [buscar, mutar],
   );
 
   const asignarResponsable = useCallback(
-    (codigo: string, responsable: string | null) => {
-      if (pedidos.find((p) => p.codigo === codigo)?.responsable === responsable) return;
-      editar(codigo, (p) => ({
-        ...p,
-        responsable,
-        auditoria: registrarCambio(
-          p,
-          "responsable_id",
-          p.responsable ?? "—",
-          responsable ?? "—",
-          usuarioActual,
-        ),
-      }));
-      toast.success(
-        responsable ? `${codigo} asignado a ${responsable}` : `${codigo} quedó sin responsable`,
+    (codigo: string, responsableId: string | null) => {
+      if ((buscar(codigo)?.responsableId ?? null) === responsableId) {
+        return Promise.resolve(sinCambios());
+      }
+      const nombre = trabajadores.find((t) => t.id === responsableId)?.nombre ?? null;
+
+      return mutar(
+        { codigo, cambios: { responsableId, responsable: nombre } },
+        () => acciones.asignarResponsable({ codigo, responsableId }),
+        () =>
+          toast.success(
+            nombre ? `${codigo} asignado a ${nombre}` : `${codigo} quedó sin responsable`,
+          ),
       );
     },
-    [editar, pedidos, usuarioActual],
+    [buscar, mutar, trabajadores],
   );
 
   const registrarAbono = useCallback(
     (codigo: string, monto: number, metodo: MetodoPago) => {
-      const actual = pedidos.find((p) => p.codigo === codigo);
-      if (!actual) return;
+      const actual = buscar(codigo);
+      if (!actual) return Promise.resolve(sinCambios());
 
-      // El saldo no puede quedar negativo: es una columna generada en Postgres.
-      const saldo = actual.montoTotal - actual.montoPagado;
-      if (monto <= 0 || monto > saldo) {
-        toast.error("Abono no registrado", {
-          description: `El monto debe estar entre S/ 0.01 y el saldo de S/ ${saldo.toFixed(2)}.`,
-        });
-        return;
-      }
-
-      const soles = (n: number) => `S/ ${n.toFixed(2)}`;
-      editar(codigo, (p) => ({
-        ...p,
-        montoPagado: p.montoPagado + monto,
-        abonos: [
-          ...p.abonos,
-          { fecha: ahora().slice(0, 10), monto, metodo, usuario: usuarioActual },
-        ],
-        auditoria: registrarCambio(
-          p,
-          "monto_pagado",
-          soles(p.montoPagado),
-          soles(p.montoPagado + monto),
-          usuarioActual,
-        ),
-      }));
-
-      const restante = saldo - monto;
-      toast.success(`Abono de ${soles(monto)} registrado`, {
-        description:
-          restante > 0
-            ? `${METODOS[metodo]} · queda un saldo de ${soles(restante)}`
-            : `${METODOS[metodo]} · el pedido queda pagado`,
-      });
-    },
-    [editar, pedidos, usuarioActual],
-  );
-
-  /** Compara lo enviado contra lo guardado y deja una fila de auditoría por campo cambiado. */
-  const aplicarCambios = useCallback(
-    (codigo: string, cambios: Record<string, unknown>, aplicar: (p: Pedido) => Pedido) => {
-      const actual = pedidos.find((p) => p.codigo === codigo);
-      if (!actual) return 0;
-
-      const previo: Record<string, unknown> = {
-        ...(actual as unknown as Record<string, unknown>),
-        ...(actual.envio ?? {}),
-      };
-      const entradas = Object.entries(cambios).filter(
-        ([campo, valor]) => !mismoValor(previo[campo], valor),
+      const restante = saldoDe(actual) - monto;
+      return mutar(
+        {
+          codigo,
+          cambios: {
+            montoPagado: actual.montoPagado + monto,
+            abonos: [...actual.abonos, { fecha: hoy(), monto, metodo, usuario }],
+          },
+        },
+        () => acciones.registrarAbono({ codigo, monto, metodo }),
+        () =>
+          toast.success(`Abono de ${soles(monto)} registrado`, {
+            description:
+              restante > 0
+                ? `${METODOS[metodo]} · queda un saldo de ${soles(restante)}`
+                : `${METODOS[metodo]} · el pedido queda pagado`,
+          }),
       );
-      if (entradas.length === 0) {
-        toast("Sin cambios que guardar");
-        return 0;
-      }
-
-      editar(codigo, (p) => ({
-        ...aplicar(p),
-        auditoria: [
-          ...entradas.map(([campo, valor]) => ({
-            usuario: usuarioActual,
-            campo: COLUMNA[campo] ?? campo,
-            anterior: mostrar(campo, previo[campo]),
-            nuevo: mostrar(campo, valor),
-            fecha: ahora(),
-          })),
-          ...p.auditoria,
-        ],
-      }));
-      return entradas.length;
     },
-    [editar, pedidos, usuarioActual],
+    [buscar, mutar, usuario],
   );
 
   const editarDatos = useCallback(
-    (codigo: string, cambios: DatosEditables) => {
-      const n = aplicarCambios(codigo, cambios as unknown as Record<string, unknown>, (p) => ({
-        ...p,
-        ...cambios,
-        // Un pedido que deja de incluir producto terminado no puede conservar el producto
-        producto: cambios.tipos.includes("PT") ? cambios.producto : null,
-        direccion: cambios.entrega === "domicilio" ? cambios.direccion : null,
-        // El plazo solo existe mientras el pedido sea al crédito
-        plazoCredito: p.tipoPago === "credito" ? cambios.plazoCredito : null,
-      }));
-      if (n > 0) {
-        toast.success(`${codigo} actualizado`, {
-          description: `${n} ${n === 1 ? "campo corregido" : "campos corregidos"} · queda en la auditoría`,
-        });
-      }
-    },
-    [aplicarCambios],
+    (codigo: string, cambios: DatosEditables) =>
+      mutar(
+        {
+          codigo,
+          cambios: {
+            cliente: cambios.cliente,
+            telefonoCliente: cambios.telefonoCliente,
+            tipos: cambios.tipos,
+            producto: cambios.tipos.includes("PT") ? cambios.producto : null,
+            cantidad: cambios.cantidad,
+            entrega: cambios.entrega,
+            direccion: cambios.entrega === "domicilio" ? cambios.direccion : null,
+            detalle: cambios.detalle,
+            observaciones: cambios.observaciones,
+            plazoCredito: cambios.plazoCredito,
+          },
+        },
+        () => acciones.editarDatos(codigo, cambios),
+        () =>
+          toast.success(`${codigo} actualizado`, {
+            description: "Cada campo corregido queda en la auditoría",
+          }),
+      ),
+    [mutar],
   );
 
   const editarEnvio = useCallback(
-    (codigo: string, cambios: EnvioProvincia) => {
-      const n = aplicarCambios(codigo, cambios as unknown as Record<string, unknown>, (p) => ({
-        ...p,
-        envio: { ...p.envio, ...cambios },
-      }));
-      if (n > 0) {
-        toast.success(`Envío de ${codigo} actualizado`, {
-          description: `${n} ${n === 1 ? "campo corregido" : "campos corregidos"}`,
-        });
-      }
-    },
-    [aplicarCambios],
-  );
+    (codigo: string, cambios: DatosEnvio) => {
+      const departamento = ubigeo.find((d) => d.id === cambios.departamentoId);
+      const provincia = departamento?.provincias.find((p) => p.id === cambios.provinciaId);
+      const previo = buscar(codigo)?.envio;
 
-  /**
-   * Borrar un adjunto es irreversible, así que queda registrado en la auditoría:
-   * el archivo se va, pero el rastro de quién lo borró y cuándo no.
-   */
-  const eliminarAdjunto = useCallback(
-    (codigo: string, nombre: string) => {
-      editar(codigo, (p) => ({
-        ...p,
-        adjuntos: p.adjuntos.filter((a) => a.nombre !== nombre),
-        auditoria: registrarCambio(p, "adjuntos", nombre, "eliminado", usuarioActual),
-      }));
-      toast.success("Archivo eliminado", {
-        description: `${nombre} · queda registrado en la auditoría de ${codigo}`,
-      });
+      return mutar(
+        {
+          codigo,
+          cambios: {
+            envio: {
+              ...previo,
+              ...cambios,
+              // El parche pinta nombres porque es lo que se lee en pantalla; a la
+              // base van los ids, que es lo que valida la FK compuesta.
+              departamento: departamento?.nombre ?? previo?.departamento ?? "",
+              provincia: provincia?.nombre ?? null,
+            },
+          },
+        },
+        () => acciones.editarEnvio(codigo, cambios),
+        () => toast.success(`Envío de ${codigo} actualizado`),
+      );
     },
-    [editar, usuarioActual],
+    [buscar, mutar, ubigeo],
   );
-
-  const setRol = useCallback((r: Rol) => {
-    setRolState(r);
-    toast(`Ahora ves la app como ${ROLES[r].nombre}`, { description: ROLES[r].descripcion });
-  }, []);
 
   const value = useMemo<Store>(
     () => ({
       rol,
-      setRol,
+      usuario,
       permisos: ROLES[rol],
       pedidos,
+      trabajadores,
+      ubigeo,
+      pendiente,
       pedido: (codigo) => pedidos.find((p) => p.codigo === codigo),
       crearPedido,
       cambiarEstado,
@@ -448,12 +316,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       registrarAbono,
       editarDatos,
       editarEnvio,
-      eliminarAdjunto,
     }),
     [
       rol,
-      setRol,
+      usuario,
       pedidos,
+      trabajadores,
+      ubigeo,
+      pendiente,
       crearPedido,
       cambiarEstado,
       cambiarUbicacion,
@@ -461,7 +331,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       registrarAbono,
       editarDatos,
       editarEnvio,
-      eliminarAdjunto,
     ],
   );
 

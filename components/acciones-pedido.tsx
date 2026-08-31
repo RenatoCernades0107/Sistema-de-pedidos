@@ -7,9 +7,9 @@ import { z } from "zod";
 import { ArrowRight, Ban, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
+import { esquemaFormEstado } from "@/lib/esquemas";
 import {
   ESTADOS,
-  TRABAJADORES,
   UBICACIONES,
   requiereFactura,
   requiereMotivo,
@@ -40,41 +40,36 @@ import {
 } from "@/components/ui/select";
 import { EstadoBadge } from "@/components/estado-badge";
 
-/** Las mismas reglas del modelo, aplicadas antes de dejar guardar. */
-const esquema = z.object({
-  // El campo vacío es válido aquí: lo que hace obligatorio a cada uno es el estado
-  // de destino, y eso se comprueba en `confirmar`. Sin el `or(literal(""))` el valor
-  // inicial "" fallaría el regex y el formulario nunca llegaría a enviarse.
-  motivo: z
-    .string()
-    .trim()
-    .min(8, "Explica el motivo en al menos 8 caracteres")
-    .or(z.literal(""))
-    .optional(),
-  numeroFactura: z
-    .string()
-    .trim()
-    .regex(/^F\d{3}-\d{6}$/, "Formato esperado: F001-004512")
-    .or(z.literal(""))
-    .optional(),
-});
-
-type Campos = z.infer<typeof esquema>;
+type Campos = z.infer<typeof esquemaFormEstado>;
 
 export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
-  const { permisos, cambiarEstado, cambiarUbicacion, asignarResponsable } =
-    useStore();
+  const {
+    permisos,
+    trabajadores,
+    pendiente,
+    cambiarEstado,
+    cambiarUbicacion,
+    asignarResponsable,
+  } = useStore();
   const [destino, setDestino] = useState<Estado | null>(null);
 
   const validas = transicionesValidas(p);
 
+  /* La factura solo la escribe (y la ve) Administración. Para los demás roles el
+     pedido tiene que llegar ya facturado: `tieneFactura` es el booleano que las
+     tres vistas exponen para poder decirlo sin enseñar el número. */
+  const puedeFacturar = permisos.editarTodo;
+  const bloqueadoSinFactura = (e: Estado) =>
+    requiereFactura(e) && !p.tieneFactura && !puedeFacturar;
+
   const form = useForm<Campos>({
-    resolver: zodResolver(esquema),
+    resolver: zodResolver(esquemaFormEstado),
     defaultValues: { motivo: "", numeroFactura: "" },
   });
 
   const pedirCambio = (nuevo: Estado) => {
-    if (requiereMotivo(nuevo) || (requiereFactura(nuevo) && !p.numeroFactura)) {
+    const pideFactura = requiereFactura(nuevo) && !p.tieneFactura && puedeFacturar;
+    if (requiereMotivo(nuevo) || pideFactura) {
       form.reset({ motivo: "", numeroFactura: "" });
       setDestino(nuevo);
       return;
@@ -82,24 +77,25 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
     cambiarEstado(p.codigo, nuevo);
   };
 
-  const confirmar = form.handleSubmit((valores) => {
+  const confirmar = form.handleSubmit(async (valores) => {
     if (!destino) return;
     if (requiereMotivo(destino) && !valores.motivo) {
       form.setError("motivo", { message: "El motivo es obligatorio" });
       return;
     }
-    if (
-      requiereFactura(destino) &&
-      !p.numeroFactura &&
-      !valores.numeroFactura
-    ) {
+    if (requiereFactura(destino) && !p.tieneFactura && !valores.numeroFactura) {
       form.setError("numeroFactura", {
         message: "Sin factura no se puede entregar",
       });
       return;
     }
-    cambiarEstado(p.codigo, destino, valores.motivo);
-    setDestino(null);
+    const resultado = await cambiarEstado(p.codigo, destino, {
+      motivo: valores.motivo,
+      numeroFactura: valores.numeroFactura,
+    });
+    // El diálogo solo se cierra si la base aceptó el cambio: si no, el motivo que
+    // acaba de escribirse se perdería y habría que teclearlo otra vez.
+    if (resultado.ok) setDestino(null);
   });
 
   return (
@@ -130,6 +126,7 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
                     variant={e === "anulado" ? "destructive" : "outline"}
                     size="sm"
                     onClick={() => pedirCambio(e)}
+                    disabled={pendiente || bloqueadoSinFactura(e)}
                     className="gap-1.5"
                   >
                     {e === "anulado" ? (
@@ -142,7 +139,12 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
                 ))}
               </div>
             )}
-            {p.estado === "listo" && !p.numeroFactura && !p.esProvincia && (
+            {validas.some(bloqueadoSinFactura) && (
+              <p className="text-muted-foreground mt-2 text-xs">
+                Falta el número de factura, y lo registra Administración.
+              </p>
+            )}
+            {puedeFacturar && p.estado === "listo" && !p.tieneFactura && !p.esProvincia && (
               <p className="text-muted-foreground mt-2 text-xs">
                 Para entregar hace falta el número de factura.
               </p>
@@ -156,6 +158,7 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
             {permisos.editarUbicacion ? (
               <Select
                 value={p.ubicacion}
+                disabled={pendiente}
                 onValueChange={(v) =>
                   v && cambiarUbicacion(p.codigo, v as Ubicacion)
                 }
@@ -182,9 +185,10 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
           >
             {permisos.asignarResponsable ? (
               <Select
-                value={p.responsable ?? "sin"}
+                value={p.responsableId ?? "sin"}
+                disabled={pendiente}
                 onValueChange={(v) =>
-                  asignarResponsable(p.codigo, v === "sin" ? null : v)
+                  v && asignarResponsable(p.codigo, v === "sin" ? null : v)
                 }
               >
                 <SelectTrigger className="w-full">
@@ -192,9 +196,9 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="sin">Sin asignar</SelectItem>
-                  {TRABAJADORES.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t}
+                  {trabajadores.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.nombre}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -254,7 +258,7 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
               </div>
             )}
 
-            {destino && requiereFactura(destino) && !p.numeroFactura && (
+            {destino && requiereFactura(destino) && !p.tieneFactura && (
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="factura">Número de factura</Label>
                 <Input
@@ -277,7 +281,9 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
               <DialogClose render={<Button variant="outline" type="button" />}>
                 Cancelar
               </DialogClose>
-              <Button type="submit">Confirmar cambio</Button>
+              <Button type="submit" disabled={pendiente}>
+                {pendiente ? "Guardando…" : "Confirmar cambio"}
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>

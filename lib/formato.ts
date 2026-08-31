@@ -1,4 +1,4 @@
-import { HOY } from "./datos";
+import { hoy } from "./fecha";
 import {
   esTerminal,
   fechaCierreDe,
@@ -51,22 +51,22 @@ export const fechaHora = (iso: string) => {
  * Un pedido entregado o anulado hoy sigue en la vista de pedidos; a partir de
  * mañana solo se encuentra en el historial.
  */
-export const cerradoHoy = (p: Pedido) => fechaCierreDe(p) === HOY;
+export const cerradoHoy = (p: Pedido) => fechaCierreDe(p) === hoy();
 
 /** El plazo de crédito ya pasó y el cliente todavía debe. */
 export function creditoVencido(p: Pedido) {
   const vence = venceCreditoEl(p);
-  return vence !== null && vence < HOY && saldoDe(p) > 0;
+  return vence !== null && vence < hoy() && saldoDe(p) > 0;
 }
 
 export type Urgencia = "vencido" | "hoy" | "proximo" | "normal" | "cerrado";
 
 export function urgenciaDe(p: Pedido): Urgencia {
   if (esTerminal(p.estado)) return "cerrado";
-  if (p.fechaPrometida < HOY) return "vencido";
-  if (p.fechaPrometida === HOY) return "hoy";
+  if (p.fechaPrometida < hoy()) return "vencido";
+  if (p.fechaPrometida === hoy()) return "hoy";
   const dias = Math.round(
-    (new Date(p.fechaPrometida).getTime() - new Date(HOY).getTime()) / 86_400_000,
+    (new Date(p.fechaPrometida).getTime() - new Date(hoy()).getTime()) / 86_400_000,
   );
   return dias <= 2 ? "proximo" : "normal";
 }
@@ -91,8 +91,8 @@ export type Semaforo = "verde" | "naranja" | "rojo" | "cerrado";
  */
 export function semaforoDe(p: Pedido): Semaforo {
   if (esTerminal(p.estado)) return "cerrado";
-  if (p.fechaPrometida <= HOY) return "rojo";
-  return p.fechaPrometida === sumarDias(HOY, 1) ? "naranja" : "verde";
+  if (p.fechaPrometida <= hoy()) return "rojo";
+  return p.fechaPrometida === sumarDias(hoy(), 1) ? "naranja" : "verde";
 }
 
 /** El color nunca va solo: esto es lo que lee un lector de pantalla. */

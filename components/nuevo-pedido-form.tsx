@@ -9,7 +9,8 @@ import { AnimatePresence, motion } from "motion/react";
 import { ArrowLeft, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
-import { DEPARTAMENTOS, HOY } from "@/lib/datos";
+import { esquemaFormNuevoPedido, FORMATO_DOCUMENTO } from "@/lib/esquemas";
+import { hoy } from "@/lib/fecha";
 import {
   DOCUMENTOS,
   METODOS,
@@ -17,7 +18,6 @@ import {
   PLAZOS,
   PRODUCTOS,
   TIPOS,
-  TRABAJADORES,
   admiteDecimales,
   siglaDe,
   sumarDias,
@@ -39,95 +39,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-/** Cuántos decimales trae un número tal como lo escribió el usuario. */
-const decimalesDe = (n: number) => (String(n).split(".")[1] ?? "").length;
-
-/** DNI peruano y carné de extranjería. Lo mismo que validará el CHECK en Postgres. */
-const FORMATO_DOCUMENTO = {
-  DNI: { regex: /^\d{8}$/, largo: 8, ayuda: "8 dígitos" },
-  CE: { regex: /^[A-Za-z0-9]{9,12}$/, largo: 12, ayuda: "9 a 12 caracteres" },
-} as const;
-
-/** Las reglas del modelo, en Zod: lo que el CHECK de Postgres validará después. */
-const esquema = z
-  .object({
-    cliente: z.string().trim().min(3, "Escribe el nombre del cliente"),
-    telefonoCliente: z.string().trim().optional(),
-    tipos: z
-      .array(z.enum(["CL", "CM", "SP", "PT", "AC"]))
-      .min(1, "Elige al menos un tipo de pedido"),
-    producto: z
-      .enum(["cajas", "porta_afiches", "pivotante", "letreros", "letras", "displays", "otro"])
-      .optional(),
-    cantidad: z.coerce.number().positive("La cantidad tiene que ser mayor que cero"),
-    destino: z.enum(["local", "provincia"]),
-    entrega: z.enum(["tienda", "taller", "domicilio", "agencia"]),
-    direccion: z.string().trim().optional(),
-    departamento: z.string().optional(),
-    provincia: z.string().trim().optional(),
-    agencia: z.string().trim().optional(),
-    personaQueRecoge: z.string().trim().optional(),
-    tipoDocumento: z.enum(["DNI", "CE"]),
-    numeroDocumento: z.string().trim().optional(),
-    telefono: z.string().trim().optional(),
-    flete: z.coerce.number().min(0).optional(),
-    fletePagado: z.boolean().optional(),
-    observacionesEnvio: z.string().trim().optional(),
-    fechaPrometida: z.string().min(1, "La fecha prometida es obligatoria"),
-    tipoPago: z.enum(["contado", "a_cuenta", "credito"]),
-    plazoCredito: z.coerce.number().optional(),
-    metodoPago: z.enum(["efectivo", "yape_plin", "transferencia", "tarjeta", "otro"]),
-    montoTotal: z.coerce.number().min(0, "No puede ser negativo"),
-    abono: z.coerce.number().min(0).optional(),
-    responsable: z.string().optional(),
-    detalle: z.string().trim().optional(),
-    observaciones: z.string().trim().optional(),
-  })
-  .superRefine((v, ctx) => {
-    if (v.tipos.includes("PT") && !v.producto) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["producto"],
-        message: "Un producto terminado necesita su tipo",
-      });
-    }
-    // Media plancha se corta; media caja no existe.
-    if (!admiteDecimales(v.tipos) && !Number.isInteger(v.cantidad)) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["cantidad"],
-        message: "Solo números enteros. Los decimales son para las planchas.",
-      });
-    }
-    if (admiteDecimales(v.tipos) && decimalesDe(v.cantidad) > 2) {
-      ctx.addIssue({ code: "custom", path: ["cantidad"], message: "Como máximo 2 decimales" });
-    }
-    if (v.destino === "local" && v.entrega === "domicilio" && !v.direccion) {
-      ctx.addIssue({ code: "custom", path: ["direccion"], message: "Falta la dirección" });
-    }
-    if (v.destino === "provincia" && !v.departamento) {
-      ctx.addIssue({ code: "custom", path: ["departamento"], message: "Elige el departamento" });
-    }
-    if (v.numeroDocumento && !FORMATO_DOCUMENTO[v.tipoDocumento].regex.test(v.numeroDocumento)) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["numeroDocumento"],
-        message: `El ${v.tipoDocumento} tiene ${FORMATO_DOCUMENTO[v.tipoDocumento].ayuda}`,
-      });
-    }
-    if (v.tipoPago === "a_cuenta" && (v.abono ?? 0) > v.montoTotal) {
-      ctx.addIssue({ code: "custom", path: ["abono"], message: "El abono supera el total" });
-    }
-    if (v.tipoPago === "credito" && !v.plazoCredito) {
-      ctx.addIssue({ code: "custom", path: ["plazoCredito"], message: "Elige el plazo del crédito" });
-    }
-  });
+const esquema = esquemaFormNuevoPedido;
 
 type Campos = z.input<typeof esquema>;
 
 export function NuevoPedidoForm() {
   const router = useRouter();
-  const { permisos, crearPedido } = useStore();
+  const { permisos, crearPedido, trabajadores, ubigeo, pendiente } = useStore();
 
   const form = useForm<Campos>({
     resolver: zodResolver(esquema),
@@ -155,6 +73,11 @@ export function NuevoPedidoForm() {
   const entrega = form.watch("entrega");
   const tipoPago = form.watch("tipoPago");
   const tipoDocumento = form.watch("tipoDocumento");
+  /* La provincia cuelga del departamento con una FK compuesta en la base, así que
+     la lista se recorta al departamento elegido en vez de ser texto libre. */
+  const departamentoId = Number(form.watch("departamentoId")) || null;
+  const provinciaId = Number(form.watch("provinciaId")) || null;
+  const provincias = ubigeo.find((d) => d.id === departamentoId)?.provincias ?? [];
   const plazoCredito = Number(form.watch("plazoCredito")) || null;
   const abono = Number(form.watch("abono")) || 0;
   const montoTotal = Number(form.watch("montoTotal")) || 0;
@@ -162,7 +85,7 @@ export function NuevoPedidoForm() {
   // Un pedido que combina trabajos lleva "MX": el código se dicta por teléfono.
   const codigoPreview = `${destino === "provincia" ? "P" : "L"}${
     tipos.length ? siglaDe(tipos) : "··"
-  }_${HOY.slice(0, 4)}_····`;
+  }_${hoy().slice(0, 4)}_····`;
 
   const decimales = admiteDecimales(tipos);
   const documento = FORMATO_DOCUMENTO[tipoDocumento];
@@ -191,9 +114,9 @@ export function NuevoPedidoForm() {
     );
   }
 
-  const onSubmit = form.handleSubmit((v) => {
+  const onSubmit = form.handleSubmit(async (v) => {
     const esProvincia = v.destino === "provincia";
-    const codigo = crearPedido({
+    const resultado = await crearPedido({
       cliente: v.cliente,
       telefonoCliente: v.telefonoCliente || null,
       tipos: v.tipos as TipoPedido[],
@@ -204,8 +127,8 @@ export function NuevoPedidoForm() {
       direccion: v.direccion || null,
       envio: esProvincia
         ? {
-            departamento: v.departamento ?? "",
-            provincia: v.provincia || null,
+            departamentoId: Number(v.departamentoId),
+            provinciaId: Number(v.provinciaId) || null,
             agencia: v.agencia || null,
             personaQueRecoge: v.personaQueRecoge || null,
             tipoDocumento: v.tipoDocumento,
@@ -220,13 +143,16 @@ export function NuevoPedidoForm() {
       tipoPago: v.tipoPago,
       plazoCredito: v.tipoPago === "credito" ? ((Number(v.plazoCredito) || null) as PlazoCredito | null) : null,
       montoTotal: Number(v.montoTotal),
-      abonoInicial: Number(v.abono ?? 0),
+      // Al crédito no entra nada al registrar, aunque el campo de abono conserve lo
+      // que se hubiera tecleado antes de cambiar el tipo de pago.
+      abonoInicial: v.tipoPago === "credito" ? 0 : Number(v.abono ?? 0),
       metodoPago: v.metodoPago,
-      responsable: v.responsable ?? null,
+      responsableId: v.responsableId || null,
       detalle: v.detalle ?? "",
       observaciones: v.observaciones || null,
     });
-    router.push(`/pedidos/${codigo}`);
+    // El código lo pone Postgres, así que hasta que no conteste no hay a dónde ir.
+    if (resultado.ok && resultado.codigo) router.push(`/pedidos/${resultado.codigo}`);
   });
 
   return (
@@ -410,26 +336,51 @@ export function NuevoPedidoForm() {
                   <Campo
                     label="Departamento"
                     requerido
-                    error={form.formState.errors.departamento?.message}
+                    error={form.formState.errors.departamentoId?.message}
                   >
                     <Select
-                      value={form.watch("departamento") ?? ""}
-                      onValueChange={(v) => v && form.setValue("departamento", v)}
+                      value={departamentoId ? String(departamentoId) : ""}
+                      onValueChange={(v) => {
+                        if (!v) return;
+                        form.setValue("departamentoId", Number(v), { shouldValidate: true });
+                        // Cambiar de departamento invalida la provincia anterior.
+                        form.setValue("provinciaId", undefined);
+                      }}
                     >
                       <SelectTrigger className="w-full">
-                        <SelectValue>{form.watch("departamento") ?? "Selecciona…"}</SelectValue>
+                        <SelectValue>
+                          {ubigeo.find((d) => d.id === departamentoId)?.nombre ?? "Selecciona…"}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        {DEPARTAMENTOS.map((d) => (
-                          <SelectItem key={d} value={d}>
-                            {d}
+                        {ubigeo.map((d) => (
+                          <SelectItem key={d.id} value={String(d.id)}>
+                            {d.nombre}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </Campo>
                   <Campo label="Provincia">
-                    <Input placeholder="Ej. Trujillo" {...form.register("provincia")} />
+                    <Select
+                      value={provinciaId ? String(provinciaId) : ""}
+                      disabled={!departamentoId}
+                      onValueChange={(v) => v && form.setValue("provinciaId", Number(v))}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue>
+                          {provincias.find((x) => x.id === provinciaId)?.nombre ??
+                            (departamentoId ? "Selecciona…" : "Elige el departamento")}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {provincias.map((x) => (
+                          <SelectItem key={x.id} value={String(x.id)}>
+                            {x.nombre}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </Campo>
                 </div>
                 <Campo label="Nombre de la agencia">
@@ -625,7 +576,7 @@ export function NuevoPedidoForm() {
               requerido
               ayuda={
                 plazoCredito
-                  ? `Vence el ${fechaCompleta(sumarDias(HOY, plazoCredito))}, contado desde hoy.`
+                  ? `Vence el ${fechaCompleta(sumarDias(hoy(), plazoCredito))}, contado desde hoy.`
                   : "Días desde el registro del pedido."
               }
               error={form.formState.errors.plazoCredito?.message}
@@ -675,17 +626,20 @@ export function NuevoPedidoForm() {
             ayuda="Opcional al registrar. Logística o Administración lo asignan después."
           >
             <Select
-              value={form.watch("responsable") ?? "sin"}
-              onValueChange={(v) => form.setValue("responsable", v === "sin" ? undefined : v!)}
+              value={form.watch("responsableId") ?? "sin"}
+              onValueChange={(v) => v && form.setValue("responsableId", v === "sin" ? undefined : v)}
             >
               <SelectTrigger className="w-full max-w-64">
-                <SelectValue>{form.watch("responsable") ?? "Sin asignar todavía"}</SelectValue>
+                <SelectValue>
+                  {trabajadores.find((t) => t.id === form.watch("responsableId"))?.nombre ??
+                    "Sin asignar todavía"}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="sin">Sin asignar todavía</SelectItem>
-                {TRABAJADORES.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {t}
+                {trabajadores.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.nombre}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -694,8 +648,8 @@ export function NuevoPedidoForm() {
         </Seccion>
 
         <div className="flex flex-wrap gap-2">
-          <Button type="submit" disabled={form.formState.isSubmitting}>
-            Registrar pedido
+          <Button type="submit" disabled={form.formState.isSubmitting || pendiente}>
+            {form.formState.isSubmitting ? "Registrando…" : "Registrar pedido"}
           </Button>
           <Button type="button" variant="ghost" render={<Link href="/admin" />} nativeButton={false}>
             Cancelar

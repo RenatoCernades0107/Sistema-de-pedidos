@@ -15,12 +15,11 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
-import { HOY } from "@/lib/datos";
+import { hoy } from "@/lib/fecha";
 import {
   ESTADOS,
   ORDEN_ESTADOS,
   TIPOS,
-  TRABAJADORES,
   VISTAS,
   esTerminal,
   fechaCierreDe,
@@ -56,7 +55,7 @@ const RANGOS: Record<Rango, string> = {
 };
 
 export function VistaPedidos({ vista }: { vista: Vista }) {
-  const { pedidos, permisos } = useStore();
+  const { pedidos, permisos, trabajadores } = useStore();
   const [modo, setModo] = useState<Modo>("lista");
   const [q, setQ] = useState("");
   const [estado, setEstado] = useState<Estado | "todos">("todos");
@@ -83,7 +82,7 @@ export function VistaPedidos({ vista }: { vista: Vista }) {
   );
 
   const filtrados = useMemo(() => {
-    const desde = rango === "todo" ? null : sumarDias(HOY, -Number(rango));
+    const desde = rango === "todo" ? null : sumarDias(hoy(), -Number(rango));
     return base
       .filter((p) => {
         if (estado !== "todos" && p.estado !== estado) return false;
@@ -219,9 +218,9 @@ export function VistaPedidos({ vista }: { vista: Vista }) {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="todos">Todo el taller</SelectItem>
-            {TRABAJADORES.map((t) => (
-              <SelectItem key={t} value={t}>
-                {t}
+            {trabajadores.map((t) => (
+              <SelectItem key={t.id} value={t.nombre}>
+                {t.nombre}
               </SelectItem>
             ))}
             <SelectItem value="sin">Sin asignar</SelectItem>

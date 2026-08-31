@@ -1,7 +1,7 @@
-"use client";
-
+import { exigirCrearPedido } from "@/lib/sesion";
 import { NuevoPedidoForm } from "@/components/nuevo-pedido-form";
 
-export default function Page() {
+export default async function Page() {
+  await exigirCrearPedido();
   return <NuevoPedidoForm />;
 }

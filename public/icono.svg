@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Plexiacril">
+  <rect width="512" height="512" rx="96" fill="#18315A"/>
+  <text x="50%" y="52%" dy=".35em" text-anchor="middle"
+        font-family="Geist, Inter, system-ui, sans-serif" font-size="288" font-weight="700"
+        fill="#FFC100">P</text>
+</svg>

@@ -11,7 +11,6 @@ import {
   Paperclip,
   Receipt,
   ScrollText,
-  Trash2,
   TriangleAlert,
   Upload,
 } from "lucide-react";
@@ -46,17 +45,6 @@ import { AccionesPedido } from "@/components/acciones-pedido";
 import { EditarDatos, EditarEnvio } from "@/components/editar-pedido";
 import { RegistrarAbono } from "@/components/registrar-abono";
 import { Button } from "@/components/ui/button";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 
 export function DetallePedido({ codigo }: { codigo: string }) {
   const { pedido, permisos } = useStore();
@@ -569,7 +557,6 @@ function Adjuntos({ pedido: p }: { pedido: Pedido }) {
                   </span>
                 </span>
               </button>
-              {permisos.editarTodo && <EliminarAdjunto pedido={p} adjunto={a} />}
             </div>
           </li>
         );
@@ -588,60 +575,9 @@ function Adjuntos({ pedido: p }: { pedido: Pedido }) {
   );
 }
 
-/**
- * Borrar un archivo no se deshace: el archivo sale de Storage y no vuelve.
- * Solo Administración, y siempre detrás de una confirmación que nombra el archivo.
- */
-function EliminarAdjunto({
-  pedido: p,
-  adjunto: a,
-}: {
-  pedido: Pedido;
-  adjunto: Adjunto;
-}) {
-  const { eliminarAdjunto } = useStore();
-
-  return (
-    <AlertDialog>
-      <AlertDialogTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="text-muted-foreground hover:text-destructive shrink-0"
-          />
-        }
-        nativeButton
-        aria-label={`Eliminar ${a.nombre}`}
-      >
-        <Trash2 className="size-3.5" />
-      </AlertDialogTrigger>
-
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>¿Eliminar este archivo?</AlertDialogTitle>
-          <AlertDialogDescription>
-            Se eliminará <span className="text-foreground font-medium">{a.nombre}</span> del
-            pedido {p.codigo} de forma permanente. No se puede deshacer y el archivo no se
-            puede recuperar. Quedará registrado en la auditoría quién lo eliminó y cuándo.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel render={<Button variant="outline" />} nativeButton>
-            Cancelar
-          </AlertDialogCancel>
-          <AlertDialogAction
-            render={<Button variant="destructive" />}
-            nativeButton
-            onClick={() => eliminarAdjunto(p.codigo, a.nombre)}
-          >
-            Eliminar definitivamente
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
-}
+/* Borrar un adjunto vuelve en la Fase 5, junto con la subida. Quitar solo la fila
+   de `adjuntos` dejaría el archivo huérfano en el bucket, ocupando sitio y sin
+   nada que lo apunte: el borrado tiene que ir con Storage o no ir. */
 
 function PanelPago({ pedido: p }: { pedido: Pedido }) {
   const saldo = saldoDe(p);

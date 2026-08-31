@@ -35,6 +35,10 @@ export type PlazoCredito = 1 | 7 | 15 | 30 | 90;
 export interface EnvioProvincia {
   departamento: string;
   provincia: string | null;
+  /** Los ids del ubigeo. Se pinta el nombre, pero se escribe el id: la FK compuesta
+   *  de `envios_provincia` exige que la provincia cuelgue de su departamento. */
+  departamentoId: number | null;
+  provinciaId: number | null;
   agencia: string | null;
   /** Quien retira el pedido en la agencia de destino. */
   personaQueRecoge: string | null;
@@ -100,11 +104,16 @@ export interface Pedido {
   plazoCredito: PlazoCredito | null;
   montoTotal: number;
   montoPagado: number;
+  /** El nombre, para pintarlo. Para escribirlo hace falta `responsableId`. */
   responsable: string | null;
+  responsableId: string | null;
   detalle: string;
   /** Notas e incidencias del pedido. La especificación del trabajo va en `detalle`. */
   observaciones: string | null;
   numeroFactura: string | null;
+  /** Si el pedido ya está facturado. Lo ven los tres roles; el número, solo Admin:
+   *  sin esto el taller no puede saber si le dejarán entregar hasta que falle. */
+  tieneFactura: boolean;
   esProvincia: boolean;
   envio?: EnvioProvincia;
   adjuntos: Adjunto[];
@@ -187,7 +196,9 @@ export const DOCUMENTOS: Record<TipoDocumento, string> = {
 
 export const PLAZOS: PlazoCredito[] = [1, 7, 15, 30, 90];
 
-export const TRABAJADORES = ["Juan", "Issac", "Angel", "Clever", "Jhon"] as const;
+/* Los trabajadores del taller ya no son una constante: `responsable_id` es una FK a
+   la tabla `trabajadores`, así que salen de la base con su uuid
+   (`lib/catalogos-servidor.ts`). Lo mismo el ubigeo. */
 
 /* ── Roles y permisos ── */
 

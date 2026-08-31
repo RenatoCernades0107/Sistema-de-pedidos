@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Plus } from "lucide-react";
 import { useStore } from "@/lib/store";
+import { esquemaFormAbono } from "@/lib/esquemas";
 import { METODOS, saldoDe, type MetodoPago, type Pedido } from "@/lib/dominio";
 import { money } from "@/lib/formato";
 import { Button } from "@/components/ui/button";
@@ -30,19 +31,13 @@ import {
 } from "@/components/ui/select";
 
 export function RegistrarAbono({ pedido: p }: { pedido: Pedido }) {
-  const { registrarAbono } = useStore();
+  const { registrarAbono, pendiente } = useStore();
   const [abierto, setAbierto] = useState(false);
   const saldo = saldoDe(p);
 
-  /* El tope es el saldo: pagar de más dejaría el saldo en negativo,
-     y en Postgres es una columna generada que no lo admite. */
-  const esquema = z.object({
-    monto: z.coerce
-      .number({ message: "Escribe un monto" })
-      .positive("El monto debe ser mayor que cero")
-      .max(saldo, `No puede superar el saldo de ${money(saldo)}`),
-    metodo: z.enum(["efectivo", "yape_plin", "transferencia", "tarjeta", "otro"]),
-  });
+  /* El tope es el saldo: pagar de más dejaría el saldo en negativo, y en Postgres
+     `saldo` es una columna generada con un CHECK que no lo admite. */
+  const esquema = esquemaFormAbono(saldo);
   type Campos = z.input<typeof esquema>;
 
   const form = useForm<Campos>({
@@ -56,9 +51,9 @@ export function RegistrarAbono({ pedido: p }: { pedido: Pedido }) {
     setAbierto(v);
   };
 
-  const guardar = form.handleSubmit((v) => {
-    registrarAbono(p.codigo, Number(v.monto), v.metodo as MetodoPago);
-    setAbierto(false);
+  const guardar = form.handleSubmit(async (v) => {
+    const resultado = await registrarAbono(p.codigo, Number(v.monto), v.metodo as MetodoPago);
+    if (resultado.ok) setAbierto(false);
   });
 
   const monto = Number(form.watch("monto")) || 0;
@@ -155,7 +150,9 @@ export function RegistrarAbono({ pedido: p }: { pedido: Pedido }) {
             <DialogClose render={<Button variant="outline" type="button" />} nativeButton>
               Cancelar
             </DialogClose>
-            <Button type="submit">Registrar</Button>
+            <Button type="submit" disabled={pendiente}>
+              {pendiente ? "Registrando…" : "Registrar"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

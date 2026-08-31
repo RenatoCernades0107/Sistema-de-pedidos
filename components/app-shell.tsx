@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { VISTAS, type Vista } from "@/lib/dominio";
 import { Button } from "@/components/ui/button";
-import { SelectorRol } from "@/components/selector-rol";
+import { MenuUsuario } from "@/components/menu-usuario";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { CommandMenu, useCommandMenu } from "@/components/command-menu";
 
@@ -49,7 +49,13 @@ function useNav() {
   }));
 }
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({
+  children,
+  usuario,
+}: {
+  children: React.ReactNode;
+  usuario: string;
+}) {
   const { permisos } = useStore();
   const pathname = usePathname();
   const nav = useNav();
@@ -62,7 +68,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Cromo: casi invisible. El color se reserva para los datos. */}
       <header className="bg-background/85 sticky top-0 z-30 border-b backdrop-blur-md">
         <div className="flex h-14 items-center gap-3 px-4">
-          <Link href="/admin" className="flex items-center gap-2.5 rounded-md">
+          {/* A la raíz, no a /admin: el taller no tiene esa vista. */}
+          <Link href="/" className="flex items-center gap-2.5 rounded-md">
             {/* Marca: azul y amarillo del logotipo, sin intermediarios */}
             <span className="bg-primary text-brand grid size-7 place-items-center rounded-md text-xs font-bold">
               P
@@ -90,7 +97,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </kbd>
           </button>
 
-          <SelectorRol />
+          <MenuUsuario cuenta={usuario} />
           <ThemeToggle />
         </div>
       </header>
