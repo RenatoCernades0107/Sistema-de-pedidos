@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "tipos": "supabase gen types typescript --linked > lib/supabase-tipos.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

@@ -8,11 +8,26 @@
 
 begin;
 
--- Los tres usuarios del seed. Sin ellos no se pueden probar los permisos.
+-- Los tres usuarios del seed, uno por rol. Sin ellos no se pueden probar los
+-- permisos: las secciones 8.x entran como cada uno para ver qué le deja hacer.
+--
+-- Se comprueban por nombre y no contando el dominio: `usuarios_iniciales.sql`
+-- da de alta las cuentas reales en ese mismo `@plexiacril.test`, así que un
+-- conteo daba 10 en el proyecto de producción y abortaba aquí sin explicar por
+-- qué. Estas pruebas necesitan una base sembrada, no una en uso.
 do $$
+declare
+  faltan text;
 begin
-  if (select count(*) from public.usuarios where email like '%@plexiacril.test') <> 3 then
-    raise exception 'Faltan los usuarios del seed: ejecuta supabase/seed.sql antes que las pruebas';
+  select string_agg(e, ', ')
+    into faltan
+    from unnest(array['ana@plexiacril.test',
+                      'carla@plexiacril.test',
+                      'miguel@plexiacril.test']) as e
+   where not exists (select 1 from public.usuarios where email = e);
+
+  if faltan is not null then
+    raise exception 'Faltan cuentas del seed (%). Estas pruebas van contra una base sembrada; para verificar solo la migración del comprobante usa supabase/tests/comprobante.sql', faltan;
   end if;
 end $$;
 
@@ -144,6 +159,47 @@ begin
   exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
 end $$;
 
+-- ── 3b. Formato del comprobante ─────────────────────────────────────────────
+-- `pedidos_comprobante_formato` acepta factura (F) y boleta (B), serie de 3 dígitos
+-- y correlativo de hasta 8. Hasta la migración 20260901000800 el patrón vivía solo
+-- en Zod, así que cualquier insert por SQL entraba sin mirar.
+--
+-- Va antes de la máquina de estados a propósito: ahí 'Prueba local' sigue en
+-- `registrado`, así que el comprobante puede volver a null al terminar. Después de
+-- la sección 4 el pedido está entregado y `pedidos_comprobante_al_entregar` lo
+-- impediría.
+
+do $$
+declare
+  pedido uuid := (select id from public.pedidos where nombre_cliente = 'Prueba local');
+  valor  text;
+begin
+  foreach valor in array array['F001-004512', 'B001-000318', 'F010-1', 'B999-00004512'] loop
+    begin
+      update public.pedidos set numero_comprobante = valor where id = pedido;
+    exception when others then
+      raise exception 'FALLO: se rechazó el comprobante válido %', valor;
+    end;
+  end loop;
+
+  foreach valor in array array[
+    'FF01-004512',      -- serie con letra
+    'X001-004512',      -- ni factura ni boleta
+    'f001-004512',      -- minúscula
+    'F001-000045123',   -- correlativo de 9
+    'F001-',            -- sin correlativo
+    'F0011-004512'      -- serie de 4
+  ] loop
+    begin
+      update public.pedidos set numero_comprobante = valor where id = pedido;
+      raise exception 'FALLO: se aceptó el comprobante inválido %', valor;
+    exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
+  end loop;
+
+  -- Se devuelve a null: la sección 4 cuenta con que el pedido no tiene comprobante.
+  update public.pedidos set numero_comprobante = null where id = pedido;
+end $$;
+
 -- ── 4. Máquina de estados ───────────────────────────────────────────────────
 
 do $$
@@ -153,7 +209,7 @@ declare
   fila         public.pedidos;
 begin
   begin
-    update public.pedidos set estado = 'entregado', numero_factura = 'F001-1' where id = local_id;
+    update public.pedidos set estado = 'entregado', numero_comprobante = 'F001-1' where id = local_id;
     raise exception 'FALLO: se saltó de registrado a entregado';
   exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
 
@@ -167,10 +223,10 @@ begin
 
   begin
     update public.pedidos set estado = 'entregado' where id = local_id;
-    raise exception 'FALLO: se entregó un pedido sin número de factura';
+    raise exception 'FALLO: se entregó un pedido sin comprobante';
   exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
 
-  update public.pedidos set estado = 'entregado', numero_factura = 'F001-000999' where id = local_id;
+  update public.pedidos set estado = 'entregado', numero_comprobante = 'F001-000999' where id = local_id;
   select * into fila from public.pedidos where id = local_id;
 
   if fila.fecha_entrega is distinct from current_date then
@@ -498,24 +554,24 @@ begin
     raise exception 'FALLO: un pedido local aceptó datos de envío a provincia';
   exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
 
-  -- Se deja listo y sin facturar para la prueba de Logística de 8.8.
+  -- Se deja listo y sin comprobante para la prueba de Logística de 8.8.
   update public.pedidos set estado = 'en_proceso' where id = pedido;
   update public.pedidos set estado = 'listo'      where id = pedido;
 end $$;
 
--- 8.6 `tiene_factura` está en las tres vistas; el número, solo en la de Administración.
+-- 8.6 `tiene_comprobante` está en las tres vistas; el número, solo en la de Administración.
 do $$
 begin
   if (select count(*) from information_schema.columns
-      where table_schema = 'public' and column_name = 'tiene_factura'
+      where table_schema = 'public' and column_name = 'tiene_comprobante'
         and table_name in ('pedidos_operaciones', 'pedidos_logistica', 'pedidos_admin')) <> 3 then
-    raise exception 'FALLO: tiene_factura no está en las tres vistas de rol';
+    raise exception 'FALLO: tiene_comprobante no está en las tres vistas de rol';
   end if;
 
   if exists (select 1 from information_schema.columns
-             where table_schema = 'public' and column_name = 'numero_factura'
+             where table_schema = 'public' and column_name = 'numero_comprobante'
                and table_name in ('pedidos_operaciones', 'pedidos_logistica')) then
-    raise exception 'FALLO: el número de factura se filtró a una vista que no debe verlo';
+    raise exception 'FALLO: el comprobante se filtró a una vista que no debe verlo';
   end if;
 end $$;
 
@@ -544,16 +600,16 @@ begin
     raise exception 'FALLO: Operaciones registró un pedido';
   exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
 
-  -- Y el taller sí ve si el pedido está facturado, sin ver el número.
-  if (select count(*) from public.pedidos_operaciones where tiene_factura is not null) = 0 then
-    raise exception 'FALLO: Operaciones no puede leer tiene_factura';
+  -- Y el taller sí ve si el pedido ya tiene comprobante, sin ver el número.
+  if (select count(*) from public.pedidos_operaciones where tiene_comprobante is not null) = 0 then
+    raise exception 'FALLO: Operaciones no puede leer tiene_comprobante';
   end if;
 end $$;
 
 set local role postgres;
 
--- 8.8 Logística tampoco crea pedidos, y no puede cerrar uno sin factura: no la
--- escribe (no está en sus columnas permitidas) y el CHECK la exige para entregar.
+-- 8.8 Logística tampoco crea pedidos, y no puede cerrar uno sin comprobante: no lo
+-- escribe (no está en sus columnas permitidas) y el CHECK lo exige para entregar.
 select set_config('request.jwt.claims',
                   json_build_object('sub', (select id from public.usuarios where email = 'carla@plexiacril.test'),
                                     'role', 'authenticated')::text,
@@ -579,21 +635,21 @@ begin
 
   begin
     execute format('update public.pedidos set estado = ''entregado'' where id = %L', pedido);
-    raise exception 'FALLO: Logística entregó un pedido sin número de factura';
+    raise exception 'FALLO: Logística entregó un pedido sin comprobante';
   exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
 
   begin
     execute format(
-      'update public.pedidos set estado = ''entregado'', numero_factura = ''F001-000001'' where id = %L',
+      'update public.pedidos set estado = ''entregado'', numero_comprobante = ''F001-000001'' where id = %L',
       pedido);
-    raise exception 'FALLO: Logística escribió el número de factura';
+    raise exception 'FALLO: Logística escribió el comprobante';
   exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
 end $$;
 
 set local role postgres;
 
--- 8.9 Administración sí cierra ese mismo pedido, con su factura y en un solo UPDATE:
--- el CHECK de la factura mira la fila entera, así que en dos sentencias fallaría.
+-- 8.9 Administración sí cierra ese mismo pedido, con su comprobante y en un solo
+-- UPDATE: el CHECK mira la fila entera, así que en dos sentencias fallaría.
 select set_config('request.jwt.claims',
                   json_build_object('sub', (select id from public.usuarios where email = 'ana@plexiacril.test'),
                                     'role', 'authenticated')::text,
@@ -605,14 +661,14 @@ declare
   pedido uuid := (select id from public.pedidos where codigo = current_setting('plexi.test_local'));
 begin
   update public.pedidos
-  set estado = 'entregado', numero_factura = 'F001-000001'
+  set estado = 'entregado', numero_comprobante = 'F001-000001'
   where id = pedido;
 
   if (select fecha_entrega from public.pedidos_operaciones where id = pedido) is distinct from current_date then
     raise exception 'FALLO: la fecha de entrega no se llenó sola';
   end if;
-  if not (select tiene_factura from public.pedidos_operaciones where id = pedido) then
-    raise exception 'FALLO: tiene_factura sigue en falso después de facturar';
+  if not (select tiene_comprobante from public.pedidos_operaciones where id = pedido) then
+    raise exception 'FALLO: tiene_comprobante sigue en falso después de registrar el comprobante';
   end if;
 end $$;
 

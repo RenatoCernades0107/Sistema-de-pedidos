@@ -46,3 +46,8 @@ next-env.d.ts
 /playwright-report/
 /blob-report/
 /.cache/ms-playwright/
+
+# respaldos y scripts con datos reales (hashes de auth.users, contraseña inicial)
+/respaldo*.sql
+/supabase/usuarios_iniciales.sql
+/supabase/reiniciar_usuarios.sql

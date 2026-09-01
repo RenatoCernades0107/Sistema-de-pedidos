@@ -37,7 +37,7 @@ interface Store {
   cambiarEstado: (
     codigo: string,
     estado: Estado,
-    extra?: { motivo?: string | null; numeroFactura?: string | null },
+    extra?: { motivo?: string | null; numeroComprobante?: string | null },
   ) => Promise<Resultado>;
   cambiarUbicacion: (codigo: string, ubicacion: Ubicacion) => Promise<Resultado>;
   asignarResponsable: (codigo: string, responsableId: string | null) => Promise<Resultado>;
@@ -155,13 +155,17 @@ export function StoreProvider({
   );
 
   const cambiarEstado = useCallback(
-    (codigo: string, estado: Estado, extra?: { motivo?: string | null; numeroFactura?: string | null }) => {
+    (
+      codigo: string,
+      estado: Estado,
+      extra?: { motivo?: string | null; numeroComprobante?: string | null },
+    ) => {
       const actual = buscar(codigo);
       if (!actual) return Promise.resolve(sinCambios());
       if (actual.estado === estado) return Promise.resolve(sinCambios());
 
       const motivo = extra?.motivo?.trim() || null;
-      const numeroFactura = extra?.numeroFactura?.trim() || null;
+      const numeroComprobante = extra?.numeroComprobante?.trim() || null;
 
       return mutar(
         {
@@ -173,10 +177,10 @@ export function StoreProvider({
             // para que el pedido no salte de vista y vuelva mientras se guarda.
             fechaEntrega: estado === "entregado" ? hoy() : null,
             fechaAnulacion: estado === "anulado" ? hoy() : null,
-            tieneFactura: actual.tieneFactura || Boolean(numeroFactura),
+            tieneComprobante: actual.tieneComprobante || Boolean(numeroComprobante),
           },
         },
-        () => acciones.cambiarEstado({ codigo, estado, motivo, numeroFactura }),
+        () => acciones.cambiarEstado({ codigo, estado, motivo, numeroComprobante }),
         () =>
           toast.success(`${codigo} → ${ESTADOS[estado]}`, {
             description: `Registrado por ${usuario}`,

@@ -26,8 +26,16 @@ export const FORMATO_DOCUMENTO = {
   CE: { regex: /^[A-Za-z0-9]{9,12}$/, largo: 12, ayuda: "9 a 12 caracteres" },
 } as const;
 
-/** `F001-004512`. La numeración de la SUNAT: serie de 3 y correlativo de 6. */
-export const FORMATO_FACTURA = /^F\d{3}-\d{6}$/;
+/**
+ * La numeración de la SUNAT: letra del tipo, serie de 3 y correlativo de hasta 8.
+ * `F001-004512` es factura, `B001-004512` boleta. El mismo patrón que el CHECK
+ * `pedidos_comprobante_formato`.
+ */
+export const FORMATO_COMPROBANTE = {
+  regex: /^[FB]\d{3}-\d{1,8}$/,
+  ejemplo: "F001-004512",
+  ayuda: "Formato esperado: F001-004512 (factura) o B001-004512 (boleta)",
+} as const;
 
 /** `LCL_2026_H4TP`. El mismo regex que `pedidos_codigo_formato`. */
 export const FORMATO_CODIGO = /^[LP](CL|CM|SP|PT|AC|MX)_\d{4}_[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}$/;
@@ -221,7 +229,7 @@ export const esquemaFormAbono = (saldo: number) =>
   });
 
 /**
- * Motivo y factura del diálogo de cambio de estado (`components/acciones-pedido.tsx`).
+ * Motivo y comprobante del diálogo de cambio de estado (`components/acciones-pedido.tsx`).
  * El campo vacío es válido aquí: lo que hace obligatorio a cada uno es el estado de
  * destino. Sin el `or(literal(""))`, el valor inicial "" fallaría el regex y el
  * formulario no llegaría a enviarse nunca.
@@ -233,10 +241,10 @@ export const esquemaFormEstado = z.object({
     .min(8, "Explica el motivo en al menos 8 caracteres")
     .or(z.literal(""))
     .optional(),
-  numeroFactura: z
+  numeroComprobante: z
     .string()
     .trim()
-    .regex(FORMATO_FACTURA, "Formato esperado: F001-004512")
+    .regex(FORMATO_COMPROBANTE.regex, FORMATO_COMPROBANTE.ayuda)
     .or(z.literal(""))
     .optional(),
 });
@@ -355,13 +363,13 @@ export const esquemaDatosEditables = z
 export const esquemaCambioEstado = z.object({
   codigo,
   estado: estadoPedido,
-  // El motivo y la factura son obligatorios según el destino, pero eso lo decide
-  // la acción, que es la que sabe el rol y si el pedido ya tenía factura.
+  // El motivo y el comprobante son obligatorios según el destino, pero eso lo decide
+  // la acción, que es la que sabe el rol y si el pedido ya tenía comprobante.
   motivo: z.string().trim().min(8, "Explica el motivo en al menos 8 caracteres").nullable(),
-  numeroFactura: z
+  numeroComprobante: z
     .string()
     .trim()
-    .regex(FORMATO_FACTURA, "Formato esperado: F001-004512")
+    .regex(FORMATO_COMPROBANTE.regex, FORMATO_COMPROBANTE.ayuda)
     .nullable(),
 });
 

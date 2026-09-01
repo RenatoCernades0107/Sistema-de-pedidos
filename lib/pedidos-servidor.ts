@@ -125,9 +125,9 @@ export async function cargarPedidos(rol: Rol): Promise<Pedido[]> {
       responsableId: textoONulo(f.responsable_id),
       detalle: texto(f.detalle),
       observaciones: textoONulo(f.observaciones),
-      numeroFactura: textoONulo(f.numero_factura),
+      numeroComprobante: textoONulo(f.numero_comprobante),
       // Las tres vistas lo traen; el número, solo la de Administración.
-      tieneFactura: Boolean(f.tiene_factura),
+      tieneComprobante: Boolean(f.tiene_comprobante),
       esProvincia: Boolean(f.es_provincia),
       envio: f.es_provincia
         ? {

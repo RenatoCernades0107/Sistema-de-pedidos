@@ -8,7 +8,8 @@ const fuente = fs.readFileSync(path.join(raiz, "lib/datos.ts"), "utf8");
 
 const js = fuente
   .replace(/^import type .*$/gm, "")
-  .replace(/^type .*$/gm, "")
+  /* `type X = {` ... `};`: el bloque entero, no solo su primera línea. */
+  .replace(/^type [\s\S]*?^};$/gm, "")
   .replace(/export const/g, "const")
   .replace(/: Pedido\["[a-zA-Z]+"\]/g, "")
   .replace(/: PedidoSemilla\[\]/g, "")
@@ -134,7 +135,7 @@ insert into public.pedidos (
   codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
   cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
   ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_factura, responsable_id, creado_por
+  detalle, observaciones, numero_comprobante, responsable_id, creado_por
 ) values (
   ${q(p.codigo)}, ${bool(p.esProvincia)}, ${q(p.cliente)}, ${q(p.telefonoCliente)},
   ${arr(p.tipos)}, ${p.producto ? `'${p.producto}'` : "null"},
@@ -142,7 +143,7 @@ insert into public.pedidos (
   ${q(p.entrega)}, ${q(p.direccion ?? null)},
   ${q(p.ubicacion)}, ${q(p.estado)}, ${q(motivo)},
   ${q(p.fechaPrometida)}, ${q(p.fechaCreacion + " 09:00:00-05")}, ${q(p.fechaEntrega ?? null)}, ${q(p.fechaAnulacion ?? null)},
-  ${q(p.detalle)}, ${q(p.observaciones)}, ${q(p.numeroFactura)},
+  ${q(p.detalle)}, ${q(p.observaciones)}, ${q(p.numeroComprobante)},
   ${trabajador(p.responsable)}, ${usuario(creador)}
 );`);
 

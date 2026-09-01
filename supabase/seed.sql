@@ -96,7 +96,7 @@ insert into public.pedidos (
   codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
   cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
   ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_factura, responsable_id, creado_por
+  detalle, observaciones, numero_comprobante, responsable_id, creado_por
 ) values (
   'LCL_2026_H4TP', false, 'Corporación Andina SAC', '981 342 705',
   array['CL']::public.tipo_pedido[], null,
@@ -129,7 +129,7 @@ insert into public.pedidos (
   codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
   cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
   ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_factura, responsable_id, creado_por
+  detalle, observaciones, numero_comprobante, responsable_id, creado_por
 ) values (
   'LPT_2026_K9ZM', false, 'Botica Salud Norte', '944 618 230',
   array['PT']::public.tipo_pedido[], 'displays',
@@ -138,7 +138,7 @@ insert into public.pedidos (
   'tienda', 'listo', null,
   '2026-08-29', '2026-08-20 09:00:00-05', null, null,
   '4 displays de mostrador, 3 niveles, acrílico blanco 4mm.', null, null,
-  (select id from public.trabajadores where nombre = 'Issac'), (select id from public.usuarios where email = 'ana@plexiacril.test')
+  (select id from public.trabajadores where nombre = 'Isaac'), (select id from public.usuarios where email = 'ana@plexiacril.test')
 );
 
 insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
@@ -166,7 +166,7 @@ insert into public.pedidos (
   codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
   cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
   ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_factura, responsable_id, creado_por
+  detalle, observaciones, numero_comprobante, responsable_id, creado_por
 ) values (
   'PCM_2026_R2WQ', true, 'Distribuidora Chan Chan EIRL', '962 507 481',
   array['CM']::public.tipo_pedido[], null,
@@ -230,7 +230,7 @@ insert into public.logs_auditoria (pedido_id, usuario_id, campo, valor_anterior,
 values ((select id from public.pedidos where codigo = 'PCM_2026_R2WQ'), (select id from public.usuarios where email = 'carla@plexiacril.test'), 'estado', 'Listo', 'En tránsito', '2026-08-28T11:20:00-05');
 
 insert into public.logs_auditoria (pedido_id, usuario_id, campo, valor_anterior, valor_nuevo, creado_en)
-values ((select id from public.pedidos where codigo = 'PCM_2026_R2WQ'), (select id from public.usuarios where email = 'ana@plexiacril.test'), 'numero_factura', '—', 'F001-004512', '2026-08-28T10:57:00-05');
+values ((select id from public.pedidos where codigo = 'PCM_2026_R2WQ'), (select id from public.usuarios where email = 'ana@plexiacril.test'), 'numero_comprobante', '—', 'F001-004512', '2026-08-28T10:57:00-05');
 
 insert into public.logs_auditoria (pedido_id, usuario_id, campo, valor_anterior, valor_nuevo, creado_en)
 values ((select id from public.pedidos where codigo = 'PCM_2026_R2WQ'), (select id from public.usuarios where email = 'miguel@plexiacril.test'), 'estado', 'En proceso', 'Listo', '2026-08-26T17:41:00-05');
@@ -242,7 +242,7 @@ insert into public.pedidos (
   codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
   cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
   ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_factura, responsable_id, creado_por
+  detalle, observaciones, numero_comprobante, responsable_id, creado_por
 ) values (
   'LSP_2026_T7YX', false, 'Universidad Nacional de Ingeniería', '918 264 933',
   array['SP']::public.tipo_pedido[], null,
@@ -261,7 +261,7 @@ insert into public.pedidos (
   codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
   cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
   ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_factura, responsable_id, creado_por
+  detalle, observaciones, numero_comprobante, responsable_id, creado_por
 ) values (
   'PPT_2026_M3NP', true, 'Clínica San Pablo - Arequipa', '973 155 620',
   array['PT']::public.tipo_pedido[], 'letreros',
@@ -305,7 +305,7 @@ insert into public.pedidos (
   codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
   cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
   ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_factura, responsable_id, creado_por
+  detalle, observaciones, numero_comprobante, responsable_id, creado_por
 ) values (
   'LCL_2026_B8FD', false, 'Restaurante El Tumi', null,
   array['CL']::public.tipo_pedido[], null,
@@ -314,7 +314,7 @@ insert into public.pedidos (
   'tienda', 'entregado', null,
   '2026-08-22', '2026-08-15 09:00:00-05', '2026-08-22', null,
   '25 porta cartas cortados a láser, acrílico ámbar 3mm.', null, 'F001-004489',
-  (select id from public.trabajadores where nombre = 'Jhon'), (select id from public.usuarios where email = 'ana@plexiacril.test')
+  (select id from public.trabajadores where nombre = 'John'), (select id from public.usuarios where email = 'ana@plexiacril.test')
 );
 
 insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
@@ -338,7 +338,7 @@ insert into public.pedidos (
   codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
   cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
   ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_factura, responsable_id, creado_por
+  detalle, observaciones, numero_comprobante, responsable_id, creado_por
 ) values (
   'LCM_2026_W5QA', false, 'Gimnasio Bodytech Miraflores', '956 890 174',
   array['CM']::public.tipo_pedido[], null,
@@ -367,7 +367,7 @@ insert into public.pedidos (
   codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
   cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
   ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_factura, responsable_id, creado_por
+  detalle, observaciones, numero_comprobante, responsable_id, creado_por
 ) values (
   'PCL_2026_J2VH', true, 'Municipalidad de Huancayo', '949 302 668',
   array['CL']::public.tipo_pedido[], null,
@@ -411,7 +411,7 @@ insert into public.pedidos (
   codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
   cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
   ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_factura, responsable_id, creado_por
+  detalle, observaciones, numero_comprobante, responsable_id, creado_por
 ) values (
   'LPT_2026_N6XC', false, 'Óptica Visión Lima', '967 471 052',
   array['PT']::public.tipo_pedido[], 'porta_afiches',
@@ -420,7 +420,7 @@ insert into public.pedidos (
   'taller', 'en_proceso', null,
   '2026-09-01', '2026-08-25 09:00:00-05', null, null,
   '10 porta afiches A3 vertical de pared, cristal 3mm.', null, null,
-  (select id from public.trabajadores where nombre = 'Issac'), (select id from public.usuarios where email = 'ana@plexiacril.test')
+  (select id from public.trabajadores where nombre = 'Isaac'), (select id from public.usuarios where email = 'ana@plexiacril.test')
 );
 
 insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
@@ -437,7 +437,7 @@ insert into public.pedidos (
   codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
   cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
   ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_factura, responsable_id, creado_por
+  detalle, observaciones, numero_comprobante, responsable_id, creado_por
 ) values (
   'LCL_2026_D9KR', false, 'Colegio Los Álamos', '921 736 480',
   array['CL']::public.tipo_pedido[], null,
@@ -467,7 +467,7 @@ insert into public.pedidos (
   codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
   cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
   ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_factura, responsable_id, creado_por
+  detalle, observaciones, numero_comprobante, responsable_id, creado_por
 ) values (
   'PSP_2026_G3LM', true, 'Ferretería El Sol - Piura', '988 204 619',
   array['SP']::public.tipo_pedido[], null,
@@ -511,7 +511,7 @@ insert into public.pedidos (
   codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
   cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
   ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_factura, responsable_id, creado_por
+  detalle, observaciones, numero_comprobante, responsable_id, creado_por
 ) values (
   'LPT_2026_Z4BT', false, 'Cevichería La Mar del Sur', '935 617 902',
   array['PT']::public.tipo_pedido[], 'cajas',
@@ -520,7 +520,7 @@ insert into public.pedidos (
   'tienda', 'listo', null,
   '2026-08-29', '2026-08-22 09:00:00-05', null, null,
   '15 cajas porta cubiertos con tapa, cristal 3mm.', null, null,
-  (select id from public.trabajadores where nombre = 'Jhon'), (select id from public.usuarios where email = 'ana@plexiacril.test')
+  (select id from public.trabajadores where nombre = 'John'), (select id from public.usuarios where email = 'ana@plexiacril.test')
 );
 
 insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
@@ -544,7 +544,7 @@ insert into public.pedidos (
   codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
   cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
   ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_factura, responsable_id, creado_por
+  detalle, observaciones, numero_comprobante, responsable_id, creado_por
 ) values (
   'LCM_2026_Q7SE', false, 'Estudio Contable Paredes', '974 083 251',
   array['CM']::public.tipo_pedido[], null,
@@ -566,7 +566,7 @@ insert into public.pedidos (
   codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
   cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
   ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_factura, responsable_id, creado_por
+  detalle, observaciones, numero_comprobante, responsable_id, creado_por
 ) values (
   'PCL_2026_V8HN', true, 'Hotel Casa Andina - Cusco', '913 590 447',
   array['CL']::public.tipo_pedido[], null,
@@ -603,7 +603,7 @@ insert into public.pedidos (
   codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
   cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
   ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_factura, responsable_id, creado_por
+  detalle, observaciones, numero_comprobante, responsable_id, creado_por
 ) values (
   'LPT_2026_C2RJ', false, 'Farmacia Vida Sana', null,
   array['PT']::public.tipo_pedido[], 'pivotante',
@@ -636,7 +636,7 @@ insert into public.pedidos (
   codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
   cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
   ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_factura, responsable_id, creado_por
+  detalle, observaciones, numero_comprobante, responsable_id, creado_por
 ) values (
   'LCL_2026_F5PW', false, 'Banco Pichincha - Ag. San Isidro', '968 725 130',
   array['CL']::public.tipo_pedido[], null,
@@ -673,7 +673,7 @@ insert into public.pedidos (
   codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
   cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
   ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_factura, responsable_id, creado_por
+  detalle, observaciones, numero_comprobante, responsable_id, creado_por
 ) values (
   'LMX_2026_A7KD', false, 'Cafetería Bisetti', '942 318 906',
   array['CL', 'AC']::public.tipo_pedido[], null,
@@ -682,7 +682,7 @@ insert into public.pedidos (
   'taller', 'en_proceso', null,
   '2026-09-03', '2026-08-27 09:00:00-05', null, null,
   '12 posavasos grabados y 6 soportes de menú con bisagra de aluminio.', 'El cliente pasa a revisar la muestra el lunes por la mañana.', null,
-  (select id from public.trabajadores where nombre = 'Issac'), (select id from public.usuarios where email = 'ana@plexiacril.test')
+  (select id from public.trabajadores where nombre = 'Isaac'), (select id from public.usuarios where email = 'ana@plexiacril.test')
 );
 
 insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
@@ -702,7 +702,7 @@ insert into public.pedidos (
   codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
   cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
   ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_factura, responsable_id, creado_por
+  detalle, observaciones, numero_comprobante, responsable_id, creado_por
 ) values (
   'LSP_2026_H2QN', false, 'Vidriería Santa Rosa', '957 604 283',
   array['SP']::public.tipo_pedido[], null,
@@ -724,7 +724,7 @@ insert into public.pedidos (
   codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
   cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
   ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_factura, responsable_id, creado_por
+  detalle, observaciones, numero_comprobante, responsable_id, creado_por
 ) values (
   'LCL_2026_Y3MB', false, 'Panadería San Jorge', '929 861 375',
   array['CL']::public.tipo_pedido[], null,
@@ -733,7 +733,7 @@ insert into public.pedidos (
   'tienda', 'entregado', null,
   '2026-08-29', '2026-08-24 09:00:00-05', '2026-08-29', null,
   '30 porta precios de mostrador, cristal 2mm.', null, 'F001-004520',
-  (select id from public.trabajadores where nombre = 'Jhon'), (select id from public.usuarios where email = 'ana@plexiacril.test')
+  (select id from public.trabajadores where nombre = 'John'), (select id from public.usuarios where email = 'ana@plexiacril.test')
 );
 
 insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
@@ -753,7 +753,7 @@ insert into public.pedidos (
   codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
   cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
   ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_factura, responsable_id, creado_por
+  detalle, observaciones, numero_comprobante, responsable_id, creado_por
 ) values (
   'LCM_2026_X9TR', false, 'Boutique Almendra', '983 240 517',
   array['CM']::public.tipo_pedido[], null,
@@ -775,7 +775,7 @@ insert into public.pedidos (
   codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
   cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
   ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_factura, responsable_id, creado_por
+  detalle, observaciones, numero_comprobante, responsable_id, creado_por
 ) values (
   'PCL_2026_L4WD', true, 'Municipalidad de Tarapoto', '916 452 738',
   array['CL']::public.tipo_pedido[], null,
@@ -818,7 +818,7 @@ insert into public.pedidos (
   codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
   cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
   ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_factura, responsable_id, creado_por
+  detalle, observaciones, numero_comprobante, responsable_id, creado_por
 ) values (
   'LPT_2026_S6VK', false, 'Hostal Miraflores Suites', '961 073 894',
   array['PT']::public.tipo_pedido[], 'letreros',
@@ -826,7 +826,7 @@ insert into public.pedidos (
   'tienda', null,
   'tienda', 'entregado', null,
   '2026-08-01', '2026-07-21 09:00:00-05', '2026-07-30', null,
-  '22 letreros de puerta con numeración, acrílico negro 4mm.', null, 'F001-004355',
+  '22 letreros de puerta con numeración, acrílico negro 4mm.', null, 'B001-000318',
   (select id from public.trabajadores where nombre = 'Angel'), (select id from public.usuarios where email = 'ana@plexiacril.test')
 );
 
@@ -834,8 +834,8 @@ insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
 values ((select id from public.pedidos where codigo = 'LPT_2026_S6VK'), 1890, 'tarjeta', '2026-07-21 12:00:00-05', (select id from public.usuarios where email = 'ana@plexiacril.test'));
 
 insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'LPT_2026_S6VK'), 'factura', 'pedidos/LPT_2026_S6VK/factura/factura-F001-004355.pdf',
-        'factura-F001-004355.pdf', 'application/pdf', 192512, (select id from public.usuarios where email = 'ana@plexiacril.test'));
+values ((select id from public.pedidos where codigo = 'LPT_2026_S6VK'), 'factura', 'pedidos/LPT_2026_S6VK/factura/boleta-B001-000318.pdf',
+        'boleta-B001-000318.pdf', 'application/pdf', 192512, (select id from public.usuarios where email = 'ana@plexiacril.test'));
 
 insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
 values ((select id from public.pedidos where codigo = 'LPT_2026_S6VK'), 'foto_entrega', 'pedidos/LPT_2026_S6VK/foto_entrega/letreros-instalados.jpg',
@@ -851,7 +851,7 @@ insert into public.pedidos (
   codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
   cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
   ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_factura, responsable_id, creado_por
+  detalle, observaciones, numero_comprobante, responsable_id, creado_por
 ) values (
   'LCM_2026_B3ZQ', false, 'Imprenta Del Valle', '937 528 160',
   array['CM', 'AC']::public.tipo_pedido[], null,

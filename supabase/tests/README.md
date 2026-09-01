@@ -9,8 +9,18 @@ Dos scripts, los dos pensados para correr contra el proyecto de Supabase en la n
   Desde la Fase 4 cubre también las escrituras que hace la app: el alta completa por
   `crear_pedido`, el sobrepago, `INSERT ... RETURNING` sobre columnas revocadas, las
   vistas de rol como solo lectura, y quién puede crear, facturar y entregar.
+- **`comprobante.sql`** — verifica solo la migración `20260901000800` (el paso de
+  `numero_factura` a `numero_comprobante` y la aceptación de boletas): los dos CHECK
+  con nombre, el reparto por rol de las vistas, el trigger de auditoría y el formato
+  probado en caliente. **No necesita las cuentas del seed**, así que es la que sirve
+  en un proyecto con usuarios reales. También termina en `ROLLBACK`.
 - **`estado.sql`** — no verifica nada, solo reporta: cuántos pedidos, pagos y adjuntos
   hay, cómo se reparten los estados y si algún saldo quedó descuadrado.
+
+> `asserts.sql` solo corre contra una base **sembrada**: entra como `ana`, `carla` y
+> `miguel` para probar los permisos por rol. En el proyecto de producción esas cuentas
+> no existen —las reales las crea `usuarios_iniciales.sql`— y aborta en la primera
+> comprobación. Ahí usa `comprobante.sql`.
 
 ## Cómo correrlos
 

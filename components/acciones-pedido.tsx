@@ -7,11 +7,11 @@ import { z } from "zod";
 import { ArrowRight, Ban, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
-import { esquemaFormEstado } from "@/lib/esquemas";
+import { FORMATO_COMPROBANTE, esquemaFormEstado } from "@/lib/esquemas";
 import {
   ESTADOS,
   UBICACIONES,
-  requiereFactura,
+  requiereComprobante,
   requiereMotivo,
   transicionesValidas,
   type Estado,
@@ -56,22 +56,22 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
 
   const validas = transicionesValidas(p);
 
-  /* La factura solo la escribe (y la ve) Administración. Para los demás roles el
-     pedido tiene que llegar ya facturado: `tieneFactura` es el booleano que las
-     tres vistas exponen para poder decirlo sin enseñar el número. */
-  const puedeFacturar = permisos.editarTodo;
-  const bloqueadoSinFactura = (e: Estado) =>
-    requiereFactura(e) && !p.tieneFactura && !puedeFacturar;
+  /* El comprobante solo lo escribe (y lo ve) Administración. Para los demás roles
+     el pedido tiene que llegar ya con comprobante: `tieneComprobante` es el booleano
+     que las tres vistas exponen para poder decirlo sin enseñar el número. */
+  const puedeRegistrarComprobante = permisos.editarTodo;
+  const bloqueadoSinComprobante = (e: Estado) =>
+    requiereComprobante(e) && !p.tieneComprobante && !puedeRegistrarComprobante;
 
   const form = useForm<Campos>({
     resolver: zodResolver(esquemaFormEstado),
-    defaultValues: { motivo: "", numeroFactura: "" },
+    defaultValues: { motivo: "", numeroComprobante: "" },
   });
 
   const pedirCambio = (nuevo: Estado) => {
-    const pideFactura = requiereFactura(nuevo) && !p.tieneFactura && puedeFacturar;
-    if (requiereMotivo(nuevo) || pideFactura) {
-      form.reset({ motivo: "", numeroFactura: "" });
+    const pideComprobante = requiereComprobante(nuevo) && !p.tieneComprobante && puedeRegistrarComprobante;
+    if (requiereMotivo(nuevo) || pideComprobante) {
+      form.reset({ motivo: "", numeroComprobante: "" });
       setDestino(nuevo);
       return;
     }
@@ -84,15 +84,15 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
       form.setError("motivo", { message: "El motivo es obligatorio" });
       return;
     }
-    if (requiereFactura(destino) && !p.tieneFactura && !valores.numeroFactura) {
-      form.setError("numeroFactura", {
-        message: "Sin factura no se puede entregar",
+    if (requiereComprobante(destino) && !p.tieneComprobante && !valores.numeroComprobante) {
+      form.setError("numeroComprobante", {
+        message: "Sin comprobante no se puede entregar",
       });
       return;
     }
     const resultado = await cambiarEstado(p.codigo, destino, {
       motivo: valores.motivo,
-      numeroFactura: valores.numeroFactura,
+      numeroComprobante: valores.numeroComprobante,
     });
     // El diálogo solo se cierra si la base aceptó el cambio: si no, el motivo que
     // acaba de escribirse se perdería y habría que teclearlo otra vez.
@@ -126,7 +126,7 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
                     variant={e === "anulado" ? "destructive" : "outline"}
                     size="sm"
                     onClick={() => pedirCambio(e)}
-                    disabled={pendiente || bloqueadoSinFactura(e)}
+                    disabled={pendiente || bloqueadoSinComprobante(e)}
                     className="gap-1.5"
                   >
                     {e === "anulado" ? (
@@ -139,14 +139,14 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
                 ))}
               </div>
             )}
-            {validas.some(bloqueadoSinFactura) && (
+            {validas.some(bloqueadoSinComprobante) && (
               <p className="text-muted-foreground mt-2 text-xs">
-                Falta el número de factura, y lo registra Administración.
+                Falta el número de comprobante, y lo registra Administración.
               </p>
             )}
-            {puedeFacturar && p.estado === "listo" && !p.tieneFactura && !p.esProvincia && (
+            {puedeRegistrarComprobante && p.estado === "listo" && !p.tieneComprobante && !p.esProvincia && (
               <p className="text-muted-foreground mt-2 text-xs">
-                Para entregar hace falta el número de factura.
+                Para entregar hace falta el número de comprobante.
               </p>
             )}
           </CampoBase>
@@ -234,7 +234,7 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
             <DialogDescription>
               {destino && requiereMotivo(destino)
                 ? "Este cambio queda en el historial del pedido, así que el motivo es obligatorio."
-                : "Un pedido no puede darse por entregado sin su número de factura."}
+                : "Un pedido no puede darse por entregado sin su número de comprobante."}
             </DialogDescription>
           </DialogHeader>
 
@@ -258,20 +258,20 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
               </div>
             )}
 
-            {destino && requiereFactura(destino) && !p.tieneFactura && (
+            {destino && requiereComprobante(destino) && !p.tieneComprobante && (
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="factura">Número de factura</Label>
+                <Label htmlFor="comprobante">Número de comprobante</Label>
                 <Input
-                  id="factura"
+                  id="comprobante"
                   autoFocus
-                  placeholder="F001-004512"
+                  placeholder={FORMATO_COMPROBANTE.ejemplo}
                   className="font-mono"
-                  aria-invalid={!!form.formState.errors.numeroFactura}
-                  {...form.register("numeroFactura")}
+                  aria-invalid={!!form.formState.errors.numeroComprobante}
+                  {...form.register("numeroComprobante")}
                 />
-                {form.formState.errors.numeroFactura && (
+                {form.formState.errors.numeroComprobante && (
                   <p className="text-destructive text-xs">
-                    {form.formState.errors.numeroFactura.message}
+                    {form.formState.errors.numeroComprobante.message}
                   </p>
                 )}
               </div>

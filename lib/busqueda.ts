@@ -53,7 +53,7 @@ export function camposBuscables(p: Pedido, permisos: Visibilidad = TODO) {
     p.responsable ?? "",
     p.detalle,
     p.observaciones ?? "",
-    p.numeroFactura ?? "",
+    p.numeroComprobante ?? "",
     p.envio?.departamento ?? "",
     p.envio?.provincia ?? "",
     ...(permisos.verEnvioCompleto

@@ -429,7 +429,7 @@ export type Database = {
           monto_total: number
           motivo: string | null
           nombre_cliente: string
-          numero_factura: string | null
+          numero_comprobante: string | null
           observaciones: string | null
           pagado: boolean | null
           plazo_credito_dias: number | null
@@ -462,7 +462,7 @@ export type Database = {
           monto_total?: number
           motivo?: string | null
           nombre_cliente: string
-          numero_factura?: string | null
+          numero_comprobante?: string | null
           observaciones?: string | null
           pagado?: boolean | null
           plazo_credito_dias?: number | null
@@ -495,7 +495,7 @@ export type Database = {
           monto_total?: number
           motivo?: string | null
           nombre_cliente?: string
-          numero_factura?: string | null
+          numero_comprobante?: string | null
           observaciones?: string | null
           pagado?: boolean | null
           plazo_credito_dias?: number | null
@@ -756,7 +756,7 @@ export type Database = {
           nombre_cliente: string | null
           nombre_persona_recoge: string | null
           numero_documento: string | null
-          numero_factura: string | null
+          numero_comprobante: string | null
           observaciones: string | null
           observaciones_envio: string | null
           pagado: boolean | null
@@ -768,7 +768,7 @@ export type Database = {
           saldo: number | null
           telefono_cliente: string | null
           telefono_persona_recoge: string | null
-          tiene_factura: boolean | null
+          tiene_comprobante: boolean | null
           tipo_documento: Database["public"]["Enums"]["tipo_documento"] | null
           tipo_pago: Database["public"]["Enums"]["tipo_pago"] | null
           tipo_producto_terminado:
@@ -840,7 +840,7 @@ export type Database = {
           responsable_id: string | null
           telefono_cliente: string | null
           telefono_persona_recoge: string | null
-          tiene_factura: boolean | null
+          tiene_comprobante: boolean | null
           tipo_documento: Database["public"]["Enums"]["tipo_documento"] | null
           tipo_producto_terminado:
             | Database["public"]["Enums"]["producto_terminado"]
@@ -899,7 +899,7 @@ export type Database = {
           provincia: string | null
           responsable: string | null
           responsable_id: string | null
-          tiene_factura: boolean | null
+          tiene_comprobante: boolean | null
           tipo_producto_terminado:
             | Database["public"]["Enums"]["producto_terminado"]
             | null

@@ -27,7 +27,7 @@
 import { refresh } from "next/cache";
 import { clienteServidor } from "@/lib/supabase-servidor";
 import { exigirCrearPedido, exigirSesion, type Perfil } from "@/lib/sesion";
-import { ROLES, requiereFactura, requiereMotivo } from "@/lib/dominio";
+import { ROLES, requiereComprobante, requiereMotivo } from "@/lib/dominio";
 import { ERROR_SIN_FILAS, mensajeDeError } from "@/lib/errores";
 import {
   esquemaAbono,
@@ -152,16 +152,16 @@ export async function crearPedido(entrada: unknown): Promise<Resultado> {
 /* ── Mover el estado ────────────────────────────────────────────────────────── */
 
 /**
- * El estado, el motivo y la factura viajan en un solo UPDATE. Tienen que ir juntos:
- * el CHECK que exige factura para entregar mira la fila entera, así que enviarlos
- * en dos sentencias haría fallar la primera.
+ * El estado, el motivo y el comprobante viajan en un solo UPDATE. Tienen que ir
+ * juntos: el CHECK que exige comprobante para entregar mira la fila entera, así que
+ * enviarlos en dos sentencias haría fallar la primera.
  */
 export async function cambiarEstado(entrada: unknown): Promise<Resultado> {
   const perfil = await exigirSesion();
 
   const datos = esquemaCambioEstado.safeParse(entrada);
   if (!datos.success) return falloDeEsquema(datos.error);
-  const { codigo, estado, motivo, numeroFactura } = datos.data;
+  const { codigo, estado, motivo, numeroComprobante } = datos.data;
 
   if (requiereMotivo(estado) && !motivo) {
     return fallo("Explica el motivo: queda en el historial del pedido.");
@@ -174,11 +174,11 @@ export async function cambiarEstado(entrada: unknown): Promise<Resultado> {
     motivo: requiereMotivo(estado) ? motivo : null,
   };
 
-  /* La factura solo la escribe Administración: es la única que puede leerla y la
-     única que la tiene en `permitidas`. Para los demás roles el pedido ya tiene
-     que venir facturado, y de eso avisa la UI con `tieneFactura`. */
-  if (requiereFactura(estado) && numeroFactura && ROLES[perfil.rol].editarTodo) {
-    cambios.numero_factura = numeroFactura;
+  /* El comprobante solo lo escribe Administración: es la única que puede leerlo y
+     la única que lo tiene en `permitidas`. Para los demás roles el pedido ya tiene
+     que venir con comprobante, y de eso avisa la UI con `tieneComprobante`. */
+  if (requiereComprobante(estado) && numeroComprobante && ROLES[perfil.rol].editarTodo) {
+    cambios.numero_comprobante = numeroComprobante;
   }
 
   return actualizarPedido(codigo, cambios);

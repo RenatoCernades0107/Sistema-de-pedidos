@@ -19,6 +19,7 @@ import {
   PRODUCTOS,
   UBICACIONES,
   esTerminal,
+  etiquetaComprobante,
   etiquetaTipos,
   pasosDelFlujo,
   saldoDe,
@@ -67,7 +68,7 @@ export function DetallePedido({ codigo }: { codigo: string }) {
     );
   }
 
-  // Entregado o anulado: el pedido ya tiene factura o motivo de cierre. No se toca.
+  // Entregado o anulado: ya tiene comprobante o motivo de cierre. No se toca.
   const cerrado = esTerminal(p.estado);
 
   return (
@@ -593,9 +594,9 @@ function PanelPago({ pedido: p }: { pedido: Pedido }) {
         {saldo > 0 && <RegistrarAbono pedido={p} />}
 
         <div className="border-t pt-3">
-          <p className="eyebrow">Número de factura</p>
+          <p className="eyebrow">Comprobante</p>
           <p className="mt-0.5 font-mono text-sm tabular-nums">
-            {p.numeroFactura ?? <Vacio />}
+            {p.numeroComprobante ? etiquetaComprobante(p.numeroComprobante) : <Vacio />}
           </p>
         </div>
       </div>

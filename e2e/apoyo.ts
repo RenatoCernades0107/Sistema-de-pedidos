@@ -116,9 +116,9 @@ export async function crearPedidoDePrueba(etiqueta: string) {
 }
 
 /**
- * Un pedido local, en el taller y ya listo, pero sin facturar. Es el caso que
- * bloquea la entrega: el CHECK exige `numero_factura` para pasar a `entregado`, y
- * ni Operaciones ni Logística pueden escribirla.
+ * Un pedido local, en el taller y ya listo, pero sin comprobante. Es el caso que
+ * bloquea la entrega: el CHECK exige `numero_comprobante` para pasar a `entregado`,
+ * y ni Operaciones ni Logística pueden escribirlo.
  */
 export async function crearPedidoLocalListo(etiqueta: string) {
   const supabase = await sesionDe("administracion");

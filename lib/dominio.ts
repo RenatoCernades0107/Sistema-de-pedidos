@@ -113,10 +113,10 @@ export interface Pedido {
   detalle: string;
   /** Notas e incidencias del pedido. La especificación del trabajo va en `detalle`. */
   observaciones: string | null;
-  numeroFactura: string | null;
-  /** Si el pedido ya está facturado. Lo ven los tres roles; el número, solo Admin:
+  numeroComprobante: string | null;
+  /** Si el pedido ya tiene comprobante. Lo ven los tres roles; el número, solo Admin:
    *  sin esto el taller no puede saber si le dejarán entregar hasta que falle. */
-  tieneFactura: boolean;
+  tieneComprobante: boolean;
   esProvincia: boolean;
   envio?: EnvioProvincia;
   adjuntos: Adjunto[];
@@ -322,13 +322,23 @@ export function pasosDelFlujo(esProvincia: boolean): Estado[] {
 }
 
 export const requiereMotivo = (e: Estado) => e === "anulado" || e === "observado";
-export const requiereFactura = (e: Estado) => e === "entregado";
+export const requiereComprobante = (e: Estado) => e === "entregado";
 
 /* ── Derivados ── */
 
 export const saldoDe = (p: Pedido) => p.montoTotal - p.montoPagado;
 export const estaPagado = (p: Pedido) => saldoDe(p) <= 0;
 export const esTerminal = (e: Estado) => e === "entregado" || e === "anulado";
+
+/**
+ * `F` es factura y `B` boleta, según la numeración de la SUNAT. El prefijo del
+ * número es la única fuente: no hay columna de tipo que pueda contradecirlo.
+ */
+export const tipoComprobante = (n: string) => (n.startsWith("B") ? "boleta" : "factura");
+
+/** `Boleta B001-004512`, para mostrar el número con su tipo. */
+export const etiquetaComprobante = (n: string) =>
+  `${tipoComprobante(n) === "boleta" ? "Boleta" : "Factura"} ${n}`;
 
 /**
  * Sigla que lleva el código del pedido. Un pedido que combina trabajos es "MX":

@@ -38,7 +38,7 @@ create table public.trabajadores (
 );
 
 insert into public.trabajadores (nombre) values
-  ('Juan'), ('Issac'), ('Angel'), ('Clever'), ('Jhon');
+  ('Juan'), ('Isaac'), ('Angel'), ('Clever'), ('John');
 
 insert into public.departamentos (nombre) values
   ('Amazonas'), ('Áncash'), ('Apurímac'), ('Arequipa'), ('Ayacucho'), ('Cajamarca'),

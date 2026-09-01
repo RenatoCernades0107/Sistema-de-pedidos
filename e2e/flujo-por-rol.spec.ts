@@ -73,10 +73,10 @@ test("Operaciones mueve el estado, ve al cliente y no ve el dinero", async ({ pa
   await alGuardar(page, () => page.getByRole("button", { name: "Listo" }).click());
   await page.reload();
 
-  /* Un pedido a provincia se entrega desde Logística, pero además hace falta la
-     factura, que solo escribe Administración: el botón tiene que estar visible y
-     apagado, no fallar al pulsarlo. */
-  await expect(page.getByText("Falta el número de factura")).toHaveCount(0);
+  /* Un pedido a provincia se entrega desde Logística, pero además hace falta el
+     comprobante, que solo escribe Administración: el botón tiene que estar visible
+     y apagado, no fallar al pulsarlo. */
+  await expect(page.getByText("Falta el número de comprobante")).toHaveCount(0);
 });
 
 test("Logística lo pone en tránsito y lo manda a la agencia", async ({ page }) => {

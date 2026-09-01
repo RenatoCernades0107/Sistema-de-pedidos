@@ -2,9 +2,9 @@ import type { Adjunto, EnvioProvincia, Pedido } from "./dominio";
 
 /* Este archivo dejó de ser el origen de datos de la app en la Fase 3 y ahora solo
    alimenta `scripts/gen-seed.cjs`. La semilla no trae los campos que la base
-   deriva o resuelve por join (`tieneFactura`, los ids del ubigeo), así que se
+   deriva o resuelve por join (`tieneComprobante`, los ids del ubigeo), así que se
    escriben fuera del tipo `Pedido` en vez de inventarlos aquí. */
-type PedidoSemilla = Omit<Pedido, "responsableId" | "tieneFactura" | "envio" | "adjuntos"> & {
+type PedidoSemilla = Omit<Pedido, "responsableId" | "tieneComprobante" | "envio" | "adjuntos"> & {
   envio?: Omit<EnvioProvincia, "departamentoId" | "provinciaId">;
   // El id del adjunto lo pone Postgres al sembrar, igual que el del pedido.
   adjuntos: Omit<Adjunto, "id">[];
@@ -53,7 +53,7 @@ export const PEDIDOS: PedidoSemilla[] = [
     responsable: "Angel",
     detalle: "12 placas 60x40 en acrílico transparente 3mm, grabado del logo al centro.",
     observaciones: null,
-    numeroFactura: null,
+    numeroComprobante: null,
     esProvincia: false,
     adjuntos: [
       { tipo: "diseno", nombre: "plano-corte-v2.pdf", peso: "840 KB" },
@@ -79,10 +79,10 @@ export const PEDIDOS: PedidoSemilla[] = [
     plazoCredito: null,
     montoTotal: 890,
     montoPagado: 890,
-    responsable: "Issac",
+    responsable: "Isaac",
     detalle: "4 displays de mostrador, 3 niveles, acrílico blanco 4mm.",
     observaciones: null,
-    numeroFactura: null,
+    numeroComprobante: null,
     esProvincia: false,
     adjuntos: [
       { tipo: "diseno", nombre: "plano-display.pdf", peso: "620 KB" },
@@ -112,7 +112,7 @@ export const PEDIDOS: PedidoSemilla[] = [
     responsable: "Juan",
     detalle: "Corte manual de 30 planchas 1.20x0.80, bordes pulidos.",
     observaciones: null,
-    numeroFactura: "F001-004512",
+    numeroComprobante: "F001-004512",
     esProvincia: true,
     envio: {
       departamento: "La Libertad",
@@ -145,7 +145,7 @@ export const PEDIDOS: PedidoSemilla[] = [
     auditoria: [
       { usuario: "Carla Díaz", campo: "ubicacion_actual", anterior: "En taller", nuevo: "En agencia", fecha: "2026-08-28T11:20:00" },
       { usuario: "Carla Díaz", campo: "estado", anterior: "Listo", nuevo: "En tránsito", fecha: "2026-08-28T11:20:00" },
-      { usuario: "Ana Torres", campo: "numero_factura", anterior: "—", nuevo: "F001-004512", fecha: "2026-08-28T10:57:00" },
+      { usuario: "Ana Torres", campo: "numero_comprobante", anterior: "—", nuevo: "F001-004512", fecha: "2026-08-28T10:57:00" },
       { usuario: "Miguel Ruiz", campo: "estado", anterior: "En proceso", nuevo: "Listo", fecha: "2026-08-26T17:41:00" },
       { usuario: "Ana Torres", campo: "monto_total", anterior: "2 100.00", nuevo: "2 340.00", fecha: "2026-08-21T15:03:00" },
     ],
@@ -169,7 +169,7 @@ export const PEDIDOS: PedidoSemilla[] = [
     responsable: null,
     detalle: "20 planchas acrílico cristal 2440x1220x5mm, sin cortar.",
     observaciones: null,
-    numeroFactura: null,
+    numeroComprobante: null,
     esProvincia: false,
     adjuntos: [],
     abonos: [],
@@ -195,7 +195,7 @@ export const PEDIDOS: PedidoSemilla[] = [
     responsable: "Clever",
     detalle: "6 letreros de señalización interna, acrílico azul 5mm con vinil blanco.",
     observaciones: null,
-    numeroFactura: null,
+    numeroComprobante: null,
     esProvincia: true,
     envio: {
       departamento: "Arequipa",
@@ -233,10 +233,10 @@ export const PEDIDOS: PedidoSemilla[] = [
     plazoCredito: null,
     montoTotal: 640,
     montoPagado: 640,
-    responsable: "Jhon",
+    responsable: "John",
     detalle: "25 porta cartas cortados a láser, acrílico ámbar 3mm.",
     observaciones: null,
-    numeroFactura: "F001-004489",
+    numeroComprobante: "F001-004489",
     esProvincia: false,
     adjuntos: [
       { tipo: "diseno", nombre: "porta-cartas.pdf", peso: "520 KB" },
@@ -267,7 +267,7 @@ export const PEDIDOS: PedidoSemilla[] = [
     responsable: "Angel",
     detalle: "Separadores de vestuario. FALTA que el cliente confirme la altura final.",
     observaciones: null,
-    numeroFactura: null,
+    numeroComprobante: null,
     esProvincia: false,
     adjuntos: [{ tipo: "diseno", nombre: "separadores-v1.pdf", peso: "910 KB" }],
     abonos: [{ fecha: "2026-08-21", monto: 400, metodo: "yape_plin", usuario: "Ana Torres" }],
@@ -293,7 +293,7 @@ export const PEDIDOS: PedidoSemilla[] = [
     responsable: "Juan",
     detalle: "40 placas conmemorativas grabadas a láser, acrílico bronce 4mm.",
     observaciones: null,
-    numeroFactura: null,
+    numeroComprobante: null,
     esProvincia: true,
     envio: {
       departamento: "Junín",
@@ -330,10 +330,10 @@ export const PEDIDOS: PedidoSemilla[] = [
     plazoCredito: 15,
     montoTotal: 720,
     montoPagado: 0,
-    responsable: "Issac",
+    responsable: "Isaac",
     detalle: "10 porta afiches A3 vertical de pared, cristal 3mm.",
     observaciones: null,
-    numeroFactura: null,
+    numeroComprobante: null,
     esProvincia: false,
     adjuntos: [{ tipo: "diseno", nombre: "porta-afiche-a3.pdf", peso: "440 KB" }],
     abonos: [],
@@ -359,7 +359,7 @@ export const PEDIDOS: PedidoSemilla[] = [
     responsable: null,
     detalle: "Set de 60 medallas cortadas a láser con nombre grabado.",
     observaciones: null,
-    numeroFactura: null,
+    numeroComprobante: null,
     esProvincia: false,
     adjuntos: [
       { tipo: "diseno", nombre: "medallas-nombres.xlsx", peso: "48 KB" },
@@ -389,7 +389,7 @@ export const PEDIDOS: PedidoSemilla[] = [
     responsable: "Clever",
     detalle: "30 planchas de acrílico blanco 3mm.",
     observaciones: null,
-    numeroFactura: "F001-004470",
+    numeroComprobante: "F001-004470",
     esProvincia: true,
     envio: {
       departamento: "Piura",
@@ -426,10 +426,10 @@ export const PEDIDOS: PedidoSemilla[] = [
     plazoCredito: null,
     montoTotal: 1120,
     montoPagado: 560,
-    responsable: "Jhon",
+    responsable: "John",
     detalle: "15 cajas porta cubiertos con tapa, cristal 3mm.",
     observaciones: null,
-    numeroFactura: null,
+    numeroComprobante: null,
     esProvincia: false,
     adjuntos: [
       { tipo: "diseno", nombre: "caja-cubiertos.pdf", peso: "380 KB" },
@@ -460,7 +460,7 @@ export const PEDIDOS: PedidoSemilla[] = [
     responsable: null,
     detalle: "Porta tarjetas de escritorio.",
     observaciones: null,
-    numeroFactura: null,
+    numeroComprobante: null,
     esProvincia: false,
     adjuntos: [],
     abonos: [],
@@ -486,7 +486,7 @@ export const PEDIDOS: PedidoSemilla[] = [
     responsable: null,
     detalle: "Señalética de habitaciones, 48 piezas grabadas a láser.",
     observaciones: null,
-    numeroFactura: null,
+    numeroComprobante: null,
     esProvincia: true,
     envio: {
       departamento: "Cusco",
@@ -524,7 +524,7 @@ export const PEDIDOS: PedidoSemilla[] = [
     responsable: "Angel",
     detalle: "2 exhibidores pivotantes de piso, 5 caras.",
     observaciones: null,
-    numeroFactura: null,
+    numeroComprobante: null,
     esProvincia: false,
     adjuntos: [
       { tipo: "diseno", nombre: "pivotante-5-caras.pdf", peso: "1.3 MB" },
@@ -554,7 +554,7 @@ export const PEDIDOS: PedidoSemilla[] = [
     responsable: "Juan",
     detalle: "Mamparas divisorias de ventanilla, 8 unidades.",
     observaciones: null,
-    numeroFactura: "F001-004501",
+    numeroComprobante: "F001-004501",
     esProvincia: false,
     adjuntos: [
       { tipo: "diseno", nombre: "mampara-ventanilla.pdf", peso: "740 KB" },
@@ -583,10 +583,10 @@ export const PEDIDOS: PedidoSemilla[] = [
     plazoCredito: null,
     montoTotal: 2150,
     montoPagado: 900,
-    responsable: "Issac",
+    responsable: "Isaac",
     detalle: "12 posavasos grabados y 6 soportes de menú con bisagra de aluminio.",
     observaciones: "El cliente pasa a revisar la muestra el lunes por la mañana.",
-    numeroFactura: null,
+    numeroComprobante: null,
     esProvincia: false,
     adjuntos: [{ tipo: "diseno", nombre: "posavasos-logo.pdf", peso: "410 KB" }],
     abonos: [{ fecha: "2026-08-27", monto: 900, metodo: "yape_plin", usuario: "Ana Torres" }],
@@ -613,7 +613,7 @@ export const PEDIDOS: PedidoSemilla[] = [
     responsable: null,
     detalle: "2.5 Acrílico Alfa 5mm transparente F7",
     observaciones: "Media plancha se corta del retazo de la semana pasada.",
-    numeroFactura: null,
+    numeroComprobante: null,
     esProvincia: false,
     adjuntos: [],
     abonos: [{ fecha: "2026-08-29", monto: 780, metodo: "efectivo", usuario: "Ana Torres" }],
@@ -638,10 +638,10 @@ export const PEDIDOS: PedidoSemilla[] = [
     plazoCredito: null,
     montoTotal: 510,
     montoPagado: 510,
-    responsable: "Jhon",
+    responsable: "John",
     detalle: "30 porta precios de mostrador, cristal 2mm.",
     observaciones: null,
-    numeroFactura: "F001-004520",
+    numeroComprobante: "F001-004520",
     esProvincia: false,
     adjuntos: [{ tipo: "factura", nombre: "factura-F001-004520.pdf", peso: "194 KB" }],
     abonos: [{ fecha: "2026-08-24", monto: 510, metodo: "efectivo", usuario: "Ana Torres" }],
@@ -670,7 +670,7 @@ export const PEDIDOS: PedidoSemilla[] = [
     responsable: null,
     detalle: "4 exhibidores de vitrina, acrílico blanco 3mm.",
     observaciones: null,
-    numeroFactura: null,
+    numeroComprobante: null,
     esProvincia: false,
     adjuntos: [],
     abonos: [],
@@ -698,7 +698,7 @@ export const PEDIDOS: PedidoSemilla[] = [
     responsable: "Juan",
     detalle: "55 placas de señalización institucional grabadas a láser.",
     observaciones: null,
-    numeroFactura: "F001-004312",
+    numeroComprobante: "F001-004312",
     esProvincia: true,
     envio: {
       departamento: "San Martín",
@@ -739,10 +739,10 @@ export const PEDIDOS: PedidoSemilla[] = [
     responsable: "Angel",
     detalle: "22 letreros de puerta con numeración, acrílico negro 4mm.",
     observaciones: null,
-    numeroFactura: "F001-004355",
+    numeroComprobante: "B001-000318",
     esProvincia: false,
     adjuntos: [
-      { tipo: "factura", nombre: "factura-F001-004355.pdf", peso: "188 KB" },
+      { tipo: "factura", nombre: "boleta-B001-000318.pdf", peso: "188 KB" },
       { tipo: "foto_entrega", nombre: "letreros-instalados.jpg", peso: "2.2 MB" },
     ],
     abonos: [{ fecha: "2026-07-21", monto: 1890, metodo: "tarjeta", usuario: "Ana Torres" }],
@@ -770,7 +770,7 @@ export const PEDIDOS: PedidoSemilla[] = [
     responsable: null,
     detalle: "12 bandejas apilables con topes de aluminio.",
     observaciones: "El adelanto se devolvió en efectivo el mismo día.",
-    numeroFactura: null,
+    numeroComprobante: null,
     esProvincia: false,
     adjuntos: [],
     abonos: [],

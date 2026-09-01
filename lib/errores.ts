@@ -17,7 +17,11 @@ import type { PostgrestError } from "@supabase/supabase-js";
  */
 const POR_CONSTRAINT: ReadonlyArray<readonly [RegExp, string]> = [
   [/pedidos_monto_pagado_check/, "El abono supera el total del pedido."],
-  [/pedidos_numero_factura_check/, "Sin número de factura no se puede entregar."],
+  [/pedidos_comprobante_al_entregar/, "Sin número de comprobante no se puede entregar."],
+  [
+    /pedidos_comprobante_formato/,
+    "Comprobante inválido. Formato: F001-004512 (factura) o B001-004512 (boleta).",
+  ],
   [/pedidos_motivo_check/, "Hace falta el motivo para anular u observar el pedido."],
   [
     /pedidos_tipo_producto_terminado_check/,
