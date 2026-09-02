@@ -1,7 +1,8 @@
 "use client";
 
 import { useTransition } from "react";
-import { ChevronDown, LogOut, UserRound } from "lucide-react";
+import { ChevronDown, LogOut, UserRound, Users } from "lucide-react";
+import Link from "next/link";
 import { cerrarSesion } from "@/app/login/acciones";
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
@@ -22,7 +23,7 @@ import {
  * `cuenta` es el usuario con el que se entra; `usuario` del store es el nombre.
  */
 export function MenuUsuario({ cuenta }: { cuenta: string }) {
-  const { usuario, permisos } = useStore();
+  const { usuario, rol, permisos } = useStore();
   const [saliendo, salir] = useTransition();
 
   return (
@@ -46,6 +47,13 @@ export function MenuUsuario({ cuenta }: { cuenta: string }) {
             </span>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
+          {/* No va en la navegación principal: no es una vista de pedidos. */}
+          {rol === "administracion" && (
+            <DropdownMenuItem render={<Link href="/equipo" />} className="gap-2">
+              <Users className="size-4 shrink-0" />
+              Equipo y avisos
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem
             disabled={saliendo}
             onClick={() => salir(() => void cerrarSesion())}

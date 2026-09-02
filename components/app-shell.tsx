@@ -19,6 +19,7 @@ import { useStore } from "@/lib/store";
 import { VISTAS, type Vista } from "@/lib/dominio";
 import { Button } from "@/components/ui/button";
 import { MenuUsuario } from "@/components/menu-usuario";
+import { ActivarNotificaciones } from "@/components/activar-notificaciones";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { CommandMenu, useCommandMenu } from "@/components/command-menu";
 
@@ -110,6 +111,7 @@ export function AppShell({
             </kbd>
           </button>
 
+          <ActivarNotificaciones />
           <MenuUsuario cuenta={usuario} />
           <ThemeToggle />
         </div>

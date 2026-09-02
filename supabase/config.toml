@@ -385,6 +385,13 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# Manda los avisos de la cola `notificaciones`. verify_jwt queda en true: los dos
+# caminos que la llaman traen JWT (la Server Action con la sesión de quien guardó
+# el pedido, el cron con la clave de servicio), así que no hace falta un secreto
+# compartido — que es justo lo que habría metido un secreto en la app web.
+[functions.enviar-push]
+verify_jwt = true
+
 [analytics]
 enabled = true
 port = 54327

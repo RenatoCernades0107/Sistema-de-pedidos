@@ -92,6 +92,22 @@ export async function exigirCrearPedido(): Promise<Perfil> {
   return perfil;
 }
 
+/**
+ * Pantallas que no son una vista de pedidos y solo abre Administración, como el
+ * enlace de trabajadores con sus cuentas.
+ *
+ * No pasa por `ROLES[...].vistas` a propósito: `Vista` es la lista de filtros
+ * sobre pedidos que alimenta la navegación y los contadores del shell, y meter
+ * ahí una pantalla que no filtra pedidos rompe las dos cosas.
+ */
+export async function exigirAdmin(): Promise<Perfil> {
+  const perfil = await exigirSesion();
+  if (perfil.rol !== "administracion") {
+    redirect(`/${ROLES[perfil.rol].vistaInicial}`);
+  }
+  return perfil;
+}
+
 export async function exigirAgenteCotizacion(): Promise<Perfil> {
   const perfil = await exigirSesion();
   if (!ROLES[perfil.rol].usarAgenteCotizacion) {

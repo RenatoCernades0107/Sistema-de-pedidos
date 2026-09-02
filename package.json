@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "e2e": "playwright test",
-    "tipos": "supabase gen types typescript --linked > lib/supabase-tipos.ts"
+    "tipos": "supabase gen types typescript --linked > lib/supabase-tipos.ts",
+    "iconos": "node scripts/gen-iconos.cjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -44,6 +45,7 @@
     "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "16.3.3",
+    "sharp": "^0.35.4",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

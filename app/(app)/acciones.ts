@@ -25,7 +25,9 @@
  */
 
 import { refresh } from "next/cache";
+import { after } from "next/server";
 import { clienteServidor } from "@/lib/supabase-servidor";
+import { despacharNotificaciones } from "./notificaciones-acciones";
 import { exigirCrearPedido, exigirSesion, type Perfil } from "@/lib/sesion";
 import { ROLES, requiereComprobante, requiereMotivo } from "@/lib/dominio";
 import { ERROR_SIN_FILAS, mensajeDeError } from "@/lib/errores";
@@ -145,6 +147,12 @@ export async function crearPedido(entrada: unknown): Promise<Resultado> {
 
   if (error) return fallo(mensajeDeError(error));
 
+  /* El trigger `pedidos_notificar` ya encoló el aviso para el responsable. Esto
+     solo lo apura: after() corre cuando la respuesta ya salió, así que quien
+     registra el pedido no espera al push. Si no llega a correr, el cron del
+     minuto vacía la cola igual. */
+  if (v.responsableId) after(despacharNotificaciones);
+
   refresh();
   return { ok: true, codigo: data ?? undefined };
 }
@@ -203,7 +211,14 @@ export async function asignarResponsable(entrada: unknown): Promise<Resultado> {
   const datos = esquemaResponsable.safeParse(entrada);
   if (!datos.success) return falloDeEsquema(datos.error);
 
-  return actualizarPedido(datos.data.codigo, { responsable_id: datos.data.responsableId });
+  const resultado = await actualizarPedido(datos.data.codigo, {
+    responsable_id: datos.data.responsableId,
+  });
+
+  // Quitar el responsable no avisa a nadie: dejar de serlo no es una tarea.
+  if (resultado.ok && datos.data.responsableId) after(despacharNotificaciones);
+
+  return resultado;
 }
 
 /* ── Corregir los datos del pedido ──────────────────────────────────────────── */

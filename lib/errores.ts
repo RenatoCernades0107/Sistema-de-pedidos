@@ -42,6 +42,8 @@ const POR_CONSTRAINT: ReadonlyArray<readonly [RegExp, string]> = [
   [/envios_provincia_monto_flete_check/, "El flete no puede ser negativo."],
   [/pagos_monto_check/, "El abono tiene que ser mayor que cero."],
   [/trabajadores_nombre_key/, "Ya hay un trabajador con ese nombre."],
+  [/trabajadores_usuario_id_key/, "Esa cuenta ya está enlazada a otro trabajador."],
+  [/suscripciones_push_endpoint_key/, "Ese navegador ya estaba suscrito."],
   [/usuarios_(usuario|email)_key/, "Ese usuario ya existe."],
 ];
 

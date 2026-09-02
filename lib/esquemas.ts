@@ -386,6 +386,32 @@ export const esquemaAbono = z.object({
   metodo: metodoPago,
 });
 
+/* ── Avisos ─────────────────────────────────────────────────────────────────── */
+
+/**
+ * Lo que devuelve `pushManager.subscribe()` en el navegador, ya aplanado.
+ *
+ * `endpoint` es una URL del servicio de push (FCM, Mozilla, Apple) y llega del
+ * cliente, así que se comprueba que sea https: la fila termina en una tabla que
+ * la Edge Function usa como destino de un POST.
+ */
+export const esquemaSuscripcion = z.object({
+  endpoint: z.url({ protocol: /^https$/ }).max(1000),
+  p256dh: z.string().min(1).max(200),
+  auth: z.string().min(1).max(200),
+  navegador: z.string().max(300).nullable(),
+});
+
+export const esquemaBajaSuscripcion = z.object({
+  endpoint: z.url({ protocol: /^https$/ }).max(1000),
+});
+
+/** `usuarioId: null` desenlaza al trabajador; es un estado válido, no un borrado. */
+export const esquemaEnlaceTrabajador = z.object({
+  trabajadorId: z.uuid(),
+  usuarioId: z.uuid().nullable(),
+});
+
 /* ── Contraseña ─────────────────────────────────────────────────────────────── */
 
 /**
