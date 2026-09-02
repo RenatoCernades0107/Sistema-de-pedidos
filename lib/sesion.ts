@@ -91,3 +91,11 @@ export async function exigirCrearPedido(): Promise<Perfil> {
   }
   return perfil;
 }
+
+export async function exigirAgenteCotizacion(): Promise<Perfil> {
+  const perfil = await exigirSesion();
+  if (!ROLES[perfil.rol].usarAgenteCotizacion) {
+    redirect(`/${ROLES[perfil.rol].vistaInicial}`);
+  }
+  return perfil;
+}

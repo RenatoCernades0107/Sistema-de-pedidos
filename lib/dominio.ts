@@ -238,6 +238,8 @@ export interface PermisosRol {
   /** Subir y borrar los archivos del pedido. Es la misma condición que impone la
    *  política `adjuntos_storage_escritura`: el taller lee planos, no los cambia. */
   adjuntarArchivos: boolean;
+  /** Chatear con el agente de cotizaciones (Quote Agent API) en `/cotizaciones`. */
+  usarAgenteCotizacion: boolean;
 }
 
 export const ROLES: Record<Rol, PermisosRol> = {
@@ -257,6 +259,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     asignarResponsable: true,
     editarEnvio: true,
     adjuntarArchivos: true,
+    usarAgenteCotizacion: true,
   },
   logistica: {
     nombre: "Logística",
@@ -274,6 +277,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     asignarResponsable: true,
     editarEnvio: true,
     adjuntarArchivos: true,
+    usarAgenteCotizacion: false,
   },
   operaciones: {
     nombre: "Operaciones",
@@ -291,6 +295,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     asignarResponsable: false,
     editarEnvio: false,
     adjuntarArchivos: false,
+    usarAgenteCotizacion: false,
   },
 };
 

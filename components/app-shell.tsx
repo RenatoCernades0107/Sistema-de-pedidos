@@ -7,6 +7,7 @@ import {
   Archive,
   Hammer,
   LayoutList,
+  MessageSquareText,
   Plus,
   Search,
   Store,
@@ -173,6 +174,31 @@ export function AppShell({
                   <Plus className="size-4" />
                   Nuevo pedido
                 </Button>
+              </>
+            )}
+
+            {permisos.usarAgenteCotizacion && (
+              <>
+                <p className="eyebrow px-2.5 pt-5 pb-2">Herramientas</p>
+                <Link
+                  href="/cotizaciones"
+                  aria-current={pathname === "/cotizaciones" ? "page" : undefined}
+                  className={cn(
+                    "group relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors",
+                    "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
+                    pathname === "/cotizaciones"
+                      ? "text-foreground font-medium"
+                      : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60",
+                  )}
+                >
+                  <MessageSquareText
+                    className={cn(
+                      "size-4 shrink-0",
+                      pathname === "/cotizaciones" ? "text-primary" : "opacity-70",
+                    )}
+                  />
+                  Cotizaciones
+                </Link>
               </>
             )}
           </nav>
