@@ -343,6 +343,87 @@ export type Database = {
           },
         ]
       }
+      notificaciones: {
+        Row: {
+          creado_en: string
+          cuerpo: string
+          destinatario_id: string
+          enviada_en: string | null
+          error: string | null
+          id: number
+          intentos: number
+          pedido_id: string | null
+          tipo: Database["public"]["Enums"]["tipo_notificacion"]
+          titulo: string
+          tomada_en: string | null
+          url: string
+        }
+        Insert: {
+          creado_en?: string
+          cuerpo: string
+          destinatario_id: string
+          enviada_en?: string | null
+          error?: string | null
+          id?: number
+          intentos?: number
+          pedido_id?: string | null
+          tipo: Database["public"]["Enums"]["tipo_notificacion"]
+          titulo: string
+          tomada_en?: string | null
+          url?: string
+        }
+        Update: {
+          creado_en?: string
+          cuerpo?: string
+          destinatario_id?: string
+          enviada_en?: string | null
+          error?: string | null
+          id?: number
+          intentos?: number
+          pedido_id?: string | null
+          tipo?: Database["public"]["Enums"]["tipo_notificacion"]
+          titulo?: string
+          tomada_en?: string | null
+          url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notificaciones_destinatario_id_fkey"
+            columns: ["destinatario_id"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notificaciones_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notificaciones_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_admin"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notificaciones_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_logistica"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notificaciones_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_operaciones"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pagos: {
         Row: {
           fecha: string
@@ -552,26 +633,78 @@ export type Database = {
           },
         ]
       }
+      suscripciones_push: {
+        Row: {
+          auth: string
+          creado_en: string
+          endpoint: string
+          id: string
+          navegador: string | null
+          p256dh: string
+          usada_en: string | null
+          usuario_id: string
+        }
+        Insert: {
+          auth: string
+          creado_en?: string
+          endpoint: string
+          id?: string
+          navegador?: string | null
+          p256dh: string
+          usada_en?: string | null
+          usuario_id: string
+        }
+        Update: {
+          auth?: string
+          creado_en?: string
+          endpoint?: string
+          id?: string
+          navegador?: string | null
+          p256dh?: string
+          usada_en?: string | null
+          usuario_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "suscripciones_push_usuario_id_fkey"
+            columns: ["usuario_id"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trabajadores: {
         Row: {
           activo: boolean
           creado_en: string
           id: string
           nombre: string
+          usuario_id: string | null
         }
         Insert: {
           activo?: boolean
           creado_en?: string
           id?: string
           nombre: string
+          usuario_id?: string | null
         }
         Update: {
           activo?: boolean
           creado_en?: string
           id?: string
           nombre?: string
+          usuario_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "trabajadores_usuario_id_fkey"
+            columns: ["usuario_id"]
+            isOneToOne: true
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       usuarios: {
         Row: {
@@ -755,8 +888,8 @@ export type Database = {
           nombre_agencia: string | null
           nombre_cliente: string | null
           nombre_persona_recoge: string | null
-          numero_documento: string | null
           numero_comprobante: string | null
+          numero_documento: string | null
           observaciones: string | null
           observaciones_envio: string | null
           pagado: boolean | null
@@ -954,6 +1087,8 @@ export type Database = {
         }
         Returns: string
       }
+      debug_mi_rol: { Args: never; Returns: Json }
+      despachar_push: { Args: never; Returns: undefined }
       email_de_usuario: { Args: { nombre_usuario: string }; Returns: string }
       es_admin: { Args: never; Returns: boolean }
       escritura_del_sistema: { Args: never; Returns: boolean }
@@ -971,17 +1106,55 @@ export type Database = {
         Returns: undefined
       }
       marcar_password_cambiada: { Args: never; Returns: undefined }
+      purgar_notificaciones: { Args: never; Returns: undefined }
       sigla_de: {
         Args: { tipos: Database["public"]["Enums"]["tipo_pedido"][] }
         Returns: string
       }
       sufijo_codigo: { Args: never; Returns: string }
+      texto_notificacion: {
+        Args: {
+          p_codigo: string
+          p_tipo: Database["public"]["Enums"]["tipo_notificacion"]
+        }
+        Returns: {
+          cuerpo: string
+          titulo: string
+        }[]
+      }
+      tomar_notificaciones: {
+        Args: { p_limite?: number }
+        Returns: {
+          creado_en: string
+          cuerpo: string
+          destinatario_id: string
+          enviada_en: string | null
+          error: string | null
+          id: number
+          intentos: number
+          pedido_id: string | null
+          tipo: Database["public"]["Enums"]["tipo_notificacion"]
+          titulo: string
+          tomada_en: string | null
+          url: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "notificaciones"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       transiciones_validas: {
         Args: {
           desde: Database["public"]["Enums"]["estado_pedido"]
           es_provincia: boolean
         }
         Returns: Database["public"]["Enums"]["estado_pedido"][]
+      }
+      usuario_de_trabajador: {
+        Args: { p_trabajador_id: string }
+        Returns: string
       }
     }
     Enums: {
@@ -1011,6 +1184,7 @@ export type Database = {
       rol: "administracion" | "logistica" | "operaciones"
       tipo_adjunto: "diseno" | "factura" | "guia" | "foto_entrega"
       tipo_documento: "DNI" | "CE"
+      tipo_notificacion: "pedido_creado" | "responsable_asignado"
       tipo_pago: "contado" | "a_cuenta" | "credito"
       tipo_pedido: "CL" | "CM" | "SP" | "PT" | "AC"
       ubicacion: "tienda" | "taller" | "agencia"
@@ -1029,12 +1203,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1058,11 +1232,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1083,11 +1257,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1108,11 +1282,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1125,11 +1299,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1173,6 +1347,7 @@ export const Constants = {
       rol: ["administracion", "logistica", "operaciones"],
       tipo_adjunto: ["diseno", "factura", "guia", "foto_entrega"],
       tipo_documento: ["DNI", "CE"],
+      tipo_notificacion: ["pedido_creado", "responsable_asignado"],
       tipo_pago: ["contado", "a_cuenta", "credito"],
       tipo_pedido: ["CL", "CM", "SP", "PT", "AC"],
       ubicacion: ["tienda", "taller", "agencia"],
