@@ -55,3 +55,5 @@ next-env.d.ts
 # clave privada VAPID: la que firma los avisos push. Su sitio son los secretos de
 # la Edge Function; el archivo es solo la copia local para poder reponerlos.
 /vapid.local.json
+
+.vercel
