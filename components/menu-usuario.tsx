@@ -1,7 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
-import { ChevronDown, LogOut, UserRound, Users } from "lucide-react";
+import { ChevronDown, KeyRound, LogOut, UserRound, Users } from "lucide-react";
 import Link from "next/link";
 import { cerrarSesion } from "@/app/login/acciones";
 import { useStore } from "@/lib/store";
@@ -54,6 +54,10 @@ export function MenuUsuario({ cuenta }: { cuenta: string }) {
               Equipo y avisos
             </DropdownMenuItem>
           )}
+          <DropdownMenuItem render={<Link href="/cuenta/contrasena" />} className="gap-2">
+            <KeyRound className="size-4 shrink-0" />
+            Cambiar contraseña
+          </DropdownMenuItem>
           <DropdownMenuItem
             disabled={saliendo}
             onClick={() => salir(() => void cerrarSesion())}

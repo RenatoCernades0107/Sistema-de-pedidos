@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { actualizarPasswordAuth } from "@/lib/contrasena";
 import { esquemaCambioPassword } from "@/lib/esquemas";
 import { perfilActual } from "@/lib/sesion";
 import { clienteServidor } from "@/lib/supabase-servidor";
@@ -39,22 +40,9 @@ export async function cambiarPassword(
   }
 
   const supabase = await clienteServidor();
+  const error = await actualizarPasswordAuth(supabase, analisis.data.password);
 
-  const { error } = await supabase.auth.updateUser({
-    password: analisis.data.password,
-  });
-
-  if (error) {
-    // GoTrue devuelve `same_password` cuando la nueva es la de siempre. Es el
-    // único caso que vale la pena distinguir: los demás no dependen de lo que
-    // se escribió y no hay nada que corregir en el formulario.
-    return {
-      error:
-        error.code === "same_password"
-          ? "Esa es la contraseña que ya tenías. Elige una distinta."
-          : "No se pudo cambiar la contraseña. Inténtalo otra vez.",
-    };
-  }
+  if (error) return { error };
 
   const { error: fallo } = await supabase.rpc("marcar_password_cambiada");
 
