@@ -25,6 +25,12 @@ export interface ChatResumen {
   createdAt: string;
   updatedAt: string;
   lastQuotation: Cotizacion | null;
+  /**
+   * Bosquejo de cotización aún no confirmado por el usuario (distinto de
+   * `lastQuotation`, que solo se llena cuando ya se creó en Odoo). Forma
+   * interna aún no definida por el backend — se trata como opaca.
+   */
+  newQuotation: Record<string, unknown> | null;
 }
 
 export interface Mensaje {
@@ -62,6 +68,17 @@ function deCotizacion(json: unknown): Cotizacion | null {
   };
 }
 
+/**
+ * `new_quotation` todavía no tiene forma final del lado del backend: se trata
+ * como un objeto opaco, sin asumir campos internos. Ausente/`null`/no-objeto
+ * se normaliza a `null` para que esto no truene contra el backend actual
+ * (que ni siquiera manda el campo todavía).
+ */
+function deNuevaCotizacion(json: unknown): Record<string, unknown> | null {
+  if (!json || typeof json !== "object") return null;
+  return json as Record<string, unknown>;
+}
+
 function deChat(json: Record<string, unknown>): ChatResumen {
   return {
     chatId: json.chat_id as string,
@@ -69,6 +86,7 @@ function deChat(json: Record<string, unknown>): ChatResumen {
     createdAt: json.created_at as string,
     updatedAt: json.updated_at as string,
     lastQuotation: deCotizacion(json.last_quotation),
+    newQuotation: deNuevaCotizacion(json.new_quotation),
   };
 }
 
@@ -128,7 +146,14 @@ export async function obtenerChat(chatId: string): Promise<Resultado<ChatDetalle
 export async function enviarMensaje(
   chatId: string | null,
   message: string,
-): Promise<Resultado<{ chatId: string; reply: string; lastQuotation: Cotizacion | null }>> {
+): Promise<
+  Resultado<{
+    chatId: string;
+    reply: string;
+    lastQuotation: Cotizacion | null;
+    newQuotation: Record<string, unknown> | null;
+  }>
+> {
   let idChat = chatId;
 
   if (!idChat) {
@@ -152,10 +177,30 @@ export async function enviarMensaje(
       chatId: idChat,
       reply: r.data.reply as string,
       lastQuotation: deCotizacion(r.data.last_quotation),
+      newQuotation: deNuevaCotizacion(r.data.new_quotation),
     },
   };
 }
 
 export async function borrarChat(chatId: string): Promise<Resultado<void>> {
   return agentFetch<void>(`/chats/${encodeURIComponent(chatId)}`, { method: "DELETE" });
+}
+
+/**
+ * Confirma el bosquejo pendiente (`new_quotation`) y le pide al agente que
+ * cree la cotización en Odoo. Endpoint aún no existe en el backend (ver
+ * `docs/API_agent.md`) — mientras tanto esto devuelve un 404 normal, que se
+ * maneja igual que cualquier otro error de `agentFetch`.
+ */
+export async function crearCotizacion(chatId: string): Promise<Resultado<Cotizacion>> {
+  const r = await agentFetch<Record<string, unknown>>("/create-quotation", {
+    method: "POST",
+    // TODO(user): reemplazar con el body real cuando lo den
+    body: JSON.stringify({ chat_id: chatId }),
+  });
+  if (!r.ok) return r;
+
+  const cotizacion = deCotizacion(r.data);
+  if (!cotizacion) return fallo("El agente no devolvió una cotización válida.");
+  return { ok: true, data: cotizacion };
 }

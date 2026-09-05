@@ -2,10 +2,21 @@
 
 import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { useChat } from "@/app/(app)/cotizaciones/chat-store";
 
 export function ChatThread() {
-  const { mensajes, cargandoMensajes, enviando, activeChatId, error, reintentar } = useChat();
+  const {
+    mensajes,
+    cargandoMensajes,
+    enviando,
+    activeChatId,
+    error,
+    reintentar,
+    pendingQuotation,
+    creandoCotizacion,
+    crearCotizacionOdoo,
+  } = useChat();
   const finRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -51,6 +62,14 @@ export function ChatThread() {
         {enviando && (
           <div className="bg-muted text-muted-foreground self-start rounded-xl px-3.5 py-2 text-sm">
             Escribiendo…
+          </div>
+        )}
+
+        {pendingQuotation && !enviando && (
+          <div className="self-start">
+            <Button size="sm" onClick={crearCotizacionOdoo} disabled={creandoCotizacion}>
+              {creandoCotizacion ? "Creando cotización…" : "Crear cotización en Odoo"}
+            </Button>
           </div>
         )}
 
