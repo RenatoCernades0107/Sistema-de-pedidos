@@ -20,7 +20,8 @@ const POR_CONSTRAINT: ReadonlyArray<readonly [RegExp, string]> = [
   [/pedidos_comprobante_al_entregar/, "Sin número de comprobante no se puede entregar."],
   [
     /pedidos_comprobante_formato/,
-    "Comprobante inválido. Formato: F001-004512 (factura) o B001-004512 (boleta).",
+    "Comprobante inválido. Formato: F001-004512 (factura), B001-004512 (boleta), " +
+      "P001-004512 (proforma) o NV001-004512 (nota de venta).",
   ],
   [/pedidos_motivo_check/, "Hace falta el motivo para anular u observar el pedido."],
   [

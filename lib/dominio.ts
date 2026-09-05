@@ -336,14 +336,28 @@ export const estaPagado = (p: Pedido) => saldoDe(p) <= 0;
 export const esTerminal = (e: Estado) => e === "entregado" || e === "anulado";
 
 /**
- * `F` es factura y `B` boleta, según la numeración de la SUNAT. El prefijo del
- * número es la única fuente: no hay columna de tipo que pueda contradecirlo.
+ * `F` factura y `B` boleta son la numeración de la SUNAT; `P` proforma y `NV` nota
+ * de venta son comprobantes internos. El prefijo del número es la única fuente: no
+ * hay columna de tipo que pueda contradecirlo.
  */
-export const tipoComprobante = (n: string) => (n.startsWith("B") ? "boleta" : "factura");
+export const tipoComprobante = (n: string) =>
+  n.startsWith("NV")
+    ? "nota_venta"
+    : n.startsWith("P")
+      ? "proforma"
+      : n.startsWith("B")
+        ? "boleta"
+        : "factura";
+
+const ETIQUETA_COMPROBANTE: Record<ReturnType<typeof tipoComprobante>, string> = {
+  factura: "Factura",
+  boleta: "Boleta",
+  proforma: "Proforma",
+  nota_venta: "Nota de venta",
+};
 
 /** `Boleta B001-004512`, para mostrar el número con su tipo. */
-export const etiquetaComprobante = (n: string) =>
-  `${tipoComprobante(n) === "boleta" ? "Boleta" : "Factura"} ${n}`;
+export const etiquetaComprobante = (n: string) => `${ETIQUETA_COMPROBANTE[tipoComprobante(n)]} ${n}`;
 
 /**
  * Sigla que lleva el código del pedido. Un pedido que combina trabajos es "MX":
