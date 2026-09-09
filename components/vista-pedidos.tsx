@@ -56,7 +56,7 @@ const RANGOS: Record<Rango, string> = {
 
 export function VistaPedidos({ vista }: { vista: Vista }) {
   const { pedidos, permisos, trabajadores } = useStore();
-  const [modo, setModo] = useState<Modo>("kanban");
+  const [modo, setModo] = useState<Modo>(() => (VISTAS[vista].archivo ? "lista" : "kanban"));
   const [q, setQ] = useState("");
   const [estado, setEstado] = useState<Estado | "todos">("todos");
   const [tipo, setTipo] = useState<TipoPedido | "todos">("todos");
