@@ -415,7 +415,7 @@ export function NuevoPedidoForm() {
                 form.setValue("entrega", v === "provincia" ? "agencia" : "tienda");
               }}
               opciones={[
-                { valor: "local", label: "Entrega local" },
+                { valor: "local", label: "Lima" },
                 { valor: "provincia", label: "Envío a provincia" },
               ]}
             />
