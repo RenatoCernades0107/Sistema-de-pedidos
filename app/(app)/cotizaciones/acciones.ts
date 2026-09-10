@@ -51,6 +51,7 @@ const MENSAJE_POR_ESTADO: Record<number, string> = {
   400: "Falta un dato de sesión. Recarga la página.",
   401: "La API de cotizaciones no está bien configurada. Avisa a soporte.",
   404: "Este chat ya no existe.",
+  409: "El bosquejo ya no está disponible. Pide la cotización de nuevo en el chat.",
   422: "El mensaje no es válido.",
 };
 
@@ -61,10 +62,17 @@ function mensajeDeEstado(status: number): string {
 function deCotizacion(json: unknown): Cotizacion | null {
   if (!json || typeof json !== "object") return null;
   const c = json as Record<string, unknown>;
+  if (
+    typeof c.order_id !== "number" ||
+    typeof c.order_name !== "string" ||
+    typeof c.total_pen !== "number"
+  ) {
+    return null;
+  }
   return {
-    orderId: c.order_id as number,
-    orderName: c.order_name as string,
-    totalPen: c.total_pen as number,
+    orderId: c.order_id,
+    orderName: c.order_name,
+    totalPen: c.total_pen,
   };
 }
 
@@ -188,19 +196,31 @@ export async function borrarChat(chatId: string): Promise<Resultado<void>> {
 
 /**
  * Confirma el bosquejo pendiente (`new_quotation`) y le pide al agente que
- * cree la cotización en Odoo. Endpoint aún no existe en el backend (ver
- * `docs/API_agent.md`) — mientras tanto esto devuelve un 404 normal, que se
- * maneja igual que cualquier otro error de `agentFetch`.
+ * cree la cotización en Odoo directamente, sin pasar por el chat/LLM. Misma
+ * forma de respuesta que `POST /chats/{chat_id}/messages` (ver
+ * `docs/API_agent.md`): la cotización creada viene en `last_quotation`, no en
+ * la raíz del body.
  */
-export async function crearCotizacion(chatId: string): Promise<Resultado<Cotizacion>> {
+export async function crearCotizacion(
+  chatId: string,
+): Promise<
+  Resultado<{ reply: string; lastQuotation: Cotizacion; newQuotation: Record<string, unknown> | null }>
+> {
   const r = await agentFetch<Record<string, unknown>>("/create-quotation", {
     method: "POST",
-    // TODO(user): reemplazar con el body real cuando lo den
     body: JSON.stringify({ chat_id: chatId }),
   });
   if (!r.ok) return r;
 
-  const cotizacion = deCotizacion(r.data);
+  const cotizacion = deCotizacion(r.data.last_quotation);
   if (!cotizacion) return fallo("El agente no devolvió una cotización válida.");
-  return { ok: true, data: cotizacion };
+
+  return {
+    ok: true,
+    data: {
+      reply: r.data.reply as string,
+      lastQuotation: cotizacion,
+      newQuotation: deNuevaCotizacion(r.data.new_quotation),
+    },
+  };
 }

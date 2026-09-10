@@ -37,7 +37,8 @@ Respuesta `200`:
   "title": "Nueva cotización",
   "created_at": "2026-09-01T15:00:00+00:00",
   "updated_at": "2026-09-01T15:00:00+00:00",
-  "last_quotation": null
+  "last_quotation": null,
+  "new_quotation": null
 }
 ```
 
@@ -51,11 +52,14 @@ Respuesta `200`: array de chats, más recientes primero.
     "title": "cotízame 5 piezas de acrílico transparente 3mm 30x50cm",
     "created_at": "2026-09-01T15:00:00+00:00",
     "updated_at": "2026-09-01T15:02:30+00:00",
-    "last_quotation": { "order_id": 55, "order_name": "SO0055", "total_pen": 118.0 }
+    "last_quotation": { "order_id": 55, "order_name": "SO0055", "total_pen": 118.0 },
+    "new_quotation": null
   }
 ]
 ```
 `last_quotation` es `null` hasta que ese chat efectivamente crea una cotización en Odoo.
+
+`new_quotation` es el bosquejo *pendiente de confirmar* (todavía no creado en Odoo) — ver el detalle de cuándo es no-nulo en `POST /chats/{chat_id}/messages` más abajo. El frontend puede usarlo para mostrar el botón "Crear cotización en Odoo" (ver `POST /create-quotation`) en la lista de chats sin tener que abrir cada uno.
 
 ### `GET /chats/{chat_id}` — historial completo de un chat
 
@@ -67,6 +71,13 @@ Respuesta `200`:
   "created_at": "2026-09-01T15:00:00+00:00",
   "updated_at": "2026-09-01T15:02:30+00:00",
   "last_quotation": null,
+  "new_quotation": {
+    "partner_id": 42,
+    "items": [{"product_product_id": 55, "qty": 5, "price_unit": 20.0}],
+    "notes": "",
+    "resumen": "5 piezas 30x50cm, ACRILICO F8 CRISTAL 3MM",
+    "total_pen": 118.0
+  },
   "messages": [
     { "role": "user", "text": "cotízame 5 piezas de acrílico transparente 3mm 30x50cm" },
     { "role": "assistant", "text": "Bosquejo: 5 piezas de 30x50cm en ACRILICO F8 CRISTAL 3MM... Total: S/118.00. ¿Confirmas que cree esta cotización en Odoo?" }
@@ -88,32 +99,77 @@ Respuesta `200`:
 ```json
 {
   "reply": "Bosquejo: 5 piezas de 30x50cm en ACRILICO F8 CRISTAL 3MM... Total: S/118.00. ¿Confirmas que cree esta cotización en Odoo?",
-  "last_quotation": null
+  "last_quotation": null,
+  "new_quotation": {
+    "partner_id": 42,
+    "items": [{"product_product_id": 55, "qty": 5, "price_unit": 20.0}],
+    "notes": "",
+    "resumen": "5 piezas 30x50cm, ACRILICO F8 CRISTAL 3MM",
+    "total_pen": 118.0
+  }
 }
 ```
 
 `reply` es texto libre en español — no hay un campo estructurado `pending_confirmation`. El frontend simplemente muestra el texto en el chat y deja que el colaborador responda libremente (confirmando, rechazando o pidiendo cambios) en su siguiente mensaje.
 
+`new_quotation` es el bosquejo que el agente acaba de armar y presentar en `reply`, listo para ser confirmado — pero **todavía no creado en Odoo**. El frontend puede usarlo para mostrar un botón "Crear cotización en Odoo" que llama a `POST /create-quotation` (ver más abajo) como alternativa a que el colaborador escriba "sí, confirmo" en el chat.
+
+Cuándo es no-nulo `new_quotation`: solo en el turno en que el agente presenta el bosquejo y pregunta "¿Confirmas que cree esta cotización en Odoo?", y solo cuando el precio ya está totalmente calculado **y** el RUC/DNI del cliente ya se resolvió a un partner en Odoo — nunca antes de tener ambas cosas.
+
+Cuándo vuelve a `null`:
+- En el turno en que la cotización efectivamente se crea en Odoo (ese turno trae `last_quotation` en vez de `new_quotation`).
+- En cualquier turno donde el agente no vuelve a presentar/re-presentar un bosquejo — por ejemplo, si el colaborador cambia de tema, o si al agente todavía le falta un dato (sigue preguntando el RUC/DNI).
+- Si el colaborador pide un cambio (color, cantidad, medida): el agente ajusta y vuelve a preguntar, lo cual genera un `new_quotation` **nuevo** (reemplaza al anterior) en ese mismo turno de re-confirmación.
+
+Es decir, `new_quotation` nunca queda "pegado" de un turno viejo: cada respuesta refleja únicamente lo que pasó en ese turno.
+
 `last_quotation` solo viene distinto de `null` en el turno exacto en que el agente creó la cotización en Odoo (después de una confirmación explícita del colaborador):
 ```json
 {
   "reply": "Cotización SO0055 creada por S/118.00.",
-  "last_quotation": { "order_id": 55, "order_name": "SO0055", "total_pen": 118.0 }
+  "last_quotation": { "order_id": 55, "order_name": "SO0055", "total_pen": 118.0 },
+  "new_quotation": null
 }
 ```
 
 Ejemplo de ida y vuelta completo:
 
 1. `POST /chats` → `{chat_id}`
-2. `POST /chats/{chat_id}/messages` con `"cotízame 5 piezas de acrílico transparente de 3mm de 30x50cm"` → el agente busca el producto, calcula el corte, arma el bosquejo y **pregunta si confirmas** (`last_quotation: null`).
-3. `POST /chats/{chat_id}/messages` con `"sí, confirmo, RUC 20123456789"` (o lo que el agente haya pedido) → si falta el RUC/DNI del cliente el agente lo pide en este paso antes de crear la cotización; una vez que tiene todo, llama a Odoo y responde con el número de cotización (`last_quotation` con `order_id/order_name/total_pen`).
-4. `POST /chats/{chat_id}/messages` con `"no, cámbialo a color bronce"` en el paso 3 en vez de confirmar → el agente ajusta y vuelve a preguntar; nunca crea la cotización sin una confirmación explícita.
+2. `POST /chats/{chat_id}/messages` con `"cotízame 5 piezas de acrílico transparente de 3mm de 30x50cm"` → el agente busca el producto, calcula el corte, arma el bosquejo y **pregunta si confirmas** (`last_quotation: null`, `new_quotation` con el bosquejo si ya se resolvió el RUC/DNI, si no todavía `null`).
+3. Confirmación — dos formas equivalentes:
+   - **En el chat**: `POST /chats/{chat_id}/messages` con `"sí, confirmo, RUC 20123456789"` (o lo que el agente haya pedido) → si falta el RUC/DNI del cliente el agente lo pide en este paso antes de crear la cotización; una vez que tiene todo, llama a Odoo y responde con el número de cotización (`last_quotation` con `order_id/order_name/total_pen`, `new_quotation: null`).
+   - **Con el botón del frontend**: una vez que `new_quotation` no es `null` (ya se resolvió el RUC/DNI y el precio), `POST /create-quotation` con `{chat_id}` crea la cotización directamente sin pasar por el chat/LLM, con la misma respuesta que el paso anterior.
+4. `POST /chats/{chat_id}/messages` con `"no, cámbialo a color bronce"` en el paso 3 en vez de confirmar → el agente ajusta y vuelve a preguntar (nuevo `new_quotation`); nunca crea la cotización sin una confirmación explícita.
 
 `404` si el chat no existe o pertenece a otro `X-User-Id`.
 
 ### `DELETE /chats/{chat_id}` — borrar un chat
 
 Respuesta `204` sin body. `404` si no existe o no es del usuario.
+
+### `POST /create-quotation` — confirmar y crear en Odoo el bosquejo pendiente
+
+Ruta a nivel raíz (no bajo `/chats`). Requiere los mismos headers `X-API-Key` / `X-User-Id` que el resto de la API. Es la acción del botón "Crear cotización en Odoo" del frontend: confirma y crea directamente en Odoo el `new_quotation` actualmente pendiente de un chat, **sin pasar por el LLM**.
+
+Body:
+```json
+{ "chat_id": "3f2a1e4e-..." }
+```
+
+Respuesta `200` — mismo shape que `POST /chats/{chat_id}/messages`:
+```json
+{
+  "reply": "Cotización SO0055 creada por S/118.00.",
+  "last_quotation": { "order_id": 55, "order_name": "SO0055", "total_pen": 118.0 },
+  "new_quotation": null
+}
+```
+
+La respuesta se agrega también al historial persistido del chat (como si fuera un turno más del agente), así que si el colaborador reabre el chat después, ve la confirmación en `messages`.
+
+Errores:
+- `404` si `chat_id` no existe o pertenece a otro `X-User-Id`.
+- `409` si el chat no tiene actualmente un `new_quotation` pendiente (`null`) — no hay nada que confirmar.
 
 ## Códigos de error
 
@@ -122,6 +178,7 @@ Respuesta `204` sin body. `404` si no existe o no es del usuario.
 | `400` | Falta el header `X-User-Id`. |
 | `401` | Falta `X-API-Key` o es incorrecto. |
 | `404` | `chat_id` no existe, o existe pero pertenece a otro `X-User-Id`. |
+| `409` | `POST /create-quotation`: no hay `new_quotation` pendiente para ese chat. |
 | `422` | Body inválido (ej. falta `message` en `POST /messages`). |
 
 ## Seguridad — trust boundary de `X-User-Id`

@@ -190,15 +190,20 @@ export function ChatProvider({
         return;
       }
 
-      setPendingQuotation(null);
-      setCache((prev) => {
-        const actual = prev[chatId];
-        if (!actual) return prev;
-        return { ...prev, [chatId]: { ...actual, pendingQuotation: null } };
+      const { reply, lastQuotation, newQuotation } = r.data;
+
+      setPendingQuotation(newQuotation);
+      setMensajes((prev) => {
+        const conRespuesta = [...prev, { role: "assistant" as const, text: reply }];
+        setCache((prevCache) => ({
+          ...prevCache,
+          [chatId]: { mensajes: conRespuesta, pendingQuotation: newQuotation },
+        }));
+        return conRespuesta;
       });
 
-      toast.success(`Cotización ${r.data.orderName} creada`, {
-        description: `Total S/ ${r.data.totalPen.toFixed(2)}`,
+      toast.success(`Cotización ${lastQuotation.orderName} creada`, {
+        description: `Total S/ ${lastQuotation.totalPen.toFixed(2)}`,
       });
 
       const listado = await acciones.listarChats();
