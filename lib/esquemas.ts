@@ -27,14 +27,15 @@ export const FORMATO_DOCUMENTO = {
 } as const;
 
 /**
- * La numeración de la SUNAT: letra del tipo, serie de 3 y correlativo de hasta 8.
- * `F001-004512` es factura, `B001-004512` boleta. El mismo patrón que el CHECK
- * `pedidos_comprobante_formato`.
+ * La numeración de la SUNAT (factura `F`, boleta `B`) más dos comprobantes internos
+ * (proforma `P`, nota de venta `NV`): letra(s) del tipo, serie de 3 y correlativo de
+ * hasta 8. El mismo patrón que el CHECK `pedidos_comprobante_formato`.
  */
 export const FORMATO_COMPROBANTE = {
-  regex: /^[FB]\d{3}-\d{1,8}$/,
+  regex: /^(?:[FBP]|NV)\d{3}-\d{1,8}$/,
   ejemplo: "F001-004512",
-  ayuda: "Formato esperado: F001-004512 (factura) o B001-004512 (boleta)",
+  ayuda:
+    "Formato esperado: F001-004512 (factura), B001-004512 (boleta), P001-004512 (proforma) o NV001-004512 (nota de venta)",
 } as const;
 
 /** `LCL_2026_H4TP`. El mismo regex que `pedidos_codigo_formato`. */

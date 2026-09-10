@@ -6,8 +6,9 @@
  * La base rechaza lo malo, pero el mensaje que lee quien teclea sale de Zod, así que
  * se comprueba por aquí.
  *
- * La numeración es la de la SUNAT: `F` factura, `B` boleta, serie de 3 dígitos y
- * correlativo de hasta 8.
+ * `F` factura y `B` boleta son la numeración de la SUNAT; `P` proforma y `NV` nota
+ * de venta son comprobantes internos. Serie de 3 dígitos y correlativo de hasta 8
+ * para los cuatro.
  */
 
 import { expect, test } from "@playwright/test";
@@ -21,6 +22,9 @@ const VALIDOS = [
   "B010-000001",
   "B010-1", // correlativo sin ceros a la izquierda
   "F001-00004512", // correlativo de 8
+  "P001-004512", // proforma
+  "NV001-004512", // nota de venta
+  "NV010-1", // nota de venta, correlativo sin ceros a la izquierda
 ];
 
 const INVALIDOS = [
@@ -28,10 +32,13 @@ const INVALIDOS = [
   "FF01-004512", // serie con letra
   "F0011-004512", // serie de 4
   "f001-004512", // minúscula
-  "X001-004512", // ni factura ni boleta
+  "X001-004512", // ni factura, boleta, proforma ni nota de venta
   "F001-", // sin correlativo
   "F001004512", // sin guion
   "F001-004512 ", // espacio al final
+  "N001-004512", // 'N' sola no es nota de venta
+  "nv001-004512", // nota de venta en minúscula
+  "NV0011-004512", // serie de 4 en nota de venta
 ];
 
 test.describe("FORMATO_COMPROBANTE", () => {
@@ -72,13 +79,17 @@ test.describe("esquemaFormEstado", () => {
 });
 
 test.describe("tipoComprobante", () => {
-  test("distingue boleta de factura por el prefijo", () => {
+  test("distingue los cuatro tipos por el prefijo", () => {
     expect(tipoComprobante("B001-000318")).toBe("boleta");
     expect(tipoComprobante("F001-004512")).toBe("factura");
+    expect(tipoComprobante("P001-004512")).toBe("proforma");
+    expect(tipoComprobante("NV001-004512")).toBe("nota_venta");
   });
 
   test("etiqueta el número con su tipo", () => {
     expect(etiquetaComprobante("B001-000318")).toBe("Boleta B001-000318");
     expect(etiquetaComprobante("F001-004512")).toBe("Factura F001-004512");
+    expect(etiquetaComprobante("P001-004512")).toBe("Proforma P001-004512");
+    expect(etiquetaComprobante("NV001-004512")).toBe("Nota de venta NV001-004512");
   });
 });

@@ -19,8 +19,8 @@ import { alGuardar, borrarPedido, crearPedidoLocalListo, entrar } from "./apoyo"
 
 test.describe.configure({ mode: "serial" });
 
-/** Cualquier comprobante, factura o boleta. Lo que el taller no debe ver nunca. */
-const CUALQUIER_COMPROBANTE = /\b[FB]\d{3}-\d{1,8}\b/;
+/** Cualquier comprobante, de los cuatro tipos. Lo que el taller no debe ver nunca. */
+const CUALQUIER_COMPROBANTE = /\b(?:[FBP]|NV)\d{3}-\d{1,8}\b/;
 
 let codigo: string;
 

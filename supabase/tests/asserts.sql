@@ -160,9 +160,10 @@ begin
 end $$;
 
 -- ── 3b. Formato del comprobante ─────────────────────────────────────────────
--- `pedidos_comprobante_formato` acepta factura (F) y boleta (B), serie de 3 dígitos
--- y correlativo de hasta 8. Hasta la migración 20260901000800 el patrón vivía solo
--- en Zod, así que cualquier insert por SQL entraba sin mirar.
+-- `pedidos_comprobante_formato` acepta factura (F), boleta (B), proforma (P) y nota
+-- de venta (NV), serie de 3 dígitos y correlativo de hasta 8. Hasta la migración
+-- 20260901000800 el patrón vivía solo en Zod, así que cualquier insert por SQL
+-- entraba sin mirar.
 --
 -- Va antes de la máquina de estados a propósito: ahí 'Prueba local' sigue en
 -- `registrado`, así que el comprobante puede volver a null al terminar. Después de
@@ -174,7 +175,10 @@ declare
   pedido uuid := (select id from public.pedidos where nombre_cliente = 'Prueba local');
   valor  text;
 begin
-  foreach valor in array array['F001-004512', 'B001-000318', 'F010-1', 'B999-00004512'] loop
+  foreach valor in array array[
+    'F001-004512', 'B001-000318', 'F010-1', 'B999-00004512',
+    'P001-004512', 'NV001-004512', 'NV010-1'
+  ] loop
     begin
       update public.pedidos set numero_comprobante = valor where id = pedido;
     exception when others then
@@ -184,11 +188,13 @@ begin
 
   foreach valor in array array[
     'FF01-004512',      -- serie con letra
-    'X001-004512',      -- ni factura ni boleta
+    'X001-004512',      -- ni factura, boleta, proforma ni nota de venta
     'f001-004512',      -- minúscula
     'F001-000045123',   -- correlativo de 9
     'F001-',            -- sin correlativo
-    'F0011-004512'      -- serie de 4
+    'F0011-004512',     -- serie de 4
+    'N001-004512',      -- 'N' sola no es nota de venta
+    'NV0011-004512'     -- serie de 4 en nota de venta
   ] loop
     begin
       update public.pedidos set numero_comprobante = valor where id = pedido;
