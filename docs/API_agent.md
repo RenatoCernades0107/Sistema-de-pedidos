@@ -81,10 +81,13 @@ Respuesta `200`:
   "messages": [
     { "role": "user", "text": "cotízame 5 piezas de acrílico transparente 3mm 30x50cm" },
     { "role": "assistant", "text": "Bosquejo: 5 piezas de 30x50cm en ACRILICO F8 CRISTAL 3MM... Total: S/118.00. ¿Confirmas que cree esta cotización en Odoo?" }
-  ]
+  ],
+  "has_cut_sheet": false
 }
 ```
 `messages` solo trae texto humano/asistente — no expone tool calls ni resultados internos (precios intermedios, formatos evaluados, etc.).
+
+`has_cut_sheet` dice si este chat puede entregar una hoja de corte (`GET /chats/{chat_id}/cut-sheet`): es `true` solo cuando ya creó una cotización en Odoo **y** esa cotización incluyó corte a medida. El PDF de la cotización no necesita un flag equivalente — está disponible exactamente cuando `last_quotation` no es `null`.
 
 `404` si el chat no existe o pertenece a otro `X-User-Id`.
 
@@ -128,9 +131,12 @@ Es decir, `new_quotation` nunca queda "pegado" de un turno viejo: cada respuesta
 {
   "reply": "Cotización SO0055 creada por S/118.00.",
   "last_quotation": { "order_id": 55, "order_name": "SO0055", "total_pen": 118.0 },
-  "new_quotation": null
+  "new_quotation": null,
+  "has_cut_sheet": true
 }
 ```
+
+En ese mismo turno viene `has_cut_sheet`, para que el frontend pueda ofrecer los dos PDFs (cotización y hoja de corte) sin volver a pedir el chat. Ver `GET /chats/{chat_id}/quotation-pdf` y `GET /chats/{chat_id}/cut-sheet`.
 
 Ejemplo de ida y vuelta completo:
 
@@ -142,6 +148,31 @@ Ejemplo de ida y vuelta completo:
 4. `POST /chats/{chat_id}/messages` con `"no, cámbialo a color bronce"` en el paso 3 en vez de confirmar → el agente ajusta y vuelve a preguntar (nuevo `new_quotation`); nunca crea la cotización sin una confirmación explícita.
 
 `404` si el chat no existe o pertenece a otro `X-User-Id`.
+
+### `GET /chats/{chat_id}/quotation-pdf` — el PDF de la cotización (tal como lo imprime Odoo)
+
+Respuesta `200` — el PDF va en base64 dentro del JSON, no como `application/pdf` a secas:
+```json
+{
+  "filename": "Cotizacion-S04254.pdf",
+  "content_type": "application/pdf",
+  "content_base64": "JVBERi0xLjQK..."
+}
+```
+
+El motivo del base64: esta API vive detrás de API Gateway REST, que solo pasa binarios si se le declara `binaryMediaTypes`, y declararlo afecta a **todas** las rutas (las respuestas JSON del resto de la API empezarían a llegar en base64 también). Un PDF aquí pesa unos cientos de KB, así que el ~33% extra del base64 no justifica ese riesgo.
+
+Se direcciona por `chat_id` y no por `order_id` a propósito: la única autorización que tiene esta API es la pertenencia del chat, así que una ruta que aceptara un id de orden de Odoo dejaría a cualquier llamador pasearse por las cotizaciones de otros colaboradores (y de otros clientes).
+
+Errores: `404` si el chat no existe o es de otro `X-User-Id`; `409` si el chat todavía no creó ninguna cotización (`last_quotation: null`).
+
+### `GET /chats/{chat_id}/cut-sheet` — la hoja de corte
+
+Misma forma de respuesta que `quotation-pdf` (`filename` / `content_type` / `content_base64`), con `filename` tipo `"Hoja-de-corte-S04254.pdf"`. Es la misma hoja que el bot de WhatsApp le manda al taller: piezas pedidas, cálculo de precio y el diagrama de cada plancha con el acomodo de los cortes.
+
+Se regenera a demanda desde el historial del chat (de ahí sale el `layout_json` del último cálculo de corte) más el cliente leído de la orden en Odoo. No se guarda nada: una cotización vieja también puede volver a bajar su hoja.
+
+Errores: `404` si el chat no existe o es de otro `X-User-Id`; `409` si el chat no tiene cotización creada, o si la cotización no incluyó corte (plancha entera). Consulta `has_cut_sheet` para no ofrecer el botón en ese caso.
 
 ### `DELETE /chats/{chat_id}` — borrar un chat
 
@@ -161,7 +192,8 @@ Respuesta `200` — mismo shape que `POST /chats/{chat_id}/messages`:
 {
   "reply": "Cotización SO0055 creada por S/118.00.",
   "last_quotation": { "order_id": 55, "order_name": "SO0055", "total_pen": 118.0 },
-  "new_quotation": null
+  "new_quotation": null,
+  "has_cut_sheet": true
 }
 ```
 
@@ -178,7 +210,7 @@ Errores:
 | `400` | Falta el header `X-User-Id`. |
 | `401` | Falta `X-API-Key` o es incorrecto. |
 | `404` | `chat_id` no existe, o existe pero pertenece a otro `X-User-Id`. |
-| `409` | `POST /create-quotation`: no hay `new_quotation` pendiente para ese chat. |
+| `409` | `POST /create-quotation`: no hay `new_quotation` pendiente para ese chat. Rutas de documentos: el chat no tiene cotización creada, o (en `cut-sheet`) la cotización no incluyó corte. |
 | `422` | Body inválido (ej. falta `message` en `POST /messages`). |
 
 ## Seguridad — trust boundary de `X-User-Id`

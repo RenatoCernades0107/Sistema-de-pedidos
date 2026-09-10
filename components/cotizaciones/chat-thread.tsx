@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useChat } from "@/app/(app)/cotizaciones/chat-store";
+import { DocumentosCotizacion } from "./documentos-cotizacion";
 
 export function ChatThread() {
   const {
@@ -72,6 +73,12 @@ export function ChatThread() {
             </Button>
           </div>
         )}
+
+        {/* Al final del hilo y no junto al mensaje que anunció la cotización:
+            los mensajes son una lista plana sin id a la que anclarse, y la
+            cotización ya creada se puede descargar en cualquier momento del
+            chat, no solo en ese turno. */}
+        <DocumentosCotizacion />
 
         {error && (
           <div className="border-destructive/30 bg-destructive/10 text-destructive flex items-center justify-between gap-3 rounded-xl border px-3.5 py-2 text-sm">

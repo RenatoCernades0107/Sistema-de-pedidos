@@ -3,7 +3,14 @@
 import { createContext, useCallback, useContext, useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import * as acciones from "./acciones";
-import type { ChatResumen, Mensaje } from "./acciones";
+import type { ChatResumen, Cotizacion, Mensaje } from "./acciones";
+
+/** Lo que se puede descargar de un chat que ya creó su cotización en Odoo. */
+export interface Documentos {
+  cotizacion: Cotizacion;
+  /** La hoja de corte existe solo si se cotizó corte a medida. */
+  hojaDeCorte: boolean;
+}
 
 interface ChatStore {
   chats: ChatResumen[];
@@ -18,6 +25,13 @@ interface ChatStore {
    * cuanto la cotización efectivamente se crea (`lastQuotation` aparece).
    */
   pendingQuotation: Record<string, unknown> | null;
+  /**
+   * Los PDFs del chat activo, o `null` si todavía no creó su cotización. A
+   * diferencia de `pendingQuotation` esto no se limpia al seguir conversando:
+   * la cotización ya existe en Odoo y se puede volver a descargar siempre,
+   * también al reabrir el chat días después.
+   */
+  documentos: Documentos | null;
   creandoCotizacion: boolean;
   seleccionar: (chatId: string | null) => void;
   enviar: (texto: string) => void;
@@ -28,9 +42,20 @@ interface ChatStore {
 
 const Ctx = createContext<ChatStore | null>(null);
 
+/**
+ * Sin cotización creada no hay nada que descargar: los dos PDFs se llaman por
+ * el número de orden, y la hoja de corte además necesita que se haya cotizado
+ * corte (`hasCutSheet`, que la API calcula por nosotros).
+ */
+function documentosDe(cotizacion: Cotizacion | null, hojaDeCorte: boolean): Documentos | null {
+  if (!cotizacion) return null;
+  return { cotizacion, hojaDeCorte };
+}
+
 interface ChatCache {
   mensajes: Mensaje[];
   pendingQuotation: Record<string, unknown> | null;
+  documentos: Documentos | null;
 }
 
 /**
@@ -50,6 +75,7 @@ export function ChatProvider({
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [pendingQuotation, setPendingQuotation] = useState<Record<string, unknown> | null>(null);
+  const [documentos, setDocumentos] = useState<Documentos | null>(null);
   const [cache, setCache] = useState<Record<string, ChatCache>>({});
   const [cargandoMensajes, setCargandoMensajes] = useState(false);
   const [enviando, iniciarEnvio] = useTransition();
@@ -65,6 +91,7 @@ export function ChatProvider({
       if (chatId === null) {
         setMensajes([]);
         setPendingQuotation(null);
+        setDocumentos(null);
         return;
       }
 
@@ -72,6 +99,7 @@ export function ChatProvider({
       if (enCache) {
         setMensajes(enCache.mensajes);
         setPendingQuotation(enCache.pendingQuotation);
+        setDocumentos(enCache.documentos);
         return;
       }
 
@@ -84,13 +112,22 @@ export function ChatProvider({
           setActiveChatId(null);
           setMensajes([]);
           setPendingQuotation(null);
+          setDocumentos(null);
           return;
         }
+        // `lastQuotation` del detalle es persistente (no solo del último
+        // turno), así que un chat viejo recupera aquí sus descargas.
+        const docs = documentosDe(r.data.lastQuotation, r.data.hasCutSheet);
         setMensajes(r.data.messages);
         setPendingQuotation(r.data.newQuotation);
+        setDocumentos(docs);
         setCache((prev) => ({
           ...prev,
-          [chatId]: { mensajes: r.data.messages, pendingQuotation: r.data.newQuotation },
+          [chatId]: {
+            mensajes: r.data.messages,
+            pendingQuotation: r.data.newQuotation,
+            documentos: docs,
+          },
         }));
       })();
     },
@@ -115,19 +152,28 @@ export function ChatProvider({
           return;
         }
 
-        const { chatId, reply, lastQuotation, newQuotation } = r.data;
+        const { chatId, reply, lastQuotation, newQuotation, hasCutSheet } = r.data;
         // Si ya se creó la cotización, no puede quedar un bosquejo pendiente.
         const pendienteFinal = lastQuotation ? null : newQuotation;
+        // `lastQuotation` solo viene en el turno que la crea; los turnos
+        // siguientes no traen nada, y ahí lo que ya se podía descargar sigue
+        // pudiéndose. De ahí el `?? docsPrevios` en vez de pisarlo con null.
+        const docs = documentosDe(lastQuotation, hasCutSheet);
         setMensajes((prev) => {
           const conRespuesta = [...prev, { role: "assistant" as const, text: reply }];
           setCache((prevCache) => ({
             ...prevCache,
-            [chatId]: { mensajes: conRespuesta, pendingQuotation: pendienteFinal },
+            [chatId]: {
+              mensajes: conRespuesta,
+              pendingQuotation: pendienteFinal,
+              documentos: docs ?? prevCache[chatId]?.documentos ?? null,
+            },
           }));
           return conRespuesta;
         });
         setActiveChatId(chatId);
         setPendingQuotation(pendienteFinal);
+        if (docs) setDocumentos(docs);
 
         const listado = await acciones.listarChats();
         if (listado.ok) setChats(listado.data);
@@ -169,6 +215,7 @@ export function ChatProvider({
           setActiveChatId(null);
           setMensajes([]);
           setPendingQuotation(null);
+          setDocumentos(null);
         }
         toast.success("Chat borrado");
       });
@@ -190,14 +237,20 @@ export function ChatProvider({
         return;
       }
 
-      const { reply, lastQuotation, newQuotation } = r.data;
+      const { reply, lastQuotation, newQuotation, hasCutSheet } = r.data;
+      const docs = documentosDe(lastQuotation, hasCutSheet);
 
       setPendingQuotation(newQuotation);
+      setDocumentos(docs);
       setMensajes((prev) => {
         const conRespuesta = [...prev, { role: "assistant" as const, text: reply }];
         setCache((prevCache) => ({
           ...prevCache,
-          [chatId]: { mensajes: conRespuesta, pendingQuotation: newQuotation },
+          [chatId]: {
+            mensajes: conRespuesta,
+            pendingQuotation: newQuotation,
+            documentos: docs,
+          },
         }));
         return conRespuesta;
       });
@@ -220,6 +273,7 @@ export function ChatProvider({
       enviando,
       error,
       pendingQuotation,
+      documentos,
       creandoCotizacion,
       seleccionar,
       enviar,
@@ -235,6 +289,7 @@ export function ChatProvider({
       enviando,
       error,
       pendingQuotation,
+      documentos,
       creandoCotizacion,
       seleccionar,
       enviar,

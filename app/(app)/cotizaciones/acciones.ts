@@ -3,15 +3,18 @@
 /**
  * Puente server-to-server hacia la Quote Agent API (`docs/API_agent.md`).
  *
- * `APP_API_KEY` y `X-User-Id` nunca salen del servidor: `X-User-Id` sale de
- * `exigirAgenteCotizacion()`, nunca de un valor que mande el navegador — la
- * propia API documenta que confía en ese header a ciegas (IDOR si se
- * expusiera). El agente no guarda los chats en la base de Plexiacril: la
- * Quote Agent API es la única fuente de verdad, así que aquí no hay tablas
- * ni `refresh()` que llamar, solo traducir su respuesta al idioma de la app.
+ * `X-User-Id` sale de `exigirAgenteCotizacion()`, nunca de un valor que mande el
+ * navegador; el transporte y los mensajes de error viven en
+ * `lib/agente-cotizaciones.ts`, que comparte con el route handler de los PDFs.
+ * El agente no guarda los chats en la base de Plexiacril: la Quote Agent API es
+ * la única fuente de verdad, así que aquí no hay tablas ni `refresh()` que
+ * llamar, solo traducir su respuesta al idioma de la app.
  */
 
 import { exigirAgenteCotizacion } from "@/lib/sesion";
+import { agentFetch, fallo, type Resultado } from "@/lib/agente-cotizaciones";
+
+export type { Resultado };
 
 export interface Cotizacion {
   orderId: number;
@@ -40,23 +43,19 @@ export interface Mensaje {
 
 export interface ChatDetalle extends ChatResumen {
   messages: Mensaje[];
+  /**
+   * Si esta cotización tiene hoja de corte que descargar: solo cuando se cotizó
+   * corte a medida, no cuando se vendió la plancha entera. El PDF de la
+   * cotización no necesita un campo así — está disponible exactamente cuando
+   * `lastQuotation` no es `null`.
+   */
+  hasCutSheet: boolean;
 }
 
-export type Resultado<T> = { ok: true; data: T } | { ok: false; error: string };
-
-const fallo = <T,>(error: string): Resultado<T> => ({ ok: false, error });
-
-/** Mapea los códigos de `docs/API_agent.md` § Códigos de error a español. */
-const MENSAJE_POR_ESTADO: Record<number, string> = {
-  400: "Falta un dato de sesión. Recarga la página.",
-  401: "La API de cotizaciones no está bien configurada. Avisa a soporte.",
-  404: "Este chat ya no existe.",
-  409: "El bosquejo ya no está disponible. Pide la cotización de nuevo en el chat.",
-  422: "El mensaje no es válido.",
-};
-
-function mensajeDeEstado(status: number): string {
-  return MENSAJE_POR_ESTADO[status] ?? "No se pudo comunicar con el agente. Intenta de nuevo.";
+/** El mismo `agentFetch` compartido, pero con la sesión ya exigida. */
+async function comoUsuario<T>(path: string, init?: RequestInit): Promise<Resultado<T>> {
+  const perfil = await exigirAgenteCotizacion();
+  return agentFetch<T>(perfil.id, path, init);
 }
 
 function deCotizacion(json: unknown): Cotizacion | null {
@@ -98,42 +97,14 @@ function deChat(json: Record<string, unknown>): ChatResumen {
   };
 }
 
-/** Llama a la Quote Agent API con los headers que exige, y decodifica el JSON. */
-async function agentFetch<T>(path: string, init?: RequestInit): Promise<Resultado<T>> {
-  const perfil = await exigirAgenteCotizacion();
-  const base = process.env.AGENT_API_BASE_URL;
-
-  let res: Response;
-  try {
-    res = await fetch(`${base}${path}`, {
-      ...init,
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": process.env.APP_API_KEY ?? "",
-        "X-User-Id": perfil.id,
-        ...init?.headers,
-      },
-      cache: "no-store",
-    });
-  } catch {
-    return fallo("No se pudo conectar con el agente de cotizaciones.");
-  }
-
-  if (!res.ok) return fallo(mensajeDeEstado(res.status));
-  if (res.status === 204) return { ok: true, data: undefined as T };
-
-  const json = (await res.json()) as T;
-  return { ok: true, data: json };
-}
-
 export async function listarChats(): Promise<Resultado<ChatResumen[]>> {
-  const r = await agentFetch<Record<string, unknown>[]>("/chats");
+  const r = await comoUsuario<Record<string, unknown>[]>("/chats");
   if (!r.ok) return r;
   return { ok: true, data: r.data.map(deChat) };
 }
 
 export async function obtenerChat(chatId: string): Promise<Resultado<ChatDetalle>> {
-  const r = await agentFetch<Record<string, unknown>>(`/chats/${encodeURIComponent(chatId)}`);
+  const r = await comoUsuario<Record<string, unknown>>(`/chats/${encodeURIComponent(chatId)}`);
   if (!r.ok) return r;
 
   const mensajes = (r.data.messages as Record<string, unknown>[] | undefined) ?? [];
@@ -142,6 +113,7 @@ export async function obtenerChat(chatId: string): Promise<Resultado<ChatDetalle
     data: {
       ...deChat(r.data),
       messages: mensajes.map((m) => ({ role: m.role as "user" | "assistant", text: m.text as string })),
+      hasCutSheet: r.data.has_cut_sheet === true,
     },
   };
 }
@@ -160,12 +132,13 @@ export async function enviarMensaje(
     reply: string;
     lastQuotation: Cotizacion | null;
     newQuotation: Record<string, unknown> | null;
+    hasCutSheet: boolean;
   }>
 > {
   let idChat = chatId;
 
   if (!idChat) {
-    const creado = await agentFetch<Record<string, unknown>>("/chats", {
+    const creado = await comoUsuario<Record<string, unknown>>("/chats", {
       method: "POST",
       body: JSON.stringify({}),
     });
@@ -173,7 +146,7 @@ export async function enviarMensaje(
     idChat = creado.data.chat_id as string;
   }
 
-  const r = await agentFetch<Record<string, unknown>>(
+  const r = await comoUsuario<Record<string, unknown>>(
     `/chats/${encodeURIComponent(idChat)}/messages`,
     { method: "POST", body: JSON.stringify({ message }) },
   );
@@ -186,12 +159,13 @@ export async function enviarMensaje(
       reply: r.data.reply as string,
       lastQuotation: deCotizacion(r.data.last_quotation),
       newQuotation: deNuevaCotizacion(r.data.new_quotation),
+      hasCutSheet: r.data.has_cut_sheet === true,
     },
   };
 }
 
 export async function borrarChat(chatId: string): Promise<Resultado<void>> {
-  return agentFetch<void>(`/chats/${encodeURIComponent(chatId)}`, { method: "DELETE" });
+  return comoUsuario<void>(`/chats/${encodeURIComponent(chatId)}`, { method: "DELETE" });
 }
 
 /**
@@ -204,9 +178,14 @@ export async function borrarChat(chatId: string): Promise<Resultado<void>> {
 export async function crearCotizacion(
   chatId: string,
 ): Promise<
-  Resultado<{ reply: string; lastQuotation: Cotizacion; newQuotation: Record<string, unknown> | null }>
+  Resultado<{
+    reply: string;
+    lastQuotation: Cotizacion;
+    newQuotation: Record<string, unknown> | null;
+    hasCutSheet: boolean;
+  }>
 > {
-  const r = await agentFetch<Record<string, unknown>>("/create-quotation", {
+  const r = await comoUsuario<Record<string, unknown>>("/create-quotation", {
     method: "POST",
     body: JSON.stringify({ chat_id: chatId }),
   });
@@ -221,6 +200,7 @@ export async function crearCotizacion(
       reply: r.data.reply as string,
       lastQuotation: cotizacion,
       newQuotation: deNuevaCotizacion(r.data.new_quotation),
+      hasCutSheet: r.data.has_cut_sheet === true,
     },
   };
 }
