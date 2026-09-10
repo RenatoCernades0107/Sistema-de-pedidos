@@ -41,7 +41,7 @@ export async function GET(
   // cuando se pidió la descarga explícitamente.
   const disposicion = request.nextUrl.searchParams.has("descargar") ? "attachment" : "inline";
 
-  return new Response(r.data.contenido as unknown as BodyInit, {
+  return new Response(r.data.contenido, {
     headers: {
       "Content-Type": r.data.tipoMime,
       "Content-Length": String(r.data.contenido.byteLength),

@@ -77,7 +77,12 @@ export async function agentFetch<T>(
 export interface Documento {
   nombre: string;
   tipoMime: string;
-  contenido: Uint8Array;
+  /**
+   * Respaldado por un `ArrayBuffer` y no por el `Buffer` de Node, que está sobre
+   * `ArrayBufferLike`: un `Response` solo acepta el primero, y esto evita tener
+   * que castearlo en cada sitio que lo sirva.
+   */
+  contenido: Uint8Array<ArrayBuffer>;
 }
 
 /**
@@ -94,12 +99,16 @@ export async function agentDocumento(userId: string, path: string): Promise<Resu
   const base64 = r.data.content_base64;
   if (typeof base64 !== "string") return fallo("El agente no devolvió el archivo.");
 
+  const bytes = Buffer.from(base64, "base64");
+  const contenido = new Uint8Array(bytes.byteLength);
+  contenido.set(bytes);
+
   return {
     ok: true,
     data: {
       nombre: typeof r.data.filename === "string" ? r.data.filename : "documento.pdf",
       tipoMime: typeof r.data.content_type === "string" ? r.data.content_type : "application/pdf",
-      contenido: Uint8Array.from(Buffer.from(base64, "base64")),
+      contenido,
     },
   };
 }
