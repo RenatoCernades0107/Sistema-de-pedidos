@@ -89,6 +89,7 @@ function FichaArchivo({ chatId, archivo }: { chatId: string; archivo: Archivo })
       <Button
         variant="ghost"
         size="icon-xs"
+        nativeButton={false}
         render={
           <a
             href={urlDocumento(chatId, clave, true)}
@@ -139,7 +140,12 @@ function Vista({
       <DialogContent className="flex h-[85vh] flex-col gap-3 sm:max-w-3xl">
         <DialogHeader className="flex-row items-center justify-between gap-3 pr-8">
           <DialogTitle>{titulo}</DialogTitle>
-          <Button variant="outline" size="sm" render={<a href={url} target="_blank" rel="noopener noreferrer" />}>
+          <Button
+            variant="outline"
+            size="sm"
+            nativeButton={false}
+            render={<a href={url} target="_blank" rel="noopener noreferrer" />}
+          >
             <ExternalLink />
             Abrir en pestaña
           </Button>
