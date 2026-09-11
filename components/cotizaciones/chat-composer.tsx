@@ -7,27 +7,38 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useChat } from "@/app/(app)/cotizaciones/chat-store";
 
-/**
- * Adjuntos elegidos en el navegador, sin subir a ningún lado todavía.
- *
- * La Quote Agent API no acepta adjuntos en `message` (ver `docs/API_agent.md`),
- * así que esto es puramente local: se pierde al enviar o al cambiar de chat. El
- * día que el backend soporte adjuntos, esto pasa a `chat-store.tsx` junto con lo
- * que se necesite mandar.
- */
+/** Adjuntos elegidos en el navegador, todavía sin mandar. */
 interface AdjuntoLocal {
   id: string;
   archivo: File;
   previewUrl: string | null;
 }
 
-/** No hay tope real del backend que respetar — es solo para no dejar que un
- * clic accidental en "seleccionar todo" del explorador de archivos infle el
- * composer con cientos de chips. Un puñado de admins, uso interno. */
+/** Los mismos topes que impone la Quote Agent API (ver `docs/API_agent.md`).
+ * Comprobarlos aquí no sustituye a los suyos — el servidor no se fía del
+ * navegador —, es para no gastar una subida entera en un archivo que va a
+ * rebotar. */
 const MAX_ADJUNTOS = 10;
+const MAX_BYTES = 4 * 1024 * 1024;
 
-const esTipoAceptado = (archivo: File) =>
-  archivo.type === "application/pdf" || archivo.type.startsWith("image/");
+/** Lo que Gemini sabe leer; el resto se rechaza en vez de mandarse y ser
+ * ignorado en silencio. */
+const TIPOS_ACEPTADOS = ["application/pdf", "image/png", "image/jpeg", "image/webp"];
+
+const esTipoAceptado = (archivo: File) => TIPOS_ACEPTADOS.includes(archivo.type);
+
+/** El archivo en base64, sin el prefijo `data:` que le pone el FileReader. */
+async function aBase64(archivo: File): Promise<string> {
+  const bytes = new Uint8Array(await archivo.arrayBuffer());
+  let binario = "";
+  // De a trozos: pasarle el array entero a String.fromCharCode revienta la
+  // pila de argumentos con archivos de unos pocos MB.
+  const TROZO = 8192;
+  for (let i = 0; i < bytes.length; i += TROZO) {
+    binario += String.fromCharCode(...bytes.subarray(i, i + TROZO));
+  }
+  return btoa(binario);
+}
 
 /** 860160 → "840 KB". */
 function pesoTexto(bytes: number): string {
@@ -40,6 +51,7 @@ export function ChatComposer() {
   const { enviando, enviar } = useChat();
   const [texto, setTexto] = useState("");
   const [adjuntos, setAdjuntos] = useState<AdjuntoLocal[]>([]);
+  const [leyendo, setLeyendo] = useState(false);
   const entrada = useRef<HTMLInputElement>(null);
 
   // Ref con el valor vigente para poder leerlo al desmontar sin que el efecto
@@ -81,13 +93,22 @@ export function ChatComposer() {
     if (rechazadosPorTipo > 0) {
       toast.error(
         rechazadosPorTipo === 1
-          ? "Un archivo no es PDF ni imagen y no se agregó"
-          : `${rechazadosPorTipo} archivos no son PDF ni imagen y no se agregaron`,
+          ? "Un archivo no se agregó: solo PDF, PNG, JPEG o WebP"
+          : `${rechazadosPorTipo} archivos no se agregaron: solo PDF, PNG, JPEG o WebP`,
       );
     }
     if (aceptados.length === 0) return;
 
     setAdjuntos((prev) => {
+      const yaPesan = prev.reduce((suma, a) => suma + a.archivo.size, 0);
+      const nuevoPeso = aceptados.reduce((suma, a) => suma + a.size, yaPesan);
+      if (nuevoPeso > MAX_BYTES) {
+        toast.error("Los archivos pesan demasiado", {
+          description: `El máximo por mensaje es ${MAX_BYTES / 1024 / 1024} MB en total.`,
+        });
+        return prev;
+      }
+
       const espacio = MAX_ADJUNTOS - prev.length;
       if (espacio <= 0) {
         toast.error(`Ya hay ${MAX_ADJUNTOS} archivos adjuntos, el máximo`);
@@ -116,12 +137,39 @@ export function ChatComposer() {
 
   const enviarTexto = () => {
     const limpio = texto.trim();
-    if (!limpio || enviando) return;
-    setTexto("");
-    // Todavía no hay dónde mandar los adjuntos (la API solo acepta texto), así
-    // que se descartan al enviar en vez de quedarse pegados al siguiente mensaje.
-    if (adjuntos.length > 0) limpiarAdjuntos();
-    enviar(limpio);
+    // Un archivo sin texto es un turno válido ("aquí está el plano"); lo único
+    // que no se puede mandar es un mensaje sin nada.
+    if ((!limpio && adjuntos.length === 0) || enviando || leyendo) return;
+
+    if (adjuntos.length === 0) {
+      setTexto("");
+      enviar(limpio);
+      return;
+    }
+
+    // Leer los archivos es asíncrono, así que el composer no se vacía hasta
+    // tenerlos: si la lectura falla, lo escrito y lo elegido siguen ahí.
+    setLeyendo(true);
+    void (async () => {
+      try {
+        const listos = await Promise.all(
+          adjuntos.map(async (a) => ({
+            filename: a.archivo.name,
+            contentType: a.archivo.type,
+            contentBase64: await aBase64(a.archivo),
+          })),
+        );
+        setTexto("");
+        limpiarAdjuntos();
+        enviar(limpio, listos);
+      } catch {
+        toast.error("No se pudieron leer los archivos", {
+          description: "Vuelve a elegirlos e inténtalo de nuevo.",
+        });
+      } finally {
+        setLeyendo(false);
+      }
+    })();
   };
 
   const alTeclear = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -172,7 +220,7 @@ export function ChatComposer() {
             ref={entrada}
             type="file"
             multiple
-            accept="application/pdf,image/*"
+            accept="application/pdf,image/png,image/jpeg,image/webp"
             className="sr-only"
             aria-label="Adjuntar archivos"
             onChange={elegirArchivos}
@@ -181,7 +229,7 @@ export function ChatComposer() {
             type="button"
             variant="outline"
             size="icon"
-            disabled={enviando}
+            disabled={enviando || leyendo}
             onClick={() => entrada.current?.click()}
             aria-label="Adjuntar archivos"
           >
@@ -192,11 +240,16 @@ export function ChatComposer() {
             onChange={(e) => setTexto(e.target.value)}
             onKeyDown={alTeclear}
             placeholder="Cotízame 5 piezas de acrílico transparente 3mm 30x50cm…"
-            disabled={enviando}
+            disabled={enviando || leyendo}
             rows={1}
             className="max-h-40"
           />
-          <Button size="icon" onClick={enviarTexto} disabled={enviando || !texto.trim()} aria-label="Enviar mensaje">
+          <Button
+            size="icon"
+            onClick={enviarTexto}
+            disabled={enviando || leyendo || (!texto.trim() && adjuntos.length === 0)}
+            aria-label="Enviar mensaje"
+          >
             <ArrowUp />
           </Button>
         </div>

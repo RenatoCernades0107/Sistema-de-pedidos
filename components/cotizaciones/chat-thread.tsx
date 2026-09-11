@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useChat } from "@/app/(app)/cotizaciones/chat-store";
 import { DocumentosCotizacion } from "./documentos-cotizacion";
+import { AdjuntosMensaje } from "./adjuntos-mensaje";
 
 export function ChatThread() {
   const {
@@ -50,13 +51,25 @@ export function ChatThread() {
           <div
             key={i}
             className={cn(
-              "max-w-[85%] rounded-xl px-3.5 py-2 text-sm whitespace-pre-wrap",
-              m.role === "user"
-                ? "bg-primary text-primary-foreground self-end"
-                : "bg-muted self-start",
+              "flex max-w-[85%] flex-col gap-1.5",
+              m.role === "user" ? "self-end" : "self-start",
             )}
           >
-            {m.text}
+            {m.adjuntos.length > 0 && <AdjuntosMensaje chatId={activeChatId} adjuntos={m.adjuntos} />}
+            {/* Un turno puede ser solo archivos: sin texto no hay burbuja que
+                dibujar, o quedaría una vacía debajo de las fichas. */}
+            {m.text && (
+              <div
+                className={cn(
+                  "rounded-xl px-3.5 py-2 text-sm whitespace-pre-wrap",
+                  m.role === "user"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted",
+                )}
+              >
+                {m.text}
+              </div>
+            )}
           </div>
         ))}
 

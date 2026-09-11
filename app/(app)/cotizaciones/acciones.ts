@@ -36,9 +36,25 @@ export interface ChatResumen {
   newQuotation: Record<string, unknown> | null;
 }
 
+/** Un archivo ya guardado: la ficha, no los bytes. */
+export interface Adjunto {
+  attachmentId: string;
+  filename: string;
+  contentType: string;
+  size: number;
+}
+
+/** Un archivo de salida, camino al agente. */
+export interface AdjuntoNuevo {
+  filename: string;
+  contentType: string;
+  contentBase64: string;
+}
+
 export interface Mensaje {
   role: "user" | "assistant";
   text: string;
+  adjuntos: Adjunto[];
 }
 
 export interface ChatDetalle extends ChatResumen {
@@ -86,6 +102,28 @@ function deNuevaCotizacion(json: unknown): Record<string, unknown> | null {
   return json as Record<string, unknown>;
 }
 
+function deAdjunto(json: unknown): Adjunto | null {
+  if (!json || typeof json !== "object") return null;
+  const a = json as Record<string, unknown>;
+  if (typeof a.attachment_id !== "string" || typeof a.filename !== "string") return null;
+  return {
+    attachmentId: a.attachment_id,
+    filename: a.filename,
+    contentType: typeof a.content_type === "string" ? a.content_type : "application/octet-stream",
+    size: typeof a.size === "number" ? a.size : 0,
+  };
+}
+
+function deAdjuntos(json: unknown): Adjunto[] {
+  if (!Array.isArray(json)) return [];
+  return json.map(deAdjunto).filter((a): a is Adjunto => a !== null);
+}
+
+/** Al revés: al idioma de la API, que es snake_case. */
+function aAdjunto(a: AdjuntoNuevo) {
+  return { filename: a.filename, content_type: a.contentType, content_base64: a.contentBase64 };
+}
+
 function deChat(json: Record<string, unknown>): ChatResumen {
   return {
     chatId: json.chat_id as string,
@@ -112,20 +150,33 @@ export async function obtenerChat(chatId: string): Promise<Resultado<ChatDetalle
     ok: true,
     data: {
       ...deChat(r.data),
-      messages: mensajes.map((m) => ({ role: m.role as "user" | "assistant", text: m.text as string })),
+      messages: mensajes.map((m) => ({
+        role: m.role as "user" | "assistant",
+        text: m.text as string,
+        adjuntos: deAdjuntos(m.attachments),
+      })),
       hasCutSheet: r.data.has_cut_sheet === true,
     },
   };
 }
 
 /**
- * Manda un mensaje. `chatId` viene `null` la primera vez de una cotización
- * nueva (creación diferida): se crea el chat sin título — la propia API lo
- * autocompleta con este mismo mensaje — y recién ahí se manda el mensaje.
+ * Manda un mensaje, con los archivos que lo acompañen. `chatId` viene `null` la
+ * primera vez de una cotización nueva (creación diferida): se crea el chat sin
+ * título — la propia API lo autocompleta con este mismo mensaje — y recién ahí
+ * se manda el mensaje.
+ *
+ * El texto y los archivos son independientes: se puede mandar solo texto, solo
+ * archivos, o las dos cosas. Lo único que la API rechaza es un mensaje que no
+ * lleve ninguna de las dos.
+ *
+ * Los adjuntos devueltos son los que el agente guardó de verdad, con su id: son
+ * esos y no los que se mandaron los que sirven para volver a pedir el archivo.
  */
 export async function enviarMensaje(
   chatId: string | null,
   message: string,
+  adjuntos: AdjuntoNuevo[] = [],
 ): Promise<
   Resultado<{
     chatId: string;
@@ -133,6 +184,7 @@ export async function enviarMensaje(
     lastQuotation: Cotizacion | null;
     newQuotation: Record<string, unknown> | null;
     hasCutSheet: boolean;
+    adjuntos: Adjunto[];
   }>
 > {
   let idChat = chatId;
@@ -148,7 +200,7 @@ export async function enviarMensaje(
 
   const r = await comoUsuario<Record<string, unknown>>(
     `/chats/${encodeURIComponent(idChat)}/messages`,
-    { method: "POST", body: JSON.stringify({ message }) },
+    { method: "POST", body: JSON.stringify({ message, attachments: adjuntos.map(aAdjunto) }) },
   );
   if (!r.ok) return r;
 
@@ -160,6 +212,7 @@ export async function enviarMensaje(
       lastQuotation: deCotizacion(r.data.last_quotation),
       newQuotation: deNuevaCotizacion(r.data.new_quotation),
       hasCutSheet: r.data.has_cut_sheet === true,
+      adjuntos: deAdjuntos(r.data.attachments),
     },
   };
 }

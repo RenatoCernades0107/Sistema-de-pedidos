@@ -15,11 +15,27 @@ import type { NextRequest } from "next/server";
 import { exigirAgenteCotizacion } from "@/lib/sesion";
 import { agentDocumento } from "@/lib/agente-cotizaciones";
 
-/** Las dos piezas que sabe servir, con la ruta que les corresponde en la API. */
+/**
+ * Lo que sabe servir. Los dos primeros son los PDFs que *salen* de la
+ * cotización; `adjunto:<id>` es un archivo que *entró* — el plano o la lista
+ * que mandó el colaborador — y por eso lleva el id del archivo pegado al
+ * segmento: el chat solo, como en los otros dos, no bastaría para elegir cuál.
+ */
 const RUTA_POR_DOCUMENTO: Record<string, (chatId: string) => string> = {
   cotizacion: (chatId) => `/chats/${encodeURIComponent(chatId)}/quotation-pdf`,
   "hoja-corte": (chatId) => `/chats/${encodeURIComponent(chatId)}/cut-sheet`,
 };
+
+const PREFIJO_ADJUNTO = "adjunto:";
+
+function rutaEnLaApi(documento: string, chatId: string): string | null {
+  if (documento.startsWith(PREFIJO_ADJUNTO)) {
+    const id = documento.slice(PREFIJO_ADJUNTO.length);
+    if (!id) return null;
+    return `/chats/${encodeURIComponent(chatId)}/attachments/${encodeURIComponent(id)}`;
+  }
+  return RUTA_POR_DOCUMENTO[documento]?.(chatId) ?? null;
+}
 
 export async function GET(
   request: NextRequest,
@@ -28,13 +44,14 @@ export async function GET(
   const perfil = await exigirAgenteCotizacion();
   const { chatId, documento } = await ctx.params;
 
-  const ruta = RUTA_POR_DOCUMENTO[documento];
+  const ruta = rutaEnLaApi(decodeURIComponent(documento), chatId);
   if (!ruta) return new Response("No existe ese documento.", { status: 404 });
 
-  const r = await agentDocumento(perfil.id, ruta(chatId));
+  const r = await agentDocumento(perfil.id, ruta);
   // El agente responde 409 cuando el chat todavía no creó la cotización o
-  // cuando no hubo corte: la app no debería llegar aquí (el botón solo se
-  // muestra si corresponde), pero una URL pegada a mano sí.
+  // cuando no hubo corte, y 404 cuando el id de adjunto no es de este chat: la
+  // app no debería llegar a ninguno de los dos (solo enlaza lo que existe),
+  // pero una URL pegada a mano sí.
   if (!r.ok) return new Response(r.error, { status: 409 });
 
   // `inline` para que el visor del navegador lo muestre; `attachment` solo

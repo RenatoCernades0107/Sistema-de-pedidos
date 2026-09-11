@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import * as acciones from "./acciones";
-import type { ChatResumen, Cotizacion, Mensaje } from "./acciones";
+import type { AdjuntoNuevo, ChatResumen, Cotizacion, Mensaje } from "./acciones";
 
 /** Lo que se puede descargar de un chat que ya creó su cotización en Odoo. */
 export interface Documentos {
@@ -34,7 +34,8 @@ interface ChatStore {
   documentos: Documentos | null;
   creandoCotizacion: boolean;
   seleccionar: (chatId: string | null) => void;
-  enviar: (texto: string) => void;
+  /** Texto, archivos, o las dos cosas: la API rechaza solo el mensaje sin nada. */
+  enviar: (texto: string, adjuntos?: AdjuntoNuevo[]) => void;
   reintentar: () => void;
   borrar: (chatId: string) => void;
   crearCotizacionOdoo: () => void;
@@ -82,6 +83,7 @@ export function ChatProvider({
   const [creandoCotizacion, setCreandoCotizacion] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ultimoTexto, setUltimoTexto] = useState<string | null>(null);
+  const [ultimosAdjuntos, setUltimosAdjuntos] = useState<AdjuntoNuevo[]>([]);
 
   const seleccionar = useCallback(
     (chatId: string | null) => {
@@ -135,17 +137,31 @@ export function ChatProvider({
   );
 
   const enviarTexto = useCallback(
-    (texto: string, chatIdDestino: string | null) => {
+    (texto: string, chatIdDestino: string | null, adjuntos: AdjuntoNuevo[] = []) => {
       setError(null);
       setUltimoTexto(texto);
+      setUltimosAdjuntos(adjuntos);
       // El bosquejo pendiente se refiere a la conversación tal como estaba;
       // un mensaje nuevo la deja obsoleta, así que se limpia de inmediato.
       setPendingQuotation(null);
-      const mensajeUsuario: Mensaje = { role: "user", text: texto };
+      // El eco optimista lleva ya los archivos, con la ficha que se puede armar
+      // sin el servidor: el id real llega con la respuesta y lo reemplaza. Sin
+      // esto el adjunto desaparece de la pantalla justo al mandarlo, que es lo
+      // que hace dudar de si se envió.
+      const mensajeUsuario: Mensaje = {
+        role: "user",
+        text: texto,
+        adjuntos: adjuntos.map((a) => ({
+          attachmentId: "",
+          filename: a.filename,
+          contentType: a.contentType,
+          size: 0,
+        })),
+      };
       setMensajes((prev) => [...prev, mensajeUsuario]);
 
       iniciarEnvio(async () => {
-        const r = await acciones.enviarMensaje(chatIdDestino, texto);
+        const r = await acciones.enviarMensaje(chatIdDestino, texto, adjuntos);
 
         if (!r.ok) {
           setError(r.error);
@@ -160,7 +176,16 @@ export function ChatProvider({
         // pudiéndose. De ahí el `?? docsPrevios` en vez de pisarlo con null.
         const docs = documentosDe(lastQuotation, hasCutSheet);
         setMensajes((prev) => {
-          const conRespuesta = [...prev, { role: "assistant" as const, text: reply }];
+          // El eco optimista se queda con la ficha provisional (sin id, sin
+          // peso); aquí se cambia por la que devolvió el agente, que es la que
+          // permite volver a abrir el archivo.
+          const conAdjuntosReales = prev.map((m, i) =>
+            i === prev.length - 1 && m.role === "user" ? { ...m, adjuntos: r.data.adjuntos } : m,
+          );
+          const conRespuesta = [
+            ...conAdjuntosReales,
+            { role: "assistant" as const, text: reply, adjuntos: [] },
+          ];
           setCache((prevCache) => ({
             ...prevCache,
             [chatId]: {
@@ -189,13 +214,16 @@ export function ChatProvider({
   );
 
   const enviar = useCallback(
-    (texto: string) => enviarTexto(texto, activeChatId),
+    (texto: string, adjuntos: AdjuntoNuevo[] = []) => enviarTexto(texto, activeChatId, adjuntos),
     [activeChatId, enviarTexto],
   );
 
+  // Reintentar repite el turno entero, archivos incluidos: el composer ya los
+  // soltó, así que si no se reenviaran, el reintento mandaría un mensaje
+  // distinto del que falló.
   const reintentar = useCallback(() => {
-    if (ultimoTexto) enviarTexto(ultimoTexto, activeChatId);
-  }, [activeChatId, enviarTexto, ultimoTexto]);
+    if (ultimoTexto !== null) enviarTexto(ultimoTexto, activeChatId, ultimosAdjuntos);
+  }, [activeChatId, enviarTexto, ultimoTexto, ultimosAdjuntos]);
 
   const borrar = useCallback(
     (chatId: string) => {
@@ -243,7 +271,10 @@ export function ChatProvider({
       setPendingQuotation(newQuotation);
       setDocumentos(docs);
       setMensajes((prev) => {
-        const conRespuesta = [...prev, { role: "assistant" as const, text: reply }];
+        const conRespuesta = [
+          ...prev,
+          { role: "assistant" as const, text: reply, adjuntos: [] },
+        ];
         setCache((prevCache) => ({
           ...prevCache,
           [chatId]: {

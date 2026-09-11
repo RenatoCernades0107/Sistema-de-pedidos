@@ -33,6 +33,28 @@ export function mensajeDeEstado(status: number): string {
 }
 
 /**
+ * Estados en los que la API escribe un `detail` en español pensado para que lo
+ * lea la persona: por qué se rechazó un archivo, o qué falta para poder crear la
+ * cotización. Ahí su texto gana al genérico de la tabla — "El mensaje no es
+ * válido" no le dice a nadie que su plano pesa 5 MB. En el resto no: un `404`
+ * responde "Chat not found", que es para el log, no para el colaborador.
+ */
+const ESTADOS_CON_DETALLE_UTIL = new Set([409, 422]);
+
+async function motivo(res: Response): Promise<string> {
+  const generico = mensajeDeEstado(res.status);
+  if (!ESTADOS_CON_DETALLE_UTIL.has(res.status)) return generico;
+  try {
+    const body = (await res.json()) as { detail?: unknown };
+    // FastAPI usa `detail` para dos cosas: el string que escribimos nosotros y
+    // la lista de errores de esquema que genera solo. Solo el primero se muestra.
+    return typeof body.detail === "string" && body.detail ? body.detail : generico;
+  } catch {
+    return generico;
+  }
+}
+
+/**
  * La base puede venir con `/` al final (así está en el `.env` de producción) y
  * todas las rutas empiezan con `/`: sin esto la URL sale con `//` en medio.
  */
@@ -67,7 +89,7 @@ export async function agentFetch<T>(
     return fallo("No se pudo conectar con el agente de cotizaciones.");
   }
 
-  if (!res.ok) return fallo(mensajeDeEstado(res.status));
+  if (!res.ok) return fallo(await motivo(res));
   if (res.status === 204) return { ok: true, data: undefined as T };
 
   const json = (await res.json()) as T;

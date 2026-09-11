@@ -79,8 +79,8 @@ Respuesta `200`:
     "total_pen": 118.0
   },
   "messages": [
-    { "role": "user", "text": "cotízame 5 piezas de acrílico transparente 3mm 30x50cm" },
-    { "role": "assistant", "text": "Bosquejo: 5 piezas de 30x50cm en ACRILICO F8 CRISTAL 3MM... Total: S/118.00. ¿Confirmas que cree esta cotización en Odoo?" }
+    { "role": "user", "text": "cotízame 5 piezas de acrílico transparente 3mm 30x50cm", "attachments": [] },
+    { "role": "assistant", "text": "Bosquejo: 5 piezas de 30x50cm en ACRILICO F8 CRISTAL 3MM... Total: S/118.00. ¿Confirmas que cree esta cotización en Odoo?", "attachments": [] }
   ],
   "has_cut_sheet": false
 }
@@ -96,6 +96,37 @@ Respuesta `200`:
 Body:
 ```json
 { "message": "cotízame 5 piezas de acrílico transparente de 3mm de 30x50cm" }
+```
+
+**Adjuntos.** El colaborador puede mandar planos, dibujos o listas de piezas junto con el mensaje, o en vez de él:
+```json
+{
+  "message": "cotiza lo del plano",
+  "attachments": [
+    { "filename": "plano.pdf", "content_type": "application/pdf", "content_base64": "JVBERi0xLjQK..." }
+  ]
+}
+```
+- `message` y `attachments` son ambos opcionales, pero **al menos uno** tiene que venir: un body con mensaje vacío y sin archivos da `422`.
+- Tipos admitidos: `application/pdf`, `image/png`, `image/jpeg`, `image/webp` — lo que Gemini sabe leer. Cualquier otro da `422` con el motivo, en vez de guardarse y ser ignorado en silencio.
+- Máximo **10 archivos y 4 MB en total por mensaje** (sobre los bytes, antes del base64). El tope sale del límite de 6 MB del payload síncrono de Lambda.
+- La validación es todo-o-nada: si un archivo falla no se guarda ninguno, para que no queden mensajes a medio subir.
+- El agente **los lee en ese turno** (Gemini recibe el PDF o la imagen tal cual) y devuelve en `reply` lo que entendió, pieza por pieza, antes de poner precios.
+- En turnos posteriores el modelo ya no recibe los bytes, solo el nombre del archivo: releerlo en cada turno costaría una fortuna y para entonces lo leído ya está en la conversación. Si hace falta volver a mirarlo, hay que adjuntarlo de nuevo.
+
+Los bytes se guardan en S3, nunca en el historial: un chat es un único item de DynamoDB con tope de 400 KB, y una foto de un plano lo reventaría. Lo que viaja en `messages` es solo la ficha del archivo.
+
+La respuesta incluye `attachments` con lo que quedó guardado:
+```json
+{
+  "reply": "Del plano leí 4 piezas de 30x50cm en acrílico 3mm...",
+  "last_quotation": null,
+  "new_quotation": null,
+  "has_cut_sheet": false,
+  "attachments": [
+    { "attachment_id": "9f2c...", "filename": "plano.pdf", "content_type": "application/pdf", "size": 148213, "uploaded_at": "2026-09-11T04:30:00+00:00" }
+  ]
+}
 ```
 
 Respuesta `200`:
@@ -148,6 +179,14 @@ Ejemplo de ida y vuelta completo:
 4. `POST /chats/{chat_id}/messages` con `"no, cámbialo a color bronce"` en el paso 3 en vez de confirmar → el agente ajusta y vuelve a preguntar (nuevo `new_quotation`); nunca crea la cotización sin una confirmación explícita.
 
 `404` si el chat no existe o pertenece a otro `X-User-Id`.
+
+### `GET /chats/{chat_id}/attachments/{attachment_id}` — un archivo que adjuntó el colaborador
+
+Misma forma de respuesta que las otras rutas de documentos (`filename` / `content_type` / `content_base64`). Es lo que usa el frontend para volver a mostrar el plano en el hilo.
+
+El `attachment_id` se resuelve **contra el historial de ese chat**, no contra S3 directamente: solo se puede nombrar un archivo que ese chat mandó de verdad, que es lo que impide que un id alcance el prefijo de otro chat. `404` si el id no está en el historial.
+
+Al borrar un chat se borran también sus archivos. Si S3 falla en ese momento el chat se borra igual y quedan unos objetos inalcanzables: un botón de borrar que a veces se niega es peor.
 
 ### `GET /chats/{chat_id}/quotation-pdf` — el PDF de la cotización (tal como lo imprime Odoo)
 
@@ -226,5 +265,5 @@ Esto es intencional para v1 (API key compartida, sin login propio en esta API), 
 ## Notas de integración
 
 - El endpoint de mensajes es **síncrono**: la respuesta HTTP ya trae la respuesta completa del agente (puede tardar varios segundos porque internamente llama a Gemini y a Odoo varias veces). No hay streaming ni webhooks — un `POST` = un turno de chat completo.
-- No hay soporte de imágenes/adjuntos en `message` — solo texto.
+- `message` acepta adjuntos (PDF e imágenes) — ver `POST /chats/{chat_id}/messages`.
 - El `title` de un chat se autocompleta con los primeros ~60 caracteres del primer mensaje del colaborador si no se pasó uno explícito al crear el chat.
