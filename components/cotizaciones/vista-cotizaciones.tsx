@@ -22,7 +22,13 @@ function Contenido() {
   const [sheetAbierto, setSheetAbierto] = useState(false);
 
   return (
-    <div className="flex h-full min-h-0">
+    // Alto fijo, como en WhatsApp: al bajar por el hilo solo se desplazan los
+    // mensajes, y las barras laterales y el composer se quedan en su sitio. Con
+    // `h-full` no bastaba: el `main` del AppShell crece con su contenido, así que
+    // el chat se estiraba y se desplazaba la página entera. El alto es el de la
+    // pantalla menos la cabecera (`h-14` + 1px de borde) y, en móvil, menos el
+    // `pb-20` que el `main` reserva para las pestañas de abajo.
+    <div className="flex h-[calc(100dvh-3.5rem-1px-5rem)] min-h-0 md:h-[calc(100dvh-3.5rem-1px)]">
       <aside className="hidden w-72 shrink-0 border-r md:block">
         <ChatSidebar />
       </aside>
