@@ -12,6 +12,7 @@ import {
   Search,
   Store,
   Truck,
+  UserRound,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,7 @@ import { CommandMenu, useCommandMenu } from "@/components/command-menu";
 
 const ICONOS: Record<Vista, LucideIcon> = {
   admin: LayoutList,
+  "mis-pedidos": UserRound,
   taller: Hammer,
   tienda: Store,
   logistica: Truck,
@@ -33,6 +35,7 @@ const ICONOS: Record<Vista, LucideIcon> = {
 
 const NOMBRE_CORTO: Record<Vista, string> = {
   admin: "Todos",
+  "mis-pedidos": "Míos",
   taller: "Taller",
   tienda: "Tienda",
   logistica: "Logística",

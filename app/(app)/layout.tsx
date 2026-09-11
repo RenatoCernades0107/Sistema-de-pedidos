@@ -17,7 +17,7 @@ import { exigirSesion } from "@/lib/sesion";
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const perfil = await exigirSesion();
   const [pedidos, trabajadores, ubigeo] = await Promise.all([
-    cargarPedidos(perfil.rol),
+    cargarPedidos(perfil.rol, perfil.id),
     cargarTrabajadores(),
     cargarUbigeo(),
   ]);

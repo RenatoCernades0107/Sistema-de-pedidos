@@ -4,7 +4,10 @@ import type { Adjunto, EnvioProvincia, Pedido } from "./dominio";
    alimenta `scripts/gen-seed.cjs`. La semilla no trae los campos que la base
    deriva o resuelve por join (`tieneComprobante`, los ids del ubigeo), así que se
    escriben fuera del tipo `Pedido` en vez de inventarlos aquí. */
-type PedidoSemilla = Omit<Pedido, "responsableId" | "tieneComprobante" | "envio" | "adjuntos"> & {
+type PedidoSemilla = Omit<
+  Pedido,
+  "responsableId" | "tieneComprobante" | "creadoPorMi" | "envio" | "adjuntos"
+> & {
   envio?: Omit<EnvioProvincia, "departamentoId" | "provinciaId">;
   // El id del adjunto lo pone Postgres al sembrar, igual que el del pedido.
   adjuntos: Omit<Adjunto, "id">[];

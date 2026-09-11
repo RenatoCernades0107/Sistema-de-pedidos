@@ -27,7 +27,7 @@ export type Ubicacion = "tienda" | "taller" | "agencia";
 export type TipoPago = "contado" | "a_cuenta" | "credito";
 export type MetodoPago = "efectivo" | "yape_plin" | "transferencia" | "tarjeta" | "otro";
 export type TipoAdjunto = "diseno" | "factura" | "guia" | "foto_entrega";
-export type Vista = "admin" | "taller" | "tienda" | "logistica" | "historial";
+export type Vista = "admin" | "mis-pedidos" | "taller" | "tienda" | "logistica" | "historial";
 export type TipoDocumento = "DNI" | "CE";
 /** Días de crédito que la empresa concede. No hay plazos a medida. */
 export type PlazoCredito = 1 | 7 | 15 | 30 | 90;
@@ -123,6 +123,9 @@ export interface Pedido {
   abonos: Abono[];
   historial: CambioEstado[];
   auditoria: EntradaAuditoria[];
+  /** Si lo registró quien tiene la sesión abierta. No es un dato del pedido sino de
+   *  quien lo mira: lo resuelve el servidor comparando `creado_por` con la sesión. */
+  creadoPorMi: boolean;
 }
 
 /* ── Etiquetas ── */
@@ -246,7 +249,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
   administracion: {
     nombre: "Administración",
     descripcion: "CRUD completo de los pedidos",
-    vistas: ["admin", "taller", "tienda", "logistica", "historial"],
+    vistas: ["admin", "mis-pedidos", "taller", "tienda", "logistica", "historial"],
     vistaInicial: "admin",
     verCliente: true,
     verTelefonoCliente: true,
@@ -414,6 +417,11 @@ export const VISTAS: Record<Vista, ConfigVista> = {
     titulo: "Todos los pedidos",
     descripcion: "Absolutamente todos los pedidos registrados",
     filtro: () => true,
+  },
+  "mis-pedidos": {
+    titulo: "Mis pedidos",
+    descripcion: "Los pedidos que registraste tú",
+    filtro: (p) => p.creadoPorMi,
   },
   taller: {
     titulo: "Taller",

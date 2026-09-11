@@ -33,7 +33,8 @@ export function pesoTexto(bytes: number | null): string {
   return kb < 1024 ? `${Math.round(kb)} KB` : `${(kb / 1024).toFixed(1)} MB`;
 }
 
-export async function cargarPedidos(rol: Rol): Promise<Pedido[]> {
+/** `usuarioId` es quien tiene la sesión: con él se marca qué pedidos registró. */
+export async function cargarPedidos(rol: Rol, usuarioId: string): Promise<Pedido[]> {
   const supabase = await clienteServidor();
   const permisos = ROLES[rol];
 
@@ -172,6 +173,9 @@ export async function cargarPedidos(rol: Rol): Promise<Pedido[]> {
         nuevo: a.valor_nuevo ?? "—",
         fecha: momentoEnLima(a.creado_en),
       })),
+      // `pedidos_operaciones` no trae `creado_por`: para el taller queda en falso,
+      // y está bien, porque el taller no registra pedidos.
+      creadoPorMi: f.creado_por === usuarioId,
     } satisfies Pedido;
   });
 }

@@ -9,6 +9,7 @@ import {
   Plus,
   Store,
   Truck,
+  UserRound,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -28,6 +29,7 @@ import { porUrgencia } from "@/lib/formato";
 
 const ICONOS: Record<Vista, LucideIcon> = {
   admin: LayoutList,
+  "mis-pedidos": UserRound,
   taller: Hammer,
   tienda: Store,
   logistica: Truck,
