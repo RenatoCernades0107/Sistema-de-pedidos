@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useChat } from "@/app/(app)/cotizaciones/chat-store";
 import { DocumentosCotizacion } from "./documentos-cotizacion";
 import { AdjuntosMensaje } from "./adjuntos-mensaje";
+import { TextoAgente } from "./texto-agente";
 
 export function ChatThread() {
   const {
@@ -61,13 +62,15 @@ export function ChatThread() {
             {m.text && (
               <div
                 className={cn(
-                  "rounded-xl px-3.5 py-2 text-sm whitespace-pre-wrap",
+                  "min-w-0 rounded-xl px-3.5 py-2 text-sm",
                   m.role === "user"
-                    ? "bg-primary text-primary-foreground"
+                    ? "bg-primary text-primary-foreground whitespace-pre-wrap"
                     : "bg-muted",
                 )}
               >
-                {m.text}
+                {/* Solo el agente escribe Markdown. El colaborador escribe texto
+                    plano, y un "2*3*4" suyo no debería salir en itálica. */}
+                {m.role === "assistant" ? <TextoAgente texto={m.text} /> : m.text}
               </div>
             )}
           </div>
