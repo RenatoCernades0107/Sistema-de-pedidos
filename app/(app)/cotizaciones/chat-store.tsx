@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import * as acciones from "./acciones";
-import type { AdjuntoNuevo, ChatResumen, Cotizacion, Mensaje } from "./acciones";
+import type { ChatResumen, Cotizacion, Mensaje, TurnoEnviado } from "./acciones";
 
 /** Lo que se puede descargar de un chat que ya creó su cotización en Odoo. */
 export interface Documentos {
@@ -34,8 +34,8 @@ interface ChatStore {
   documentos: Documentos | null;
   creandoCotizacion: boolean;
   seleccionar: (chatId: string | null) => void;
-  /** Texto, archivos, o las dos cosas: la API rechaza solo el mensaje sin nada. */
-  enviar: (texto: string, adjuntos?: AdjuntoNuevo[]) => void;
+  /** Texto, archivos, o las dos cosas: lo único que se rechaza es un mensaje sin nada. */
+  enviar: (texto: string, archivos?: File[]) => void;
   reintentar: () => void;
   borrar: (chatId: string) => void;
   crearCotizacionOdoo: () => void;
@@ -51,6 +51,43 @@ const Ctx = createContext<ChatStore | null>(null);
 function documentosDe(cotizacion: Cotizacion | null, hojaDeCorte: boolean): Documentos | null {
   if (!cotizacion) return null;
   return { cotizacion, hojaDeCorte };
+}
+
+/**
+ * Manda el turno al servidor. Va por `fetch` a un route handler y no por una
+ * Server Action porque una Server Action rechaza cuerpos de más de 1 MB, y una
+ * foto de un plano pasa de eso ella sola. Los archivos viajan crudos dentro de
+ * un `FormData`: pasarlos en base64 los engordaría un 33% contra el tope de
+ * 4.5 MB que impone Vercel.
+ */
+async function enviarAlAgente(
+  chatId: string | null,
+  texto: string,
+  archivos: File[],
+): Promise<{ ok: true; data: TurnoEnviado } | { ok: false; error: string }> {
+  const form = new FormData();
+  if (chatId) form.append("chatId", chatId);
+  form.append("mensaje", texto);
+  for (const archivo of archivos) form.append("archivos", archivo);
+
+  let res: Response;
+  try {
+    res = await fetch("/api/cotizaciones/mensajes", { method: "POST", body: form });
+  } catch {
+    return { ok: false, error: "No se pudo conectar con el agente de cotizaciones." };
+  }
+
+  if (!res.ok) {
+    // El route handler explica el motivo (archivo muy pesado, tipo no admitido);
+    // si ni eso llega, el estado es lo único que hay.
+    const motivo = await res
+      .json()
+      .then((b: { error?: string }) => b.error)
+      .catch(() => null);
+    return { ok: false, error: motivo || "No se pudo enviar el mensaje. Intenta de nuevo." };
+  }
+
+  return { ok: true, data: (await res.json()) as TurnoEnviado };
 }
 
 interface ChatCache {
@@ -83,7 +120,7 @@ export function ChatProvider({
   const [creandoCotizacion, setCreandoCotizacion] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ultimoTexto, setUltimoTexto] = useState<string | null>(null);
-  const [ultimosAdjuntos, setUltimosAdjuntos] = useState<AdjuntoNuevo[]>([]);
+  const [ultimosArchivos, setUltimosArchivos] = useState<File[]>([]);
 
   const seleccionar = useCallback(
     (chatId: string | null) => {
@@ -137,10 +174,10 @@ export function ChatProvider({
   );
 
   const enviarTexto = useCallback(
-    (texto: string, chatIdDestino: string | null, adjuntos: AdjuntoNuevo[] = []) => {
+    (texto: string, chatIdDestino: string | null, archivos: File[] = []) => {
       setError(null);
       setUltimoTexto(texto);
-      setUltimosAdjuntos(adjuntos);
+      setUltimosArchivos(archivos);
       // El bosquejo pendiente se refiere a la conversación tal como estaba;
       // un mensaje nuevo la deja obsoleta, así que se limpia de inmediato.
       setPendingQuotation(null);
@@ -151,17 +188,17 @@ export function ChatProvider({
       const mensajeUsuario: Mensaje = {
         role: "user",
         text: texto,
-        adjuntos: adjuntos.map((a) => ({
+        adjuntos: archivos.map((a) => ({
           attachmentId: "",
-          filename: a.filename,
-          contentType: a.contentType,
-          size: 0,
+          filename: a.name,
+          contentType: a.type,
+          size: a.size,
         })),
       };
       setMensajes((prev) => [...prev, mensajeUsuario]);
 
       iniciarEnvio(async () => {
-        const r = await acciones.enviarMensaje(chatIdDestino, texto, adjuntos);
+        const r = await enviarAlAgente(chatIdDestino, texto, archivos);
 
         if (!r.ok) {
           setError(r.error);
@@ -214,7 +251,7 @@ export function ChatProvider({
   );
 
   const enviar = useCallback(
-    (texto: string, adjuntos: AdjuntoNuevo[] = []) => enviarTexto(texto, activeChatId, adjuntos),
+    (texto: string, archivos: File[] = []) => enviarTexto(texto, activeChatId, archivos),
     [activeChatId, enviarTexto],
   );
 
@@ -222,8 +259,8 @@ export function ChatProvider({
   // soltó, así que si no se reenviaran, el reintento mandaría un mensaje
   // distinto del que falló.
   const reintentar = useCallback(() => {
-    if (ultimoTexto !== null) enviarTexto(ultimoTexto, activeChatId, ultimosAdjuntos);
-  }, [activeChatId, enviarTexto, ultimoTexto, ultimosAdjuntos]);
+    if (ultimoTexto !== null) enviarTexto(ultimoTexto, activeChatId, ultimosArchivos);
+  }, [activeChatId, enviarTexto, ultimoTexto, ultimosArchivos]);
 
   const borrar = useCallback(
     (chatId: string) => {

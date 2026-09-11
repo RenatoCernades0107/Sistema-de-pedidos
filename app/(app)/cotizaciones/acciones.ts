@@ -5,134 +5,35 @@
  *
  * `X-User-Id` sale de `exigirAgenteCotizacion()`, nunca de un valor que mande el
  * navegador; el transporte y los mensajes de error viven en
- * `lib/agente-cotizaciones.ts`, que comparte con el route handler de los PDFs.
- * El agente no guarda los chats en la base de Plexiacril: la Quote Agent API es
- * la única fuente de verdad, así que aquí no hay tablas ni `refresh()` que
- * llamar, solo traducir su respuesta al idioma de la app.
+ * `lib/agente-cotizaciones.ts`, y los tipos y traductores en
+ * `lib/cotizaciones-tipos.ts`, que comparte con los route handlers. El agente no
+ * guarda los chats en la base de Plexiacril: la Quote Agent API es la única
+ * fuente de verdad, así que aquí no hay tablas ni `refresh()` que llamar.
+ *
+ * Enviar un mensaje NO está aquí: va por `app/api/cotizaciones/mensajes`, porque
+ * una Server Action rechaza cuerpos de más de 1 MB y un mensaje puede llevar
+ * archivos.
  */
 
 import { exigirAgenteCotizacion } from "@/lib/sesion";
 import { agentFetch, fallo, type Resultado } from "@/lib/agente-cotizaciones";
+import { deChat, deCotizacion, deMensajes, deNuevaCotizacion } from "@/lib/cotizaciones-tipos";
+import type { ChatDetalle, ChatResumen, Cotizacion } from "@/lib/cotizaciones-tipos";
 
 export type { Resultado };
-
-export interface Cotizacion {
-  orderId: number;
-  orderName: string;
-  totalPen: number;
-}
-
-export interface ChatResumen {
-  chatId: string;
-  title: string;
-  createdAt: string;
-  updatedAt: string;
-  lastQuotation: Cotizacion | null;
-  /**
-   * Bosquejo de cotización aún no confirmado por el usuario (distinto de
-   * `lastQuotation`, que solo se llena cuando ya se creó en Odoo). Forma
-   * interna aún no definida por el backend — se trata como opaca.
-   */
-  newQuotation: Record<string, unknown> | null;
-}
-
-/** Un archivo ya guardado: la ficha, no los bytes. */
-export interface Adjunto {
-  attachmentId: string;
-  filename: string;
-  contentType: string;
-  size: number;
-}
-
-/** Un archivo de salida, camino al agente. */
-export interface AdjuntoNuevo {
-  filename: string;
-  contentType: string;
-  contentBase64: string;
-}
-
-export interface Mensaje {
-  role: "user" | "assistant";
-  text: string;
-  adjuntos: Adjunto[];
-}
-
-export interface ChatDetalle extends ChatResumen {
-  messages: Mensaje[];
-  /**
-   * Si esta cotización tiene hoja de corte que descargar: solo cuando se cotizó
-   * corte a medida, no cuando se vendió la plancha entera. El PDF de la
-   * cotización no necesita un campo así — está disponible exactamente cuando
-   * `lastQuotation` no es `null`.
-   */
-  hasCutSheet: boolean;
-}
+export type {
+  Adjunto,
+  ChatDetalle,
+  ChatResumen,
+  Cotizacion,
+  Mensaje,
+  TurnoEnviado,
+} from "@/lib/cotizaciones-tipos";
 
 /** El mismo `agentFetch` compartido, pero con la sesión ya exigida. */
 async function comoUsuario<T>(path: string, init?: RequestInit): Promise<Resultado<T>> {
   const perfil = await exigirAgenteCotizacion();
   return agentFetch<T>(perfil.id, path, init);
-}
-
-function deCotizacion(json: unknown): Cotizacion | null {
-  if (!json || typeof json !== "object") return null;
-  const c = json as Record<string, unknown>;
-  if (
-    typeof c.order_id !== "number" ||
-    typeof c.order_name !== "string" ||
-    typeof c.total_pen !== "number"
-  ) {
-    return null;
-  }
-  return {
-    orderId: c.order_id,
-    orderName: c.order_name,
-    totalPen: c.total_pen,
-  };
-}
-
-/**
- * `new_quotation` todavía no tiene forma final del lado del backend: se trata
- * como un objeto opaco, sin asumir campos internos. Ausente/`null`/no-objeto
- * se normaliza a `null` para que esto no truene contra el backend actual
- * (que ni siquiera manda el campo todavía).
- */
-function deNuevaCotizacion(json: unknown): Record<string, unknown> | null {
-  if (!json || typeof json !== "object") return null;
-  return json as Record<string, unknown>;
-}
-
-function deAdjunto(json: unknown): Adjunto | null {
-  if (!json || typeof json !== "object") return null;
-  const a = json as Record<string, unknown>;
-  if (typeof a.attachment_id !== "string" || typeof a.filename !== "string") return null;
-  return {
-    attachmentId: a.attachment_id,
-    filename: a.filename,
-    contentType: typeof a.content_type === "string" ? a.content_type : "application/octet-stream",
-    size: typeof a.size === "number" ? a.size : 0,
-  };
-}
-
-function deAdjuntos(json: unknown): Adjunto[] {
-  if (!Array.isArray(json)) return [];
-  return json.map(deAdjunto).filter((a): a is Adjunto => a !== null);
-}
-
-/** Al revés: al idioma de la API, que es snake_case. */
-function aAdjunto(a: AdjuntoNuevo) {
-  return { filename: a.filename, content_type: a.contentType, content_base64: a.contentBase64 };
-}
-
-function deChat(json: Record<string, unknown>): ChatResumen {
-  return {
-    chatId: json.chat_id as string,
-    title: json.title as string,
-    createdAt: json.created_at as string,
-    updatedAt: json.updated_at as string,
-    lastQuotation: deCotizacion(json.last_quotation),
-    newQuotation: deNuevaCotizacion(json.new_quotation),
-  };
 }
 
 export async function listarChats(): Promise<Resultado<ChatResumen[]>> {
@@ -145,74 +46,12 @@ export async function obtenerChat(chatId: string): Promise<Resultado<ChatDetalle
   const r = await comoUsuario<Record<string, unknown>>(`/chats/${encodeURIComponent(chatId)}`);
   if (!r.ok) return r;
 
-  const mensajes = (r.data.messages as Record<string, unknown>[] | undefined) ?? [];
   return {
     ok: true,
     data: {
       ...deChat(r.data),
-      messages: mensajes.map((m) => ({
-        role: m.role as "user" | "assistant",
-        text: m.text as string,
-        adjuntos: deAdjuntos(m.attachments),
-      })),
+      messages: deMensajes(r.data.messages),
       hasCutSheet: r.data.has_cut_sheet === true,
-    },
-  };
-}
-
-/**
- * Manda un mensaje, con los archivos que lo acompañen. `chatId` viene `null` la
- * primera vez de una cotización nueva (creación diferida): se crea el chat sin
- * título — la propia API lo autocompleta con este mismo mensaje — y recién ahí
- * se manda el mensaje.
- *
- * El texto y los archivos son independientes: se puede mandar solo texto, solo
- * archivos, o las dos cosas. Lo único que la API rechaza es un mensaje que no
- * lleve ninguna de las dos.
- *
- * Los adjuntos devueltos son los que el agente guardó de verdad, con su id: son
- * esos y no los que se mandaron los que sirven para volver a pedir el archivo.
- */
-export async function enviarMensaje(
-  chatId: string | null,
-  message: string,
-  adjuntos: AdjuntoNuevo[] = [],
-): Promise<
-  Resultado<{
-    chatId: string;
-    reply: string;
-    lastQuotation: Cotizacion | null;
-    newQuotation: Record<string, unknown> | null;
-    hasCutSheet: boolean;
-    adjuntos: Adjunto[];
-  }>
-> {
-  let idChat = chatId;
-
-  if (!idChat) {
-    const creado = await comoUsuario<Record<string, unknown>>("/chats", {
-      method: "POST",
-      body: JSON.stringify({}),
-    });
-    if (!creado.ok) return creado;
-    idChat = creado.data.chat_id as string;
-  }
-
-  const r = await comoUsuario<Record<string, unknown>>(
-    `/chats/${encodeURIComponent(idChat)}/messages`,
-    { method: "POST", body: JSON.stringify({ message, attachments: adjuntos.map(aAdjunto) }) },
-  );
-  if (!r.ok) return r;
-
-  return {
-    ok: true,
-    data: {
-      chatId: idChat,
-      reply: r.data.reply as string,
-      lastQuotation: deCotizacion(r.data.last_quotation),
-      newQuotation: deNuevaCotizacion(r.data.new_quotation),
-      hasCutSheet: r.data.has_cut_sheet === true,
-      adjuntos: deAdjuntos(r.data.attachments),
     },
   };
 }

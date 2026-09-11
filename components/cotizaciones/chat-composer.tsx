@@ -27,19 +27,6 @@ const TIPOS_ACEPTADOS = ["application/pdf", "image/png", "image/jpeg", "image/we
 
 const esTipoAceptado = (archivo: File) => TIPOS_ACEPTADOS.includes(archivo.type);
 
-/** El archivo en base64, sin el prefijo `data:` que le pone el FileReader. */
-async function aBase64(archivo: File): Promise<string> {
-  const bytes = new Uint8Array(await archivo.arrayBuffer());
-  let binario = "";
-  // De a trozos: pasarle el array entero a String.fromCharCode revienta la
-  // pila de argumentos con archivos de unos pocos MB.
-  const TROZO = 8192;
-  for (let i = 0; i < bytes.length; i += TROZO) {
-    binario += String.fromCharCode(...bytes.subarray(i, i + TROZO));
-  }
-  return btoa(binario);
-}
-
 /** 860160 → "840 KB". */
 function pesoTexto(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -51,7 +38,6 @@ export function ChatComposer() {
   const { enviando, enviar } = useChat();
   const [texto, setTexto] = useState("");
   const [adjuntos, setAdjuntos] = useState<AdjuntoLocal[]>([]);
-  const [leyendo, setLeyendo] = useState(false);
   const entrada = useRef<HTMLInputElement>(null);
 
   // Ref con el valor vigente para poder leerlo al desmontar sin que el efecto
@@ -139,37 +125,15 @@ export function ChatComposer() {
     const limpio = texto.trim();
     // Un archivo sin texto es un turno válido ("aquí está el plano"); lo único
     // que no se puede mandar es un mensaje sin nada.
-    if ((!limpio && adjuntos.length === 0) || enviando || leyendo) return;
+    if ((!limpio && adjuntos.length === 0) || enviando) return;
 
-    if (adjuntos.length === 0) {
-      setTexto("");
-      enviar(limpio);
-      return;
-    }
-
-    // Leer los archivos es asíncrono, así que el composer no se vacía hasta
-    // tenerlos: si la lectura falla, lo escrito y lo elegido siguen ahí.
-    setLeyendo(true);
-    void (async () => {
-      try {
-        const listos = await Promise.all(
-          adjuntos.map(async (a) => ({
-            filename: a.archivo.name,
-            contentType: a.archivo.type,
-            contentBase64: await aBase64(a.archivo),
-          })),
-        );
-        setTexto("");
-        limpiarAdjuntos();
-        enviar(limpio, listos);
-      } catch {
-        toast.error("No se pudieron leer los archivos", {
-          description: "Vuelve a elegirlos e inténtalo de nuevo.",
-        });
-      } finally {
-        setLeyendo(false);
-      }
-    })();
+    // Los `File` se mandan tal cual: el servidor los pasa a base64, que es como
+    // los quiere la Quote Agent API. Hacerlo aquí solo serviría para engordar
+    // un 33% la subida.
+    const archivos = adjuntos.map((a) => a.archivo);
+    setTexto("");
+    limpiarAdjuntos();
+    enviar(limpio, archivos);
   };
 
   const alTeclear = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -229,7 +193,7 @@ export function ChatComposer() {
             type="button"
             variant="outline"
             size="icon"
-            disabled={enviando || leyendo}
+            disabled={enviando}
             onClick={() => entrada.current?.click()}
             aria-label="Adjuntar archivos"
           >
@@ -240,14 +204,14 @@ export function ChatComposer() {
             onChange={(e) => setTexto(e.target.value)}
             onKeyDown={alTeclear}
             placeholder="Cotízame 5 piezas de acrílico transparente 3mm 30x50cm…"
-            disabled={enviando || leyendo}
+            disabled={enviando}
             rows={1}
             className="max-h-40"
           />
           <Button
             size="icon"
             onClick={enviarTexto}
-            disabled={enviando || leyendo || (!texto.trim() && adjuntos.length === 0)}
+            disabled={enviando || (!texto.trim() && adjuntos.length === 0)}
             aria-label="Enviar mensaje"
           >
             <ArrowUp />
