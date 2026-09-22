@@ -446,3 +446,23 @@ export const VISTAS: Record<Vista, ConfigVista> = {
     estadosChip: ["entregado", "anulado"],
   },
 };
+
+/* ── Herramientas ──
+   Lo que no es una vista de pedidos pero cuelga del mismo menú. Están aquí, y no
+   escritas en el JSX de la navegación, porque las leen tres sitios: la barra
+   lateral, el menú del celular y el buscador (⌘K). El icono no viene aquí: este
+   archivo es el modelo, no la pantalla. */
+
+export interface ConfigHerramienta {
+  titulo: string;
+  href: string;
+  /** El permiso del rol que la habilita. */
+  permiso: keyof PermisosRol;
+}
+
+export const HERRAMIENTAS: ConfigHerramienta[] = [
+  { titulo: "Cotizaciones", href: "/cotizaciones", permiso: "usarAgenteCotizacion" },
+];
+
+export const herramientasDe = (permisos: PermisosRol) =>
+  HERRAMIENTAS.filter((h) => permisos[h.permiso] === true);

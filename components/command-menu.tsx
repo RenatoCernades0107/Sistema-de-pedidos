@@ -6,6 +6,7 @@ import {
   Archive,
   Hammer,
   LayoutList,
+  MessageSquareText,
   Plus,
   Store,
   Truck,
@@ -23,7 +24,7 @@ import {
 } from "@/components/ui/command";
 import { EstadoBadge } from "@/components/estado-badge";
 import { useStore } from "@/lib/store";
-import { VISTAS, etiquetaTipos, type Vista } from "@/lib/dominio";
+import { VISTAS, etiquetaTipos, herramientasDe, type Vista } from "@/lib/dominio";
 import { camposBuscables, coincide } from "@/lib/busqueda";
 import { porUrgencia } from "@/lib/formato";
 
@@ -150,6 +151,14 @@ export function CommandMenu({
               Nuevo pedido
             </CommandItem>
           )}
+          {/* Las herramientas de `lib/dominio.ts`, las mismas que pinta el menú
+              lateral. Solo hay una, así que no se separan en otro grupo. */}
+          {herramientasDe(permisos).map((h) => (
+            <CommandItem key={h.href} value={`ir ${h.titulo}`} onSelect={() => ir(h.href)}>
+              <MessageSquareText className="size-4" />
+              {h.titulo}
+            </CommandItem>
+          ))}
         </CommandGroup>
       </CommandList>
     </CommandDialog>

@@ -1,10 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "motion/react";
 import {
   Archive,
+  Ellipsis,
   Hammer,
   LayoutList,
   MessageSquareText,
@@ -17,12 +19,13 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
-import { VISTAS, type Vista } from "@/lib/dominio";
+import { VISTAS, herramientasDe, type ConfigHerramienta, type Vista } from "@/lib/dominio";
 import { Button } from "@/components/ui/button";
 import { MenuUsuario } from "@/components/menu-usuario";
 import { ActivarNotificaciones } from "@/components/activar-notificaciones";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { CommandMenu, useCommandMenu } from "@/components/command-menu";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
 const ICONOS: Record<Vista, LucideIcon> = {
   admin: LayoutList,
@@ -41,6 +44,31 @@ const NOMBRE_CORTO: Record<Vista, string> = {
   logistica: "Logística",
   historial: "Historial",
 };
+
+/** Por `href`, que es lo que identifica a una herramienta en `lib/dominio.ts`. */
+const ICONOS_HERRAMIENTA: Record<string, LucideIcon> = {
+  "/cotizaciones": MessageSquareText,
+};
+
+/** Un enlace de la barra lateral: vistas y herramientas se pintan igual. */
+const claseEnlaceLateral = (activo: boolean) =>
+  cn(
+    "group relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors",
+    "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
+    activo
+      ? "text-foreground font-medium"
+      : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60",
+  );
+
+/** Un elemento de la barra de abajo del celular. */
+const CLASE_TAB =
+  "flex min-w-0 flex-1 flex-col items-center gap-0.5 px-1 py-2 text-2xs font-medium transition-colors";
+
+/**
+ * Cuántas vistas se quedan a la vista en el celular. El resto se va al menú
+ * "Más": con seis vistas y el botón de nuevo pedido no cabe nada en 375px.
+ */
+const VISTAS_EN_BARRA = 2;
 
 function useNav() {
   const { permisos, pedidos } = useStore();
@@ -65,6 +93,18 @@ export function AppShell({
   const pathname = usePathname();
   const nav = useNav();
   const cmd = useCommandMenu();
+  const [masAbierto, setMasAbierto] = useState(false);
+
+  const herramientas = herramientasDe(permisos);
+  // En el celular solo entran las primeras vistas; las demás y las herramientas
+  // viven en el menú "Más". En escritorio se siguen viendo todas.
+  const enBarra = nav.slice(0, VISTAS_EN_BARRA);
+  const enMenu = nav.slice(VISTAS_EN_BARRA);
+  const hayMenu = enMenu.length + herramientas.length > 0;
+  // Sin esto, estando en Cotizaciones o en una vista del menú no habría nada
+  // marcado en la barra.
+  const menuActivo =
+    enMenu.some((i) => pathname === i.href) || herramientas.some((h) => pathname === h.href);
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -135,13 +175,7 @@ export function AppShell({
                   key={item.vista}
                   href={item.href}
                   aria-current={activo ? "page" : undefined}
-                  className={cn(
-                    "group relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors",
-                    "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
-                    activo
-                      ? "text-foreground font-medium"
-                      : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60",
-                  )}
+                  className={claseEnlaceLateral(activo)}
                 >
                   {activo && (
                     <motion.span
@@ -182,28 +216,26 @@ export function AppShell({
               </>
             )}
 
-            {permisos.usarAgenteCotizacion && (
+            {herramientas.length > 0 && (
               <>
                 <p className="eyebrow px-2.5 pt-5 pb-2">Herramientas</p>
-                <Link
-                  href="/cotizaciones"
-                  aria-current={pathname === "/cotizaciones" ? "page" : undefined}
-                  className={cn(
-                    "group relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors",
-                    "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
-                    pathname === "/cotizaciones"
-                      ? "text-foreground font-medium"
-                      : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60",
-                  )}
-                >
-                  <MessageSquareText
-                    className={cn(
-                      "size-4 shrink-0",
-                      pathname === "/cotizaciones" ? "text-primary" : "opacity-70",
-                    )}
-                  />
-                  Cotizaciones
-                </Link>
+                {herramientas.map((h) => {
+                  const activo = pathname === h.href;
+                  const Icono = ICONOS_HERRAMIENTA[h.href];
+                  return (
+                    <Link
+                      key={h.href}
+                      href={h.href}
+                      aria-current={activo ? "page" : undefined}
+                      className={claseEnlaceLateral(activo)}
+                    >
+                      <Icono
+                        className={cn("size-4 shrink-0", activo ? "text-primary" : "opacity-70")}
+                      />
+                      {h.titulo}
+                    </Link>
+                  );
+                })}
               </>
             )}
           </nav>
@@ -217,10 +249,10 @@ export function AppShell({
 
       {/* Tabs móviles */}
       <nav
-        aria-label="Vistas"
+        aria-label="Navegación"
         className="bg-background/90 fixed inset-x-0 bottom-0 z-30 flex border-t pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden"
       >
-        {nav.map((item) => {
+        {enBarra.map((item) => {
           const activo = pathname === item.href;
           const Icono = item.icono;
           return (
@@ -228,10 +260,7 @@ export function AppShell({
               key={item.vista}
               href={item.href}
               aria-current={activo ? "page" : undefined}
-              className={cn(
-                "flex min-w-0 flex-1 flex-col items-center gap-0.5 px-1 py-2 text-2xs font-medium transition-colors",
-                activo ? "text-primary" : "text-muted-foreground",
-              )}
+              className={cn(CLASE_TAB, activo ? "text-primary" : "text-muted-foreground")}
             >
               <Icono className="size-5 shrink-0" />
               <span className="w-full truncate text-center">{item.corto}</span>
@@ -242,15 +271,80 @@ export function AppShell({
           <Link
             href="/pedidos/nuevo"
             className={cn(
-              "flex min-w-0 flex-1 flex-col items-center gap-0.5 px-1 py-2 text-2xs font-medium transition-colors",
-              pathname === "/pedidos/nuevo"
-                ? "text-primary"
-                : "text-muted-foreground",
+              CLASE_TAB,
+              pathname === "/pedidos/nuevo" ? "text-primary" : "text-muted-foreground",
             )}
           >
             <Plus className="size-5 shrink-0" />
             <span className="w-full truncate text-center">Nuevo</span>
           </Link>
+        )}
+
+        {/* El resto de vistas y las herramientas. Operaciones, con una sola
+            vista y sin herramientas, no llega a ver este botón. */}
+        {hayMenu && (
+          <Sheet open={masAbierto} onOpenChange={setMasAbierto}>
+            <SheetTrigger
+              className={cn(CLASE_TAB, menuActivo ? "text-primary" : "text-muted-foreground")}
+            >
+              <Ellipsis className="size-5 shrink-0" />
+              <span className="w-full truncate text-center">Más</span>
+            </SheetTrigger>
+
+            <SheetContent
+              side="bottom"
+              className="max-h-[80dvh] gap-0 overflow-y-auto rounded-t-xl pb-[env(safe-area-inset-bottom)]"
+            >
+              <SheetHeader className="pb-2">
+                <SheetTitle>Menú</SheetTitle>
+              </SheetHeader>
+
+              <div className="flex flex-col gap-0.5 px-2 pb-4">
+                {enMenu.length > 0 && <p className="eyebrow px-2.5 pt-2 pb-2">Otras vistas</p>}
+                {enMenu.map((item) => {
+                  const activo = pathname === item.href;
+                  const Icono = item.icono;
+                  return (
+                    <Link
+                      key={item.vista}
+                      href={item.href}
+                      aria-current={activo ? "page" : undefined}
+                      onClick={() => setMasAbierto(false)}
+                      className={claseEnlaceLateral(activo)}
+                    >
+                      <Icono
+                        className={cn("size-4 shrink-0", activo ? "text-primary" : "opacity-70")}
+                      />
+                      {item.titulo}
+                      <span className="tnum text-muted-foreground ml-auto text-xs">
+                        {item.total}
+                      </span>
+                    </Link>
+                  );
+                })}
+
+                {herramientas.length > 0 && <p className="eyebrow px-2.5 pt-4 pb-2">Herramientas</p>}
+                {herramientas.map((h: ConfigHerramienta) => {
+                  const activo = pathname === h.href;
+                  const Icono = ICONOS_HERRAMIENTA[h.href];
+                  return (
+                    <Link
+                      key={h.href}
+                      href={h.href}
+                      aria-current={activo ? "page" : undefined}
+                      onClick={() => setMasAbierto(false)}
+                      className={claseEnlaceLateral(activo)}
+                    >
+                      <Icono
+                        className={cn("size-4 shrink-0", activo ? "text-primary" : "opacity-70")}
+                      />
+                      {h.titulo}
+                    </Link>
+                  );
+                })}
+              </div>
+            </SheetContent>
+          </Sheet>
         )}
       </nav>
     </div>
