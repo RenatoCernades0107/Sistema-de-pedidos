@@ -41,6 +41,10 @@ const tasaTexto = (t: number | null) => (t === null ? "—" : porcentaje(t));
 
 const nombreDelDia = new Intl.DateTimeFormat("es-PE", { weekday: "short", timeZone: "UTC" });
 
+/** `2026-10-01` → "jue 1 oct" */
+const diaDeLaSemana = (fecha: string) =>
+  `${nombreDelDia.format(new Date(`${fecha}T12:00:00Z`)).replace(".", "")} ${etiquetaDia(fecha)}`;
+
 /** ¿Cumplimos lo que prometemos, y dónde se atasca el taller? */
 export function PestanaCumplimiento({ pedidos, periodo, hoy }: PropsPestana) {
   const d = useMemo(
@@ -146,25 +150,23 @@ export function PestanaCumplimiento({ pedidos, periodo, hoy }: PropsPestana) {
           titulo="Próximos 7 días"
           descripcion={
             d.atrasados > 0
-              ? `Pedidos en curso que vencen cada día. Aparte, ${pedidosTexto(d.atrasados)} ya ${d.atrasados === 1 ? "está" : "están"} atrasados.`
+              ? `Pedidos en curso que vencen cada día. Aparte, ${pedidosTexto(d.atrasados)} ya ${d.atrasados === 1 ? "está atrasado" : "están atrasados"}.`
               : "Pedidos en curso que vencen cada día."
           }
         >
-          <Barras
-            formato={String}
-            max={Math.max(...d.proximos.map((x) => x.pedidos), 1)}
-            filas={d.proximos.map((x, i) => ({
-              clave: x.fecha,
-              etiqueta:
-                i === 0
-                  ? "Hoy"
-                  : i === 1
-                    ? "Mañana"
-                    : `${nombreDelDia.format(new Date(`${x.fecha}T12:00:00Z`)).replace(".", "")} ${etiquetaDia(x.fecha)}`,
-              valor: x.pedidos,
-              detalle: x.pedidos ? moneyEntero(x.monto) : undefined,
-            }))}
-          />
+          {d.proximos.every((x) => x.pedidos === 0) ? (
+            <Vacio>Nada vence en los próximos 7 días.</Vacio>
+          ) : (
+            <Barras
+              formato={String}
+              filas={d.proximos.map((x, i) => ({
+                clave: x.fecha,
+                etiqueta: i === 0 ? "Hoy" : i === 1 ? "Mañana" : diaDeLaSemana(x.fecha),
+                valor: x.pedidos,
+                detalle: x.pedidos ? moneyEntero(x.monto) : undefined,
+              }))}
+            />
+          )}
         </Seccion>
 
         <Seccion

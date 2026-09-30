@@ -588,7 +588,9 @@ export function motivosFrecuentes(pedidos: Pedido[], r: Rango, limite = 5): Moti
   for (const p of pedidos) {
     for (const h of p.historial) {
       if ((h.estado !== "observado" && h.estado !== "anulado") || !enRango(r, h.fecha)) continue;
-      const texto = h.motivo?.trim();
+      // Una fila de historial sin motivo (las cargadas a mano, como las del seed) toma
+      // el del pedido si ese sigue siendo su estado: es el mismo motivo.
+      const texto = (h.motivo ?? (p.estado === h.estado ? p.motivo : null))?.trim();
       if (!texto) continue;
       const k = `${h.estado}:${claveCliente(texto)}`;
       const m = mapa.get(k) ?? { motivo: texto, estado: h.estado, veces: 0 };

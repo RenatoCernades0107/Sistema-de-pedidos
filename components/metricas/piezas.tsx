@@ -167,18 +167,24 @@ export function Barras({
   const tope = max ?? Math.max(...filas.map((f) => f.valor), 0);
   const hayResaltada = filas.some((f) => f.resaltar);
 
+  // Nombre y cifra en una línea, la barra debajo a todo el ancho: en una tarjeta
+  // angosta, poner los tres en fila dejaba la barra en un par de centímetros.
   return (
-    <ul className="flex flex-col gap-2.5">
+    <ul className="flex flex-col gap-3">
       {filas.map((f) => (
-        <li
-          key={f.clave}
-          className="grid grid-cols-[minmax(0,7.5rem)_minmax(0,1fr)_auto] items-center gap-x-3 sm:grid-cols-[minmax(0,10rem)_minmax(0,1fr)_auto]"
-        >
-          <div className="min-w-0">
-            <p className="truncate text-sm">{f.etiqueta}</p>
-            {f.detalle && <p className="text-muted-foreground truncate text-xs">{f.detalle}</p>}
+        <li key={f.clave} className="flex flex-col gap-1">
+          <div className="flex items-baseline gap-3">
+            <p className="min-w-0 flex-1 truncate text-sm">
+              {f.etiqueta}
+              {f.detalle && (
+                <span className="text-muted-foreground ml-1.5 text-xs">{f.detalle}</span>
+              )}
+            </p>
+            <span className="tnum shrink-0 text-sm font-medium">
+              {f.texto ?? formato(f.valor)}
+            </span>
           </div>
-          <div className="h-3" aria-hidden>
+          <div className="h-2.5" aria-hidden>
             <div
               className={cn(
                 "h-full rounded-r-[4px]",
@@ -191,7 +197,6 @@ export function Barras({
               }}
             />
           </div>
-          <span className="tnum text-sm font-medium">{f.texto ?? formato(f.valor)}</span>
         </li>
       ))}
     </ul>
