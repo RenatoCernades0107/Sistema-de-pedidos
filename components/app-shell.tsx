@@ -9,7 +9,6 @@ import {
   Ellipsis,
   Hammer,
   LayoutList,
-  MessageSquareText,
   Plus,
   Search,
   Store,
@@ -24,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { MenuUsuario } from "@/components/menu-usuario";
 import { ActivarNotificaciones } from "@/components/activar-notificaciones";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { ICONOS_HERRAMIENTA } from "@/components/iconos-herramienta";
 import { CommandMenu, useCommandMenu } from "@/components/command-menu";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
@@ -43,11 +43,6 @@ const NOMBRE_CORTO: Record<Vista, string> = {
   tienda: "Tienda",
   logistica: "Logística",
   historial: "Historial",
-};
-
-/** Por `href`, que es lo que identifica a una herramienta en `lib/dominio.ts`. */
-const ICONOS_HERRAMIENTA: Record<string, LucideIcon> = {
-  "/cotizaciones": MessageSquareText,
 };
 
 /** Un enlace de la barra lateral: vistas y herramientas se pintan igual. */

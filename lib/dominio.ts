@@ -243,6 +243,8 @@ export interface PermisosRol {
   adjuntarArchivos: boolean;
   /** Chatear con el agente de cotizaciones (Quote Agent API) en `/cotizaciones`. */
   usarAgenteCotizacion: boolean;
+  /** Ver el dashboard de ventas, cobranza y cumplimiento en `/metricas`. */
+  verMetricas: boolean;
 }
 
 export const ROLES: Record<Rol, PermisosRol> = {
@@ -263,6 +265,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     editarEnvio: true,
     adjuntarArchivos: true,
     usarAgenteCotizacion: true,
+    verMetricas: true,
   },
   logistica: {
     nombre: "Logística",
@@ -281,6 +284,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     editarEnvio: true,
     adjuntarArchivos: true,
     usarAgenteCotizacion: false,
+    verMetricas: false,
   },
   operaciones: {
     nombre: "Operaciones",
@@ -299,6 +303,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     editarEnvio: false,
     adjuntarArchivos: false,
     usarAgenteCotizacion: false,
+    verMetricas: false,
   },
 };
 
@@ -462,6 +467,7 @@ export interface ConfigHerramienta {
 
 export const HERRAMIENTAS: ConfigHerramienta[] = [
   { titulo: "Cotizaciones", href: "/cotizaciones", permiso: "usarAgenteCotizacion" },
+  { titulo: "Métricas", href: "/metricas", permiso: "verMetricas" },
 ];
 
 export const herramientasDe = (permisos: PermisosRol) =>

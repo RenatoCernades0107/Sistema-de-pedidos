@@ -115,3 +115,16 @@ export async function exigirAgenteCotizacion(): Promise<Perfil> {
   }
   return perfil;
 }
+
+/**
+ * El dashboard de `/metricas`. Va por su permiso y no por `exigirAdmin()` porque la
+ * entrada del menú sale de ese mismo permiso: así la puerta y el enlace no pueden
+ * dejar de coincidir.
+ */
+export async function exigirMetricas(): Promise<Perfil> {
+  const perfil = await exigirSesion();
+  if (!ROLES[perfil.rol].verMetricas) {
+    redirect(`/${ROLES[perfil.rol].vistaInicial}`);
+  }
+  return perfil;
+}

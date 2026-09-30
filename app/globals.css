@@ -42,6 +42,7 @@
   --color-sidebar: var(--sidebar);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
+  --color-chart-tenue: var(--chart-tenue);
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
@@ -150,8 +151,13 @@
   --st-anulado: oklch(0.44 0.15 27);
   --st-anulado-soft: oklch(0.955 0.018 27);
 
-  --chart-1: oklch(0.417 0.128 253);
-  --chart-2: oklch(0.846 0.173 86);
+  /* Series de las gráficas. 1 y 2 van juntas en el dashboard (vendido / cobrado):
+     el par está validado para daltonismo y contraste sobre la tarjeta, en claro
+     y en oscuro. Si se cambian, se vuelve a validar el par. `tenue` es la serie
+     de comparación (el período anterior): gris, para que no compita. */
+  --chart-1: oklch(0.48 0.14 253);
+  --chart-2: oklch(0.64 0.15 62);
+  --chart-tenue: oklch(0.8 0 0);
   --chart-3: oklch(0.5 0.12 148);
   --chart-4: oklch(0.58 0.13 66);
   --chart-5: oklch(0.55 0.213 27);
@@ -214,8 +220,9 @@
   --st-anulado: oklch(0.68 0.155 27);
   --st-anulado-soft: oklch(0.28 0.06 27);
 
-  --chart-1: oklch(0.68 0.145 253);
-  --chart-2: oklch(0.846 0.173 86);
+  --chart-1: oklch(0.64 0.14 253);
+  --chart-2: oklch(0.665 0.14 62);
+  --chart-tenue: oklch(0.38 0 0);
   --chart-3: oklch(0.75 0.125 150);
   --chart-4: oklch(0.79 0.13 66);
   --chart-5: oklch(0.68 0.195 26);

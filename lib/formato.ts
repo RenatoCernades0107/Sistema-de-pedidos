@@ -17,6 +17,30 @@ const soles = new Intl.NumberFormat("es-PE", {
 
 export const money = (n: number) => soles.format(n);
 
+/** Sin céntimos: para cifras grandes de un vistazo (S/ 12,346). */
+const solesEnteros = new Intl.NumberFormat("es-PE", {
+  style: "currency",
+  currency: "PEN",
+  maximumFractionDigits: 0,
+});
+
+export const moneyEntero = (n: number) => solesEnteros.format(n);
+
+/** Para ejes estrechos: S/ 12.3 K · S/ 1.2 M. */
+const solesCompactos = new Intl.NumberFormat("es-PE", {
+  style: "currency",
+  currency: "PEN",
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+
+export const moneyCompacto = (n: number) => solesCompactos.format(n);
+
+const porcentajes = new Intl.NumberFormat("es-PE", { style: "percent", maximumFractionDigits: 0 });
+
+/** 0.456 → "46%" */
+export const porcentaje = (n: number) => porcentajes.format(n);
+
 /** 2.5 → "2,5" · 12 → "12". Las planchas se cortan por mitades; las piezas no. */
 const cantidades = new Intl.NumberFormat("es-PE", { maximumFractionDigits: 2 });
 

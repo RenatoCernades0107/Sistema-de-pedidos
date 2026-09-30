@@ -6,7 +6,6 @@ import {
   Archive,
   Hammer,
   LayoutList,
-  MessageSquareText,
   Plus,
   Store,
   Truck,
@@ -23,6 +22,7 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import { EstadoBadge } from "@/components/estado-badge";
+import { ICONOS_HERRAMIENTA } from "@/components/iconos-herramienta";
 import { useStore } from "@/lib/store";
 import { VISTAS, etiquetaTipos, herramientasDe, type Vista } from "@/lib/dominio";
 import { camposBuscables, coincide } from "@/lib/busqueda";
@@ -152,13 +152,16 @@ export function CommandMenu({
             </CommandItem>
           )}
           {/* Las herramientas de `lib/dominio.ts`, las mismas que pinta el menú
-              lateral. Solo hay una, así que no se separan en otro grupo. */}
-          {herramientasDe(permisos).map((h) => (
-            <CommandItem key={h.href} value={`ir ${h.titulo}`} onSelect={() => ir(h.href)}>
-              <MessageSquareText className="size-4" />
-              {h.titulo}
-            </CommandItem>
-          ))}
+              lateral. Son pocas, así que no se separan en otro grupo. */}
+          {herramientasDe(permisos).map((h) => {
+            const Icono = ICONOS_HERRAMIENTA[h.href];
+            return (
+              <CommandItem key={h.href} value={`ir ${h.titulo}`} onSelect={() => ir(h.href)}>
+                <Icono className="size-4" />
+                {h.titulo}
+              </CommandItem>
+            );
+          })}
         </CommandGroup>
       </CommandList>
     </CommandDialog>
