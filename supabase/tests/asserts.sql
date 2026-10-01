@@ -166,9 +166,7 @@ end $$;
 -- entraba sin mirar.
 --
 -- Va antes de la máquina de estados a propósito: ahí 'Prueba local' sigue en
--- `registrado`, así que el comprobante puede volver a null al terminar. Después de
--- la sección 4 el pedido está entregado y `pedidos_comprobante_al_entregar` lo
--- impediría.
+-- `registrado`, así que el comprobante puede volver a null al terminar.
 
 do $$
 declare
@@ -225,11 +223,6 @@ begin
   begin
     update public.pedidos set estado = 'en_transito' where id = local_id;
     raise exception 'FALLO: un pedido local pasó a en tránsito';
-  exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
-
-  begin
-    update public.pedidos set estado = 'entregado' where id = local_id;
-    raise exception 'FALLO: se entregó un pedido sin comprobante';
   exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
 
   update public.pedidos set estado = 'entregado', numero_comprobante = 'F001-000999' where id = local_id;
@@ -614,8 +607,8 @@ end $$;
 
 set local role postgres;
 
--- 8.8 Logística tampoco crea pedidos, y no puede cerrar uno sin comprobante: no lo
--- escribe (no está en sus columnas permitidas) y el CHECK lo exige para entregar.
+-- 8.8 Logística tampoco crea pedidos, ni escribe el comprobante (no está en sus
+-- columnas permitidas).
 select set_config('request.jwt.claims',
                   json_build_object('sub', (select id from public.usuarios where email = 'carla@plexiacril.test'),
                                     'role', 'authenticated')::text,
@@ -640,11 +633,6 @@ begin
   exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
 
   begin
-    execute format('update public.pedidos set estado = ''entregado'' where id = %L', pedido);
-    raise exception 'FALLO: Logística entregó un pedido sin comprobante';
-  exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
-
-  begin
     execute format(
       'update public.pedidos set estado = ''entregado'', numero_comprobante = ''F001-000001'' where id = %L',
       pedido);
@@ -655,7 +643,7 @@ end $$;
 set local role postgres;
 
 -- 8.9 Administración sí cierra ese mismo pedido, con su comprobante y en un solo
--- UPDATE: el CHECK mira la fila entera, así que en dos sentencias fallaría.
+-- UPDATE.
 select set_config('request.jwt.claims',
                   json_build_object('sub', (select id from public.usuarios where email = 'ana@plexiacril.test'),
                                     'role', 'authenticated')::text,

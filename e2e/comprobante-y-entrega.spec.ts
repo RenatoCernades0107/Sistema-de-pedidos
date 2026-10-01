@@ -1,14 +1,10 @@
 /**
- * El comprobante, que es donde el modelo se muerde la cola.
+ * El comprobante es opcional para entregar, pero solo Administración lo escribe y lo
+ * ve: el trigger de escritura por rol no deja tocar esa columna a Operaciones ni a
+ * Logística, y sus vistas tampoco la traen.
  *
- * `pedidos_comprobante_al_entregar` exige el número para pasar a `entregado`, pero
- * el trigger de escritura por rol no deja escribir esa columna a Operaciones ni a
- * Logística, y sus vistas tampoco la traen. Sin `tiene_comprobante` el taller solo
- * podía enterarse pulsando el botón y comiéndose el error de Postgres.
- *
- * Aquí se comprueba lo que se hizo con eso: el taller sabe que no puede entregar y
- * ve por qué, sin ver el número; Administración registra el comprobante y entrega en
- * el mismo movimiento, y entonces el taller ya lo ve cerrado.
+ * Aquí se comprueba: el taller puede entregar sin comprobante y sin ver ningún
+ * número; Administración lo anota al entregar, y entonces el taller ya lo ve cerrado.
  *
  * Se usa una boleta a propósito: el negocio emite los dos tipos, y una aserción
  * anclada a `F001-` dejaría pasar una boleta filtrada sin que nadie se entere.
@@ -32,21 +28,20 @@ test.afterAll(async () => {
   await borrarPedido(codigo);
 });
 
-test("Operaciones ve el pedido listo pero no puede entregarlo sin comprobante", async ({ page }) => {
+test("Operaciones puede entregar el pedido listo aunque no tenga comprobante", async ({ page }) => {
   await entrar(page, "operaciones");
   await page.goto(`/pedidos/${codigo}`);
 
-  // El botón existe —la transición es válida— pero está apagado y explicado.
+  // El comprobante ya no bloquea: el botón está activo y sin aviso.
   const entregar = page.getByRole("button", { name: "Entregado" });
-  await expect(entregar).toBeVisible();
-  await expect(entregar).toBeDisabled();
-  await expect(page.getByText("Falta el número de comprobante")).toBeVisible();
+  await expect(entregar).toBeEnabled();
+  await expect(page.getByText("Falta el número de comprobante")).toHaveCount(0);
 
   // Y ningún comprobante se le enseña por ningún lado.
   await expect(page.getByText(CUALQUIER_COMPROBANTE)).toHaveCount(0);
 });
 
-test("Administración registra el comprobante y entrega en el mismo movimiento", async ({ page }) => {
+test("Administración anota el comprobante opcional y entrega en el mismo movimiento", async ({ page }) => {
   await entrar(page, "administracion");
   await page.goto(`/pedidos/${codigo}`);
 

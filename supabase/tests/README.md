@@ -10,7 +10,8 @@ Dos scripts, los dos pensados para correr contra el proyecto de Supabase en la n
   `crear_pedido`, el sobrepago, `INSERT ... RETURNING` sobre columnas revocadas, las
   vistas de rol como solo lectura, y quién puede crear, facturar y entregar.
 - **`comprobante.sql`** — verifica solo la migración `20260901000800` (el paso de
-  `numero_factura` a `numero_comprobante` y la aceptación de boletas): los dos CHECK
+  `numero_factura` a `numero_comprobante` y la aceptación de boletas, menos el CHECK
+  de entrega que quitó `20261001000100`): el CHECK de formato
   con nombre, el reparto por rol de las vistas, el trigger de auditoría y el formato
   probado en caliente. **No necesita las cuentas del seed**, así que es la que sirve
   en un proyecto con usuarios reales. También termina en `ROLLBACK`.

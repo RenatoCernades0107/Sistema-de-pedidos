@@ -12,8 +12,9 @@
 
 begin;
 
--- ── 1. Los dos CHECK, con nombre propio ─────────────────────────────────────
--- El viejo era anónimo y `lib/errores.ts` nunca pudo emparejarlo.
+-- ── 1. El CHECK de formato, con nombre propio ───────────────────────────────
+-- El viejo era anónimo y `lib/errores.ts` nunca pudo emparejarlo. El que exigía
+-- comprobante para entregar se quitó en 20261001000100.
 
 do $$
 declare
@@ -21,7 +22,7 @@ declare
 begin
   select string_agg(c, ', ')
     into faltan
-    from unnest(array['pedidos_comprobante_al_entregar', 'pedidos_comprobante_formato']) as c
+    from unnest(array['pedidos_comprobante_formato']) as c
    where not exists (
      select 1 from pg_constraint
       where conrelid = 'public.pedidos'::regclass and conname = c
@@ -35,7 +36,7 @@ begin
     select 1 from pg_constraint
      where conrelid = 'public.pedidos'::regclass
        and contype = 'c'
-       and conname not in ('pedidos_comprobante_al_entregar', 'pedidos_comprobante_formato')
+       and conname <> 'pedidos_comprobante_formato'
        and pg_get_constraintdef(oid) like '%numero_comprobante%'
   ) then
     raise exception 'FALLO: quedó un CHECK anónimo sobre el comprobante';
@@ -153,17 +154,18 @@ begin
     exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
   end loop;
 
-  -- Y sin comprobante no se entrega, que es la regla que sostiene todo esto.
+  -- El comprobante es opcional: se puede entregar sin él.
   update public.pedidos set numero_comprobante = null, estado = 'en_proceso' where id = pedido;
   update public.pedidos set estado = 'listo' where id = pedido;
 
   begin
     update public.pedidos set estado = 'entregado' where id = pedido;
-    raise exception 'FALLO: se entregó un pedido sin comprobante';
-  exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
+  exception when others then
+    raise exception 'FALLO: no se pudo entregar un pedido sin comprobante: %', sqlerrm;
+  end;
 
-  -- Con boleta sí, y el booleano de las vistas lo refleja.
-  update public.pedidos set estado = 'entregado', numero_comprobante = 'B001-000318' where id = pedido;
+  -- Y si se anota después, el booleano de las vistas lo refleja.
+  update public.pedidos set numero_comprobante = 'B001-000318' where id = pedido;
 
   if not (select tiene_comprobante from public.pedidos_admin where id = pedido) then
     raise exception 'FALLO: tiene_comprobante sigue en falso con la boleta puesta';

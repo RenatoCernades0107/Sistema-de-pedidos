@@ -335,7 +335,8 @@ export function pasosDelFlujo(esProvincia: boolean): Estado[] {
 }
 
 export const requiereMotivo = (e: Estado) => e === "anulado" || e === "observado";
-export const requiereComprobante = (e: Estado) => e === "entregado";
+/** Al entregar, Administración puede anotar el comprobante. Es opcional. */
+export const ofreceComprobante = (e: Estado) => e === "entregado";
 
 /* ── Derivados ── */
 

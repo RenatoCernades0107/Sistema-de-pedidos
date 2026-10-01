@@ -231,8 +231,8 @@ export const esquemaFormAbono = (saldo: number) =>
 
 /**
  * Motivo y comprobante del diálogo de cambio de estado (`components/acciones-pedido.tsx`).
- * El campo vacío es válido aquí: lo que hace obligatorio a cada uno es el estado de
- * destino. Sin el `or(literal(""))`, el valor inicial "" fallaría el regex y el
+ * El campo vacío es válido aquí: el motivo lo exige el estado de destino y el
+ * comprobante es siempre opcional. Sin el `or(literal(""))`, el valor inicial "" fallaría el regex y el
  * formulario no llegaría a enviarse nunca.
  */
 export const esquemaFormEstado = z.object({
@@ -364,8 +364,8 @@ export const esquemaDatosEditables = z
 export const esquemaCambioEstado = z.object({
   codigo,
   estado: estadoPedido,
-  // El motivo y el comprobante son obligatorios según el destino, pero eso lo decide
-  // la acción, que es la que sabe el rol y si el pedido ya tenía comprobante.
+  // El motivo es obligatorio según el destino, y eso lo decide la acción. El
+  // comprobante es opcional; la acción solo lo guarda si quien entrega es Administración.
   motivo: z.string().trim().min(8, "Explica el motivo en al menos 8 caracteres").nullable(),
   numeroComprobante: z
     .string()

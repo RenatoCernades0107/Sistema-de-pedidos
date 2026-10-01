@@ -11,7 +11,7 @@ import { FORMATO_COMPROBANTE, esquemaFormEstado } from "@/lib/esquemas";
 import {
   ESTADOS,
   UBICACIONES,
-  requiereComprobante,
+  ofreceComprobante,
   requiereMotivo,
   transicionesValidas,
   type Estado,
@@ -56,12 +56,9 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
 
   const validas = transicionesValidas(p);
 
-  /* El comprobante solo lo escribe (y lo ve) Administración. Para los demás roles
-     el pedido tiene que llegar ya con comprobante: `tieneComprobante` es el booleano
-     que las tres vistas exponen para poder decirlo sin enseñar el número. */
+  /* El comprobante solo lo escribe (y lo ve) Administración, y es opcional: al
+     entregar se le ofrece anotarlo si el pedido todavía no lo tiene. */
   const puedeRegistrarComprobante = permisos.editarTodo;
-  const bloqueadoSinComprobante = (e: Estado) =>
-    requiereComprobante(e) && !p.tieneComprobante && !puedeRegistrarComprobante;
 
   const form = useForm<Campos>({
     resolver: zodResolver(esquemaFormEstado),
@@ -69,7 +66,7 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
   });
 
   const pedirCambio = (nuevo: Estado) => {
-    const pideComprobante = requiereComprobante(nuevo) && !p.tieneComprobante && puedeRegistrarComprobante;
+    const pideComprobante = ofreceComprobante(nuevo) && !p.tieneComprobante && puedeRegistrarComprobante;
     if (requiereMotivo(nuevo) || pideComprobante) {
       form.reset({ motivo: "", numeroComprobante: "" });
       setDestino(nuevo);
@@ -82,12 +79,6 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
     if (!destino) return;
     if (requiereMotivo(destino) && !valores.motivo) {
       form.setError("motivo", { message: "El motivo es obligatorio" });
-      return;
-    }
-    if (requiereComprobante(destino) && !p.tieneComprobante && !valores.numeroComprobante) {
-      form.setError("numeroComprobante", {
-        message: "Sin comprobante no se puede entregar",
-      });
       return;
     }
     const resultado = await cambiarEstado(p.codigo, destino, {
@@ -126,7 +117,7 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
                     variant={e === "anulado" ? "destructive" : "outline"}
                     size="sm"
                     onClick={() => pedirCambio(e)}
-                    disabled={pendiente || bloqueadoSinComprobante(e)}
+                    disabled={pendiente}
                     className="gap-1.5"
                   >
                     {e === "anulado" ? (
@@ -138,16 +129,6 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
                   </Button>
                 ))}
               </div>
-            )}
-            {validas.some(bloqueadoSinComprobante) && (
-              <p className="text-muted-foreground mt-2 text-xs">
-                Falta el número de comprobante, y lo registra Administración.
-              </p>
-            )}
-            {puedeRegistrarComprobante && p.estado === "listo" && !p.tieneComprobante && !p.esProvincia && (
-              <p className="text-muted-foreground mt-2 text-xs">
-                Para entregar hace falta el número de comprobante.
-              </p>
             )}
           </CampoBase>
 
@@ -234,7 +215,7 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
             <DialogDescription>
               {destino && requiereMotivo(destino)
                 ? "Este cambio queda en el historial del pedido, así que el motivo es obligatorio."
-                : "Un pedido no puede darse por entregado sin su número de comprobante."}
+                : "Si ya tienes el número de comprobante, anótalo. Puedes dejarlo vacío."}
             </DialogDescription>
           </DialogHeader>
 
@@ -258,9 +239,12 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
               </div>
             )}
 
-            {destino && requiereComprobante(destino) && !p.tieneComprobante && (
+            {destino && ofreceComprobante(destino) && !p.tieneComprobante && puedeRegistrarComprobante && (
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="comprobante">Número de comprobante</Label>
+                <Label htmlFor="comprobante">
+                  Número de comprobante{" "}
+                  <span className="text-muted-foreground font-normal">(opcional)</span>
+                </Label>
                 <Input
                   id="comprobante"
                   autoFocus
