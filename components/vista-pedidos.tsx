@@ -324,11 +324,11 @@ export function VistaPedidos({ vista }: { vista: Vista }) {
       ) : (
         <>
           <div className="max-md:hidden">
-            <PedidosTabla pedidos={filtrados} />
+            <PedidosTabla pedidos={filtrados} conAño={esArchivo} />
           </div>
           <ul className="flex flex-col gap-2 md:hidden">
             {filtrados.map((p) => (
-              <PedidoCard key={p.codigo} pedido={p} />
+              <PedidoCard key={p.codigo} pedido={p} conAño={esArchivo} />
             ))}
           </ul>
         </>

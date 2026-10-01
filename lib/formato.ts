@@ -65,6 +65,46 @@ export const fechaCompleta = (iso: string) => {
   return `${d}/${m}/${a}`;
 };
 
+const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+
+/**
+ * 2026-08-24 → "24 ago" (con año si no es el actual, o si se pide siempre).
+ * A propósito distinto de `diaMes`: la fecha de registro no debe leerse como
+ * la fecha prometida, que va en dd/mm.
+ */
+export const diaMesTexto = (iso: string, conAño = false) => {
+  const [a, m, d] = iso.slice(0, 10).split("-");
+  const año = !conAño && a === hoy().slice(0, 4) ? "" : ` ${a}`;
+  return `${Number(d)} ${MESES[Number(m) - 1]}${año}`;
+};
+
+/**
+ * Cuánto pasó desde un día, cada vez más grueso: "hoy" · "ayer" · "anteayer" ·
+ * "hace 3 días" … "hace 6 días" · "hace 1 semana" … "hace 4 semanas" ·
+ * "hace 1 mes" · "hace 2 meses" · "hace 1 año".
+ */
+export const haceCuanto = (iso: string) => {
+  const dia = (s: string) => {
+    const [a, m, d] = s.slice(0, 10).split("-").map(Number);
+    return Date.UTC(a, m - 1, d);
+  };
+  const n = Math.round((dia(hoy()) - dia(iso)) / 86_400_000);
+  if (n <= 0) return "hoy";
+  if (n === 1) return "ayer";
+  if (n === 2) return "anteayer";
+  if (n < 7) return `hace ${n} días`;
+  if (n < 30) {
+    const semanas = Math.floor(n / 7);
+    return semanas === 1 ? "hace 1 semana" : `hace ${semanas} semanas`;
+  }
+  if (n < 365) {
+    const meses = Math.floor(n / 30);
+    return meses === 1 ? "hace 1 mes" : `hace ${meses} meses`;
+  }
+  const años = Math.floor(n / 365);
+  return años === 1 ? "hace 1 año" : `hace ${años} años`;
+};
+
 /** 2026-08-28T11:20:00 → 28/08/2026 11:20 */
 export const fechaHora = (iso: string) => {
   const hora = iso.includes("T") ? iso.slice(11, 16) : "";

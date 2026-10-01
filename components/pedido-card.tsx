@@ -11,7 +11,14 @@ import {
   saldoDe,
   type Pedido,
 } from "@/lib/dominio";
-import { cantidadCorta, diaMes, money, urgenciaDe } from "@/lib/formato";
+import {
+  cantidadCorta,
+  diaMes,
+  diaMesTexto,
+  fechaCompleta,
+  money,
+  urgenciaDe,
+} from "@/lib/formato";
 import { BARRA_ESTADO, EstadoBadge } from "@/components/estado-badge";
 
 const CLASE_URGENCIA = {
@@ -27,7 +34,14 @@ const CLASE_URGENCIA = {
  * grita cuando está vencida o vence hoy. Todo lo demás es contexto en gris.
  * Para quien no puede ver al cliente, el código hereda el primer puesto.
  */
-export function PedidoCard({ pedido: p }: { pedido: Pedido }) {
+export function PedidoCard({
+  pedido: p,
+  conAño = false,
+}: {
+  pedido: Pedido;
+  /** Fechas con año: en el historial se mezclan años. */
+  conAño?: boolean;
+}) {
   const { permisos } = useStore();
   const urgencia = urgenciaDe(p);
   const saldo = saldoDe(p);
@@ -67,27 +81,24 @@ export function PedidoCard({ pedido: p }: { pedido: Pedido }) {
                 CLASE_URGENCIA[urgencia],
               )}
             >
-              {diaMes(p.fechaPrometida)}
+              {(conAño ? fechaCompleta : diaMes)(p.fechaPrometida)}
               {urgencia === "vencido" && " · vencido"}
               {urgencia === "hoy" && " · hoy"}
             </span>
           </div>
 
-          {(permisos.verCliente || p.esProvincia) && (
-            <p className="text-primary mt-0.5 text-xs font-medium tabular-nums">
-              {permisos.verCliente && p.codigo}
-              {p.esProvincia && (
-                <span
-                  className={cn(
-                    "text-st-en_transito font-semibold",
-                    permisos.verCliente && "ml-1.5",
-                  )}
-                >
-                  {permisos.verCliente && "· "}PROVINCIA
-                </span>
-              )}
-            </p>
-          )}
+          <p className="text-primary mt-0.5 truncate text-xs font-medium tabular-nums">
+            {permisos.verCliente && <>{p.codigo} · </>}
+            {p.esProvincia && (
+              <span className="text-st-en_transito font-semibold">
+                PROVINCIA ·{" "}
+              </span>
+            )}
+            {/* Con la palabra delante: suelta, se leería como la prometida. */}
+            <span className="text-muted-foreground font-normal">
+              Registrado {diaMesTexto(p.fechaCreacion, conAño)}
+            </span>
+          </p>
 
           <p className="text-muted-foreground mt-1.5 truncate text-xs">
             <span className="tnum">{cantidadCorta(p)}</span> · {etiquetaTipos(p.tipos)}
