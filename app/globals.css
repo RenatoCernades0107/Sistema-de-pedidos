@@ -256,6 +256,21 @@
   }
 }
 
+/* iOS amplía la página al enfocar un campo con letra de menos de 16px, y no la
+   devuelve al soltarlo: el menú de abajo se queda fuera de la pantalla. La
+   escala de la app pone los campos en 13–14px, así que en celular se suben a
+   16px. Va fuera de `@layer` a propósito: así le gana a `text-sm` y compañía
+   sin `!important`, y cubre también los campos que no salen de `components/ui`
+   (el buscador de cmdk, el del chat). No se bloquea el zoom del viewport: con
+   dos dedos se tiene que poder seguir ampliando. */
+@media (max-width: 47.999rem) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
 @layer components {
   /* Etiqueta de sección: mayúsculas, tracking amplio, un solo tamaño en toda la app */
   .eyebrow {

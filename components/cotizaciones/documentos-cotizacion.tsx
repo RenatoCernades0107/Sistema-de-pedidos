@@ -4,22 +4,16 @@
  * Los archivos de una cotización ya creada en Odoo, al final del chat: el PDF de
  * la cotización y, cuando se cotizó corte, la hoja de corte del taller.
  *
- * Las dos acciones apuntan a la misma URL (`app/api/cotizaciones/...`): ver la
- * abre `inline` para el visor del navegador, descargar le agrega `?descargar`
- * para que vaya como adjunto. Por eso son enlaces y no botones con JavaScript —
- * la descarga la hace el navegador, no la app.
+ * Las dos acciones apuntan a la misma URL (`app/api/cotizaciones/...`): ver lo
+ * abre en el visor de la app (`VisorArchivo`), descargar le agrega `?descargar`
+ * para que vaya como adjunto. La descarga es un enlace y no JavaScript: la hace
+ * el navegador, no la app.
  */
 
-import { useState } from "react";
-import { Download, ExternalLink, FileText, Scissors } from "lucide-react";
+import { useCallback, useState } from "react";
+import { Download, FileText, Scissors } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { VisorArchivo } from "@/components/visor-archivo";
 import { useChat } from "@/app/(app)/cotizaciones/chat-store";
 
 interface Archivo {
@@ -86,9 +80,12 @@ function FichaArchivo({ chatId, archivo }: { chatId: string; archivo: Archivo })
         </span>
       </Vista>
 
+      {/* En la PWA del iPhone un `<a download>` abre el PDF a pantalla completa y
+          sin salida. En el celular se descarga desde el visor, con compartir. */}
       <Button
         variant="ghost"
         size="icon-xs"
+        className="hidden sm:inline-flex"
         nativeButton={false}
         render={
           <a
@@ -104,11 +101,7 @@ function FichaArchivo({ chatId, archivo }: { chatId: string; archivo: Archivo })
   );
 }
 
-/**
- * La previsualización va en un diálogo con el visor de PDF del navegador. En
- * móvil ese visor a veces no se muestra dentro de un `iframe` (iOS no lo
- * permite), de ahí el enlace para abrirlo en una pestaña, que siempre funciona.
- */
+/** La ficha abre el visor de la app: con su barra se puede volver y compartir. */
 function Vista({
   chatId,
   clave,
@@ -121,42 +114,26 @@ function Vista({
   children: React.ReactNode;
 }) {
   const [abierto, setAbierto] = useState(false);
-  const url = urlDocumento(chatId, clave);
+  const cerrar = useCallback(() => setAbierto(false), []);
 
   return (
-    <Dialog open={abierto} onOpenChange={setAbierto}>
-      <DialogTrigger
-        render={
-          <button
-            type="button"
-            aria-label={`Ver ${titulo}`}
-            className="focus-visible:ring-ring flex min-w-0 items-center gap-2.5 rounded text-left focus-visible:ring-2 focus-visible:outline-none"
-          />
-        }
+    <>
+      <button
+        type="button"
+        onClick={() => setAbierto(true)}
+        aria-label={`Ver ${titulo}`}
+        className="focus-visible:ring-ring flex min-w-0 items-center gap-2.5 rounded text-left focus-visible:ring-2 focus-visible:outline-none"
       >
         {children}
-      </DialogTrigger>
+      </button>
 
-      <DialogContent className="flex h-[85vh] flex-col gap-3 sm:max-w-3xl">
-        <DialogHeader className="flex-row items-center justify-between gap-3 pr-8">
-          <DialogTitle>{titulo}</DialogTitle>
-          <Button
-            variant="outline"
-            size="sm"
-            nativeButton={false}
-            render={<a href={url} target="_blank" rel="noopener noreferrer" />}
-          >
-            <ExternalLink />
-            Abrir en pestaña
-          </Button>
-        </DialogHeader>
-
-        {/* Solo se monta con el diálogo abierto: así no se pide el PDF (ni se
-            genera la hoja de corte en el servidor) hasta que alguien la mira. */}
-        {abierto && (
-          <iframe src={url} title={titulo} className="bg-muted min-h-0 flex-1 rounded-lg border" />
-        )}
-      </DialogContent>
-    </Dialog>
+      {/* Solo pide el PDF (y genera la hoja de corte en el servidor) al abrirse. */}
+      <VisorArchivo
+        url={urlDocumento(chatId, clave)}
+        titulo={titulo}
+        abierto={abierto}
+        onCerrar={cerrar}
+      />
+    </>
   );
 }
