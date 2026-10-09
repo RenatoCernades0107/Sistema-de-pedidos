@@ -5,16 +5,18 @@
  *
  * Se sirven por la misma ruta que los PDFs de la cotización
  * (`app/api/cotizaciones/...`), con el prefijo `adjunto:` y el id del archivo,
- * así que valen las mismas dos acciones: verlo abre el visor del navegador y
- * descargarlo lo baja.
+ * y se ven en el mismo visor de la app (`VisorArchivo`), con su barra para
+ * volver, compartir y descargar.
  *
  * Mientras el mensaje viaja, la ficha todavía no tiene id — el agente aún no lo
  * ha guardado — y se muestra apagada y sin enlaces. En cuanto responde, el id
  * real la reemplaza.
  */
 
+import { useCallback, useState } from "react";
 import { FileText, ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { VisorArchivo } from "@/components/visor-archivo";
 import type { Adjunto } from "@/app/(app)/cotizaciones/acciones";
 
 /** 860160 → "840 KB". */
@@ -39,6 +41,8 @@ export function AdjuntosMensaje({ chatId, adjuntos }: { chatId: string | null; a
 }
 
 function Ficha({ chatId, adjunto }: { chatId: string | null; adjunto: Adjunto }) {
+  const [abierto, setAbierto] = useState(false);
+  const cerrar = useCallback(() => setAbierto(false), []);
   const Icono = adjunto.contentType.startsWith("image/") ? ImageIcon : FileText;
   // Sin id todavía (mensaje en vuelo) no hay nada que pedirle al servidor.
   const url =
@@ -68,8 +72,11 @@ function Ficha({ chatId, adjunto }: { chatId: string | null; adjunto: Adjunto })
   if (!url) return <div className={clases}>{contenido}</div>;
 
   return (
-    <a href={url} target="_blank" rel="noopener noreferrer" className={clases} title={`Ver ${adjunto.filename}`}>
-      {contenido}
-    </a>
+    <>
+      <button type="button" onClick={() => setAbierto(true)} className={clases} title={`Ver ${adjunto.filename}`}>
+        {contenido}
+      </button>
+      <VisorArchivo url={url} titulo={adjunto.filename} abierto={abierto} onCerrar={cerrar} />
+    </>
   );
 }
