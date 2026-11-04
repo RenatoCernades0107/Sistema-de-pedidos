@@ -176,6 +176,6 @@ export async function entrar(page: Page, usuario: keyof typeof USUARIOS) {
   await page.goto("/login");
   await page.getByLabel("Usuario").fill(USUARIOS[usuario]);
   await page.getByLabel("Contraseña").fill(CONTRASENA);
-  await page.getByRole("button", { name: "Entrar" }).click();
+  await page.getByRole("button", { name: "Ingresar" }).click();
   await expect(page).not.toHaveURL(/\/login/);
 }
