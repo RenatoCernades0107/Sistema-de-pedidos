@@ -25,7 +25,7 @@ test("con la marca puesta, el ingreso acaba en el cambio de contraseña", async 
   await page.goto("/login");
   await page.getByLabel("Usuario").fill(USUARIOS.operaciones);
   await page.getByLabel("Contraseña").fill(CONTRASENA);
-  await page.getByRole("button", { name: "Entrar" }).click();
+  await page.getByRole("button", { name: "Ingresar" }).click();
 
   await expect(page).toHaveURL(/\/cambiar-contrasena/);
   await expect(page.getByRole("heading", { name: "Cambia tu contraseña" })).toBeVisible();
@@ -35,7 +35,7 @@ test("y ninguna vista se deja abrir hasta que cambie", async ({ page }) => {
   await page.goto("/login");
   await page.getByLabel("Usuario").fill(USUARIOS.operaciones);
   await page.getByLabel("Contraseña").fill(CONTRASENA);
-  await page.getByRole("button", { name: "Entrar" }).click();
+  await page.getByRole("button", { name: "Ingresar" }).click();
   await expect(page).toHaveURL(/\/cambiar-contrasena/);
 
   // Escribir la ruta a mano tampoco vale: la guarda está en el servidor.
