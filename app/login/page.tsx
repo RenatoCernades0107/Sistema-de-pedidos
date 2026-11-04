@@ -114,15 +114,23 @@ function PlanchasAcrilico() {
           <stop offset="0" stopColor="#ffc200" stopOpacity="0.55" />
           <stop offset="1" stopColor="#ffc200" stopOpacity="0.08" />
         </linearGradient>
+        <linearGradient id="brillo" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stopColor="#ffffff" stopOpacity="0" />
+          <stop offset="0.5" stopColor="#ffffff" stopOpacity="0.09" />
+          <stop offset="1" stopColor="#ffffff" stopOpacity="0" />
+        </linearGradient>
       </defs>
       <rect width="600" height="800" fill="url(#fondo)" />
       <g transform="rotate(-18 450 200)">
-        <rect x="330" y="-60" width="300" height="380" rx="18" fill="url(#plancha)" stroke="#fff" strokeOpacity="0.18" />
-        <rect x="390" y="10" width="300" height="380" rx="18" fill="url(#plancha)" stroke="#fff" strokeOpacity="0.12" />
-        <rect x="455" y="90" width="210" height="260" rx="16" fill="url(#amarilla)" stroke="#ffc200" strokeOpacity="0.5" />
+        <rect className="plancha" x="330" y="-60" width="300" height="380" rx="18" fill="url(#plancha)" stroke="#fff" strokeOpacity="0.18" />
+        <rect className="plancha plancha-2" x="390" y="10" width="300" height="380" rx="18" fill="url(#plancha)" stroke="#fff" strokeOpacity="0.12" />
+        <rect className="plancha plancha-3" x="455" y="90" width="210" height="260" rx="16" fill="url(#amarilla)" stroke="#ffc200" strokeOpacity="0.5" />
       </g>
       <g transform="rotate(14 120 700)">
-        <rect x="-80" y="600" width="320" height="260" rx="18" fill="url(#plancha)" stroke="#fff" strokeOpacity="0.12" />
+        <rect className="plancha plancha-4" x="-80" y="600" width="320" height="260" rx="18" fill="url(#plancha)" stroke="#fff" strokeOpacity="0.12" />
+      </g>
+      <g transform="rotate(20 300 400)">
+        <rect className="brillo-login" x="0" y="-400" width="160" height="1600" fill="url(#brillo)" />
       </g>
     </svg>
   );

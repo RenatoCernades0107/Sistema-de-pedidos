@@ -319,3 +319,40 @@
     scrollbar-color: var(--border) transparent;
   }
 }
+
+/* ── Fondo del login: planchas de acrílico que flotan ──
+   Movimientos lentos y desfasados para que nunca se vea un bucle evidente. */
+.plancha {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: plancha-flota 18s ease-in-out infinite alternate;
+}
+.plancha-2 { animation-duration: 23s; animation-delay: -6s; }
+.plancha-3 { animation-name: plancha-flota-amarilla; animation-duration: 15s; animation-delay: -3s; }
+.plancha-4 { animation-duration: 26s; animation-delay: -11s; }
+.brillo-login {
+  animation: brillo-barrido 9s ease-in-out infinite;
+}
+
+@keyframes plancha-flota {
+  0%   { transform: translate(0, 0) rotate(0deg); }
+  50%  { transform: translate(-14px, 22px) rotate(2.5deg); }
+  100% { transform: translate(10px, -16px) rotate(-2deg); }
+}
+@keyframes plancha-flota-amarilla {
+  0%   { transform: translate(0, 0) rotate(0deg); opacity: 0.85; }
+  50%  { transform: translate(-22px, 30px) rotate(-4deg); opacity: 1; }
+  100% { transform: translate(14px, -10px) rotate(3deg); opacity: 0.75; }
+}
+/* Un reflejo de luz que cruza el panel, como sobre una lámina pulida. */
+@keyframes brillo-barrido {
+  0%, 35%  { transform: translateX(-700px); }
+  75%, 100% { transform: translateX(900px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plancha,
+  .brillo-login {
+    animation: none;
+  }
+}
