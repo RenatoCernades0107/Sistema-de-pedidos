@@ -28,15 +28,15 @@ test.afterAll(async () => {
 test("Administración lo ve donde toca y le registra un abono", async ({ page }) => {
   await entrar(page, "administracion");
 
-  await page.goto("/admin");
+  await page.goto("/pedidos?ver=todos");
   await expect(page.getByText(codigo).first()).toBeVisible();
 
   // Va a provincia: sale en Logística.
-  await page.goto("/logistica");
+  await page.goto("/pedidos?ver=logistica");
   await expect(page.getByText(codigo).first()).toBeVisible();
 
   // Y no en Tienda, que filtra por entrega o ubicación en tienda.
-  await page.goto("/tienda");
+  await page.goto("/pedidos?ver=tienda");
   await expect(page.getByText(codigo)).toHaveCount(0);
 
   await page.goto(`/pedidos/${codigo}`);
@@ -54,7 +54,7 @@ test("Administración lo ve donde toca y le registra un abono", async ({ page })
 test("Operaciones mueve el estado, ve al cliente y no ve el dinero", async ({ page }) => {
   await entrar(page, "operaciones");
 
-  await page.goto("/taller");
+  await page.goto("/pedidos");
   await expect(page.getByText(codigo).first()).toBeVisible();
 
   await page.goto(`/pedidos/${codigo}`);
@@ -82,7 +82,7 @@ test("Operaciones mueve el estado, ve al cliente y no ve el dinero", async ({ pa
 test("Logística lo pone en tránsito y lo manda a la agencia", async ({ page }) => {
   await entrar(page, "logistica");
 
-  await page.goto("/logistica");
+  await page.goto("/pedidos");
   await expect(page.getByText(codigo).first()).toBeVisible();
 
   await page.goto(`/pedidos/${codigo}`);

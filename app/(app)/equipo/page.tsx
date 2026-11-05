@@ -5,8 +5,7 @@ import { EquipoTabla } from "@/components/equipo-tabla";
 /**
  * Enlaza a cada trabajador del taller con su cuenta de la app.
  *
- * No es una `Vista`: `Vista` es la lista de filtros sobre pedidos que alimenta la
- * navegación y los contadores del shell, y esta pantalla no filtra pedidos.
+ * No es un `Alcance` de `/pedidos`: esta pantalla no filtra pedidos.
  * Se entra por el menú de usuario, y solo Administración la ve.
  *
  * Existe porque el enlace inicial se hizo por nombre en una migración, y un

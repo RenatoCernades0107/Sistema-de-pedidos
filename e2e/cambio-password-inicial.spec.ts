@@ -39,7 +39,7 @@ test("y ninguna vista se deja abrir hasta que cambie", async ({ page }) => {
   await expect(page).toHaveURL(/\/cambiar-contrasena/);
 
   // Escribir la ruta a mano tampoco vale: la guarda está en el servidor.
-  await page.goto("/taller");
+  await page.goto("/pedidos");
   await expect(page).toHaveURL(/\/cambiar-contrasena/);
 
   await page.goto("/");
@@ -50,5 +50,5 @@ test("sin la marca, el ingreso va directo a la vista del rol", async ({ page }) 
   await marcarCambioPendiente("operaciones", false);
 
   await entrar(page, "operaciones");
-  await expect(page).toHaveURL(/\/taller/);
+  await expect(page).toHaveURL(/\/pedidos$/);
 });

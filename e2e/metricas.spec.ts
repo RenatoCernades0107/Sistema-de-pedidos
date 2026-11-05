@@ -35,8 +35,8 @@ test("Administración lo encuentra en el menú y cambia de pestaña y de períod
 });
 
 for (const [rol, inicio] of [
-  ["logistica", "/logistica"],
-  ["operaciones", "/taller"],
+  ["logistica", "/pedidos"],
+  ["operaciones", "/pedidos"],
 ] as const) {
   test(`${rol} no entra: vuelve a su vista`, async ({ page }) => {
     await entrar(page, rol);

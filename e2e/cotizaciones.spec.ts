@@ -279,8 +279,8 @@ test("la lista filtra, y el formulario sugiere lo usado", async ({ page }) => {
 });
 
 for (const [rol, vista] of [
-  ["logistica", "/logistica"],
-  ["operaciones", "/taller"],
+  ["logistica", "/pedidos"],
+  ["operaciones", "/pedidos"],
 ] as const) {
   test(`${rol} no ve ni puede usar las cotizaciones`, async ({ page }) => {
     await entrar(page, rol);

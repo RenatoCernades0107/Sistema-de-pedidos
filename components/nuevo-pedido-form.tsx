@@ -198,7 +198,7 @@ export function NuevoPedidoForm() {
   return (
     <div className="px-4 py-5 md:px-6 md:py-6">
       <Button
-        render={<Link href="/admin" />}
+        render={<Link href="/pedidos" />}
         nativeButton={false}
         variant="ghost"
         size="sm"
@@ -759,7 +759,7 @@ export function NuevoPedidoForm() {
           <Button type="submit" disabled={form.formState.isSubmitting || pendiente}>
             {form.formState.isSubmitting ? "Registrando…" : "Registrar pedido"}
           </Button>
-          <Button type="button" variant="ghost" render={<Link href="/admin" />} nativeButton={false}>
+          <Button type="button" variant="ghost" render={<Link href="/pedidos" />} nativeButton={false}>
             Cancelar
           </Button>
         </div>

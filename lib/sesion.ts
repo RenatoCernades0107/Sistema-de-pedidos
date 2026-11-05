@@ -1,6 +1,6 @@
 import { cache } from "react";
 import { redirect } from "next/navigation";
-import { ROLES, type Rol, type Vista } from "./dominio";
+import { ROLES, RUTA_PEDIDOS, type Rol } from "./dominio";
 import { clienteServidor } from "./supabase-servidor";
 
 export interface Perfil {
@@ -68,26 +68,10 @@ export async function exigirSesion(): Promise<Perfil> {
   return perfil;
 }
 
-/**
- * Una vista que no le corresponde al rol no da error: devuelve a la persona a la
- * suya. Escribir `/tienda` en la barra de direcciones no es un ataque, casi
- * siempre es un enlace viejo o un dedo torpe.
- *
- * Esto es la segunda de las tres capas: el menú no ofrece la vista, esto la
- * cierra, y la RLS decide qué filas y columnas se pueden leer.
- */
-export async function exigirVista(vista: Vista): Promise<Perfil> {
-  const perfil = await exigirSesion();
-  if (!ROLES[perfil.rol].vistas.includes(vista)) {
-    redirect(`/${ROLES[perfil.rol].vistaInicial}`);
-  }
-  return perfil;
-}
-
 export async function exigirCrearPedido(): Promise<Perfil> {
   const perfil = await exigirSesion();
   if (!ROLES[perfil.rol].crearPedido) {
-    redirect(`/${ROLES[perfil.rol].vistaInicial}`);
+    redirect(RUTA_PEDIDOS);
   }
   return perfil;
 }
@@ -96,14 +80,14 @@ export async function exigirCrearPedido(): Promise<Perfil> {
  * Pantallas que no son una vista de pedidos y solo abre Administración, como el
  * enlace de trabajadores con sus cuentas.
  *
- * No pasa por `ROLES[...].vistas` a propósito: `Vista` es la lista de filtros
- * sobre pedidos que alimenta la navegación y los contadores del shell, y meter
- * ahí una pantalla que no filtra pedidos rompe las dos cosas.
+ * No pasa por `ROLES[...].alcances` a propósito: `Alcance` es la lista de
+ * filtros sobre pedidos de `/pedidos`, y una pantalla que no filtra pedidos no
+ * pinta nada ahí.
  */
 export async function exigirAdmin(): Promise<Perfil> {
   const perfil = await exigirSesion();
   if (perfil.rol !== "administracion") {
-    redirect(`/${ROLES[perfil.rol].vistaInicial}`);
+    redirect(RUTA_PEDIDOS);
   }
   return perfil;
 }
@@ -111,7 +95,7 @@ export async function exigirAdmin(): Promise<Perfil> {
 export async function exigirAgenteCotizacion(): Promise<Perfil> {
   const perfil = await exigirSesion();
   if (!ROLES[perfil.rol].usarAgenteCotizacion) {
-    redirect(`/${ROLES[perfil.rol].vistaInicial}`);
+    redirect(RUTA_PEDIDOS);
   }
   return perfil;
 }
@@ -120,7 +104,7 @@ export async function exigirAgenteCotizacion(): Promise<Perfil> {
 export async function exigirCotizaciones(): Promise<Perfil> {
   const perfil = await exigirSesion();
   if (!ROLES[perfil.rol].gestionarCotizaciones) {
-    redirect(`/${ROLES[perfil.rol].vistaInicial}`);
+    redirect(RUTA_PEDIDOS);
   }
   return perfil;
 }
@@ -143,7 +127,7 @@ export async function perfilConCotizaciones(): Promise<Perfil | null> {
 export async function exigirMetricas(): Promise<Perfil> {
   const perfil = await exigirSesion();
   if (!ROLES[perfil.rol].verMetricas) {
-    redirect(`/${ROLES[perfil.rol].vistaInicial}`);
+    redirect(RUTA_PEDIDOS);
   }
   return perfil;
 }

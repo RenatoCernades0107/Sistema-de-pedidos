@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Archive,
   FilePlus2,
   Hammer,
   LayoutList,
@@ -25,17 +24,16 @@ import {
 import { EstadoBadge } from "@/components/estado-badge";
 import { ICONOS_HERRAMIENTA } from "@/components/iconos-herramienta";
 import { useStore } from "@/lib/store";
-import { VISTAS, etiquetaTipos, herramientasDe, type Vista } from "@/lib/dominio";
+import { ALCANCES, etiquetaTipos, herramientasDe, rutaAlcance, type Alcance } from "@/lib/dominio";
 import { camposBuscables, coincide } from "@/lib/busqueda";
 import { porUrgencia } from "@/lib/formato";
 
-const ICONOS: Record<Vista, LucideIcon> = {
-  admin: LayoutList,
-  "mis-pedidos": UserRound,
+const ICONOS: Record<Alcance, LucideIcon> = {
+  todos: LayoutList,
+  mios: UserRound,
   taller: Hammer,
   tienda: Store,
   logistica: Truck,
-  historial: Archive,
 };
 
 export function useCommandMenu() {
@@ -79,9 +77,9 @@ export function CommandMenu({
   const visibles = useMemo(
     () =>
       [...pedidos]
-        .filter((p) => permisos.vistas.some((v) => VISTAS[v].filtro(p)))
+        .filter(permisos.base)
         .sort(porUrgencia),
-    [pedidos, permisos.vistas],
+    [pedidos, permisos.base],
   );
 
   /* El filtro por defecto de cmdk puntúa carácter a carácter y se pierde con
@@ -133,16 +131,16 @@ export function CommandMenu({
         <CommandSeparator />
 
         <CommandGroup heading="Ir a">
-          {permisos.vistas.map((v) => {
-            const Icono = ICONOS[v];
+          {permisos.alcances.map((a) => {
+            const Icono = ICONOS[a];
             return (
               <CommandItem
-                key={v}
-                value={`ir ${VISTAS[v].titulo}`}
-                onSelect={() => ir(`/${v}`)}
+                key={a}
+                value={`ir pedidos ${ALCANCES[a].titulo}`}
+                onSelect={() => ir(rutaAlcance(permisos, a))}
               >
                 <Icono className="size-4" />
-                {VISTAS[v].titulo}
+                {ALCANCES[a].titulo}
               </CommandItem>
             );
           })}
