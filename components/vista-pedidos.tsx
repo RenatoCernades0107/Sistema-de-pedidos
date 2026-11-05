@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
 import {
-  Archive,
   CalendarRange,
+  ChevronLeft,
+  ChevronRight,
   LayoutGrid,
   List,
   Plus,
@@ -17,19 +19,21 @@ import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { hoy } from "@/lib/fecha";
 import {
+  ALCANCES,
   ESTADOS,
   ORDEN_ESTADOS,
   TIPOS,
-  VISTAS,
+  alcanceDe,
   esTerminal,
   fechaCierreDe,
+  rutaAlcance,
   sumarDias,
+  type Alcance,
   type Estado,
   type TipoPedido,
-  type Vista,
 } from "@/lib/dominio";
 import { camposBuscables, coincide } from "@/lib/busqueda";
-import { cerradoHoy, porCierre, porUrgencia } from "@/lib/formato";
+import { porUrgencia } from "@/lib/formato";
 import { BARRA_ESTADO } from "@/components/estado-badge";
 import { PedidoCard } from "@/components/pedido-card";
 import { PedidosKanban } from "@/components/pedidos-kanban";
@@ -47,39 +51,64 @@ import {
 type Modo = "lista" | "kanban";
 type Rango = "7" | "30" | "90" | "todo";
 
+/** El rango solo recorta los cerrados, por su fecha de cierre: un activo pasa siempre. */
 const RANGOS: Record<Rango, string> = {
-  "7": "Últimos 7 días",
-  "30": "Últimos 30 días",
-  "90": "Últimos 90 días",
-  todo: "Todo el historial",
+  "7": "Cerrados: 7 días",
+  "30": "Cerrados: 30 días",
+  "90": "Cerrados: 90 días",
+  todo: "Cerrados: todos",
 };
 
-export function VistaPedidos({ vista }: { vista: Vista }) {
+/** Pedidos por página en la lista. Los cerrados, al fondo, caen en las últimas. */
+const POR_PAGINA = 50;
+
+/**
+ * La única vista de pedidos. El alcance (Todos, Míos, Taller, Tienda, Logística)
+ * vive en `?ver=` para que una recarga o un enlace compartido abran lo mismo; se
+ * escribe con `replaceState`, que Next sincroniza con `useSearchParams` sin ir al
+ * servidor.
+ *
+ * Los cerrados no tienen vista propia: van mezclados, al final del orden.
+ */
+export function VistaPedidos() {
   const { pedidos, permisos, trabajadores } = useStore();
-  const [modo, setModo] = useState<Modo>(() => (VISTAS[vista].archivo ? "lista" : "kanban"));
+  const params = useSearchParams();
+  const alcance = alcanceDe(permisos, params.get("ver"));
+  const [modo, setModo] = useState<Modo>("kanban");
   const [q, setQ] = useState("");
   const [estado, setEstado] = useState<Estado | "todos">("todos");
   const [tipo, setTipo] = useState<TipoPedido | "todos">("todos");
   const [responsable, setResponsable] = useState<string>("todos");
   const [rango, setRango] = useState<Rango>("todo");
+  const [pagina, setPagina] = useState(1);
 
-  const config = VISTAS[vista];
-  const esArchivo = !!config.archivo;
+  // Cualquier cambio de filtro vuelve a la primera página. Se ajusta durante el
+  // render, no en un efecto, para no pintar una página vacía entre medio.
+  const firma = [alcance, q, estado, tipo, responsable, rango, modo].join("|");
+  const [firmaPrevia, setFirmaPrevia] = useState(firma);
+  if (firma !== firmaPrevia) {
+    setFirmaPrevia(firma);
+    setPagina(1);
+  }
 
-  /**
-   * Un pedido entregado o anulado deja de estorbar la lista al día siguiente:
-   * a partir de ahí solo se encuentra en el historial.
-   */
-  const base = useMemo(() => {
-    const propios = pedidos.filter(config.filtro);
-    return esArchivo ? propios : propios.filter((p) => !esTerminal(p.estado) || cerradoHoy(p));
-  }, [pedidos, config, esArchivo]);
+  const elegirAlcance = (a: Alcance) => {
+    window.history.replaceState(null, "", rutaAlcance(permisos, a));
+  };
 
-  /** Los cerrados que ya salieron de las listas y viven solo en el historial. */
-  const enHistorial = useMemo(
-    () => pedidos.filter((p) => esTerminal(p.estado)).length,
-    [pedidos],
-  );
+  const config = ALCANCES[alcance];
+
+  /** Lo que le toca al rol, sin filtro de alcance: de aquí salen los contadores. */
+  const delRol = useMemo(() => pedidos.filter(permisos.base), [pedidos, permisos]);
+
+  const activosPorAlcance = useMemo(() => {
+    const m = new Map<Alcance, number>();
+    for (const a of permisos.alcances) {
+      m.set(a, delRol.filter((p) => !esTerminal(p.estado) && ALCANCES[a].filtro(p)).length);
+    }
+    return m;
+  }, [delRol, permisos.alcances]);
+
+  const base = useMemo(() => delRol.filter(config.filtro), [delRol, config]);
 
   const filtrados = useMemo(() => {
     const desde = rango === "todo" ? null : sumarDias(hoy(), -Number(rango));
@@ -91,15 +120,15 @@ export function VistaPedidos({ vista }: { vista: Vista }) {
           if (responsable === "sin" ? p.responsable !== null : p.responsable !== responsable)
             return false;
         }
-        if (desde) {
+        if (desde && esTerminal(p.estado)) {
           const cierre = fechaCierreDe(p);
           if (!cierre || cierre < desde) return false;
         }
         if (!coincide(camposBuscables(p, permisos), q)) return false;
         return true;
       })
-      .sort(esArchivo ? porCierre : porUrgencia);
-  }, [base, estado, tipo, responsable, q, rango, esArchivo, permisos]);
+      .sort(porUrgencia);
+  }, [base, estado, tipo, responsable, q, rango, permisos]);
 
   const conteos = useMemo(() => {
     const m = new Map<Estado, number>();
@@ -107,7 +136,12 @@ export function VistaPedidos({ vista }: { vista: Vista }) {
     return m;
   }, [base]);
 
-  const chips = config.estadosChip ?? ORDEN_ESTADOS;
+  const totalPaginas = Math.max(1, Math.ceil(filtrados.length / POR_PAGINA));
+  const paginaActual = Math.min(pagina, totalPaginas);
+  const enPagina = filtrados.slice((paginaActual - 1) * POR_PAGINA, paginaActual * POR_PAGINA);
+  // "24 ago" es ambiguo en cuanto asoma un pedido de otro año.
+  const año = hoy().slice(0, 4);
+  const conAño = enPagina.some((p) => p.fechaPrometida.slice(0, 4) !== año);
 
   const hayFiltros =
     q !== "" ||
@@ -123,25 +157,16 @@ export function VistaPedidos({ vista }: { vista: Vista }) {
     setRango("todo");
   };
 
-  if (!permisos.vistas.includes(vista)) {
-    return (
-      <div className="grid min-h-[60vh] place-items-center p-6">
-        <div className="max-w-sm text-center">
-          <h1 className="text-lg font-semibold">Esta vista no es para tu rol</h1>
-          <p className="text-muted-foreground mt-1.5 text-sm">
-            {permisos.nombre} no tiene acceso a {config.titulo}. Cambia de rol arriba a la
-            derecha para comprobar los permisos.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const irAPagina = (n: number) => {
+    setPagina(n);
+    document.getElementById("contenido")?.scrollIntoView({ block: "start" });
+  };
 
   return (
     <div className="px-4 py-5 md:px-6 md:py-6">
       <header className="mb-4 flex flex-wrap items-start gap-3">
         <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight">{config.titulo}</h1>
+          <h1 className="text-xl font-semibold tracking-tight">Pedidos</h1>
           <p className="text-muted-foreground mt-0.5 text-sm">
             {config.descripcion} ·{" "}
             <span className="tnum text-foreground font-medium">{filtrados.length}</span> de{" "}
@@ -149,19 +174,6 @@ export function VistaPedidos({ vista }: { vista: Vista }) {
           </p>
         </div>
         <div className="flex-1" />
-        {/* Lo cerrado no se pierde: está a un clic, con su propio buscador. */}
-        {!esArchivo && permisos.vistas.includes("historial") && (
-          <Button
-            render={<Link href="/historial" />}
-            nativeButton={false}
-            variant="outline"
-            className="gap-1.5"
-          >
-            <Archive className="size-4" />
-            Ver historial
-            <span className="tnum text-muted-foreground">{enHistorial}</span>
-          </Button>
-        )}
         {permisos.crearPedido && (
           <Button
             render={<Link href="/pedidos/nuevo" />}
@@ -173,6 +185,39 @@ export function VistaPedidos({ vista }: { vista: Vista }) {
           </Button>
         )}
       </header>
+
+      {/* Alcance: antes eran vistas separadas en el menú. Con uno solo (el taller)
+          no hay nada que elegir. El número cuenta solo lo abierto. */}
+      {permisos.alcances.length > 1 && (
+        <div
+          role="group"
+          aria-label="Alcance"
+          className="-mx-4 mb-3 flex gap-1 overflow-x-auto px-4 md:-mx-6 md:px-6"
+        >
+          <div className="flex shrink-0 rounded-lg border p-0.5">
+            {permisos.alcances.map((a) => (
+              <button
+                key={a}
+                type="button"
+                onClick={() => elegirAlcance(a)}
+                aria-pressed={alcance === a}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm whitespace-nowrap transition-colors",
+                  "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
+                  alcance === a
+                    ? "bg-secondary text-foreground font-medium"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {ALCANCES[a].corto}
+                <span className="tnum text-muted-foreground text-xs">
+                  {activosPorAlcance.get(a) ?? 0}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Filtros */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -229,9 +274,8 @@ export function VistaPedidos({ vista }: { vista: Vista }) {
           </SelectContent>
         </Select>
 
-        {/* El archivo crece sin parar: sin un rango, buscar en él es peor que útil. */}
-        {esArchivo && (
-          <Select value={rango} onValueChange={(v) => setRango((v as Rango) ?? "todo")}>
+        {/* Los cerrados crecen sin parar: el rango los recorta sin tocar lo abierto. */}
+        <Select value={rango} onValueChange={(v) => setRango((v as Rango) ?? "todo")}>
             <SelectTrigger
               size="sm"
               className="w-auto min-w-[10rem]"
@@ -248,7 +292,6 @@ export function VistaPedidos({ vista }: { vista: Vista }) {
               ))}
             </SelectContent>
           </Select>
-        )}
 
         <AnimatePresence>
           {hayFiltros && (
@@ -293,7 +336,7 @@ export function VistaPedidos({ vista }: { vista: Vista }) {
         <Chip activo={estado === "todos"} onClick={() => setEstado("todos")} total={base.length}>
           Todos
         </Chip>
-        {chips.map((e) => (
+        {ORDEN_ESTADOS.map((e) => (
           <Chip
             key={e}
             activo={estado === e}
@@ -320,20 +363,91 @@ export function VistaPedidos({ vista }: { vista: Vista }) {
           )}
         </div>
       ) : modo === "kanban" ? (
-        <PedidosKanban pedidos={filtrados} />
+        <PedidosKanban
+          pedidos={filtrados}
+          alVerTodos={(e) => {
+            setEstado(e);
+            setModo("lista");
+          }}
+        />
       ) : (
         <>
           <div className="max-md:hidden">
-            <PedidosTabla pedidos={filtrados} conAño={esArchivo} />
+            <PedidosTabla pedidos={enPagina} conAño={conAño} />
           </div>
           <ul className="flex flex-col gap-2 md:hidden">
-            {filtrados.map((p) => (
-              <PedidoCard key={p.codigo} pedido={p} conAño={esArchivo} />
+            {enPagina.map((p) => (
+              <PedidoCard key={p.codigo} pedido={p} conAño={conAño} />
             ))}
           </ul>
+          {totalPaginas > 1 && (
+            <Paginacion
+              pagina={paginaActual}
+              total={totalPaginas}
+              desde={(paginaActual - 1) * POR_PAGINA + 1}
+              hasta={(paginaActual - 1) * POR_PAGINA + enPagina.length}
+              de={filtrados.length}
+              irA={irAPagina}
+            />
+          )}
         </>
       )}
     </div>
+  );
+}
+
+function Paginacion({
+  pagina,
+  total,
+  desde,
+  hasta,
+  de,
+  irA,
+}: {
+  pagina: number;
+  total: number;
+  desde: number;
+  hasta: number;
+  de: number;
+  irA: (n: number) => void;
+}) {
+  return (
+    <nav
+      aria-label="Paginación"
+      className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm"
+    >
+      <p className="text-muted-foreground">
+        <span className="tnum text-foreground font-medium">
+          {desde}–{hasta}
+        </span>{" "}
+        de <span className="tnum">{de}</span>
+      </p>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => irA(pagina - 1)}
+          disabled={pagina <= 1}
+          className="gap-1"
+        >
+          <ChevronLeft className="size-3.5" />
+          Anterior
+        </Button>
+        <span className="tnum text-muted-foreground px-1 text-xs">
+          Página {pagina} de {total}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => irA(pagina + 1)}
+          disabled={pagina >= total}
+          className="gap-1"
+        >
+          Siguiente
+          <ChevronRight className="size-3.5" />
+        </Button>
+      </div>
+    </nav>
   );
 }
 

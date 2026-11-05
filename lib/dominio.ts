@@ -27,7 +27,8 @@ export type Ubicacion = "tienda" | "taller" | "agencia";
 export type TipoPago = "contado" | "a_cuenta" | "credito";
 export type MetodoPago = "efectivo" | "yape_plin" | "transferencia" | "tarjeta" | "otro";
 export type TipoAdjunto = "diseno" | "factura" | "guia" | "foto_entrega";
-export type Vista = "admin" | "mis-pedidos" | "taller" | "tienda" | "logistica" | "historial";
+/** Los filtros de la vista de pedidos: a qué parte del trabajo se mira. */
+export type Alcance = "todos" | "mios" | "taller" | "tienda" | "logistica";
 export type TipoDocumento = "DNI" | "CE";
 /** Días de crédito que la empresa concede. No hay plazos a medida. */
 export type PlazoCredito = 1 | 7 | 15 | 30 | 90;
@@ -219,8 +220,13 @@ export const PLAZOS: PlazoCredito[] = [1, 7, 15, 30, 90];
 export interface PermisosRol {
   nombre: string;
   descripcion: string;
-  vistas: Vista[];
-  vistaInicial: Vista;
+  /**
+   * Los filtros de alcance que el rol puede elegir en `/pedidos`. El primero es
+   * con el que abre. Con uno solo, no se ofrece selector.
+   */
+  alcances: Alcance[];
+  /** Qué pedidos le tocan al rol. Ningún filtro sale de aquí. */
+  base: (p: Pedido) => boolean;
   /** El nombre del cliente. Lo ven los tres roles: el taller atiende llamadas
    *  por el pedido y con el código solo no sabe de cuál le hablan. */
   verCliente: boolean;
@@ -253,8 +259,8 @@ export const ROLES: Record<Rol, PermisosRol> = {
   administracion: {
     nombre: "Administración",
     descripcion: "CRUD completo de los pedidos",
-    vistas: ["admin", "mis-pedidos", "taller", "tienda", "logistica", "historial"],
-    vistaInicial: "admin",
+    alcances: ["todos", "mios", "taller", "tienda", "logistica"],
+    base: () => true,
     verCliente: true,
     verTelefonoCliente: true,
     verMontos: true,
@@ -273,8 +279,8 @@ export const ROLES: Record<Rol, PermisosRol> = {
   logistica: {
     nombre: "Logística",
     descripcion: "Ve el pedido completo · edita estado, ubicación y responsable",
-    vistas: ["logistica", "taller", "historial"],
-    vistaInicial: "logistica",
+    alcances: ["logistica", "taller", "todos"],
+    base: (p) => ALCANCES.logistica.filtro(p) || ALCANCES.taller.filtro(p),
     verCliente: true,
     verTelefonoCliente: true,
     verMontos: false,
@@ -293,8 +299,8 @@ export const ROLES: Record<Rol, PermisosRol> = {
   operaciones: {
     nombre: "Operaciones",
     descripcion: "Ve el cliente y los datos de producción · solo edita el estado",
-    vistas: ["taller"],
-    vistaInicial: "taller",
+    alcances: ["taller"],
+    base: (p) => ALCANCES.taller.filtro(p),
     verCliente: true,
     verTelefonoCliente: false,
     verMontos: false,
@@ -407,56 +413,64 @@ export function venceCreditoEl(p: Pedido): string | null {
   return sumarDias(p.fechaCreacion, p.plazoCredito);
 }
 
-/* ── Vistas ──
-   Van al final porque `historial` usa `esTerminal`. */
+/* ── Vista de pedidos ──
+   Una sola pantalla, `/pedidos`, con un filtro de alcance. Los cerrados conviven
+   con los activos: el orden los deja al final y la lista va paginada. */
 
-export interface ConfigVista {
+/** La única vista de pedidos. Raíz, login y guardas de permisos mandan aquí. */
+export const RUTA_PEDIDOS = "/pedidos";
+
+export interface ConfigAlcance {
   titulo: string;
+  /** Para la barra del celular y los chips, donde no cabe el título. */
+  corto: string;
   descripcion: string;
   filtro: (p: Pedido) => boolean;
-  /**
-   * Vista de archivo: muestra los cerrados sin importar cuándo se cerraron.
-   * En el resto de vistas, un entregado o anulado solo se ve el día en que se cerró.
-   */
-  archivo?: boolean;
-  /** Qué chips de estado tiene sentido ofrecer. Por defecto, todos. */
-  estadosChip?: Estado[];
 }
 
-export const VISTAS: Record<Vista, ConfigVista> = {
-  admin: {
+export const ALCANCES: Record<Alcance, ConfigAlcance> = {
+  todos: {
     titulo: "Todos los pedidos",
-    descripcion: "Absolutamente todos los pedidos registrados",
+    corto: "Todos",
+    descripcion: "Todos los pedidos que puedes ver",
     filtro: () => true,
   },
-  "mis-pedidos": {
+  mios: {
     titulo: "Mis pedidos",
+    corto: "Míos",
     descripcion: "Los pedidos que registraste tú",
     filtro: (p) => p.creadoPorMi,
   },
   taller: {
     titulo: "Taller",
+    corto: "Taller",
     descripcion: "Pedidos que se producen o están en el taller",
     filtro: (p) => p.entrega === "taller" || p.ubicacion === "taller",
   },
   tienda: {
     titulo: "Tienda",
+    corto: "Tienda",
     descripcion: "Pedidos que se entregan o están en tienda",
     filtro: (p) => p.entrega === "tienda" || p.ubicacion === "tienda",
   },
   logistica: {
     titulo: "Logística",
+    corto: "Logística",
     descripcion: "Pedidos que van a provincia",
     filtro: (p) => p.esProvincia,
   },
-  historial: {
-    titulo: "Historial",
-    descripcion: "Todos los pedidos entregados y anulados",
-    filtro: (p) => esTerminal(p.estado),
-    archivo: true,
-    estadosChip: ["entregado", "anulado"],
-  },
 };
+
+export const esAlcance = (v: unknown): v is Alcance =>
+  typeof v === "string" && Object.prototype.hasOwnProperty.call(ALCANCES, v);
+
+/** El alcance pedido si el rol lo tiene; si no, con el que abre el rol. */
+export const alcanceDe = (permisos: PermisosRol, pedido: unknown): Alcance =>
+  esAlcance(pedido) && permisos.alcances.includes(pedido) ? pedido : permisos.alcances[0];
+
+/** La URL de la vista con un alcance; el inicial del rol no lleva parámetro. */
+export const rutaAlcance = (permisos: PermisosRol, a: Alcance) =>
+  a === permisos.alcances[0] ? RUTA_PEDIDOS : `${RUTA_PEDIDOS}?ver=${a}`;
 
 /* ── Herramientas ──
    Lo que no es una vista de pedidos pero cuelga del mismo menú. Están aquí, y no

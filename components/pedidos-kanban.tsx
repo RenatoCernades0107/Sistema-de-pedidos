@@ -7,6 +7,7 @@ import { useStore } from "@/lib/store";
 import {
   ESTADOS,
   ORDEN_ESTADOS,
+  esTerminal,
   etiquetaTipos,
   type Estado,
   type Pedido,
@@ -31,14 +32,30 @@ const SEMAFORO: Record<Semaforo, string> = {
   cerrado: "bg-muted-foreground/30",
 };
 
-export function PedidosKanban({ pedidos }: { pedidos: Pedido[] }) {
+/**
+ * Las columnas de cerrados crecen sin parar: en el tablero solo caben los más
+ * recientes. El resto se ve en la lista, que va paginada.
+ */
+const LIMITE_CERRADOS = 10;
+
+export function PedidosKanban({
+  pedidos,
+  alVerTodos,
+}: {
+  /** Ya ordenados: en los cerrados, el más reciente primero. */
+  pedidos: Pedido[];
+  /** Pasa a la lista filtrada por ese estado. */
+  alVerTodos?: (estado: Estado) => void;
+}) {
   const { permisos } = useStore();
 
   return (
     <div className="-mx-4 overflow-x-auto px-4 pb-2 md:-mx-6 md:px-6">
       <div className="flex min-w-max gap-3">
         {ORDEN_ESTADOS.map((estado) => {
-          const columna = pedidos.filter((p) => p.estado === estado);
+          const todos = pedidos.filter((p) => p.estado === estado);
+          const columna = esTerminal(estado) ? todos.slice(0, LIMITE_CERRADOS) : todos;
+          const ocultos = todos.length - columna.length;
           return (
             <section
               key={estado}
@@ -51,7 +68,7 @@ export function PedidosKanban({ pedidos }: { pedidos: Pedido[] }) {
                 />
                 <h3 className="text-xs font-medium">{ESTADOS[estado]}</h3>
                 <span className="tnum text-muted-foreground ml-auto text-xs">
-                  {columna.length}
+                  {todos.length}
                 </span>
               </header>
 
@@ -136,6 +153,16 @@ export function PedidosKanban({ pedidos }: { pedidos: Pedido[] }) {
                     </Link>
                   </motion.div>
                 ))
+              )}
+
+              {ocultos > 0 && (
+                <button
+                  type="button"
+                  onClick={() => alVerTodos?.(estado)}
+                  className="text-muted-foreground hover:text-foreground focus-visible:ring-ring rounded-md px-1 py-1.5 text-xs transition-colors focus-visible:ring-2 focus-visible:outline-none"
+                >
+                  Ver <span className="tnum">{ocultos}</span> más en la lista
+                </button>
               )}
             </section>
           );

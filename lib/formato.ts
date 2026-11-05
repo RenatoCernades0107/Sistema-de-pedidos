@@ -111,12 +111,6 @@ export const fechaHora = (iso: string) => {
   return `${fechaCompleta(iso)}${hora ? ` ${hora}` : ""}`;
 };
 
-/**
- * Un pedido entregado o anulado hoy sigue en la vista de pedidos; a partir de
- * mañana solo se encuentra en el historial.
- */
-export const cerradoHoy = (p: Pedido) => fechaCierreDe(p) === hoy();
-
 /** El plazo de crédito ya pasó y el cliente todavía debe. */
 export function creditoVencido(p: Pedido) {
   const vence = venceCreditoEl(p);
@@ -167,17 +161,19 @@ export const ETIQUETA_SEMAFORO: Record<Semaforo, string> = {
   cerrado: "Pedido cerrado",
 };
 
-/** Orden por defecto: lo abierto y urgente primero, lo cerrado al fondo. */
+/** Entre cerrados manda la fecha de cierre, no la prometida: lo último arriba. */
+export function porCierre(a: Pedido, b: Pedido) {
+  return (fechaCierreDe(b) ?? "").localeCompare(fechaCierreDe(a) ?? "");
+}
+
+/**
+ * Orden de la vista de pedidos: lo abierto y urgente primero; lo cerrado al
+ * fondo, del más reciente al más viejo. Así el archivo nunca estorba: con la
+ * lista paginada, queda en las últimas páginas.
+ */
 export function porUrgencia(a: Pedido, b: Pedido) {
   const ta = esTerminal(a.estado) ? 1 : 0;
   const tb = esTerminal(b.estado) ? 1 : 0;
   if (ta !== tb) return ta - tb;
-  return ta
-    ? b.fechaPrometida.localeCompare(a.fechaPrometida)
-    : a.fechaPrometida.localeCompare(b.fechaPrometida);
-}
-
-/** En el historial manda la fecha de cierre, no la prometida: lo último arriba. */
-export function porCierre(a: Pedido, b: Pedido) {
-  return (fechaCierreDe(b) ?? "").localeCompare(fechaCierreDe(a) ?? "");
+  return ta ? porCierre(a, b) : a.fechaPrometida.localeCompare(b.fechaPrometida);
 }

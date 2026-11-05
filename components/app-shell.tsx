@@ -4,21 +4,10 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "motion/react";
-import {
-  Archive,
-  Ellipsis,
-  Hammer,
-  LayoutList,
-  Plus,
-  Search,
-  Store,
-  Truck,
-  UserRound,
-  type LucideIcon,
-} from "lucide-react";
+import { Ellipsis, LayoutList, Plus, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
-import { VISTAS, herramientasDe, type ConfigHerramienta, type Vista } from "@/lib/dominio";
+import { RUTA_PEDIDOS, esTerminal, herramientasDe, type ConfigHerramienta } from "@/lib/dominio";
 import { Button } from "@/components/ui/button";
 import { MenuUsuario } from "@/components/menu-usuario";
 import { ActivarNotificaciones } from "@/components/activar-notificaciones";
@@ -26,24 +15,6 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { ICONOS_HERRAMIENTA } from "@/components/iconos-herramienta";
 import { CommandMenu, useCommandMenu } from "@/components/command-menu";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-
-const ICONOS: Record<Vista, LucideIcon> = {
-  admin: LayoutList,
-  "mis-pedidos": UserRound,
-  taller: Hammer,
-  tienda: Store,
-  logistica: Truck,
-  historial: Archive,
-};
-
-const NOMBRE_CORTO: Record<Vista, string> = {
-  admin: "Todos",
-  "mis-pedidos": "Míos",
-  taller: "Taller",
-  tienda: "Tienda",
-  logistica: "Logística",
-  historial: "Historial",
-};
 
 /** Un enlace de la barra lateral: vistas y herramientas se pintan igual. */
 const claseEnlaceLateral = (activo: boolean) =>
@@ -60,22 +31,18 @@ const CLASE_TAB =
   "flex min-w-0 flex-1 flex-col items-center gap-0.5 px-1 py-2 text-2xs font-medium transition-colors";
 
 /**
- * Cuántas vistas se quedan a la vista en el celular. El resto se va al menú
- * "Más": con seis vistas y el botón de nuevo pedido no cabe nada en 375px.
+ * Lo abierto que le toca al rol: el número junto a "Pedidos". Los cerrados viven
+ * en la misma vista, al fondo, pero no son trabajo pendiente.
  */
-const VISTAS_EN_BARRA = 2;
-
-function useNav() {
+function useActivos() {
   const { permisos, pedidos } = useStore();
-  return permisos.vistas.map((v) => ({
-    vista: v,
-    href: `/${v}`,
-    icono: ICONOS[v],
-    titulo: VISTAS[v].titulo,
-    corto: NOMBRE_CORTO[v],
-    total: pedidos.filter(VISTAS[v].filtro).length,
-  }));
+  return pedidos.filter((p) => permisos.base(p) && !esTerminal(p.estado)).length;
 }
+
+/** El detalle de un pedido también es "Pedidos"; el alta tiene su propio botón. */
+const enPedidos = (pathname: string) =>
+  pathname === RUTA_PEDIDOS ||
+  (pathname.startsWith(`${RUTA_PEDIDOS}/`) && pathname !== "/pedidos/nuevo");
 
 /** Una herramienta sigue marcada en sus subrutas: `/cotizaciones/nueva` es Cotizaciones. */
 const enRuta = (pathname: string, href: string) =>
@@ -90,20 +57,14 @@ export function AppShell({
 }) {
   const { permisos } = useStore();
   const pathname = usePathname();
-  const nav = useNav();
+  const activos = useActivos();
   const cmd = useCommandMenu();
   const [masAbierto, setMasAbierto] = useState(false);
 
   const herramientas = herramientasDe(permisos);
-  // En el celular solo entran las primeras vistas; las demás y las herramientas
-  // viven en el menú "Más". En escritorio se siguen viendo todas.
-  const enBarra = nav.slice(0, VISTAS_EN_BARRA);
-  const enMenu = nav.slice(VISTAS_EN_BARRA);
-  const hayMenu = enMenu.length + herramientas.length > 0;
-  // Sin esto, estando en Cotizaciones o en una vista del menú no habría nada
-  // marcado en la barra.
-  const menuActivo =
-    enMenu.some((i) => pathname === i.href) || herramientas.some((h) => enRuta(pathname, h.href));
+  const pedidosActivo = enPedidos(pathname);
+  // Sin esto, estando en Cotizaciones no habría nada marcado en la barra.
+  const menuActivo = herramientas.some((h) => enRuta(pathname, h.href));
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -162,44 +123,32 @@ export function AppShell({
       <div className="flex flex-1">
         {/* Sidebar */}
         <aside className="bg-sidebar hidden w-56 shrink-0 border-r p-3 md:block">
-          <nav aria-label="Vistas" className="flex flex-col gap-0.5">
-            <p className="eyebrow px-2.5 pt-2 pb-2">
-              Vistas · {permisos.nombre}
-            </p>
-            {nav.map((item) => {
-              const activo = pathname === item.href;
-              const Icono = item.icono;
-              return (
-                <Link
-                  key={item.vista}
-                  href={item.href}
-                  aria-current={activo ? "page" : undefined}
-                  className={claseEnlaceLateral(activo)}
-                >
-                  {activo && (
-                    <motion.span
-                      layoutId="nav-activo"
-                      className="bg-sidebar-accent absolute inset-0 -z-10 rounded-md"
-                      transition={{
-                        type: "spring",
-                        stiffness: 400,
-                        damping: 32,
-                      }}
-                    />
-                  )}
-                  <Icono
-                    className={cn(
-                      "size-4 shrink-0",
-                      activo ? "text-primary" : "opacity-70",
-                    )}
-                  />
-                  {item.titulo}
-                  <span className="tnum text-muted-foreground ml-auto text-xs">
-                    {item.total}
-                  </span>
-                </Link>
-              );
-            })}
+          <nav aria-label="Menú principal" className="flex flex-col gap-0.5">
+            <p className="eyebrow px-2.5 pt-2 pb-2">{permisos.nombre}</p>
+            {/* Una sola entrada: Todos, Míos, Taller, Tienda, Logística e
+                Historial son filtros dentro de la vista, no pantallas. */}
+            <Link
+              href={RUTA_PEDIDOS}
+              aria-current={pathname === RUTA_PEDIDOS ? "page" : undefined}
+              className={claseEnlaceLateral(pedidosActivo)}
+            >
+              {pedidosActivo && (
+                <motion.span
+                  layoutId="nav-activo"
+                  className="bg-sidebar-accent absolute inset-0 -z-10 rounded-md"
+                  transition={{
+                    type: "spring",
+                    stiffness: 400,
+                    damping: 32,
+                  }}
+                />
+              )}
+              <LayoutList
+                className={cn("size-4 shrink-0", pedidosActivo ? "text-primary" : "opacity-70")}
+              />
+              Pedidos
+              <span className="tnum text-muted-foreground ml-auto text-xs">{activos}</span>
+            </Link>
 
             {permisos.crearPedido && (
               <>
@@ -251,21 +200,14 @@ export function AppShell({
         aria-label="Navegación"
         className="bg-background/90 fixed inset-x-0 bottom-0 z-30 flex border-t pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden"
       >
-        {enBarra.map((item) => {
-          const activo = pathname === item.href;
-          const Icono = item.icono;
-          return (
-            <Link
-              key={item.vista}
-              href={item.href}
-              aria-current={activo ? "page" : undefined}
-              className={cn(CLASE_TAB, activo ? "text-primary" : "text-muted-foreground")}
-            >
-              <Icono className="size-5 shrink-0" />
-              <span className="w-full truncate text-center">{item.corto}</span>
-            </Link>
-          );
-        })}
+        <Link
+          href={RUTA_PEDIDOS}
+          aria-current={pathname === RUTA_PEDIDOS ? "page" : undefined}
+          className={cn(CLASE_TAB, pedidosActivo ? "text-primary" : "text-muted-foreground")}
+        >
+          <LayoutList className="size-5 shrink-0" />
+          <span className="w-full truncate text-center">Pedidos</span>
+        </Link>
         {permisos.crearPedido && (
           <Link
             href="/pedidos/nuevo"
@@ -279,9 +221,8 @@ export function AppShell({
           </Link>
         )}
 
-        {/* El resto de vistas y las herramientas. Operaciones, con una sola
-            vista y sin herramientas, no llega a ver este botón. */}
-        {hayMenu && (
+        {/* Las herramientas. Operaciones, sin ninguna, no llega a ver este botón. */}
+        {herramientas.length > 0 && (
           <Sheet open={masAbierto} onOpenChange={setMasAbierto}>
             <SheetTrigger
               className={cn(CLASE_TAB, menuActivo ? "text-primary" : "text-muted-foreground")}
@@ -299,30 +240,7 @@ export function AppShell({
               </SheetHeader>
 
               <div className="flex flex-col gap-0.5 px-2 pb-4">
-                {enMenu.length > 0 && <p className="eyebrow px-2.5 pt-2 pb-2">Otras vistas</p>}
-                {enMenu.map((item) => {
-                  const activo = pathname === item.href;
-                  const Icono = item.icono;
-                  return (
-                    <Link
-                      key={item.vista}
-                      href={item.href}
-                      aria-current={activo ? "page" : undefined}
-                      onClick={() => setMasAbierto(false)}
-                      className={claseEnlaceLateral(activo)}
-                    >
-                      <Icono
-                        className={cn("size-4 shrink-0", activo ? "text-primary" : "opacity-70")}
-                      />
-                      {item.titulo}
-                      <span className="tnum text-muted-foreground ml-auto text-xs">
-                        {item.total}
-                      </span>
-                    </Link>
-                  );
-                })}
-
-                {herramientas.length > 0 && <p className="eyebrow px-2.5 pt-4 pb-2">Herramientas</p>}
+                <p className="eyebrow px-2.5 pt-2 pb-2">Herramientas</p>
                 {herramientas.map((h: ConfigHerramienta) => {
                   const activo = enRuta(pathname, h.href);
                   const Icono = ICONOS_HERRAMIENTA[h.href];

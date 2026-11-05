@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
-import { ROLES } from "@/lib/dominio";
+import { RUTA_PEDIDOS } from "@/lib/dominio";
 import { exigirSesion } from "@/lib/sesion";
 
 /**
- * La raíz no muestra nada: manda a cada rol a la vista con la que trabaja.
- * Administración a todos los pedidos, Logística a provincia, el taller al taller.
+ * La raíz no muestra nada: manda a la vista de pedidos, que abre con el alcance
+ * de cada rol (Administración todos, Logística provincia, el taller el taller).
  */
 export default async function Home() {
-  const perfil = await exigirSesion();
-  redirect(`/${ROLES[perfil.rol].vistaInicial}`);
+  await exigirSesion();
+  redirect(RUTA_PEDIDOS);
 }

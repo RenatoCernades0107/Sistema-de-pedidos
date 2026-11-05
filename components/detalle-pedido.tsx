@@ -56,7 +56,7 @@ export function DetallePedido({ codigo }: { codigo: string }) {
             Revisa el código o vuelve a la lista.
           </p>
           <Button
-            render={<Link href="/admin" />}
+            render={<Link href="/pedidos" />}
             nativeButton={false}
             variant="outline"
             className="mt-4"
@@ -74,7 +74,7 @@ export function DetallePedido({ codigo }: { codigo: string }) {
   return (
     <div className="px-4 py-5 md:px-6 md:py-6">
       <Button
-        render={<Link href={`/${permisos.vistaInicial}`} />}
+        render={<Link href="/pedidos" />}
         nativeButton={false}
         variant="ghost"
         size="sm"
