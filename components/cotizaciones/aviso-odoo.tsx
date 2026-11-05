@@ -15,7 +15,7 @@ export function AvisoOdoo({ className }: { className?: string }) {
       <p>
         <span className="font-medium">Falta conectar Odoo.</span> Para buscar clientes y productos y
         crear cotizaciones hay que cargar <code>ODOO_URL</code>, <code>ODOO_DB</code>,{" "}
-        <code>ODOO_USUARIO</code> y <code>ODOO_API_KEY</code> en el servidor.
+        <code>ODOO_USERNAME</code> y <code>ODOO_PASSWORD</code> en el servidor.
       </p>
     </div>
   );

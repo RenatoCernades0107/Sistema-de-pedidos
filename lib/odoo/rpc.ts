@@ -8,9 +8,13 @@
  * que cambiar, solo cambia este archivo: el resto de `lib/odoo/` no sabe por
  * dónde viajan las llamadas.
  *
- * Solo servidor. Las cuatro variables son secretos de verdad —la API key de un
- * usuario de Odoo puede crear clientes y cotizaciones— y por eso no llevan
- * `NEXT_PUBLIC_`: en un bundle del navegador llegarían vacías.
+ * Solo servidor. Las cuatro variables son secretos de verdad —con ellas se
+ * crean clientes y cotizaciones— y por eso no llevan `NEXT_PUBLIC_`: en un
+ * bundle del navegador llegarían vacías.
+ *
+ * `ODOO_PASSWORD` puede ser la contraseña del usuario o una API key suya: la API
+ * externa de Odoo acepta cualquiera de las dos en el mismo sitio. Son los mismos
+ * nombres que usa el otro proyecto de la empresa, para copiar el bloque tal cual.
  */
 
 export interface ConfigOdoo {
@@ -33,7 +37,7 @@ export class ErrorOdoo extends Error {
 }
 
 export const ODOO_NO_CONFIGURADO =
-  "Falta configurar Odoo en el servidor (ODOO_URL, ODOO_DB, ODOO_USUARIO y ODOO_API_KEY).";
+  "Falta configurar Odoo en el servidor (ODOO_URL, ODOO_DB, ODOO_USERNAME y ODOO_PASSWORD).";
 
 /** Lo bastante largo para un `create` con varias líneas; lo bastante corto para no colgar un mostrador. */
 const TIEMPO_MAXIMO_MS = 15_000;
@@ -41,8 +45,8 @@ const TIEMPO_MAXIMO_MS = 15_000;
 export function configOdoo(env: NodeJS.ProcessEnv = process.env): ConfigOdoo | null {
   const url = (env.ODOO_URL ?? "").trim().replace(/\/+$/, "");
   const db = (env.ODOO_DB ?? "").trim();
-  const usuario = (env.ODOO_USUARIO ?? "").trim();
-  const clave = (env.ODOO_API_KEY ?? "").trim();
+  const usuario = (env.ODOO_USERNAME ?? "").trim();
+  const clave = (env.ODOO_PASSWORD ?? "").trim();
   if (!url || !db || !usuario || !clave) return null;
   return { url, db, usuario, clave };
 }

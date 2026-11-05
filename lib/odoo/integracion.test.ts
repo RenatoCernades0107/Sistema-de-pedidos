@@ -19,8 +19,8 @@ beforeAll(async () => {
   odoo = await crearOdooFalso();
   vi.stubEnv("ODOO_URL", odoo.url);
   vi.stubEnv("ODOO_DB", BASE);
-  vi.stubEnv("ODOO_USUARIO", USUARIO);
-  vi.stubEnv("ODOO_API_KEY", CLAVE);
+  vi.stubEnv("ODOO_USERNAME", USUARIO);
+  vi.stubEnv("ODOO_PASSWORD", CLAVE);
 });
 
 afterAll(async () => {

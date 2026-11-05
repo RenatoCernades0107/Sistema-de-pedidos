@@ -13,7 +13,7 @@ npm run dev            # http://localhost:3000
 
 Hace falta un `.env.local` con las variables de [`.env.example`](.env.example). Las dos de Supabase
 son públicas a propósito: la clave publicable viaja al navegador y lo que protege los datos es la
-RLS, no esconderla. Las de Odoo (`ODOO_URL`, `ODOO_DB`, `ODOO_USUARIO`, `ODOO_API_KEY`) sí son
+RLS, no esconderla. Las de Odoo (`ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD`) sí son
 secretos de servidor: sin ellas la app funciona, pero `/cotizaciones` avisa de que falta conectar
 Odoo y no deja buscar ni crear.
 
@@ -55,8 +55,9 @@ del seed. Las pruebas del esquema son SQL y van aparte: `supabase/tests/README.m
    (Next.js, `npm run build`, salida en `.next`).
 2. Cargar las variables de `.env.example` en *Settings → Environment Variables*, en los tres
    entornos (Production, Preview y Development). Las de Odoo y la del agente son secretos: van
-   sin `NEXT_PUBLIC_`. La API key de Odoo se genera en Odoo, en *Preferencias → Seguridad de la
-   cuenta → Nueva clave API*, con un usuario que pueda crear cotizaciones y contactos.
+   sin `NEXT_PUBLIC_`. `ODOO_PASSWORD` acepta la contraseña del usuario de Odoo o, mejor, una API
+   key suya (*Preferencias → Seguridad de la cuenta → Nueva clave API*). Ese usuario tiene que
+   poder crear cotizaciones y contactos.
 3. En Supabase, *Authentication → URL Configuration*: poner el dominio de Vercel como **Site URL** y
    añadirlo a **Redirect URLs**. Sin esto la sesión se crea y se pierde al primer refresco.
 4. Desplegar y entrar una vez con cada rol. Lo que conviene mirar: que `/` reparta a cada uno a su

@@ -59,8 +59,8 @@ export default defineConfig({
       env: {
         ODOO_URL: ODOO_FALSO,
         ODOO_DB: "e2e-odoo-falso",
-        ODOO_USUARIO: "e2e@plexiacril.test",
-        ODOO_API_KEY: "clave-del-odoo-falso",
+        ODOO_USERNAME: "e2e@plexiacril.test",
+        ODOO_PASSWORD: "clave-del-odoo-falso",
       },
     },
   ],

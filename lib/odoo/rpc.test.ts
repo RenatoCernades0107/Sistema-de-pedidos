@@ -14,8 +14,8 @@ import {
 const ENV = {
   ODOO_URL: "https://odoo.ejemplo.test/",
   ODOO_DB: "plexiacril",
-  ODOO_USUARIO: "bot@plexiacril.test",
-  ODOO_API_KEY: "clave",
+  ODOO_USERNAME: "bot@plexiacril.test",
+  ODOO_PASSWORD: "clave",
 };
 
 /** Un `fetch` que contesta según el servicio y el método de la JSON-RPC. */
@@ -48,7 +48,7 @@ describe("configuración", () => {
   });
 
   it("sin alguna variable no hay configuración, y ejecutar lo dice", async () => {
-    vi.stubEnv("ODOO_API_KEY", "");
+    vi.stubEnv("ODOO_PASSWORD", "");
     expect(configOdoo()).toBeNull();
     await expect(ejecutar("res.partner", "search", [[]])).rejects.toThrow(ODOO_NO_CONFIGURADO);
   });
