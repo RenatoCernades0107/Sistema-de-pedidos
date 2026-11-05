@@ -9,7 +9,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { BASE, CLAVE, USUARIO, crearOdooFalso } from "../../e2e/odoo-falso.mjs";
 import { buscarClientes, buscarProductos, productosPorId } from "./catalogos";
 import { buscarClientesEnOdoo, cargarClientes, crearCliente } from "./clientes";
-import { crearPedidoDeVenta, leerPedidoDeVenta, lineasDeVenta, origenDe } from "./pedidos-venta";
+import {
+  confirmarPedidoDeVenta,
+  crearPedidoDeVenta,
+  leerPedidoDeVenta,
+  lineasDeVenta,
+  origenDe,
+} from "./pedidos-venta";
 import { buscarProductosEnOdoo, cargarProductos, nombreSinCodigo } from "./productos";
 import { reiniciarCacheOdoo } from "./rpc";
 
@@ -178,6 +184,33 @@ describe("cotizaciones en Odoo", () => {
     expect(r.yaExistia).toBe(true);
     expect(r.orderName).toBe("S00001");
     expect(odoo.estado().ordenes).toHaveLength(1);
+  });
+
+  it("confirmar pasa la cotización a pedido de venta, y repetirlo no falla", async () => {
+    const { orderId } = await crearPedidoDeVenta({
+      cotizacionId: "dddddddd-0000-0000-0000-000000000001",
+      clienteId: 1,
+      lineas: [linea(10, 1, 120)],
+    });
+    expect(odoo.estado().ordenes[0]).toMatchObject({ state: "draft" });
+
+    await confirmarPedidoDeVenta(orderId);
+    expect(odoo.estado().ordenes[0]).toMatchObject({ state: "sale" });
+
+    // Odoo rechazaría un segundo action_confirm: la segunda vez ni se lo pide.
+    await confirmarPedidoDeVenta(orderId);
+    expect(odoo.estado().llamadas.filter((l) => l.metodo === "action_confirm")).toHaveLength(1);
+  });
+
+  it("si Odoo no confirma, el error es legible y la cotización sigue en borrador", async () => {
+    const { orderId } = await crearPedidoDeVenta({
+      cotizacionId: "dddddddd-0000-0000-0000-000000000002",
+      clienteId: 1,
+      lineas: [linea(10, 1, 120)],
+    });
+    odoo.fijarModo("caido");
+    await expect(confirmarPedidoDeVenta(orderId)).rejects.toThrow("Odoo falso: caído a propósito.");
+    expect(odoo.estado().ordenes[0]).toMatchObject({ state: "draft" });
   });
 
   it("un Odoo que rechaza la orden da un error legible", async () => {

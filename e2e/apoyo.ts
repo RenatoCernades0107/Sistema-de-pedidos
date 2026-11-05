@@ -182,10 +182,24 @@ export async function entrar(page: Page, usuario: keyof typeof USUARIOS) {
 
 /**
  * Borra las cotizaciones de prueba: las de clientes `E2E…`, que son los del Odoo
- * falso (`e2e/odoo-falso.mts`). Las líneas se van en cascada.
+ * falso (`e2e/odoo-falso.mts`), y los pedidos que salieron de ellas. Las líneas
+ * se van en cascada.
  */
 export async function borrarCotizacionesDePrueba() {
   const supabase = await sesionDe("administracion");
+
+  // Los pedidos que salieron de ellas también son de prueba.
+  const { data: conPedido } = await supabase
+    .from("cotizaciones")
+    .select("pedido_id")
+    .like("cliente_nombre", "E2E%")
+    .not("pedido_id", "is", null);
+  const pedidos = (conPedido ?? []).map((c) => c.pedido_id!);
+  if (pedidos.length) {
+    const { error } = await supabase.from("pedidos").delete().in("id", pedidos);
+    if (error) throw new Error(`No se pudieron borrar los pedidos de prueba: ${error.message}`);
+  }
+
   const { error } = await supabase.from("cotizaciones").delete().like("cliente_nombre", "E2E%");
   if (error) throw new Error(`No se pudieron borrar las cotizaciones de prueba: ${error.message}`);
 }

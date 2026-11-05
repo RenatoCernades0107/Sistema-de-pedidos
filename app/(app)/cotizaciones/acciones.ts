@@ -19,7 +19,7 @@ import { exigirCotizaciones } from "@/lib/sesion";
 import { clienteServidor } from "@/lib/supabase-servidor";
 import { mensajeDeError } from "@/lib/errores";
 import { esquemaNuevaCotizacion, esquemaNuevoClienteOdoo } from "@/lib/esquemas";
-import { olvidarPopularidad, sincronizarConOdoo } from "@/lib/cotizaciones-servidor";
+import { confirmarEnOdoo, olvidarPopularidad, sincronizarConOdoo } from "@/lib/cotizaciones-servidor";
 import { indiceClientes, productosPorId } from "@/lib/odoo/catalogos";
 import { crearCliente, leerCliente } from "@/lib/odoo/clientes";
 import { ErrorOdoo, ODOO_NO_CONFIGURADO, odooConfigurado } from "@/lib/odoo/rpc";
@@ -109,6 +109,17 @@ export async function reintentarSincronizacion(
   if (typeof id !== "string") return fallo("Falta la cotización.");
 
   const r = await sincronizarConOdoo(id);
+  refresh();
+  return r;
+}
+
+/** Vuelve a pedirle a Odoo que confirme la cotización de la que ya salió un pedido. */
+export async function reintentarConfirmacion(id: string): Promise<{ ok: true } | Fallo> {
+  await exigirCotizaciones();
+  if (!odooConfigurado()) return fallo(ODOO_NO_CONFIGURADO);
+  if (typeof id !== "string") return fallo("Falta la cotización.");
+
+  const r = await confirmarEnOdoo(id);
   refresh();
   return r;
 }

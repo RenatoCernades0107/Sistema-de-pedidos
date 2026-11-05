@@ -163,8 +163,10 @@ export type Database = {
           cliente_documento: string | null
           cliente_nombre: string
           cliente_telefono: string | null
+          confirmada_en_odoo: boolean
           creado_en: string
           creado_por: string | null
+          error_confirmacion: string | null
           error_sincronizacion: string | null
           id: string
           monto_impuestos: number | null
@@ -174,6 +176,7 @@ export type Database = {
           odoo_order_id: number | null
           odoo_order_name: string | null
           odoo_partner_id: number
+          pedido_id: string | null
           sincronizacion: Database["public"]["Enums"]["sincronizacion_odoo"]
         }
         Insert: {
@@ -183,8 +186,10 @@ export type Database = {
           cliente_documento?: string | null
           cliente_nombre: string
           cliente_telefono?: string | null
+          confirmada_en_odoo?: boolean
           creado_en?: string
           creado_por?: string | null
+          error_confirmacion?: string | null
           error_sincronizacion?: string | null
           id?: string
           monto_impuestos?: number | null
@@ -194,6 +199,7 @@ export type Database = {
           odoo_order_id?: number | null
           odoo_order_name?: string | null
           odoo_partner_id: number
+          pedido_id?: string | null
           sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
         }
         Update: {
@@ -203,8 +209,10 @@ export type Database = {
           cliente_documento?: string | null
           cliente_nombre?: string
           cliente_telefono?: string | null
+          confirmada_en_odoo?: boolean
           creado_en?: string
           creado_por?: string | null
+          error_confirmacion?: string | null
           error_sincronizacion?: string | null
           id?: string
           monto_impuestos?: number | null
@@ -214,6 +222,7 @@ export type Database = {
           odoo_order_id?: number | null
           odoo_order_name?: string | null
           odoo_partner_id?: number
+          pedido_id?: string | null
           sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
         }
         Relationships: [
@@ -222,6 +231,13 @@ export type Database = {
             columns: ["creado_por"]
             isOneToOne: false
             referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cotizaciones_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: true
+            referencedRelation: "pedidos"
             referencedColumns: ["id"]
           },
         ]
@@ -1210,6 +1226,7 @@ export type Database = {
         Args: {
           p_abono_inicial?: number
           p_cantidad: number
+          p_cotizacion_id?: string
           p_departamento_id?: number
           p_detalle?: string
           p_direccion_entrega?: string

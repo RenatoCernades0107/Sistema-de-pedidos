@@ -52,6 +52,12 @@ export interface Cotizacion {
   creadoPor: string | null;
   creadoEn: string;
   lineas: LineaGuardada[];
+  /** El pedido que salió de esta cotización. Uno como mucho. */
+  pedido: { codigo: string } | null;
+  /** Si la `sale.order` ya pasó de cotización a pedido de venta en Odoo. */
+  confirmadaEnOdoo: boolean;
+  /** Por qué no se pudo confirmar en Odoo, hasta que se reintente. */
+  errorConfirmacion: string | null;
 }
 
 /** El nombre con que se muestra: la referencia de Odoo o, mientras no la hay, una provisional. */
@@ -62,6 +68,20 @@ export const referenciaDe = (c: Pick<Cotizacion, "odooOrderName" | "id">) =>
 export const sumaLineas = (lineas: Pick<LineaGuardada, "cantidad" | "precioUnitario">[]) =>
   Math.round(lineas.reduce((s, l) => s + l.cantidad * l.precioUnitario, 0) * 100) / 100;
 
+/**
+ * El detalle del pedido a partir de lo cotizado: una línea por producto, con
+ * cantidad, código y medidas. Es texto libre que el taller lee tal cual.
+ */
+export const detalleDesdeLineas = (lineas: LineaGuardada[]) =>
+  lineas
+    .map((l) => {
+      const cantidad = String(+l.cantidad.toFixed(3));
+      const producto = l.codigo ? `[${l.codigo}] ${l.nombre}` : l.nombre;
+      const medidas = l.descripcion?.replace(/\s+/g, " ").trim();
+      return `${cantidad} × ${producto}${medidas ? ` — ${medidas}` : ""}`;
+    })
+    .join("\n");
+
 /** Lo que se busca en la lista. */
 export const textoBuscable = (c: Cotizacion) =>
   [
@@ -71,6 +91,7 @@ export const textoBuscable = (c: Cotizacion) =>
     c.cliente.telefono,
     CANALES[c.canal],
     c.notas,
+    c.pedido?.codigo,
     ...c.lineas.flatMap((l) => [l.nombre, l.codigo, l.descripcion]),
   ]
     .filter(Boolean)

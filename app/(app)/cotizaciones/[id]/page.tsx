@@ -16,6 +16,7 @@ export default async function Page({ params }: PageProps<"/cotizaciones/[id]">) 
       cotizacion={cotizacion}
       enlaceOdoo={cotizacion.odooOrderId ? enlaceOdoo("sale.order", cotizacion.odooOrderId) : null}
       puedeAsistente={ROLES[perfil.rol].usarAgenteCotizacion}
+      puedeCrearPedido={ROLES[perfil.rol].crearPedido}
     />
   );
 }
