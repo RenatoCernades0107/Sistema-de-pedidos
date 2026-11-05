@@ -5,6 +5,11 @@ import { config as cargarEnv } from "dotenv";
    entran por la app, no por un backend de mentira. */
 cargarEnv({ path: ".env.local", quiet: true });
 
+/** Dónde escucha el Odoo falso. Lo leen también las pruebas, por `E2E_ODOO_FALSO`. */
+const PUERTO_ODOO_FALSO = 8069;
+const ODOO_FALSO = `http://127.0.0.1:${PUERTO_ODOO_FALSO}`;
+process.env.E2E_ODOO_FALSO ??= ODOO_FALSO;
+
 export default defineConfig({
   testDir: "./e2e",
   /* Baja la marca de "cambia tu contraseña" a las tres cuentas del seed. Sin
@@ -32,10 +37,31 @@ export default defineConfig({
     { name: "escritorio", use: { ...devices["Desktop Chrome"] } },
   ],
 
-  webServer: {
-    command: "npm run dev",
-    url: process.env.E2E_URL ?? "http://localhost:3000",
-    reuseExistingServer: true,
-    timeout: 120_000,
-  },
+  webServer: [
+    /* Un Odoo de mentira para las cotizaciones (`e2e/odoo-falso.mts`). Ninguna
+       prueba crea clientes ni cotizaciones en el Odoo de la empresa. */
+    {
+      command: `node e2e/odoo-falso.mts`,
+      url: `${ODOO_FALSO}/__estado`,
+      env: { ODOO_FALSO_PUERTO: String(PUERTO_ODOO_FALSO) },
+      reuseExistingServer: true,
+      timeout: 30_000,
+    },
+    {
+      command: "npm run dev",
+      url: process.env.E2E_URL ?? "http://localhost:3000",
+      reuseExistingServer: true,
+      timeout: 120_000,
+      /* El entorno del proceso le gana a `.env.local`: este `next dev` habla con
+         el Odoo falso. Si ya había uno corriendo (`reuseExistingServer`), puede
+         estar apuntando al Odoo real; `e2e/cotizaciones.spec.ts` lo comprueba
+         antes de crear nada. */
+      env: {
+        ODOO_URL: ODOO_FALSO,
+        ODOO_DB: "e2e-odoo-falso",
+        ODOO_USUARIO: "e2e@plexiacril.test",
+        ODOO_API_KEY: "clave-del-odoo-falso",
+      },
+    },
+  ],
 });

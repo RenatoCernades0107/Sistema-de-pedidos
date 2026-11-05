@@ -1,6 +1,7 @@
 "use client";
 
-import { MessageSquarePlus, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { ArrowLeft, MessageSquarePlus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -15,13 +16,25 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
-import { useChat } from "@/app/(app)/cotizaciones/chat-store";
+import { useChat } from "@/app/(app)/cotizaciones/asistente/chat-store";
 
 export function ChatSidebar({ alSeleccionar }: { alSeleccionar?: () => void }) {
   const { chats, activeChatId, seleccionar, borrar } = useChat();
 
   return (
     <div className="flex h-full flex-col p-3">
+      {/* El asistente cuelga de la lista de cotizaciones: lo que crea aquí
+          aparece allá también. */}
+      <Button
+        render={<Link href="/cotizaciones" />}
+        nativeButton={false}
+        variant="ghost"
+        size="sm"
+        className="text-muted-foreground mb-2 -ml-1 justify-start gap-1.5"
+      >
+        <ArrowLeft className="size-3.5" />
+        Todas las cotizaciones
+      </Button>
       <Button
         variant="outline"
         className="w-full justify-start gap-2"
@@ -31,7 +44,7 @@ export function ChatSidebar({ alSeleccionar }: { alSeleccionar?: () => void }) {
         }}
       >
         <MessageSquarePlus className="size-4" />
-        Nueva cotización
+        Nuevo chat
       </Button>
 
       <p className="eyebrow px-1 pt-4 pb-2">Chats</p>

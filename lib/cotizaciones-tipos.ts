@@ -2,7 +2,7 @@
  * El idioma de la app para lo que devuelve la Quote Agent API, y los traductores
  * que lo pasan de su `snake_case` al nuestro.
  *
- * Separado de `cotizaciones/acciones.ts` porque lo necesitan dos llamadores: las
+ * Separado de `cotizaciones/asistente/acciones.ts` porque lo necesitan dos llamadores: las
  * Server Actions y el route handler que recibe los mensajes con archivos. Un
  * archivo `"use server"` no puede exportar nada que no sea una función async, así
  * que no puede hacer de biblioteca ni de estos tipos ni de estas funciones puras.

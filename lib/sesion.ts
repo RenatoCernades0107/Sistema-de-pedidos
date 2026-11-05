@@ -116,6 +116,25 @@ export async function exigirAgenteCotizacion(): Promise<Perfil> {
   return perfil;
 }
 
+/** La lista, el registro y el detalle de las cotizaciones del sistema. */
+export async function exigirCotizaciones(): Promise<Perfil> {
+  const perfil = await exigirSesion();
+  if (!ROLES[perfil.rol].gestionarCotizaciones) {
+    redirect(`/${ROLES[perfil.rol].vistaInicial}`);
+  }
+  return perfil;
+}
+
+/**
+ * Lo mismo para un route handler que responde JSON: ahí un `redirect` devolvería
+ * el HTML del login a un `fetch` que espera resultados. `null` si no puede.
+ */
+export async function perfilConCotizaciones(): Promise<Perfil | null> {
+  const perfil = await perfilActual();
+  if (!perfil || perfil.debeCambiarPassword) return null;
+  return ROLES[perfil.rol].gestionarCotizaciones ? perfil : null;
+}
+
 /**
  * El dashboard de `/metricas`. Va por su permiso y no por `exigirAdmin()` porque la
  * entrada del menú sale de ese mismo permiso: así la puerta y el enlace no pueden

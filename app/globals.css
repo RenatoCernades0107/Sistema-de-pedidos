@@ -277,6 +277,11 @@
     @apply text-2xs font-medium uppercase tracking-[0.08em] text-muted-foreground;
   }
 
+  /* Una tecla en un atajo: "Ctrl + Enter". */
+  .kbd {
+    @apply rounded border bg-muted px-1 py-px font-mono text-2xs text-foreground;
+  }
+
   /* Saldo pendiente: dos destellos seguidos y después una pausa larga.
      El color y el grosor se aplican con utilidades en el JSX para que la
      cascada de Tailwind no los pise; aquí solo vive el movimiento. */
