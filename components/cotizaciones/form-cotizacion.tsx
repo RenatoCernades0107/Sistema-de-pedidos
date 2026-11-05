@@ -65,10 +65,11 @@ export function FormCotizacion() {
   const agregar = (p: ProductoOdoo) => {
     // Fuera del actualizador a propósito: genera la clave de la línea, y un
     // actualizador tiene que ser puro (el modo estricto lo corre dos veces).
-    const { lineas: siguientes, clave, sumada } = agregarProducto(lineas, p);
+    // Si ya estaba, suma uno a su línea: el resaltado y el foco en su cantidad
+    // lo dicen sin un aviso que tape la barra de crear.
+    const { lineas: siguientes, clave } = agregarProducto(lineas, p);
     flushSync(() => setLineas(siguientes));
     marcar(clave);
-    if (sumada) toast(`${p.codigo ? `${p.codigo} · ` : ""}${p.nombre}`, { description: "Ya estaba: se sumó uno." });
     // A la cantidad de esa línea, con el número seleccionado: se escribe encima.
     const input = cantidades.current.get(clave);
     input?.focus();

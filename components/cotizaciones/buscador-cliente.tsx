@@ -84,10 +84,15 @@ export function BuscadorCliente({
         vacio={q ? "Ningún cliente coincide en Odoo." : "Todavía no hay clientes cotizados."}
         fresco={!busqueda.cargando && busqueda.consultaRespondida === q}
         alEnterSinRespuesta={async () => {
-          // Un RUC pegado y Enter: si coincide exacto, se elige sin esperar al debounce.
+          // Enter antes de que llegue la lista: se pregunta ya, sin esperar al
+          // debounce. Un RUC/DNI exacto se elige; si no hay ningún cliente, se
+          // abre "Crear cliente", que es la única opción que había en pantalla.
+          // Si hay varios parecidos, no se adivina: la lista llega y se elige.
           const r = await buscarUnaVez<ClienteOdoo>(`${RUTA}?q=${encodeURIComponent(q)}`);
-          const primero = r?.resultados[0];
+          if (!r) return;
+          const primero = r.resultados[0];
           if (primero?.porCodigo === "exacto") elegir(primero.item);
+          else if (!primero && q) setCrearCon(q);
         }}
         inputRef={inputRef}
         autoFocus={autoFocus}
@@ -113,7 +118,7 @@ function FilaCliente({ resultado, consulta }: { resultado: Resultado<ClienteOdoo
     <>
       <Icono className="text-muted-foreground size-4 shrink-0" />
       <span className="flex min-w-0 flex-1 flex-col">
-        <Resaltado texto={c.nombre} consulta={consulta} className="truncate" />
+        <Resaltado texto={c.nombre} consulta={consulta} className="line-clamp-2" />
         <span className="text-muted-foreground flex flex-wrap gap-x-3 text-xs">
           {c.documento && <Documento documento={c.documento} consulta={consulta} />}
           {c.telefono && <span className="tnum">{c.telefono}</span>}
@@ -150,7 +155,7 @@ function TarjetaCliente({ cliente, alCambiar }: { cliente: ClienteOdoo; alCambia
         <Icono className="size-4" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate font-medium">{cliente.nombre}</p>
+        <p className="line-clamp-2 font-medium break-words">{cliente.nombre}</p>
         <p className="text-muted-foreground mt-0.5 flex flex-wrap gap-x-3 text-xs">
           {cliente.documento ? <Documento documento={cliente.documento} /> : <span>Sin RUC/DNI</span>}
           {cliente.telefono && (

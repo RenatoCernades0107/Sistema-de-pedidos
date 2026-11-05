@@ -97,8 +97,13 @@ export function distancia(a: string, b: string, tope = 2): number {
   return d[a.length][b.length];
 }
 
-/** Cuántos errores se le perdonan a una palabra según su largo. */
-const toleranciaDe = (largo: number) => (largo >= 8 ? 2 : largo >= 4 ? 1 : 0);
+/**
+ * Cuántos errores se le perdonan a una palabra según su largo. A un número,
+ * ninguno: "20512345671" no es "20123456786" con dos dedos torpes, es otro RUC,
+ * y "1220" no es "1250". Los errores de tipeo se perdonan en las palabras.
+ */
+const toleranciaDe = (palabra: string) =>
+  /\d/.test(palabra) ? 0 : palabra.length >= 8 ? 2 : palabra.length >= 4 ? 1 : 0;
 
 /**
  * Si `palabra` (de la consulta) es `objetivo` con algún error. Se compara contra
@@ -106,7 +111,7 @@ const toleranciaDe = (largo: number) => (largo >= 8 ? 2 : largo >= 4 ? 1 : 0);
  * aunque todavía no se haya terminado de escribir.
  */
 function casiIgual(palabra: string, objetivo: string): boolean {
-  const tope = toleranciaDe(palabra.length);
+  const tope = toleranciaDe(palabra);
   if (tope === 0) return false;
   for (let largo = palabra.length - 1; largo <= palabra.length + 1; largo++) {
     if (largo < 1 || largo > objetivo.length) continue;

@@ -78,11 +78,13 @@ function FilaProducto({ resultado, consulta }: { resultado: Resultado<ProductoOd
   return (
     <>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="flex min-w-0 items-center gap-2">
+        <span className="flex min-w-0 items-start gap-2">
           {p.codigo && (
             <CodigoProducto codigo={p.codigo} consulta={consulta} destacado={exacto} />
           )}
-          <Resaltado texto={p.nombre} consulta={consulta} className="min-w-0 truncate" />
+          {/* Hasta dos líneas y no una cortada: lo que distingue dos planchas
+              ("… 3MM" / "… 5MM") suele estar al final del nombre. */}
+          <Resaltado texto={p.nombre} consulta={consulta} className="line-clamp-2 min-w-0" />
         </span>
         {(porBarcode || p.categoria) && (
           <span className="text-muted-foreground truncate text-xs">

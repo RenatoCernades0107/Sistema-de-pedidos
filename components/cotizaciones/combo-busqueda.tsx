@@ -136,7 +136,10 @@ export function ComboBusqueda({
           {opciones.length > 0 && (
             <CommandPrimitive.Group
               heading={titulo}
-              className="**:[[cmdk-group-heading]]:text-muted-foreground **:[[cmdk-group-heading]]:px-2 **:[[cmdk-group-heading]]:py-1.5 **:[[cmdk-group-heading]]:text-xs **:[[cmdk-group-heading]]:font-medium"
+              // Mientras llega la respuesta a lo que se acaba de escribir, lo de
+              // antes se queda (una lista que parpadea vacía cansa), pero atenuado.
+              aria-busy={!fresco}
+              className="transition-opacity aria-busy:opacity-50 **:[[cmdk-group-heading]]:text-muted-foreground **:[[cmdk-group-heading]]:px-2 **:[[cmdk-group-heading]]:py-1.5 **:[[cmdk-group-heading]]:text-xs **:[[cmdk-group-heading]]:font-medium"
             >
               {opciones.map((o) => (
                 <Item key={o.valor} opcion={o} />

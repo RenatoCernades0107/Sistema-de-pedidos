@@ -19,7 +19,7 @@ import { exigirCotizaciones } from "@/lib/sesion";
 import { clienteServidor } from "@/lib/supabase-servidor";
 import { mensajeDeError } from "@/lib/errores";
 import { esquemaNuevaCotizacion, esquemaNuevoClienteOdoo } from "@/lib/esquemas";
-import { sincronizarConOdoo } from "@/lib/cotizaciones-servidor";
+import { olvidarPopularidad, sincronizarConOdoo } from "@/lib/cotizaciones-servidor";
 import { indiceClientes, productosPorId } from "@/lib/odoo/catalogos";
 import { crearCliente, leerCliente } from "@/lib/odoo/clientes";
 import { ErrorOdoo, ODOO_NO_CONFIGURADO, odooConfigurado } from "@/lib/odoo/rpc";
@@ -93,6 +93,7 @@ export async function crearCotizacion(entrada: unknown): Promise<ResultadoCreaci
   /* Primero se guarda y después se va a Odoo: si Odoo está caído, lo tecleado
      no se pierde. La fila queda en `error` y el detalle ofrece reintentar. */
   const r = await sincronizarConOdoo(id);
+  olvidarPopularidad();
   refresh();
 
   return r.ok

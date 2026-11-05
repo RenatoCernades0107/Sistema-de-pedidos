@@ -145,6 +145,14 @@ describe("búsqueda de productos por nombre", () => {
     expect(r).toEqual([12]);
   });
 
+  it("a los números no se les perdonan errores: una medida es otra medida", () => {
+    const conMedidas = new Buscador(
+      [producto(30, null, "PLANCHA 1220 X 2440"), producto(31, null, "PLANCHA 1250 X 2500")],
+      camposProducto,
+    );
+    expect(ids(conMedidas.buscar("plancha 1220"))).toEqual([30]);
+  });
+
   it("todas las palabras tienen que aparecer", () => {
     expect(productos.buscar("acrilico vidrio")).toEqual([]);
   });
@@ -180,6 +188,11 @@ describe("búsqueda de clientes", () => {
     expect(r[0].item.id).toBe(2);
     expect(r[0].porCodigo).toBe("exacto");
     expect(clientes.buscar("45678912")[0].item.id).toBe(1);
+  });
+
+  it("un RUC con dígitos distintos es otro cliente, no un error de tipeo", () => {
+    expect(clientes.buscar("20512345671")).toEqual([]);
+    expect(clientes.buscar("45678913")).toEqual([]);
   });
 
   it("parte del RUC lo encuentra por prefijo", () => {

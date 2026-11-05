@@ -144,8 +144,37 @@ export async function clientesRecientes(limite = 8): Promise<{ cliente: ClienteO
     }));
 }
 
+/**
+ * Lo que se lee en cada tecla del buscador y cambia despacio: cuántas veces se
+ * cotizó cada cliente y cada producto. Se recuerda un minuto por instancia para
+ * no sumar una consulta a Supabase a cada letra.
+ *
+ * Compartirlo entre personas no salta la RLS: solo llega aquí quien puede
+ * gestionar cotizaciones (`perfilConCotizaciones`), y todas ellas ven las mismas
+ * filas. Los clientes recientes no pasan por aquí: tienen que verse al instante.
+ */
+const UN_MINUTO = 60_000;
+const recordadas = new Map<string, { hasta: number; valor: Promise<Map<number, number>> }>();
+
+function recordarUnMinuto(clave: string, leer: () => Promise<Map<number, number>>) {
+  const previa = recordadas.get(clave);
+  if (previa && previa.hasta > Date.now()) return previa.valor;
+  const valor = leer();
+  recordadas.set(clave, { hasta: Date.now() + UN_MINUTO, valor });
+  valor.catch(() => recordadas.delete(clave));
+  return valor;
+}
+
+/** Que lo recién cotizado empuje en la próxima búsqueda, sin esperar el minuto. */
+export const olvidarPopularidad = () => recordadas.clear();
+
 /** Cuántas veces se cotizó cada cliente, para desempatar en el buscador. */
-export async function popularidadClientes(): Promise<Map<number, number>> {
+export const popularidadClientes = () => recordarUnMinuto("clientes", leerPopularidadClientes);
+
+/** Cuántas veces se cotizó cada producto en los últimos 90 días, de más a menos. */
+export const popularidadProductos = () => recordarUnMinuto("productos", leerPopularidadProductos);
+
+async function leerPopularidadClientes(): Promise<Map<number, number>> {
   const supabase = await clienteServidor();
   const { data } = await supabase
     .from("clientes_cotizados")
@@ -155,8 +184,7 @@ export async function popularidadClientes(): Promise<Map<number, number>> {
   return new Map((data ?? []).map((f) => [f.odoo_partner_id!, f.veces ?? 0]));
 }
 
-/** Cuántas veces se cotizó cada producto en los últimos 90 días, de más a menos. */
-export async function popularidadProductos(): Promise<Map<number, number>> {
+async function leerPopularidadProductos(): Promise<Map<number, number>> {
   const supabase = await clienteServidor();
   const { data } = await supabase
     .from("productos_mas_cotizados")
