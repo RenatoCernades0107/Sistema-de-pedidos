@@ -20,12 +20,12 @@ Odoo y no deja buscar ni crear.
 Para trabajar contra un Supabase local (necesita Docker) con la seed de prueba:
 
 ```bash
-npx supabase start     # API en http://127.0.0.1:55321, Studio en http://127.0.0.1:55323
+npx supabase start     # API en http://127.0.0.1:56321, Studio en http://127.0.0.1:56323
 npx supabase db reset  # aplica las migraciones y carga supabase/seed.sql
 ```
 
-Los puertos son la serie 553xx (no la 543xx por defecto) para convivir con otros proyectos de
-Supabase en la misma máquina. En `.env.local`, `NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:55321` y
+Los puertos son la serie 563xx (no la 543xx por defecto) para convivir con otros proyectos de
+Supabase en la misma máquina. En `.env.local`, `NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:56321` y
 la clave publicable que imprime `supabase start`.
 
 Usuarios de desarrollo (contraseña `plexi2026` en los tres): `ana` (administración), `carla`
