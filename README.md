@@ -17,6 +17,17 @@ RLS, no esconderla. Las de Odoo (`ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_P
 secretos de servidor: sin ellas la app funciona, pero `/cotizaciones` avisa de que falta conectar
 Odoo y no deja buscar ni crear.
 
+Para trabajar contra un Supabase local (necesita Docker) con la seed de prueba:
+
+```bash
+npx supabase start     # API en http://127.0.0.1:55321, Studio en http://127.0.0.1:55323
+npx supabase db reset  # aplica las migraciones y carga supabase/seed.sql
+```
+
+Los puertos son la serie 553xx (no la 543xx por defecto) para convivir con otros proyectos de
+Supabase en la misma máquina. En `.env.local`, `NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:55321` y
+la clave publicable que imprime `supabase start`.
+
 Usuarios de desarrollo (contraseña `plexi2026` en los tres): `ana` (administración), `carla`
 (logística), `miguel` (operaciones). **Se entra con el usuario, no con el correo**: el correo es el
 identificador interno de Supabase Auth y `email_de_usuario()` traduce uno en otro antes de
