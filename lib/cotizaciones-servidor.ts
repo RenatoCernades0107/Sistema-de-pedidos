@@ -12,7 +12,7 @@ import { clienteServidor } from "./supabase-servidor";
 import { mensajeDeError } from "./errores";
 import type { Canal, Cotizacion, Sincronizacion } from "./cotizaciones";
 import { leerCliente } from "./odoo/clientes";
-import { crearPedidoDeVenta, leerPedidoDeVenta } from "./odoo/pedidos-venta";
+import { confirmarPedidoDeVenta, crearPedidoDeVenta, leerPedidoDeVenta } from "./odoo/pedidos-venta";
 import { ErrorOdoo, odooConfigurado } from "./odoo/rpc";
 import type { ClienteOdoo } from "./odoo/tipos";
 
@@ -20,7 +20,9 @@ const COLUMNAS = `
   id, canal, odoo_partner_id, cliente_nombre, cliente_documento, cliente_telefono,
   odoo_order_id, odoo_order_name, sincronizacion, error_sincronizacion,
   monto_sin_impuestos, monto_impuestos, monto_total, notas, chat_agente_id, creado_en,
+  confirmada_en_odoo, error_confirmacion,
   creador:usuarios!cotizaciones_creado_por_fkey ( nombre ),
+  pedido:pedidos!cotizaciones_pedido_id_fkey ( codigo ),
   cotizacion_productos ( posicion, odoo_product_id, producto_nombre, producto_codigo,
                          descripcion, cantidad, precio_unitario )
 `;
@@ -42,7 +44,10 @@ interface Fila {
   notas: string | null;
   chat_agente_id: string | null;
   creado_en: string;
+  confirmada_en_odoo: boolean;
+  error_confirmacion: string | null;
   creador: { nombre: string } | { nombre: string }[] | null;
+  pedido: { codigo: string } | { codigo: string }[] | null;
   cotizacion_productos: {
     posicion: number;
     odoo_product_id: number;
@@ -59,6 +64,7 @@ const num = (v: unknown): number | null => (v === null || v === undefined ? null
 
 function deFila(f: Fila): Cotizacion {
   const creador = Array.isArray(f.creador) ? f.creador[0] : f.creador;
+  const pedido = Array.isArray(f.pedido) ? f.pedido[0] : f.pedido;
   return {
     id: f.id,
     canal: f.canal,
@@ -79,6 +85,9 @@ function deFila(f: Fila): Cotizacion {
     chatAgenteId: f.chat_agente_id,
     creadoPor: creador?.nombre ?? null,
     creadoEn: f.creado_en,
+    pedido: pedido ? { codigo: pedido.codigo } : null,
+    confirmadaEnOdoo: f.confirmada_en_odoo,
+    errorConfirmacion: f.error_confirmacion,
     lineas: [...(f.cotizacion_productos ?? [])]
       .sort((a, b) => a.posicion - b.posicion)
       .map((l) => ({
@@ -264,6 +273,53 @@ export async function sincronizarConOdoo(id: string): Promise<ResultadoSincroniz
       .eq("id", id);
     return { ok: false, error: mensaje };
   }
+}
+
+/**
+ * Confirma en Odoo la cotización de la que salió un pedido: la `sale.order` pasa
+ * de cotización a pedido de venta. Anota el resultado en la fila; si Odoo falla,
+ * queda el motivo y el detalle ofrece "Confirmar en Odoo".
+ *
+ * Corre después del alta del pedido y nunca la deshace: el taller no tiene por
+ * qué esperar a que Odoo conteste. Repetirla no hace nada si ya está confirmada.
+ */
+export async function confirmarEnOdoo(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const supabase = await clienteServidor();
+  // Sin `cargarCotizacion`: está en caché por petición, y el alta acaba de cambiar la fila.
+  const { data: c, error } = await supabase
+    .from("cotizaciones")
+    .select("odoo_order_id, pedido_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) return { ok: false, error: mensajeDeError(error) };
+  if (!c) return { ok: false, error: "La cotización ya no existe." };
+  if (!c.pedido_id) return { ok: false, error: "Esta cotización todavía no tiene pedido." };
+  if (!c.odoo_order_id) return { ok: false, error: "Esta cotización no está en Odoo." };
+
+  let resultado: { ok: true } | { ok: false; error: string };
+  try {
+    await confirmarPedidoDeVenta(c.odoo_order_id);
+    resultado = { ok: true };
+  } catch (e) {
+    if (!(e instanceof ErrorOdoo)) console.error("[cotizaciones] confirmar en Odoo", e);
+    resultado = {
+      ok: false,
+      error: e instanceof ErrorOdoo ? e.message : "Algo falló al confirmar la cotización en Odoo.",
+    };
+  }
+
+  const { error: alAnotar } = await supabase
+    .from("cotizaciones")
+    .update(
+      resultado.ok
+        ? { confirmada_en_odoo: true, error_confirmacion: null }
+        : { confirmada_en_odoo: false, error_confirmacion: resultado.error },
+    )
+    .eq("id", id);
+  if (alAnotar && resultado.ok) {
+    return { ok: false, error: `Se confirmó en Odoo, pero no se pudo anotar aquí: ${mensajeDeError(alAnotar)}` };
+  }
+  return resultado;
 }
 
 /**

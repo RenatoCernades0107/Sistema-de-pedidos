@@ -149,6 +149,11 @@ export function StoreProvider({
           datos.esProvincia ? "a provincia" : LUGARES[datos.entrega].toLowerCase()
         } · ${saldo > 0 ? `saldo de ${soles(saldo)}` : "pagado"}`,
       });
+      if (resultado.aviso) {
+        toast.warning("Odoo no confirmó la cotización", {
+          description: `${resultado.aviso} Puedes reintentarlo desde la cotización.`,
+        });
+      }
       return resultado;
     },
     [],

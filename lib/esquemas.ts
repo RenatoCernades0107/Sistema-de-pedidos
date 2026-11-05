@@ -141,7 +141,9 @@ export const esquemaFormNuevoPedido = z
     cantidad: z.coerce.number().positive("La cantidad tiene que ser mayor que cero"),
     destino: z.enum(["local", "provincia"]),
     entrega: lugarEntrega,
-    ubicacion,
+    // Desde una cotización llega sin valor a propósito: quien registra tiene que
+    // decir si va para el taller o para la tienda.
+    ubicacion: z.enum(ubicacion.options, { error: "Elige si el pedido va para el taller o para la tienda" }),
     direccion: z.string().trim().optional(),
     departamentoId: z.coerce.number().int().positive().optional(),
     provinciaId: z.coerce.number().int().positive().optional(),
@@ -299,6 +301,9 @@ export const esquemaNuevoPedido = z
     ubicacion,
     detalle: z.string(),
     observaciones: z.string().trim().nullable(),
+    // La cotización de la que sale el pedido, si sale de una. Una sola vez:
+    // `crear_pedido` rechaza la segunda.
+    cotizacionId: z.uuid().nullable().default(null),
   })
   .superRefine((v, ctx) => {
     reglasDelPedido(v, ctx);

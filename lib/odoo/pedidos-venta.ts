@@ -1,8 +1,10 @@
 /**
- * Cotizaciones de Odoo (`sale.order` en borrador): crearlas y leerlas.
+ * Cotizaciones de Odoo (`sale.order` en borrador): crearlas, leerlas y
+ * confirmarlas.
  *
  * En Odoo una cotización y un pedido de venta son el mismo registro en distinto
- * estado; aquí siempre se crea en borrador, que es la cotización.
+ * estado; aquí siempre se crea en borrador, que es la cotización, y se confirma
+ * cuando de ella sale un pedido del sistema.
  */
 
 import { nombreSinCodigo } from "./productos";
@@ -103,6 +105,23 @@ export async function crearPedidoDeVenta(datos: {
   const resumen = await leerResumen(id);
   if (!resumen) throw new ErrorOdoo("Odoo creó la cotización pero no la devolvió.");
   return { ...resumen, yaExistia: false };
+}
+
+/**
+ * Confirma la cotización: en Odoo pasa de borrador a pedido de venta (`sale`).
+ *
+ * Se puede repetir. Odoo rechaza confirmar una orden que ya no está en borrador,
+ * así que primero se mira el estado: si alguien ya la confirmó (desde aquí o
+ * desde Odoo), no hay nada que hacer.
+ */
+export async function confirmarPedidoDeVenta(orderId: number): Promise<void> {
+  const filas = await ejecutar<Fila[]>(MODELO, "read", [[orderId]], { fields: ["state"] });
+  if (!filas[0]) throw new ErrorOdoo("La cotización ya no existe en Odoo.");
+  const estado = texto(filas[0].state);
+  if (estado === "cancel") throw new ErrorOdoo("La cotización está cancelada en Odoo.");
+  if (estado !== "draft" && estado !== "sent") return;
+
+  await ejecutar(MODELO, "action_confirm", [[orderId]]);
 }
 
 /* ── Leer lo que creó el asistente ─────────────────────────────────────────── */

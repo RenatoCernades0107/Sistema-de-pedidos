@@ -192,6 +192,86 @@ begin
   end if;
 end $$;
 
+-- ── 2b. Un pedido a partir de una cotización (20261106000100) ───────────────
+
+do $$
+declare
+  id_cot       uuid;
+  id_pendiente uuid;
+  v_codigo     text;
+  id_pedido    uuid;
+begin
+  id_cot := public.crear_cotizacion(
+    p_odoo_partner_id := 900004, p_cliente_nombre := 'Prueba SQL Pedido',
+    p_lineas := '[{"odoo_product_id": 10, "producto_nombre": "ACRILICO", "cantidad": 2, "precio_unitario": 50}]'::jsonb,
+    p_odoo_order_id := 900004, p_odoo_order_name := 'S99004', p_monto_total := 118
+  );
+  id_pendiente := public.crear_cotizacion(900005, 'Prueba SQL Pendiente',
+    '[{"odoo_product_id": 10, "producto_nombre": "ACRILICO", "cantidad": 1, "precio_unitario": 1}]'::jsonb);
+
+  -- 2b.1 El alta vincula la cotización y respeta la ubicación elegida.
+  v_codigo := public.crear_pedido(
+    p_es_provincia := false, p_nombre_cliente := 'Prueba SQL Pedido',
+    p_tipos_pedido := array['SP']::public.tipo_pedido[], p_cantidad := 2,
+    p_tipo_pago := 'credito', p_lugar_entrega := 'tienda',
+    p_fecha_prometida := current_date + 3, p_monto_total := 118,
+    p_ubicacion_actual := 'tienda', p_cotizacion_id := id_cot
+  );
+  select id into id_pedido from public.pedidos where codigo = v_codigo;
+  if (select pedido_id from public.cotizaciones where id = id_cot) is distinct from id_pedido then
+    raise exception 'FALLO: la cotización no quedó vinculada al pedido %', v_codigo;
+  end if;
+  if (select ubicacion_actual from public.pedidos where id = id_pedido) <> 'tienda' then
+    raise exception 'FALLO: el pedido no quedó en tienda';
+  end if;
+
+  -- 2b.2 Un segundo pedido de la misma cotización se rechaza, y no deja pedido suelto.
+  begin
+    perform public.crear_pedido(
+      p_es_provincia := false, p_nombre_cliente := 'Prueba SQL Pedido Doble',
+      p_tipos_pedido := array['SP']::public.tipo_pedido[], p_cantidad := 1,
+      p_tipo_pago := 'credito', p_lugar_entrega := 'tienda',
+      p_fecha_prometida := current_date + 3, p_cotizacion_id := id_cot
+    );
+    raise exception 'FALLO: una cotización generó dos pedidos';
+  exception when others then
+    if sqlerrm like 'FALLO:%' then raise; end if;
+    if sqlerrm not like 'Esa cotización ya tiene un pedido%' then
+      raise exception 'FALLO: error inesperado con el segundo pedido: %', sqlerrm;
+    end if;
+  end;
+  if exists (select 1 from public.pedidos_admin where nombre_cliente = 'Prueba SQL Pedido Doble') then
+    raise exception 'FALLO: el segundo pedido quedó registrado sin vínculo';
+  end if;
+
+  -- 2b.3 Una cotización que no está en Odoo no genera pedido.
+  begin
+    perform public.crear_pedido(
+      p_es_provincia := false, p_nombre_cliente := 'Prueba SQL Pendiente',
+      p_tipos_pedido := array['SP']::public.tipo_pedido[], p_cantidad := 1,
+      p_tipo_pago := 'credito', p_lugar_entrega := 'tienda',
+      p_fecha_prometida := current_date + 3, p_cotizacion_id := id_pendiente
+    );
+    raise exception 'FALLO: una cotización pendiente de Odoo generó un pedido';
+  exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
+
+  -- 2b.4 La confirmación en Odoo se anota.
+  update public.cotizaciones set confirmada_en_odoo = true, error_confirmacion = null where id = id_cot;
+end $$;
+
+-- 2b.5 Borrar el pedido suelta la cotización (como postgres: borrar es otra prueba).
+set local role postgres;
+do $$
+declare
+  id_cot uuid := (select id from public.cotizaciones where odoo_order_id = 900004);
+begin
+  delete from public.pedidos where id = (select pedido_id from public.cotizaciones where id = id_cot);
+  if (select pedido_id from public.cotizaciones where id = id_cot) is not null then
+    raise exception 'FALLO: borrar el pedido no soltó la cotización';
+  end if;
+end $$;
+set local role authenticated;
+
 set local role postgres;
 
 -- ── 3. Otro rol no ve ni crea ───────────────────────────────────────────────

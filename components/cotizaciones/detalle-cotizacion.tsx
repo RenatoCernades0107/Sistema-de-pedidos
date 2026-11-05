@@ -3,9 +3,19 @@
 import Link from "next/link";
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ExternalLink, FileDown, MessageSquareText, Plus, RotateCw, Scissors } from "lucide-react";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  ClipboardList,
+  ExternalLink,
+  FileDown,
+  MessageSquareText,
+  Plus,
+  RotateCw,
+  Scissors,
+} from "lucide-react";
 import { toast } from "sonner";
-import { reintentarSincronizacion } from "@/app/(app)/cotizaciones/acciones";
+import { reintentarConfirmacion, reintentarSincronizacion } from "@/app/(app)/cotizaciones/acciones";
 import { referenciaDe, sumaLineas, type Cotizacion } from "@/lib/cotizaciones";
 import { momentoEnLima } from "@/lib/fecha";
 import { fechaHora, money, numero } from "@/lib/formato";
@@ -17,14 +27,25 @@ export function DetalleCotizacion({
   cotizacion: c,
   enlaceOdoo,
   puedeAsistente,
+  puedeCrearPedido,
 }: {
   cotizacion: Cotizacion;
   /** Calculado en el servidor: la URL de Odoo no viaja en el bundle. */
   enlaceOdoo: string | null;
   puedeAsistente: boolean;
+  puedeCrearPedido: boolean;
 }) {
   const router = useRouter();
   const [reintentando, iniciar] = useTransition();
+  const [confirmando, iniciarConfirmacion] = useTransition();
+
+  const confirmar = () =>
+    iniciarConfirmacion(async () => {
+      const r = await reintentarConfirmacion(c.id);
+      if (r.ok) toast.success(`${referenciaDe(c)} confirmada en Odoo`);
+      else toast.error("Odoo no la confirmó", { description: r.error });
+      router.refresh();
+    });
 
   const reintentar = () =>
     iniciar(async () => {
@@ -78,11 +99,38 @@ export function DetalleCotizacion({
           <Button
             render={<Link href="/cotizaciones/nueva" />}
             nativeButton={false}
+            variant={puedeCrearPedido ? "outline" : "default"}
             className="gap-1.5"
           >
             <Plus />
             Nueva cotización
           </Button>
+          {puedeCrearPedido &&
+            (c.pedido ? (
+              <Button
+                render={<Link href={`/pedidos/${c.pedido.codigo}`} />}
+                nativeButton={false}
+                className="gap-1.5"
+              >
+                <ClipboardList />
+                Ver pedido {c.pedido.codigo}
+              </Button>
+            ) : c.sincronizacion === "sincronizada" ? (
+              <Button
+                render={<Link href={`/pedidos/nuevo?cotizacion=${c.id}`} />}
+                nativeButton={false}
+                className="gap-1.5"
+              >
+                <ClipboardList />
+                Crear pedido
+              </Button>
+            ) : (
+              // Sin orden en Odoo no hay qué confirmar al crear el pedido.
+              <Button disabled className="gap-1.5" title="Primero tiene que crearse en Odoo">
+                <ClipboardList />
+                Crear pedido
+              </Button>
+            ))}
         </div>
       </header>
 
@@ -104,6 +152,52 @@ export function DetalleCotizacion({
               {reintentando ? "Reintentando…" : "Reintentar"}
             </Button>
           </div>
+        )}
+
+        {c.pedido && (
+          <section
+            className={
+              c.errorConfirmacion
+                ? "border-destructive/30 bg-destructive/10 flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 text-sm"
+                : "bg-card flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 text-sm"
+            }
+            role={c.errorConfirmacion ? "alert" : undefined}
+          >
+            <div className="min-w-0 flex-1">
+              <p className="font-medium">
+                Pedido{" "}
+                <Link href={`/pedidos/${c.pedido.codigo}`} className="text-primary tnum hover:underline">
+                  {c.pedido.codigo}
+                </Link>
+              </p>
+              {c.confirmadaEnOdoo ? (
+                <p className="text-muted-foreground mt-0.5 flex items-center gap-1.5">
+                  <CheckCircle2 className="text-st-entregado size-3.5" />
+                  Confirmada en Odoo como pedido de venta.
+                </p>
+              ) : c.errorConfirmacion ? (
+                <>
+                  <p className="text-destructive mt-0.5">No se confirmó en Odoo: {c.errorConfirmacion}</p>
+                  <p className="text-muted-foreground mt-1 text-xs">
+                    El pedido ya está registrado. Confirmar no la duplica en Odoo.
+                  </p>
+                </>
+              ) : (
+                <p className="text-muted-foreground mt-0.5">Todavía sin confirmar en Odoo.</p>
+              )}
+            </div>
+            {!c.confirmadaEnOdoo && (
+              <Button
+                onClick={confirmar}
+                disabled={confirmando}
+                variant={c.errorConfirmacion ? "default" : "outline"}
+                className="gap-1.5"
+              >
+                <RotateCw className={confirmando ? "animate-spin" : undefined} />
+                {confirmando ? "Confirmando…" : "Confirmar en Odoo"}
+              </Button>
+            )}
+          </section>
         )}
 
         <section className="bg-card rounded-xl border p-4">

@@ -48,3 +48,17 @@ export function CanalBadge({ canal, className }: { canal: Canal; className?: str
     </span>
   );
 }
+
+/** La cotización ya salió a producción: el pedido que generó. */
+export function PedidoBadge({ codigo, className }: { codigo: string; className?: string }) {
+  return (
+    <span
+      className={cn(
+        "text-2xs text-st-entregado bg-st-entregado-soft tnum inline-flex shrink-0 items-center rounded-full px-2 py-0.5 font-medium whitespace-nowrap ring-1 ring-current/15 ring-inset",
+        className,
+      )}
+    >
+      Pedido {codigo}
+    </span>
+  );
+}

@@ -17,7 +17,7 @@ import { diaMesTexto, money } from "@/lib/formato";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Opciones } from "@/components/ui/campo";
-import { CanalBadge, EstadoSincronizacion } from "./estado-cotizacion";
+import { CanalBadge, EstadoSincronizacion, PedidoBadge } from "./estado-cotizacion";
 import { AvisoOdoo } from "./aviso-odoo";
 
 type Filtro = Canal | "todas";
@@ -132,6 +132,7 @@ export function ListaCotizaciones({
                       {c.sincronizacion !== "sincronizada" && (
                         <EstadoSincronizacion estado={c.sincronizacion} className="ml-2" />
                       )}
+                      {c.pedido && <PedidoBadge codigo={c.pedido.codigo} className="ml-2" />}
                     </td>
                     <td className="max-w-72 px-4 py-2.5">
                       <p className="truncate">{c.cliente.nombre}</p>
@@ -169,6 +170,7 @@ export function ListaCotizaciones({
                     {c.sincronizacion !== "sincronizada" && (
                       <EstadoSincronizacion estado={c.sincronizacion} />
                     )}
+                    {c.pedido && <PedidoBadge codigo={c.pedido.codigo} />}
                     <span className="text-muted-foreground ml-auto text-xs">
                       {diaMesTexto(momentoEnLima(c.creadoEn))}
                     </span>

@@ -28,6 +28,7 @@ import { refresh } from "next/cache";
 import { after } from "next/server";
 import { clienteServidor } from "@/lib/supabase-servidor";
 import { despacharNotificaciones } from "./notificaciones-acciones";
+import { confirmarEnOdoo } from "@/lib/cotizaciones-servidor";
 import { exigirCrearPedido, exigirSesion, type Perfil } from "@/lib/sesion";
 import { ROLES, ofreceComprobante, requiereMotivo } from "@/lib/dominio";
 import { ERROR_SIN_FILAS, mensajeDeError } from "@/lib/errores";
@@ -46,7 +47,14 @@ import type { TablesUpdate } from "@/lib/supabase-tipos";
 /** Las columnas de `pedidos` que se pueden mandar en un UPDATE. */
 type CambiosPedido = TablesUpdate<"pedidos">;
 
-export type Resultado = { ok: true; codigo?: string } | { ok: false; error: string };
+export type Resultado =
+  | {
+      ok: true;
+      codigo?: string;
+      /** Salió bien, pero algo de fuera no: por ejemplo, Odoo no confirmó la cotización. */
+      aviso?: string;
+    }
+  | { ok: false; error: string };
 
 const fallo = (error: string): Resultado => ({ ok: false, error });
 
@@ -143,9 +151,20 @@ export async function crearPedido(entrada: unknown): Promise<Resultado> {
     p_observaciones_envio: sinValor(v.envio?.observacionesEnvio ?? null),
     p_abono_inicial: abono,
     p_metodo_pago: v.metodoPago,
+    // Si viene, `crear_pedido` la vincula en la misma transacción, o falla entera.
+    p_cotizacion_id: sinValor(v.cotizacionId),
   });
 
   if (error) return fallo(mensajeDeError(error));
+
+  /* La cotización pasa a pedido de venta en Odoo. Va después del alta y no la
+     deshace si falla: el pedido ya está, y la cotización se queda con el motivo
+     para reintentar desde su detalle. */
+  let aviso: string | undefined;
+  if (v.cotizacionId) {
+    const r = await confirmarEnOdoo(v.cotizacionId);
+    if (!r.ok) aviso = r.error;
+  }
 
   /* El trigger `pedidos_notificar` ya encoló el aviso para el responsable. Esto
      solo lo apura: after() corre cuando la respuesta ya salió, así que quien
@@ -154,7 +173,7 @@ export async function crearPedido(entrada: unknown): Promise<Resultado> {
   if (v.responsableId) after(despacharNotificaciones);
 
   refresh();
-  return { ok: true, codigo: data ?? undefined };
+  return { ok: true, codigo: data ?? undefined, aviso };
 }
 
 /* ── Mover el estado ────────────────────────────────────────────────────────── */

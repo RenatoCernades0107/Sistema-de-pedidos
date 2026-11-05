@@ -111,6 +111,11 @@ E2E_URL=https://<dominio>.vercel.app npm run e2e
   en Odoo; si Odoo falla, queda en `error` con el motivo y el detalle ofrece reintentar, que no
   duplica (la orden lleva la marca de la fila en *Documento origen*). Lo que crea el asistente se
   registra solo, después de responder al chat.
+  Desde el detalle, **Crear pedido** abre `/pedidos/nuevo?cotizacion=<id>` con lo cotizado ya
+  llenado y pide elegir si va para el **taller o la tienda** (`ubicacion_actual`). `crear_pedido`
+  vincula la cotización en la misma transacción (`cotizaciones.pedido_id`, una sola vez) y después
+  la `sale.order` se confirma en Odoo; si Odoo falla, el pedido queda igual y la cotización ofrece
+  *Confirmar en Odoo*.
 - `lib/odoo/` — el cliente de Odoo. `rpc.ts` es la única costura (JSON-RPC clásica, de la 14 a la
   19; para JSON-2 solo cambia ese archivo). `indice.ts` guarda clientes y productos en la memoria
   del servidor y los mantiene al día por `write_date`, para buscar al ritmo del teclado.

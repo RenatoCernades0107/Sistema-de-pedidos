@@ -7,7 +7,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowLeft, Upload, X } from "lucide-react";
+import { ArrowLeft, Factory, FileText, Store, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { useStore } from "@/lib/store";
 import { subirAdjuntos } from "@/lib/adjuntos-navegador";
@@ -30,6 +30,7 @@ import {
   type TipoPedido,
 } from "@/lib/dominio";
 import { fechaCompleta } from "@/lib/formato";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Campo, Opciones } from "@/components/ui/campo";
@@ -47,14 +48,36 @@ const esquema = esquemaFormNuevoPedido;
 
 type Campos = z.input<typeof esquema>;
 
-export function NuevoPedidoForm() {
+/** Lo que el formulario toma de la cotización de la que sale el pedido. */
+export interface DesdeCotizacion {
+  id: string;
+  /** Como se nombra: la referencia de Odoo (`S04254`). */
+  referencia: string;
+  cliente: string;
+  telefono: string | null;
+  montoTotal: number;
+  /** Una línea por producto cotizado. */
+  detalle: string;
+}
+
+/** Las dos respuestas a "¿para dónde va?" de un pedido que sale de una cotización. */
+const DESTINOS_COTIZACION = [
+  { valor: "taller", label: "Taller", icono: Factory, ayuda: "Hay que fabricarlo o cortarlo" },
+  { valor: "tienda", label: "Tienda", icono: Store, ayuda: "Se atiende y despacha desde tienda" },
+] as const;
+
+export function NuevoPedidoForm({ desdeCotizacion }: { desdeCotizacion?: DesdeCotizacion } = {}) {
   const router = useRouter();
+  const volverA = desdeCotizacion ? `/cotizaciones/${desdeCotizacion.id}` : "/admin";
   const { permisos, crearPedido, trabajadores, ubigeo, pendiente } = useStore();
 
   /* Los planos se quedan en memoria hasta que el pedido exista: la carpeta del
      bucket cuelga de su uuid, y el uuid lo pone Postgres al registrarlo. */
   const [archivos, setArchivos] = useState<File[]>([]);
   const entradaArchivos = useRef<HTMLInputElement>(null);
+  /* "¿Para dónde va?" es una botonera, no un campo registrado: react-hook-form no
+     sabe enfocarla cuando falta, y el error quedaría arriba, fuera de la vista. */
+  const bloqueDestino = useRef<HTMLElement>(null);
 
   const anadir = (elegidos: File[]) => {
     const buenos: File[] = [];
@@ -76,20 +99,21 @@ export function NuevoPedidoForm() {
     resolver: zodResolver(esquema),
     mode: "onTouched",
     defaultValues: {
-      cliente: "",
-      telefonoCliente: "",
+      cliente: desdeCotizacion?.cliente ?? "",
+      telefonoCliente: desdeCotizacion?.telefono ?? "",
       tipos: ["CL"],
       cantidad: 1,
       destino: "local",
       entrega: "tienda",
-      ubicacion: "taller",
+      // Desde una cotización no se presupone: hay que elegir taller o tienda.
+      ubicacion: desdeCotizacion ? undefined : "taller",
       tipoDocumento: "DNI",
       fletePagado: false,
       fechaPrometida: "",
       tipoPago: "a_cuenta",
       metodoPago: "efectivo",
-      montoTotal: 0,
-      detalle: "",
+      montoTotal: desdeCotizacion?.montoTotal ?? 0,
+      detalle: desdeCotizacion?.detalle ?? "",
       observaciones: "",
     },
   });
@@ -178,6 +202,7 @@ export function NuevoPedidoForm() {
       responsableId: v.responsableId || null,
       detalle: v.detalle ?? "",
       observaciones: v.observaciones || null,
+      cotizacionId: desdeCotizacion?.id ?? null,
     });
     // El código lo pone Postgres, así que hasta que no conteste no hay a dónde ir.
     if (!resultado.ok || !resultado.codigo) return;
@@ -193,23 +218,33 @@ export function NuevoPedidoForm() {
     }
 
     router.push(`/pedidos/${resultado.codigo}`);
+  }, (errores) => {
+    if (!errores.ubicacion || !bloqueDestino.current) return;
+    bloqueDestino.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    bloqueDestino.current.querySelector("button")?.focus({ preventScroll: true });
   });
 
   return (
     <div className="px-4 py-5 md:px-6 md:py-6">
       <Button
-        render={<Link href="/admin" />}
+        render={<Link href={volverA} />}
         nativeButton={false}
         variant="ghost"
         size="sm"
         className="text-muted-foreground -ml-2 mb-3 gap-1.5"
       >
         <ArrowLeft className="size-3.5" />
-        Cancelar
+        {desdeCotizacion ? `Volver a ${desdeCotizacion.referencia}` : "Cancelar"}
       </Button>
 
       <header className="mb-5 flex flex-wrap items-end gap-4">
         <div>
+          {desdeCotizacion && (
+            <p className="eyebrow flex items-center gap-1.5">
+              <FileText className="size-3" />
+              Desde la cotización {desdeCotizacion.referencia}
+            </p>
+          )}
           <h1 className="text-xl font-semibold tracking-tight">Nuevo pedido</h1>
           <p className="text-muted-foreground mt-0.5 text-sm">
             Los campos marcados con <span className="text-destructive">*</span> son obligatorios.
@@ -222,6 +257,53 @@ export function NuevoPedidoForm() {
       </header>
 
       <form onSubmit={onSubmit} noValidate className="flex max-w-3xl flex-col gap-4">
+        {desdeCotizacion && (
+          <section ref={bloqueDestino} className="bg-card rounded-xl border p-4">
+            <Campo
+              grupo
+              label="¿Para dónde va el pedido?"
+              requerido
+              ayuda="Decide si aparece en la vista del taller o en la de la tienda."
+              error={form.formState.errors.ubicacion?.message}
+            >
+              <div className="grid gap-2 sm:grid-cols-2">
+                {DESTINOS_COTIZACION.map(({ valor, label, icono: Icono, ayuda }) => {
+                  const activo = ubicacion === valor;
+                  return (
+                    <button
+                      key={valor}
+                      type="button"
+                      aria-pressed={activo}
+                      onClick={() => form.setValue("ubicacion", valor, { shouldValidate: true })}
+                      className={cn(
+                        "flex items-center gap-3 rounded-lg border p-3 text-left transition-colors",
+                        "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
+                        activo
+                          ? "border-primary/50 bg-primary/8"
+                          : "hover:border-foreground/20",
+                        form.formState.errors.ubicacion && !activo && "border-destructive/40",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "grid size-9 shrink-0 place-items-center rounded-md",
+                          activo ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+                        )}
+                      >
+                        <Icono className="size-4" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium">{label}</span>
+                        <span className="text-muted-foreground block text-xs">{ayuda}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </Campo>
+          </section>
+        )}
+
         <Seccion n={1} titulo="Cliente y trabajo">
           <div className="grid gap-4 sm:grid-cols-2">
             <Campo
@@ -230,7 +312,8 @@ export function NuevoPedidoForm() {
               error={form.formState.errors.cliente?.message}
             >
               <Input
-                autoFocus
+                // Desde una cotización ya viene llenado: lo primero es taller o tienda.
+                autoFocus={!desdeCotizacion}
                 placeholder="Ej. Corporación Andina SAC"
                 aria-invalid={!!form.formState.errors.cliente}
                 {...form.register("cliente")}
@@ -597,18 +680,21 @@ export function NuevoPedidoForm() {
             )}
           </AnimatePresence>
 
-          <Campo
-            grupo
-            label="¿Dónde está el pedido ahora?"
-            requerido
-            ayuda="Es la ubicación física, no el lugar de entrega: un pedido que se entrega en tienda puede quedarse en el taller."
-          >
-            <Opciones
-              valores={[ubicacion]}
-              onToggle={(v) => form.setValue("ubicacion", v as Campos["ubicacion"])}
-              opciones={Object.entries(UBICACIONES).map(([valor, label]) => ({ valor, label }))}
-            />
-          </Campo>
+          {/* Desde una cotización esto ya se respondió arriba, con "¿Para dónde va?". */}
+          {!desdeCotizacion && (
+            <Campo
+              grupo
+              label="¿Dónde está el pedido ahora?"
+              requerido
+              ayuda="Es la ubicación física, no el lugar de entrega: un pedido que se entrega en tienda puede quedarse en el taller."
+            >
+              <Opciones
+                valores={[ubicacion]}
+                onToggle={(v) => form.setValue("ubicacion", v as Campos["ubicacion"])}
+                opciones={Object.entries(UBICACIONES).map(([valor, label]) => ({ valor, label }))}
+              />
+            </Campo>
+          )}
 
           <Campo
             label="Fecha prometida"
@@ -759,7 +845,7 @@ export function NuevoPedidoForm() {
           <Button type="submit" disabled={form.formState.isSubmitting || pendiente}>
             {form.formState.isSubmitting ? "Registrando…" : "Registrar pedido"}
           </Button>
-          <Button type="button" variant="ghost" render={<Link href="/admin" />} nativeButton={false}>
+          <Button type="button" variant="ghost" render={<Link href={volverA} />} nativeButton={false}>
             Cancelar
           </Button>
         </div>

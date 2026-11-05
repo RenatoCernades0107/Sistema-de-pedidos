@@ -28,7 +28,7 @@ const UID = 7;
 type Registro = Record<string, unknown> & { id: number };
 
 /**
- * `caido`: crear una cotización falla con un error de Odoo.
+ * `caido`: crear o confirmar una cotización falla con un error de Odoo.
  * `perder-respuesta`: la cotización SÍ se crea, pero la respuesta llega como
  * error — lo que pasa cuando se corta la red justo después. Es el caso que
  * obliga a que reintentar no duplique.
@@ -331,9 +331,27 @@ export async function crearOdooFalso(opciones: { puerto?: number } = {}) {
       }
       case "create":
         return crear(modelo, args[0] as Record<string, unknown>);
-      default:
-        throw new ErrorRpc("AttributeError", `El Odoo falso no sabe hacer ${modelo}.${metodo}`);
+      case "action_confirm": {
+        // Como Odoo: confirmar pasa la cotización a pedido de venta, y una que ya
+        // no está en borrador no se vuelve a confirmar.
+        if (modelo !== "sale.order") break;
+        if (modo === "caido") {
+          throw new ErrorRpc("odoo.exceptions.UserError", "Odoo falso: caído a propósito.");
+        }
+        const ids = args[0] as number[];
+        for (const orden of tabla(modelo).filter((r) => ids.includes(r.id))) {
+          if (orden.state !== "draft" && orden.state !== "sent") {
+            throw new ErrorRpc(
+              "odoo.exceptions.UserError",
+              "Some orders are not in a state requiring confirmation.",
+            );
+          }
+          orden.state = "sale";
+        }
+        return true;
+      }
     }
+    throw new ErrorRpc("AttributeError", `El Odoo falso no sabe hacer ${modelo}.${metodo}`);
   }
 
   function rpc(params: { service: string; method: string; args: unknown[] }) {

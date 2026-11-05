@@ -1,5 +1,6 @@
 /**
- * Cotizaciones: registrar con el buscador, crear en Odoo, reintentar y permisos.
+ * Cotizaciones: registrar con el buscador, crear en Odoo, reintentar, pasar a
+ * pedido y permisos.
  *
  * Odoo aquí es el falso de `e2e/odoo-falso.mts`, que Playwright levanta en el
  * puerto 8069 y al que apunta el `next dev` que arranca (ver
@@ -22,6 +23,7 @@ interface Orden {
   id: number;
   name: string;
   origin: string;
+  state: string;
   partner_id: [number, string];
   lineas: { product_id: [number, string]; product_uom_qty: number; price_unit: number; name: string }[];
 }
@@ -250,6 +252,97 @@ test("si Odoo falla, se guarda igual y Reintentar la crea una sola vez", async (
   const ordenes = (await estado()).ordenes.filter((o) => o.origin === `App Plexiacril ${id}`);
   expect(ordenes).toHaveLength(1);
   await expect(page.getByTestId("referencia-cotizacion")).toHaveText(ordenes[0].name);
+});
+
+/** Crea una cotización de un producto para el cliente indicado y devuelve su id. */
+async function cotizar(page: Page, cliente: string, nombre: RegExp) {
+  await page.goto("/cotizaciones/nueva");
+  await elegirCliente(page, cliente, nombre);
+  await agregarProducto(page, "ac 003", "ACRILICO F8 CRISTAL 3MM");
+  await page.getByLabel("Cantidad de ACRILICO F8 CRISTAL 3MM").fill("2");
+  await page.getByRole("button", { name: "Crear cotización" }).click();
+  await expect(page.getByTestId("referencia-cotizacion")).toHaveText(/^S\d{5}$/);
+  return idDeLaUrl(page);
+}
+
+const manana = () => new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+
+test("una cotización pasa a pedido: se elige taller o tienda y se confirma en Odoo", async ({ page }) => {
+  await entrar(page, "administracion");
+  const id = await cotizar(page, "jose", /E2E José Pérez Quispe/);
+  const referencia = (await page.getByTestId("referencia-cotizacion").textContent())!;
+
+  // Un `Button` con `render={<Link/>}` se anuncia como botón, no como enlace.
+  await page.getByRole("button", { name: "Crear pedido" }).click();
+  await expect(page).toHaveURL(`/pedidos/nuevo?cotizacion=${id}`);
+  await expect(page.getByText(`Desde la cotización ${referencia}`)).toBeVisible();
+
+  // Lo cotizado llega llenado: cliente, teléfono, total de Odoo y el detalle.
+  await expect(page.getByLabel("Nombre del cliente")).toHaveValue("E2E José Pérez Quispe");
+  await expect(page.getByLabel("Teléfono del cliente")).toHaveValue("987 654 321");
+  await expect(page.getByLabel("Monto total")).toHaveValue("283.2"); // 2 × 120 + 18 %
+  await expect(page.getByLabel("Detalle del pedido")).toHaveValue("2 × [AC-003] ACRILICO F8 CRISTAL 3MM");
+
+  // Taller o tienda no viene elegido: sin elegirlo no se registra.
+  const destino = page.getByRole("group", { name: "¿Para dónde va el pedido?" });
+  await expect(destino.getByRole("button", { name: /Taller/ })).toHaveAttribute("aria-pressed", "false");
+  await expect(destino.getByRole("button", { name: /Tienda/ })).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByRole("group", { name: "¿Dónde está el pedido ahora?" })).toHaveCount(0);
+
+  await page.getByLabel("Fecha prometida").fill(manana());
+  await page.getByRole("button", { name: "Registrar pedido" }).click();
+  await expect(page.getByText("Elige si el pedido va para el taller o para la tienda")).toBeVisible();
+  await expect(page).toHaveURL(/\/pedidos\/nuevo/);
+
+  await destino.getByRole("button", { name: /Tienda/ }).click();
+  await page.getByRole("button", { name: "Registrar pedido" }).click();
+
+  await page.waitForURL(/\/pedidos\/[A-Z0-9_]+$/);
+  const codigo = page.url().split("/").pop()!;
+  await expect(page.getByRole("heading", { name: "E2E José Pérez Quispe" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Ubicación actual" })).toContainText("En tienda");
+
+  // En Odoo pasó de cotización a pedido de venta.
+  const orden = (await estado()).ordenes.find((o) => o.origin === `App Plexiacril ${id}`)!;
+  expect(orden.state).toBe("sale");
+
+  // La cotización apunta al pedido, y ya no ofrece crear otro.
+  await page.goto(`/cotizaciones/${id}`);
+  await expect(page.getByRole("button", { name: `Ver pedido ${codigo}` })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Crear pedido" })).toHaveCount(0);
+  await expect(page.getByText("Confirmada en Odoo como pedido de venta.")).toBeVisible();
+
+  // Volver al formulario por la URL lleva al pedido que ya existe.
+  await page.goto(`/pedidos/nuevo?cotizacion=${id}`);
+  await expect(page).toHaveURL(new RegExp(`/pedidos/${codigo}$`));
+});
+
+test("si Odoo no confirma, el pedido se registra igual y se confirma después", async ({ page }) => {
+  await entrar(page, "administracion");
+  const id = await cotizar(page, "nunez", /E2E Ñuñez Talleres EIRL/);
+
+  await page.goto(`/pedidos/nuevo?cotizacion=${id}`);
+  await page
+    .getByRole("group", { name: "¿Para dónde va el pedido?" })
+    .getByRole("button", { name: /Taller/ })
+    .click();
+  await page.getByLabel("Fecha prometida").fill(manana());
+
+  await modo("caido");
+  await page.getByRole("button", { name: "Registrar pedido" }).click();
+  await page.waitForURL(/\/pedidos\/[A-Z0-9_]+$/);
+  await expect(page.getByText("Odoo no confirmó la cotización")).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Ubicación actual" })).toContainText("En taller");
+  await modo(null);
+
+  await page.goto(`/cotizaciones/${id}`);
+  const alerta = page.getByRole("alert").filter({ hasText: "No se confirmó en Odoo" });
+  await expect(alerta).toContainText("caído a propósito");
+  await alerta.getByRole("button", { name: "Confirmar en Odoo" }).click();
+  await expect(page.getByText("Confirmada en Odoo como pedido de venta.")).toBeVisible();
+
+  const orden = (await estado()).ordenes.find((o) => o.origin === `App Plexiacril ${id}`)!;
+  expect(orden.state).toBe("sale");
 });
 
 test("la lista filtra, y el formulario sugiere lo usado", async ({ page }) => {
