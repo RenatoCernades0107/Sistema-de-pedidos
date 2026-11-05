@@ -179,3 +179,13 @@ export async function entrar(page: Page, usuario: keyof typeof USUARIOS) {
   await page.getByRole("button", { name: "Ingresar" }).click();
   await expect(page).not.toHaveURL(/\/login/);
 }
+
+/**
+ * Borra las cotizaciones de prueba: las de clientes `E2E…`, que son los del Odoo
+ * falso (`e2e/odoo-falso.mts`). Las líneas se van en cascada.
+ */
+export async function borrarCotizacionesDePrueba() {
+  const supabase = await sesionDe("administracion");
+  const { error } = await supabase.from("cotizaciones").delete().like("cliente_nombre", "E2E%");
+  if (error) throw new Error(`No se pudieron borrar las cotizaciones de prueba: ${error.message}`);
+}

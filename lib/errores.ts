@@ -16,6 +16,17 @@ import type { PostgrestError } from "@supabase/supabase-js";
  * Por eso se buscan por fragmento y no por igualdad.
  */
 const POR_CONSTRAINT: ReadonlyArray<readonly [RegExp, string]> = [
+  // Cotizaciones. Van primero: sus nombres no chocan con los de pedidos, pero así
+  // nadie tiene que comprobarlo.
+  [/cotizacion_productos_cantidad_check/, "La cantidad de cada producto tiene que ser mayor que cero."],
+  [/cotizacion_productos_precio_unitario_check/, "El precio de un producto no puede ser negativo."],
+  [/cotizacion_productos_producto_nombre_check/, "Un producto llegó sin nombre desde Odoo."],
+  [/cotizaciones_cliente_nombre_check/, "El cliente llegó sin nombre desde Odoo."],
+  [/cotizaciones_odoo_order_id_key/, "Esa cotización de Odoo ya está registrada."],
+  [
+    /cotizaciones_sincronizada_con_orden|cotizaciones_error_con_motivo/,
+    "El estado de la cotización en Odoo no cuadra. Recarga la página.",
+  ],
   [/pedidos_monto_pagado_check/, "El abono supera el total del pedido."],
   [
     /pedidos_comprobante_formato/,
@@ -49,6 +60,7 @@ const POR_CONSTRAINT: ReadonlyArray<readonly [RegExp, string]> = [
 
 /** Mensajes de los `raise exception` del esquema que conviene suavizar. */
 const POR_MENSAJE: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^Una cotización necesita al menos un producto/, "Agrega al menos un producto."],
   [
     /^Transición inválida/,
     "Ese cambio de estado ya no es posible: alguien movió el pedido antes. Recarga la página.",

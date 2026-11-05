@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { useChat } from "@/app/(app)/cotizaciones/chat-store";
+import { useChat } from "@/app/(app)/cotizaciones/asistente/chat-store";
 import { DocumentosCotizacion } from "./documentos-cotizacion";
 import { AdjuntosMensaje } from "./adjuntos-mensaje";
 import { TextoAgente } from "./texto-agente";

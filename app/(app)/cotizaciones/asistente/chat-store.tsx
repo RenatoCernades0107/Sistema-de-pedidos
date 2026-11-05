@@ -1,6 +1,14 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useState, useTransition } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+} from "react";
 import { toast } from "sonner";
 import * as acciones from "./acciones";
 import type { ChatResumen, Cotizacion, Mensaje, TurnoEnviado } from "./acciones";
@@ -105,22 +113,56 @@ interface ChatCache {
 export function ChatProvider({
   children,
   chatsIniciales,
+  chatInicial = null,
 }: {
   children: React.ReactNode;
   chatsIniciales: ChatResumen[];
+  chatInicial?: string | null;
 }) {
   const [chats, setChats] = useState(chatsIniciales);
-  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [activeChatId, setActiveChatId] = useState<string | null>(chatInicial);
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [pendingQuotation, setPendingQuotation] = useState<Record<string, unknown> | null>(null);
   const [documentos, setDocumentos] = useState<Documentos | null>(null);
   const [cache, setCache] = useState<Record<string, ChatCache>>({});
-  const [cargandoMensajes, setCargandoMensajes] = useState(false);
+  const [cargandoMensajes, setCargandoMensajes] = useState(chatInicial !== null);
   const [enviando, iniciarEnvio] = useTransition();
   const [creandoCotizacion, setCreandoCotizacion] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ultimoTexto, setUltimoTexto] = useState<string | null>(null);
   const [ultimosArchivos, setUltimosArchivos] = useState<File[]>([]);
+
+  /** Pinta un chat recién pedido a la API. */
+  const aplicarChat = useCallback((chatId: string, r: Awaited<ReturnType<typeof acciones.obtenerChat>>) => {
+    setCargandoMensajes(false);
+    if (!r.ok) {
+      toast.error("No se pudo abrir el chat", { description: r.error });
+      setActiveChatId(null);
+      setMensajes([]);
+      setPendingQuotation(null);
+      setDocumentos(null);
+      return;
+    }
+    // `lastQuotation` del detalle es persistente (no solo del último
+    // turno), así que un chat viejo recupera aquí sus descargas.
+    const docs = documentosDe(r.data.lastQuotation, r.data.hasCutSheet);
+    setMensajes(r.data.messages);
+    setPendingQuotation(r.data.newQuotation);
+    setDocumentos(docs);
+    setCache((prev) => ({
+      ...prev,
+      [chatId]: {
+        mensajes: r.data.messages,
+        pendingQuotation: r.data.newQuotation,
+        documentos: docs,
+      },
+    }));
+  }, []);
+
+  const cargarChat = useCallback(
+    async (chatId: string) => aplicarChat(chatId, await acciones.obtenerChat(chatId)),
+    [aplicarChat],
+  );
 
   const seleccionar = useCallback(
     (chatId: string | null) => {
@@ -143,35 +185,23 @@ export function ChatProvider({
       }
 
       setCargandoMensajes(true);
-      void (async () => {
-        const r = await acciones.obtenerChat(chatId);
-        setCargandoMensajes(false);
-        if (!r.ok) {
-          toast.error("No se pudo abrir el chat", { description: r.error });
-          setActiveChatId(null);
-          setMensajes([]);
-          setPendingQuotation(null);
-          setDocumentos(null);
-          return;
-        }
-        // `lastQuotation` del detalle es persistente (no solo del último
-        // turno), así que un chat viejo recupera aquí sus descargas.
-        const docs = documentosDe(r.data.lastQuotation, r.data.hasCutSheet);
-        setMensajes(r.data.messages);
-        setPendingQuotation(r.data.newQuotation);
-        setDocumentos(docs);
-        setCache((prev) => ({
-          ...prev,
-          [chatId]: {
-            mensajes: r.data.messages,
-            pendingQuotation: r.data.newQuotation,
-            documentos: docs,
-          },
-        }));
-      })();
+      void cargarChat(chatId);
     },
-    [cache],
+    [cache, cargarChat],
   );
+
+  // El chat que pide la URL (`?chat=`), al llegar desde el detalle de una
+  // cotización. El estado inicial ya lo marcó como activo y cargando.
+  useEffect(() => {
+    if (!chatInicial) return;
+    let vigente = true;
+    void acciones.obtenerChat(chatInicial).then((r) => {
+      if (vigente) aplicarChat(chatInicial, r);
+    });
+    return () => {
+      vigente = false;
+    };
+  }, [chatInicial, aplicarChat]);
 
   const enviarTexto = useCallback(
     (texto: string, chatIdDestino: string | null, archivos: File[] = []) => {

@@ -77,6 +77,10 @@ function useNav() {
   }));
 }
 
+/** Una herramienta sigue marcada en sus subrutas: `/cotizaciones/nueva` es Cotizaciones. */
+const enRuta = (pathname: string, href: string) =>
+  pathname === href || pathname.startsWith(`${href}/`);
+
 export function AppShell({
   children,
   usuario,
@@ -99,7 +103,7 @@ export function AppShell({
   // Sin esto, estando en Cotizaciones o en una vista del menú no habría nada
   // marcado en la barra.
   const menuActivo =
-    enMenu.some((i) => pathname === i.href) || herramientas.some((h) => pathname === h.href);
+    enMenu.some((i) => pathname === i.href) || herramientas.some((h) => enRuta(pathname, h.href));
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -215,7 +219,7 @@ export function AppShell({
               <>
                 <p className="eyebrow px-2.5 pt-5 pb-2">Herramientas</p>
                 {herramientas.map((h) => {
-                  const activo = pathname === h.href;
+                  const activo = enRuta(pathname, h.href);
                   const Icono = ICONOS_HERRAMIENTA[h.href];
                   return (
                     <Link
@@ -320,7 +324,7 @@ export function AppShell({
 
                 {herramientas.length > 0 && <p className="eyebrow px-2.5 pt-4 pb-2">Herramientas</p>}
                 {herramientas.map((h: ConfigHerramienta) => {
-                  const activo = pathname === h.href;
+                  const activo = enRuta(pathname, h.href);
                   const Icono = ICONOS_HERRAMIENTA[h.href];
                   return (
                     <Link

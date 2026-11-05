@@ -111,6 +111,121 @@ export type Database = {
           },
         ]
       }
+      cotizacion_productos: {
+        Row: {
+          cantidad: number
+          cotizacion_id: string
+          descripcion: string | null
+          id: string
+          odoo_product_id: number
+          posicion: number
+          precio_unitario: number
+          producto_codigo: string | null
+          producto_nombre: string
+        }
+        Insert: {
+          cantidad: number
+          cotizacion_id: string
+          descripcion?: string | null
+          id?: string
+          odoo_product_id: number
+          posicion: number
+          precio_unitario: number
+          producto_codigo?: string | null
+          producto_nombre: string
+        }
+        Update: {
+          cantidad?: number
+          cotizacion_id?: string
+          descripcion?: string | null
+          id?: string
+          odoo_product_id?: number
+          posicion?: number
+          precio_unitario?: number
+          producto_codigo?: string | null
+          producto_nombre?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cotizacion_productos_cotizacion_id_fkey"
+            columns: ["cotizacion_id"]
+            isOneToOne: false
+            referencedRelation: "cotizaciones"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cotizaciones: {
+        Row: {
+          actualizado_en: string
+          canal: Database["public"]["Enums"]["canal_cotizacion"]
+          chat_agente_id: string | null
+          cliente_documento: string | null
+          cliente_nombre: string
+          cliente_telefono: string | null
+          creado_en: string
+          creado_por: string | null
+          error_sincronizacion: string | null
+          id: string
+          monto_impuestos: number | null
+          monto_sin_impuestos: number | null
+          monto_total: number | null
+          notas: string | null
+          odoo_order_id: number | null
+          odoo_order_name: string | null
+          odoo_partner_id: number
+          sincronizacion: Database["public"]["Enums"]["sincronizacion_odoo"]
+        }
+        Insert: {
+          actualizado_en?: string
+          canal?: Database["public"]["Enums"]["canal_cotizacion"]
+          chat_agente_id?: string | null
+          cliente_documento?: string | null
+          cliente_nombre: string
+          cliente_telefono?: string | null
+          creado_en?: string
+          creado_por?: string | null
+          error_sincronizacion?: string | null
+          id?: string
+          monto_impuestos?: number | null
+          monto_sin_impuestos?: number | null
+          monto_total?: number | null
+          notas?: string | null
+          odoo_order_id?: number | null
+          odoo_order_name?: string | null
+          odoo_partner_id: number
+          sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
+        }
+        Update: {
+          actualizado_en?: string
+          canal?: Database["public"]["Enums"]["canal_cotizacion"]
+          chat_agente_id?: string | null
+          cliente_documento?: string | null
+          cliente_nombre?: string
+          cliente_telefono?: string | null
+          creado_en?: string
+          creado_por?: string | null
+          error_sincronizacion?: string | null
+          id?: string
+          monto_impuestos?: number | null
+          monto_sin_impuestos?: number | null
+          monto_total?: number | null
+          notas?: string | null
+          odoo_order_id?: number | null
+          odoo_order_name?: string | null
+          odoo_partner_id?: number
+          sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cotizaciones_creado_por_fkey"
+            columns: ["creado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       departamentos: {
         Row: {
           id: number
@@ -741,6 +856,25 @@ export type Database = {
       }
     }
     Views: {
+      clientes_cotizados: {
+        Row: {
+          cliente_documento: string | null
+          cliente_nombre: string | null
+          cliente_telefono: string | null
+          odoo_partner_id: number | null
+          ultima_vez: string | null
+          veces: number | null
+        }
+        Relationships: []
+      }
+      productos_mas_cotizados: {
+        Row: {
+          odoo_product_id: number | null
+          ultima_vez: string | null
+          veces: number | null
+        }
+        Relationships: []
+      }
       auditoria_pedido: {
         Row: {
           campo: string | null
@@ -1054,6 +1188,24 @@ export type Database = {
       array_sin_duplicados: { Args: { a: unknown }; Returns: boolean }
       auditoria_texto: { Args: { campo: string; valor: Json }; Returns: string }
       auth_rol: { Args: never; Returns: Database["public"]["Enums"]["rol"] }
+      crear_cotizacion: {
+        Args: {
+          p_canal?: Database["public"]["Enums"]["canal_cotizacion"]
+          p_chat_agente_id?: string
+          p_cliente_documento?: string
+          p_cliente_nombre: string
+          p_cliente_telefono?: string
+          p_lineas: Json
+          p_monto_impuestos?: number
+          p_monto_sin_impuestos?: number
+          p_monto_total?: number
+          p_notas?: string
+          p_odoo_order_id?: number
+          p_odoo_order_name?: string
+          p_odoo_partner_id: number
+        }
+        Returns: string
+      }
       crear_pedido: {
         Args: {
           p_abono_inicial?: number
@@ -1158,6 +1310,7 @@ export type Database = {
       }
     }
     Enums: {
+      canal_cotizacion: "tienda" | "whatsapp"
       estado_pedido:
         | "registrado"
         | "en_proceso"
@@ -1182,6 +1335,7 @@ export type Database = {
         | "displays"
         | "otro"
       rol: "administracion" | "logistica" | "operaciones"
+      sincronizacion_odoo: "pendiente" | "sincronizada" | "error"
       tipo_adjunto: "diseno" | "factura" | "guia" | "foto_entrega"
       tipo_documento: "DNI" | "CE"
       tipo_notificacion: "pedido_creado" | "responsable_asignado"
@@ -1318,6 +1472,7 @@ export const Constants = {
   },
   public: {
     Enums: {
+      canal_cotizacion: ["tienda", "whatsapp"],
       estado_pedido: [
         "registrado",
         "en_proceso",
@@ -1345,6 +1500,7 @@ export const Constants = {
         "otro",
       ],
       rol: ["administracion", "logistica", "operaciones"],
+      sincronizacion_odoo: ["pendiente", "sincronizada", "error"],
       tipo_adjunto: ["diseno", "factura", "guia", "foto_entrega"],
       tipo_documento: ["DNI", "CE"],
       tipo_notificacion: ["pedido_creado", "responsable_asignado"],

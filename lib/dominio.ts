@@ -241,8 +241,10 @@ export interface PermisosRol {
   /** Subir y borrar los archivos del pedido. Es la misma condición que impone la
    *  política `adjuntos_storage_escritura`: el taller lee planos, no los cambia. */
   adjuntarArchivos: boolean;
-  /** Chatear con el agente de cotizaciones (Quote Agent API) en `/cotizaciones`. */
+  /** Chatear con el agente de cotizaciones (Quote Agent API) en `/cotizaciones/asistente`. */
   usarAgenteCotizacion: boolean;
+  /** Registrar y ver las cotizaciones del sistema en `/cotizaciones`. Cada una se crea también en Odoo. */
+  gestionarCotizaciones: boolean;
   /** Ver el dashboard de ventas, cobranza y cumplimiento en `/metricas`. */
   verMetricas: boolean;
 }
@@ -265,6 +267,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     editarEnvio: true,
     adjuntarArchivos: true,
     usarAgenteCotizacion: true,
+    gestionarCotizaciones: true,
     verMetricas: true,
   },
   logistica: {
@@ -284,6 +287,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     editarEnvio: true,
     adjuntarArchivos: true,
     usarAgenteCotizacion: false,
+    gestionarCotizaciones: false,
     verMetricas: false,
   },
   operaciones: {
@@ -303,6 +307,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     editarEnvio: false,
     adjuntarArchivos: false,
     usarAgenteCotizacion: false,
+    gestionarCotizaciones: false,
     verMetricas: false,
   },
 };
@@ -467,7 +472,7 @@ export interface ConfigHerramienta {
 }
 
 export const HERRAMIENTAS: ConfigHerramienta[] = [
-  { titulo: "Cotizaciones", href: "/cotizaciones", permiso: "usarAgenteCotizacion" },
+  { titulo: "Cotizaciones", href: "/cotizaciones", permiso: "gestionarCotizaciones" },
   { titulo: "Métricas", href: "/metricas", permiso: "verMetricas" },
 ];
 

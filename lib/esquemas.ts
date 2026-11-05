@@ -17,6 +17,7 @@
 
 import { z } from "zod";
 import { admiteDecimales, type TipoPedido } from "./dominio";
+import { rucValido, soloDigitos, tipoDeDocumento } from "./busqueda-inteligente";
 
 /* ── Piezas sueltas ─────────────────────────────────────────────────────────── */
 
@@ -438,6 +439,74 @@ export const esquemaCambioPassword = z
     path: ["confirmacion"],
     message: "Las dos contraseñas no coinciden",
   });
+
+/* ── Cotizaciones ───────────────────────────────────────────────────────────── */
+
+/**
+ * Lo que viaja a `crearCotizacion`. Del navegador llegan ids, cantidades y
+ * precios; el nombre y el código de cada producto, y el nombre del cliente, los
+ * vuelve a leer el servidor de Odoo: no se guarda lo que diga el POST.
+ */
+export const esquemaLineaCotizacion = z.object({
+  productoId: z.number().int().positive(),
+  cantidad: z
+    .number({ error: "La cantidad tiene que ser un número" })
+    .positive("La cantidad tiene que ser mayor que cero")
+    .max(1_000_000, "Esa cantidad no es razonable")
+    .refine((n) => decimalesDe(n) <= 3, "La cantidad admite hasta 3 decimales"),
+  precioUnitario: z
+    .number({ error: "El precio tiene que ser un número" })
+    .min(0, "El precio no puede ser negativo")
+    .max(10_000_000, "Ese precio no es razonable")
+    .refine((n) => decimalesDe(n) <= 2, "El precio admite hasta 2 decimales"),
+  descripcion: z.string().trim().max(500, "El detalle es demasiado largo").nullable(),
+});
+
+export const esquemaNuevaCotizacion = z.object({
+  canal: z.enum(["tienda", "whatsapp"]),
+  clienteId: z.number({ error: "Elige el cliente" }).int().positive("Elige el cliente"),
+  lineas: z
+    .array(esquemaLineaCotizacion)
+    .min(1, "Agrega al menos un producto")
+    .max(100, "Son demasiados productos para una cotización"),
+  notas: z.string().trim().max(2000, "Las notas son demasiado largas").nullable(),
+});
+
+/**
+ * Un cliente nuevo, creado desde el buscador. El documento es opcional —hay quien
+ * cotiza sin dar RUC—, pero si viene tiene que ser un DNI de 8 dígitos o un RUC
+ * que pase el dígito verificador: un número mal tecleado en Odoo es un cliente
+ * duplicado más adelante.
+ */
+export const esquemaNuevoClienteOdoo = z.object({
+  nombre: z
+    .string()
+    .trim()
+    .min(2, "Escribe el nombre o la razón social")
+    .max(200, "El nombre es demasiado largo"),
+  documento: z
+    .string()
+    .trim()
+    .transform((d) => soloDigitos(d))
+    .refine(
+      (d) => d === "" || tipoDeDocumento(d) !== null,
+      "El documento es un DNI (8 dígitos) o un RUC (11 dígitos)",
+    )
+    .refine((d) => tipoDeDocumento(d) !== "RUC" || rucValido(d), "Ese RUC no es válido: revisa los dígitos")
+    .transform((d) => d || null),
+  telefono: z
+    .string()
+    .trim()
+    .max(30, "El teléfono es demasiado largo")
+    .transform((t) => t || null),
+  email: z
+    .union([z.literal(""), z.email("Ese correo no es válido").max(200)])
+    .transform((e) => e || null),
+});
+
+export type NuevaCotizacion = z.output<typeof esquemaNuevaCotizacion>;
+export type NuevoClienteOdoo = z.output<typeof esquemaNuevoClienteOdoo>;
+export type FormNuevoClienteOdoo = z.input<typeof esquemaNuevoClienteOdoo>;
 
 export type NuevoPedido = z.output<typeof esquemaNuevoPedido>;
 export type DatosEditables = z.output<typeof esquemaDatosEditables>;

@@ -12,10 +12,11 @@
  * la Quote Agent API recibe los archivos así (ver `docs/API_agent.md`).
  */
 
-import type { NextRequest } from "next/server";
+import { after, type NextRequest } from "next/server";
 import { exigirAgenteCotizacion } from "@/lib/sesion";
 import { agentFetch } from "@/lib/agente-cotizaciones";
 import { deTurno } from "@/lib/cotizaciones-tipos";
+import { registrarDesdeAsistente } from "@/lib/cotizaciones-servidor";
 
 /** El mismo tope que impone la API, comprobado también aquí porque el navegador
  * no es de fiar y porque así el error llega antes de gastar la subida entera. */
@@ -78,5 +79,12 @@ export async function POST(request: NextRequest) {
   );
   if (!r.ok) return error(r.error, 502);
 
-  return Response.json(deTurno(chatId, r.data));
+  const turno = deTurno(chatId, r.data);
+  // Si en este turno el agente creó la cotización en Odoo, también va a la
+  // tabla de cotizaciones. Después de responder: el chat no lo espera.
+  if (turno.lastQuotation) {
+    const orderId = turno.lastQuotation.orderId;
+    after(() => registrarDesdeAsistente(chatId, orderId));
+  }
+  return Response.json(turno);
 }

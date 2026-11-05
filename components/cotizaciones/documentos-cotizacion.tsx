@@ -14,7 +14,7 @@ import { useCallback, useState } from "react";
 import { Download, FileText, Scissors } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { VisorArchivo } from "@/components/visor-archivo";
-import { useChat } from "@/app/(app)/cotizaciones/chat-store";
+import { useChat } from "@/app/(app)/cotizaciones/asistente/chat-store";
 
 interface Archivo {
   clave: "cotizacion" | "hoja-corte";

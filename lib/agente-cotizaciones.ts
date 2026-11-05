@@ -2,7 +2,7 @@
  * El transporte hacia la Quote Agent API (`docs/API_agent.md`): headers, códigos
  * de error y nada más.
  *
- * Está aquí y no dentro de `cotizaciones/acciones.ts` porque tiene dos
+ * Está aquí y no dentro de `cotizaciones/asistente/acciones.ts` porque tiene dos
  * llamadores de distinta naturaleza: las Server Actions del chat y el route
  * handler que sirve los PDFs. Un archivo `"use server"` no puede hacer de
  * biblioteca —cada export suyo es un endpoint público—, así que la alternativa

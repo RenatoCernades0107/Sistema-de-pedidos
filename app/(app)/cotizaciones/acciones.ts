@@ -1,98 +1,137 @@
 "use server";
 
 /**
- * Puente server-to-server hacia la Quote Agent API (`docs/API_agent.md`).
+ * Registrar cotizaciones y llevarlas a Odoo.
  *
- * `X-User-Id` sale de `exigirAgenteCotizacion()`, nunca de un valor que mande el
- * navegador; el transporte y los mensajes de error viven en
- * `lib/agente-cotizaciones.ts`, y los tipos y traductores en
- * `lib/cotizaciones-tipos.ts`, que comparte con los route handlers. El agente no
- * guarda los chats en la base de Plexiacril: la Quote Agent API es la única
- * fuente de verdad, así que aquí no hay tablas ni `refresh()` que llamar.
+ * Las mismas reglas que `app/(app)/acciones.ts`: se escribe con la sesión de
+ * quien pide, se revalida con Zod aunque el formulario ya lo hiciera, y del
+ * navegador llegan referencias, no filas. Aquí eso significa: llegan ids de
+ * Odoo, cantidades y precios; el nombre y el código de cada producto, y el
+ * nombre del cliente, los vuelve a leer el servidor.
  *
- * Enviar un mensaje NO está aquí: va por `app/api/cotizaciones/mensajes`, porque
- * una Server Action rechaza cuerpos de más de 1 MB y un mensaje puede llevar
- * archivos.
+ * Buscar NO está aquí: va por `app/api/cotizaciones/buscar/*`. Las Server
+ * Actions se despachan de a una por cliente, y un buscador que escribe mientras
+ * se teclea las encolaría.
  */
 
-import { exigirAgenteCotizacion } from "@/lib/sesion";
-import { agentFetch, fallo, type Resultado } from "@/lib/agente-cotizaciones";
-import { deChat, deCotizacion, deMensajes, deNuevaCotizacion } from "@/lib/cotizaciones-tipos";
-import type { ChatDetalle, ChatResumen, Cotizacion } from "@/lib/cotizaciones-tipos";
+import { refresh } from "next/cache";
+import { exigirCotizaciones } from "@/lib/sesion";
+import { clienteServidor } from "@/lib/supabase-servidor";
+import { mensajeDeError } from "@/lib/errores";
+import { esquemaNuevaCotizacion, esquemaNuevoClienteOdoo } from "@/lib/esquemas";
+import { olvidarPopularidad, sincronizarConOdoo } from "@/lib/cotizaciones-servidor";
+import { indiceClientes, productosPorId } from "@/lib/odoo/catalogos";
+import { crearCliente, leerCliente } from "@/lib/odoo/clientes";
+import { ErrorOdoo, ODOO_NO_CONFIGURADO, odooConfigurado } from "@/lib/odoo/rpc";
+import type { ClienteOdoo } from "@/lib/odoo/tipos";
 
-export type { Resultado };
-export type {
-  Adjunto,
-  ChatDetalle,
-  ChatResumen,
-  Cotizacion,
-  Mensaje,
-  TurnoEnviado,
-} from "@/lib/cotizaciones-tipos";
+type Fallo = { ok: false; error: string };
 
-/** El mismo `agentFetch` compartido, pero con la sesión ya exigida. */
-async function comoUsuario<T>(path: string, init?: RequestInit): Promise<Resultado<T>> {
-  const perfil = await exigirAgenteCotizacion();
-  return agentFetch<T>(perfil.id, path, init);
+export type ResultadoCreacion =
+  | {
+      ok: true;
+      id: string;
+      /** Si ya quedó en Odoo. `false` es "se guardó, pero Odoo falló": hay que reintentar. */
+      enOdoo: boolean;
+      orderName: string | null;
+      errorOdoo: string | null;
+    }
+  | Fallo;
+
+const fallo = (error: string): Fallo => ({ ok: false, error });
+
+const mensajeOdoo = (e: unknown) =>
+  e instanceof ErrorOdoo ? e.message : "No se pudo hablar con Odoo. Intenta de nuevo.";
+
+export async function crearCotizacion(entrada: unknown): Promise<ResultadoCreacion> {
+  await exigirCotizaciones();
+  if (!odooConfigurado()) return fallo(ODOO_NO_CONFIGURADO);
+
+  const datos = esquemaNuevaCotizacion.safeParse(entrada);
+  if (!datos.success) return fallo(datos.error.issues[0]?.message ?? "Los datos no son válidos.");
+  const v = datos.data;
+
+  // Lo que se guarda de Odoo sale de Odoo, no del POST.
+  let cliente: ClienteOdoo | null;
+  let productos: Awaited<ReturnType<typeof productosPorId>>;
+  try {
+    [cliente, productos] = await Promise.all([
+      leerCliente(v.clienteId),
+      productosPorId(v.lineas.map((l) => l.productoId)),
+    ]);
+  } catch (e) {
+    return fallo(mensajeOdoo(e));
+  }
+  if (!cliente) return fallo("Ese cliente ya no existe en Odoo. Búscalo de nuevo.");
+
+  const lineas = [];
+  for (const l of v.lineas) {
+    const p = productos.get(l.productoId);
+    if (!p) return fallo("Uno de los productos ya no existe en Odoo. Quítalo y vuelve a buscarlo.");
+    lineas.push({
+      odoo_product_id: p.id,
+      producto_nombre: p.nombre,
+      producto_codigo: p.codigo,
+      descripcion: l.descripcion || null,
+      cantidad: l.cantidad,
+      precio_unitario: l.precioUnitario,
+    });
+  }
+
+  const supabase = await clienteServidor();
+  const { data: id, error } = await supabase.rpc("crear_cotizacion", {
+    p_canal: v.canal,
+    p_odoo_partner_id: cliente.id,
+    p_cliente_nombre: cliente.nombre,
+    p_cliente_documento: cliente.documento ?? undefined,
+    p_cliente_telefono: cliente.telefono ?? undefined,
+    p_lineas: lineas,
+    p_notas: v.notas ?? undefined,
+  });
+  if (error || !id) return fallo(mensajeDeError(error));
+
+  /* Primero se guarda y después se va a Odoo: si Odoo está caído, lo tecleado
+     no se pierde. La fila queda en `error` y el detalle ofrece reintentar. */
+  const r = await sincronizarConOdoo(id);
+  olvidarPopularidad();
+  refresh();
+
+  return r.ok
+    ? { ok: true, id, enOdoo: true, orderName: r.orderName, errorOdoo: null }
+    : { ok: true, id, enOdoo: false, orderName: null, errorOdoo: r.error };
 }
 
-export async function listarChats(): Promise<Resultado<ChatResumen[]>> {
-  const r = await comoUsuario<Record<string, unknown>[]>("/chats");
-  if (!r.ok) return r;
-  return { ok: true, data: r.data.map(deChat) };
+export async function reintentarSincronizacion(
+  id: string,
+): Promise<{ ok: true; orderName: string } | Fallo> {
+  await exigirCotizaciones();
+  if (!odooConfigurado()) return fallo(ODOO_NO_CONFIGURADO);
+  if (typeof id !== "string") return fallo("Falta la cotización.");
+
+  const r = await sincronizarConOdoo(id);
+  refresh();
+  return r;
 }
 
-export async function obtenerChat(chatId: string): Promise<Resultado<ChatDetalle>> {
-  const r = await comoUsuario<Record<string, unknown>>(`/chats/${encodeURIComponent(chatId)}`);
-  if (!r.ok) return r;
-
-  return {
-    ok: true,
-    data: {
-      ...deChat(r.data),
-      messages: deMensajes(r.data.messages),
-      hasCutSheet: r.data.has_cut_sheet === true,
-    },
-  };
-}
-
-export async function borrarChat(chatId: string): Promise<Resultado<void>> {
-  return comoUsuario<void>(`/chats/${encodeURIComponent(chatId)}`, { method: "DELETE" });
-}
+export type ResultadoCliente = { ok: true; cliente: ClienteOdoo; existia: boolean } | Fallo;
 
 /**
- * Confirma el bosquejo pendiente (`new_quotation`) y le pide al agente que
- * cree la cotización en Odoo directamente, sin pasar por el chat/LLM. Misma
- * forma de respuesta que `POST /chats/{chat_id}/messages` (ver
- * `docs/API_agent.md`): la cotización creada viene en `last_quotation`, no en
- * la raíz del body.
+ * Crea el cliente en Odoo desde el buscador. Si ya había uno con ese RUC/DNI,
+ * devuelve ese (`existia`) en vez de duplicarlo.
  */
-export async function crearCotizacion(
-  chatId: string,
-): Promise<
-  Resultado<{
-    reply: string;
-    lastQuotation: Cotizacion;
-    newQuotation: Record<string, unknown> | null;
-    hasCutSheet: boolean;
-  }>
-> {
-  const r = await comoUsuario<Record<string, unknown>>("/create-quotation", {
-    method: "POST",
-    body: JSON.stringify({ chat_id: chatId }),
-  });
-  if (!r.ok) return r;
+export async function crearClienteOdoo(entrada: unknown): Promise<ResultadoCliente> {
+  await exigirCotizaciones();
+  if (!odooConfigurado()) return fallo(ODOO_NO_CONFIGURADO);
 
-  const cotizacion = deCotizacion(r.data.last_quotation);
-  if (!cotizacion) return fallo("El agente no devolvió una cotización válida.");
+  const datos = esquemaNuevoClienteOdoo.safeParse(entrada);
+  if (!datos.success) return fallo(datos.error.issues[0]?.message ?? "Los datos no son válidos.");
 
-  return {
-    ok: true,
-    data: {
-      reply: r.data.reply as string,
-      lastQuotation: cotizacion,
-      newQuotation: deNuevaCotizacion(r.data.new_quotation),
-      hasCutSheet: r.data.has_cut_sheet === true,
-    },
-  };
+  try {
+    const r = await crearCliente(datos.data);
+    // Que aparezca en la próxima búsqueda sin esperar al refresco del índice.
+    indiceClientes().agregar(r.cliente);
+    return { ok: true, ...r };
+  } catch (e) {
+    return fallo(mensajeOdoo(e));
+  }
 }

@@ -1,0 +1,262 @@
+"use client";
+
+import { useState, type KeyboardEvent } from "react";
+import { Minus, NotebookPen, Plus, Trash2 } from "lucide-react";
+import { money } from "@/lib/formato";
+import { subtotalDe, type LineaCotizacion } from "@/lib/lineas-cotizacion";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { CodigoProducto } from "./buscador-producto";
+
+/**
+ * Las líneas de la cotización mientras se arma. Cantidad con botones ± (en el
+ * celular es lo cómodo), precio editable que arranca en el de Odoo, y un
+ * detalle opcional para medidas y acabados.
+ *
+ * Enter en la cantidad o el precio no envía nada: devuelve el foco al buscador
+ * de productos, para seguir agregando sin tocar el mouse.
+ */
+export function LineasCotizacion({
+  lineas,
+  alCambiar,
+  alCambiarCantidad,
+  alQuitar,
+  alTerminar,
+  refCantidad,
+  resaltada,
+}: {
+  lineas: LineaCotizacion[];
+  alCambiar: (clave: string, cambios: Partial<Pick<LineaCotizacion, "cantidad" | "precioUnitario" | "descripcion">>) => void;
+  alCambiarCantidad: (clave: string, delta: number) => void;
+  alQuitar: (clave: string) => void;
+  /** Enter en un número: volver al buscador. */
+  alTerminar: () => void;
+  /** Para que el formulario pueda llevar el foco a la cantidad de una línea nueva. */
+  refCantidad: (clave: string, el: HTMLInputElement | null) => void;
+  /** La línea que acaba de cambiar, para marcarla un instante. */
+  resaltada: string | null;
+}) {
+  if (lineas.length === 0) {
+    return (
+      <p className="text-muted-foreground rounded-lg border border-dashed px-4 py-6 text-center text-sm">
+        Todavía no hay productos. Búscalos arriba por código o por nombre.
+      </p>
+    );
+  }
+
+  return (
+    <ol className="flex flex-col gap-2" aria-label="Productos de la cotización">
+      {lineas.map((l, i) => (
+        <Linea
+          key={l.clave}
+          n={i + 1}
+          linea={l}
+          resaltada={resaltada === l.clave}
+          alCambiar={(c) => alCambiar(l.clave, c)}
+          alCambiarCantidad={(d) => alCambiarCantidad(l.clave, d)}
+          alQuitar={() => alQuitar(l.clave)}
+          alTerminar={alTerminar}
+          refCantidad={(el) => refCantidad(l.clave, el)}
+        />
+      ))}
+    </ol>
+  );
+}
+
+function Linea({
+  n,
+  linea: l,
+  resaltada,
+  alCambiar,
+  alCambiarCantidad,
+  alQuitar,
+  alTerminar,
+  refCantidad,
+}: {
+  n: number;
+  linea: LineaCotizacion;
+  resaltada: boolean;
+  alCambiar: (c: Partial<Pick<LineaCotizacion, "cantidad" | "precioUnitario" | "descripcion">>) => void;
+  alCambiarCantidad: (delta: number) => void;
+  alQuitar: () => void;
+  alTerminar: () => void;
+  refCantidad: (el: HTMLInputElement | null) => void;
+}) {
+  const [conDetalle, setConDetalle] = useState(!!l.descripcion);
+  const enter = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && !e.metaKey && !e.ctrlKey) {
+      e.preventDefault();
+      alTerminar();
+    }
+  };
+
+  return (
+    <li
+      className={cn(
+        "bg-card rounded-lg border p-3 transition-colors duration-500",
+        resaltada && "border-primary/50 bg-primary/[0.04]",
+      )}
+      aria-label={`Línea ${n}: ${l.nombre}`}
+    >
+      <div className="flex items-start gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+          {l.codigo && <CodigoProducto codigo={l.codigo} />}
+          <span className="min-w-0 text-sm font-medium">{l.nombre}</span>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`Quitar ${l.nombre}`}
+          onClick={alQuitar}
+          className="text-muted-foreground -mt-1 -mr-1 shrink-0"
+        >
+          <Trash2 />
+        </Button>
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-2">
+        <div className="flex flex-col gap-1">
+          <span className="text-muted-foreground text-xs">Cantidad{l.unidad ? ` (${l.unidad})` : ""}</span>
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon-sm"
+              aria-label="Uno menos"
+              onClick={() => alCambiarCantidad(-1)}
+              disabled={l.cantidad <= 1}
+            >
+              <Minus />
+            </Button>
+            <NumeroEditable
+              valor={l.cantidad}
+              alCambiar={(cantidad) => alCambiar({ cantidad })}
+              etiqueta={`Cantidad de ${l.nombre}`}
+              decimales={3}
+              onKeyDown={enter}
+              inputRef={refCantidad}
+              className="w-20 text-center"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="icon-sm"
+              aria-label="Uno más"
+              onClick={() => alCambiarCantidad(1)}
+            >
+              <Plus />
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <span className="text-muted-foreground text-xs">Precio unitario</span>
+          <div className="relative">
+            <span className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-sm">
+              S/
+            </span>
+            <NumeroEditable
+              valor={l.precioUnitario}
+              alCambiar={(precioUnitario) => alCambiar({ precioUnitario })}
+              etiqueta={`Precio unitario de ${l.nombre}`}
+              decimales={2}
+              onKeyDown={enter}
+              className="w-28 pl-8 text-right"
+            />
+          </div>
+        </div>
+
+        <div className="ml-auto flex flex-col items-end gap-1">
+          <span className="text-muted-foreground text-xs">Subtotal</span>
+          <span className="tnum h-8 text-sm leading-8 font-semibold">{money(subtotalDe(l))}</span>
+        </div>
+      </div>
+
+      {conDetalle ? (
+        <Textarea
+          rows={2}
+          autoFocus={!l.descripcion}
+          value={l.descripcion}
+          onChange={(e) => alCambiar({ descripcion: e.target.value })}
+          placeholder="Medidas, acabado, color… (sale en la línea de Odoo)"
+          aria-label={`Detalle de ${l.nombre}`}
+          className="mt-2"
+          maxLength={500}
+        />
+      ) : (
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          className="text-muted-foreground mt-1 -ml-2 gap-1"
+          onClick={() => setConDetalle(true)}
+        >
+          <NotebookPen />
+          Agregar detalle (medidas, acabado)
+        </Button>
+      )}
+    </li>
+  );
+}
+
+/**
+ * Un número que se puede escribir a medias. Si el input fuera el número mismo,
+ * "2." se convertiría en "2" a mitad de teclear y el punto se perdería. Aquí el
+ * texto es local y solo sube el número cuando es válido; si el número cambia
+ * desde fuera (los botones ±, o agregar otra vez el producto), el texto se pone
+ * al día.
+ */
+function NumeroEditable({
+  valor,
+  alCambiar,
+  etiqueta,
+  decimales,
+  onKeyDown,
+  inputRef,
+  className,
+}: {
+  valor: number;
+  alCambiar: (n: number) => void;
+  etiqueta: string;
+  decimales: number;
+  onKeyDown?: (e: KeyboardEvent<HTMLInputElement>) => void;
+  inputRef?: (el: HTMLInputElement | null) => void;
+  className?: string;
+}) {
+  const [texto, setTexto] = useState(String(valor));
+  const [conocido, setConocido] = useState(valor);
+  if (valor !== conocido) {
+    setConocido(valor);
+    setTexto(String(valor));
+  }
+
+  return (
+    <Input
+      ref={inputRef}
+      type="text"
+      inputMode="decimal"
+      value={texto}
+      aria-label={etiqueta}
+      onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => {
+        const t = e.target.value.replace(",", ".");
+        if (!new RegExp(`^\\d*(\\.\\d{0,${decimales}})?$`).test(t)) return;
+        setTexto(t);
+        const n = Number(t);
+        if (t !== "" && Number.isFinite(n)) {
+          setConocido(n);
+          alCambiar(n);
+        }
+      }}
+      onBlur={() => {
+        // Lo que quedó a medias ("", "2.") vuelve a ser el número de verdad.
+        setTexto(String(valor));
+      }}
+      onKeyDown={onKeyDown}
+      className={cn("tnum h-8", className)}
+    />
+  );
+}

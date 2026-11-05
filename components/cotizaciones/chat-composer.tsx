@@ -5,7 +5,7 @@ import { ArrowUp, FileText, Paperclip, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { useChat } from "@/app/(app)/cotizaciones/chat-store";
+import { useChat } from "@/app/(app)/cotizaciones/asistente/chat-store";
 
 /** Adjuntos elegidos en el navegador, todavía sin mandar. */
 interface AdjuntoLocal {

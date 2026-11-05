@@ -17,7 +17,7 @@ import { useCallback, useState } from "react";
 import { FileText, ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { VisorArchivo } from "@/components/visor-archivo";
-import type { Adjunto } from "@/app/(app)/cotizaciones/acciones";
+import type { Adjunto } from "@/app/(app)/cotizaciones/asistente/acciones";
 
 /** 860160 → "840 KB". */
 function pesoTexto(bytes: number): string {

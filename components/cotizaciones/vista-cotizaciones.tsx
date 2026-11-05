@@ -4,15 +4,22 @@ import { useState } from "react";
 import { PanelLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { ChatProvider } from "@/app/(app)/cotizaciones/chat-store";
-import type { ChatResumen } from "@/app/(app)/cotizaciones/acciones";
+import { ChatProvider } from "@/app/(app)/cotizaciones/asistente/chat-store";
+import type { ChatResumen } from "@/app/(app)/cotizaciones/asistente/acciones";
 import { ChatSidebar } from "./chat-sidebar";
 import { ChatThread } from "./chat-thread";
 import { ChatComposer } from "./chat-composer";
 
-export function VistaCotizaciones({ chatsIniciales }: { chatsIniciales: ChatResumen[] }) {
+export function VistaCotizaciones({
+  chatsIniciales,
+  chatInicial = null,
+}: {
+  chatsIniciales: ChatResumen[];
+  /** El chat que se abre al llegar, p. ej. desde el detalle de una cotización. */
+  chatInicial?: string | null;
+}) {
   return (
-    <ChatProvider chatsIniciales={chatsIniciales}>
+    <ChatProvider chatsIniciales={chatsIniciales} chatInicial={chatInicial}>
       <Contenido />
     </ChatProvider>
   );
@@ -44,7 +51,7 @@ function Contenido() {
               <PanelLeft />
               <span className="sr-only">Abrir chats</span>
             </SheetTrigger>
-            <p className="text-sm font-medium">Cotizaciones</p>
+            <p className="text-sm font-medium">Asistente de cotizaciones</p>
           </div>
           <ChatThread />
           <ChatComposer />

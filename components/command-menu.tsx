@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Archive,
+  FilePlus2,
   Hammer,
   LayoutList,
   Plus,
@@ -149,6 +150,15 @@ export function CommandMenu({
             <CommandItem value="nuevo pedido crear" onSelect={() => ir("/pedidos/nuevo")}>
               <Plus className="size-4" />
               Nuevo pedido
+            </CommandItem>
+          )}
+          {permisos.gestionarCotizaciones && (
+            <CommandItem
+              value="nueva cotizacion crear odoo"
+              onSelect={() => ir("/cotizaciones/nueva")}
+            >
+              <FilePlus2 className="size-4" />
+              Nueva cotización
             </CommandItem>
           )}
           {/* Las herramientas de `lib/dominio.ts`, las mismas que pinta el menú
