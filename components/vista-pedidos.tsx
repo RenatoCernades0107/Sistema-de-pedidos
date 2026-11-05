@@ -3,11 +3,13 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { toast } from "sonner";
 import { AnimatePresence, motion } from "motion/react";
 import {
   CalendarRange,
   ChevronLeft,
   ChevronRight,
+  Download,
   LayoutGrid,
   List,
   Plus,
@@ -34,6 +36,7 @@ import {
 } from "@/lib/dominio";
 import { camposBuscables, coincide } from "@/lib/busqueda";
 import { porUrgencia } from "@/lib/formato";
+import { descargarCsv, nombreArchivoCsv, pedidosACsv } from "@/lib/exportar-csv";
 import { BARRA_ESTADO } from "@/components/estado-badge";
 import { PedidoCard } from "@/components/pedido-card";
 import { PedidosKanban } from "@/components/pedidos-kanban";
@@ -157,6 +160,12 @@ export function VistaPedidos() {
     setRango("todo");
   };
 
+  /** Exporta lo filtrado entero, no solo la página en pantalla. */
+  const exportar = () => {
+    descargarCsv(pedidosACsv(filtrados, permisos), nombreArchivoCsv(hoy()));
+    toast.success(`${filtrados.length} pedidos exportados a CSV`);
+  };
+
   const irAPagina = (n: number) => {
     setPagina(n);
     document.getElementById("contenido")?.scrollIntoView({ block: "start" });
@@ -174,6 +183,16 @@ export function VistaPedidos() {
           </p>
         </div>
         <div className="flex-1" />
+        <Button
+          variant="outline"
+          onClick={exportar}
+          disabled={filtrados.length === 0}
+          className="gap-1.5"
+          title="Descarga un CSV con los pedidos que coinciden con los filtros"
+        >
+          <Download className="size-4" />
+          Exportar CSV
+        </Button>
         {permisos.crearPedido && (
           <Button
             render={<Link href="/pedidos/nuevo" />}
