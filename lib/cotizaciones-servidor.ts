@@ -10,9 +10,28 @@
 import { cache } from "react";
 import { clienteServidor } from "./supabase-servidor";
 import { mensajeDeError } from "./errores";
-import type { Canal, Cotizacion, Sincronizacion } from "./cotizaciones";
+import {
+  importeDeProducto,
+  type Canal,
+  type Cotizacion,
+  type LineaGuardada,
+  type Sincronizacion,
+} from "./cotizaciones";
+import {
+  fraccionEnPalabras,
+  leerCorte,
+  materialDeCorte,
+  planchasPorCobro,
+  resumenPiezas,
+  totalPiezas,
+} from "./cortes/guardado";
 import { leerCliente } from "./odoo/clientes";
-import { confirmarPedidoDeVenta, crearPedidoDeVenta, leerPedidoDeVenta } from "./odoo/pedidos-venta";
+import {
+  confirmarPedidoDeVenta,
+  crearPedidoDeVenta,
+  leerPedidoDeVenta,
+  type LineaParaOdoo,
+} from "./odoo/pedidos-venta";
 import { ErrorOdoo, odooConfigurado } from "./odoo/rpc";
 import type { ClienteOdoo } from "./odoo/tipos";
 
@@ -24,7 +43,7 @@ const COLUMNAS = `
   creador:usuarios!cotizaciones_creado_por_fkey ( nombre ),
   pedido:pedidos!cotizaciones_pedido_id_fkey ( codigo ),
   cotizacion_productos ( posicion, odoo_product_id, producto_nombre, producto_codigo,
-                         descripcion, cantidad, precio_unitario )
+                         descripcion, cantidad, precio_unitario, tipo, corte, importe )
 `;
 
 interface Fila {
@@ -56,6 +75,9 @@ interface Fila {
     descripcion: string | null;
     cantidad: number;
     precio_unitario: number;
+    tipo: "producto" | "corte";
+    corte: unknown;
+    importe: number | null;
   }[];
 }
 
@@ -98,6 +120,8 @@ function deFila(f: Fila): Cotizacion {
         descripcion: l.descripcion,
         cantidad: Number(l.cantidad),
         precioUnitario: Number(l.precio_unitario),
+        corte: l.tipo === "corte" ? leerCorte(l.corte) : null,
+        importe: num(l.importe) ?? importeDeProducto(Number(l.cantidad), Number(l.precio_unitario)),
       })),
   };
 }
@@ -205,6 +229,50 @@ async function leerPopularidadProductos(): Promise<Map<number, number>> {
 
 /* ── Odoo ──────────────────────────────────────────────────────────────────── */
 
+/**
+ * Una línea de la cotización, como va a Odoo.
+ *
+ * Un producto es una línea. Un corte son varias: la plancha, una línea por cada
+ * precio distinto ("2 planchas completas", "1 media plancha"), y el servicio de
+ * corte. La cantidad de planchas es la que Odoo descuenta del stock.
+ */
+export function lineasParaOdoo(l: LineaGuardada): LineaParaOdoo[] {
+  if (!l.corte) {
+    return [
+      {
+        productoId: l.productoId,
+        nombreProducto: l.nombre,
+        codigo: l.codigo,
+        cantidad: l.cantidad,
+        precioUnitario: l.precioUnitario,
+        descripcion: l.descripcion,
+      },
+    ];
+  }
+
+  const corte = l.corte;
+  const piezas = totalPiezas(corte.piezas);
+  const paraCortar = `Para cortar: ${resumenPiezas(corte.piezas)}`;
+  return [
+    ...planchasPorCobro(corte).map((g) => ({
+      productoId: l.productoId,
+      nombreProducto: l.nombre,
+      codigo: l.codigo,
+      cantidad: g.cantidad,
+      precioUnitario: g.monto,
+      descripcion: g.nombre === "1" ? paraCortar : `Se cobra ${fraccionEnPalabras(g.nombre)}. ${paraCortar}`,
+    })),
+    {
+      productoId: corte.servicio.productoId,
+      nombreProducto: corte.servicio.nombre,
+      codigo: corte.servicio.codigo,
+      cantidad: 1,
+      precioUnitario: corte.montoServicio,
+      descripcion: `${piezas} ${piezas === 1 ? "pieza" : "piezas"} en ${materialDeCorte(corte)}`,
+    },
+  ];
+}
+
 export type ResultadoSincronizacion =
   | { ok: true; orderName: string }
   | { ok: false; error: string };
@@ -230,14 +298,7 @@ export async function sincronizarConOdoo(id: string): Promise<ResultadoSincroniz
     const venta = await crearPedidoDeVenta({
       cotizacionId: c.id,
       clienteId: c.cliente.id,
-      lineas: c.lineas.map((l) => ({
-        productoId: l.productoId,
-        nombreProducto: l.nombre,
-        codigo: l.codigo,
-        cantidad: l.cantidad,
-        precioUnitario: l.precioUnitario,
-        descripcion: l.descripcion,
-      })),
+      lineas: c.lineas.flatMap(lineasParaOdoo),
     });
 
     const { data, error } = await supabase

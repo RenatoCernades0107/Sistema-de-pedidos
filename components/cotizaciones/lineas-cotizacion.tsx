@@ -1,9 +1,17 @@
 "use client";
 
 import { useState, type KeyboardEvent } from "react";
-import { Minus, NotebookPen, Plus, Trash2 } from "lucide-react";
+import { Minus, NotebookPen, Pencil, Plus, Scissors, Trash2 } from "lucide-react";
+import { MODALIDADES } from "@/lib/cortes/calcular";
+import { materialDeCorte, resumenPiezas } from "@/lib/cortes/guardado";
 import { money } from "@/lib/formato";
-import { subtotalDe, type LineaCotizacion } from "@/lib/lineas-cotizacion";
+import {
+  esCorte,
+  subtotalDe,
+  type Linea as LineaDelFormulario,
+  type LineaCorte,
+  type LineaCotizacion,
+} from "@/lib/lineas-cotizacion";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,14 +31,17 @@ export function LineasCotizacion({
   alCambiar,
   alCambiarCantidad,
   alQuitar,
+  alEditarCorte,
   alTerminar,
   refCantidad,
   resaltada,
 }: {
-  lineas: LineaCotizacion[];
+  lineas: LineaDelFormulario[];
   alCambiar: (clave: string, cambios: Partial<Pick<LineaCotizacion, "cantidad" | "precioUnitario" | "descripcion">>) => void;
   alCambiarCantidad: (clave: string, delta: number) => void;
   alQuitar: (clave: string) => void;
+  /** Reabrir el editor de un corte ya agregado. */
+  alEditarCorte: (clave: string) => void;
   /** Enter en un número: volver al buscador. */
   alTerminar: () => void;
   /** Para que el formulario pueda llevar el foco a la cantidad de una línea nueva. */
@@ -41,14 +52,24 @@ export function LineasCotizacion({
   if (lineas.length === 0) {
     return (
       <p className="text-muted-foreground rounded-lg border border-dashed px-4 py-6 text-center text-sm">
-        Todavía no hay productos. Búscalos arriba por código o por nombre.
+        Todavía no hay productos. Búscalos arriba por código o por nombre, o agrega un corte a medida.
       </p>
     );
   }
 
   return (
     <ol className="flex flex-col gap-2" aria-label="Productos de la cotización">
-      {lineas.map((l, i) => (
+      {lineas.map((l, i) =>
+        esCorte(l) ? (
+          <LineaDeCorte
+            key={l.clave}
+            n={i + 1}
+            linea={l}
+            resaltada={resaltada === l.clave}
+            alEditar={() => alEditarCorte(l.clave)}
+            alQuitar={() => alQuitar(l.clave)}
+          />
+        ) : (
         <Linea
           key={l.clave}
           n={i + 1}
@@ -60,8 +81,87 @@ export function LineasCotizacion({
           alTerminar={alTerminar}
           refCantidad={(el) => refCantidad(l.clave, el)}
         />
-      ))}
+        ),
+      )}
     </ol>
+  );
+}
+
+/**
+ * Un corte a medida en la lista. No se edita aquí: sus números salen de un
+ * cálculo, así que cambiarlo es reabrir el editor.
+ */
+function LineaDeCorte({
+  n,
+  linea: l,
+  resaltada,
+  alEditar,
+  alQuitar,
+}: {
+  n: number;
+  linea: LineaCorte;
+  resaltada: boolean;
+  alEditar: () => void;
+  alQuitar: () => void;
+}) {
+  const c = l.calculo;
+  const nombre = `${MODALIDADES[l.modalidad]} en ${materialDeCorte(l)}`;
+  const planchas = c.planchas.length;
+
+  return (
+    <li
+      className={cn(
+        "bg-card rounded-lg border p-3 transition-colors duration-500",
+        resaltada && "border-primary/50 bg-primary/[0.04]",
+      )}
+      aria-label={`Línea ${n}: ${nombre}`}
+    >
+      <div className="flex items-start gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="bg-brand-soft text-foreground inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium">
+            <Scissors className="size-3" />
+            {MODALIDADES[l.modalidad]}
+          </span>
+          <span className="min-w-0 text-sm font-medium">{materialDeCorte(l)}</span>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`Editar el corte de ${materialDeCorte(l)}`}
+          onClick={alEditar}
+          className="text-muted-foreground -mt-1 shrink-0"
+        >
+          <Pencil />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`Quitar el corte de ${materialDeCorte(l)}`}
+          onClick={alQuitar}
+          className="text-muted-foreground -mt-1 -mr-1 shrink-0"
+        >
+          <Trash2 />
+        </Button>
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-2">
+        <div className="min-w-0 flex-1 text-sm">
+          <p className="tnum">{resumenPiezas(l.piezas)}</p>
+          <p className="text-muted-foreground tnum mt-0.5 text-xs">
+            {planchas} {planchas === 1 ? "plancha" : "planchas"} de {c.formato.ancho}×{c.formato.alto}{" "}
+            <span className="font-mono">{c.formato.codigo}</span> · material {money(c.material)} + corte{" "}
+            {money(c.servicio)}
+          </p>
+          {c.problema && <p className="text-destructive mt-1 text-xs">{c.problema}</p>}
+        </div>
+        <div className="ml-auto flex flex-col items-end gap-1">
+          <span className="text-muted-foreground text-xs">Subtotal</span>
+          <span className="tnum h-8 text-sm leading-8 font-semibold">{money(c.total)}</span>
+        </div>
+      </div>
+    </li>
   );
 }
 

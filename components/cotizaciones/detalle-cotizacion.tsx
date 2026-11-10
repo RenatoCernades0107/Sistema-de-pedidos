@@ -20,6 +20,7 @@ import { referenciaDe, sumaLineas, type Cotizacion } from "@/lib/cotizaciones";
 import { momentoEnLima } from "@/lib/fecha";
 import { fechaHora, money, numero } from "@/lib/formato";
 import { Button } from "@/components/ui/button";
+import { CorteGuardadoVista } from "@/components/cortes/corte-guardado";
 import { CodigoProducto } from "./buscador-producto";
 import { CanalBadge, EstadoSincronizacion } from "./estado-cotizacion";
 
@@ -212,25 +213,30 @@ export function DetalleCotizacion({
         <section className="bg-card overflow-hidden rounded-xl border">
           <p className="eyebrow border-b px-4 py-2.5">Productos</p>
           <ul className="divide-y">
-            {c.lineas.map((l) => (
-              <li key={l.posicion} className="flex flex-wrap items-start gap-x-4 gap-y-1 px-4 py-3">
-                <div className="min-w-0 flex-1">
-                  <p className="flex flex-wrap items-center gap-2 text-sm">
-                    {l.codigo && <CodigoProducto codigo={l.codigo} />}
-                    <span className="font-medium">{l.nombre}</span>
+            {c.lineas.map((l) =>
+              l.corte ? (
+                // Un corte a medida: su cálculo entero, con el plano.
+                <li key={l.posicion} className="px-4 py-3" data-testid="linea-corte">
+                  <CorteGuardadoVista corte={l.corte} conPrecios />
+                </li>
+              ) : (
+                <li key={l.posicion} className="flex flex-wrap items-start gap-x-4 gap-y-1 px-4 py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="flex flex-wrap items-center gap-2 text-sm">
+                      {l.codigo && <CodigoProducto codigo={l.codigo} />}
+                      <span className="font-medium">{l.nombre}</span>
+                    </p>
+                    {l.descripcion && (
+                      <p className="text-muted-foreground mt-1 text-xs whitespace-pre-line">{l.descripcion}</p>
+                    )}
+                  </div>
+                  <p className="tnum text-muted-foreground text-sm">
+                    {numero(l.cantidad)} × {money(l.precioUnitario)}
                   </p>
-                  {l.descripcion && (
-                    <p className="text-muted-foreground mt-1 text-xs whitespace-pre-line">{l.descripcion}</p>
-                  )}
-                </div>
-                <p className="tnum text-muted-foreground text-sm">
-                  {numero(l.cantidad)} × {money(l.precioUnitario)}
-                </p>
-                <p className="tnum w-24 text-right text-sm font-medium">
-                  {money(Math.round(l.cantidad * l.precioUnitario * 100) / 100)}
-                </p>
-              </li>
-            ))}
+                  <p className="tnum w-24 text-right text-sm font-medium">{money(l.importe)}</p>
+                </li>
+              ),
+            )}
           </ul>
           <dl className="bg-muted/30 flex flex-col gap-1 border-t px-4 py-3 text-sm">
             {c.montoTotal !== null ? (

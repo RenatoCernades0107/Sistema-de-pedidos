@@ -91,6 +91,14 @@ function sembrar() {
     producto(12, "AC-103", "ACRILICO BRONCE 3MM", 135),
     producto(13, "PVC-010", "PVC ESPUMADO BLANCO 10MM", 95, { categ_id: [2, "PVC"] }),
     producto(14, "SRV-CL", "SERVICIO CORTE LASER", 1.5, { uom_id: [2, "Minutos"], categ_id: [3, "Servicios"] }),
+    // Planchas del catálogo (`formatos_plancha`), con su stock, y los servicios de corte.
+    producto(20, "F7E024", "ACRILICO ECO CRISTAL 3MM 1.22X1.83", 200, { qty_available: 10, free_qty: 10 }),
+    producto(21, "F9.5E015", "ACRILICO ECO CRISTAL 3MM 1.22X2.44", 265, { qty_available: 2, free_qty: 1 }),
+    producto(22, "F15E004", "ACRILICO ECO CRISTAL 3MM 1.50X3.00", 400, { qty_available: 0, free_qty: 0 }),
+    producto(23, "F20E004", "ACRILICO ECO CRISTAL 3MM 2.05X3.05", 560, { qty_available: 5, free_qty: 5 }),
+    producto(24, "F7E029", "ACRILICO ECO COLORES 3MM 1.22X1.83", 230, { qty_available: 7, free_qty: 7 }),
+    producto(30, "SRV001", "SERVICIO DE CORTE MANUAL", 1, { uom_id: [1, "Unidades"], categ_id: [3, "Servicios"] }),
+    producto(31, "SRV002", "SERVICIO DE CORTE LASER", 1, { uom_id: [1, "Unidades"], categ_id: [3, "Servicios"] }),
     // Solo existe aquí: la prueba e2e lo busca para saber que la app habla con este Odoo.
     producto(15, "E2E-ZZ9", "E2E PRODUCTO SOLO EN EL ODOO FALSO", 1),
     producto(16, "NO-VENTA", "INSUMO INTERNO", 10, { sale_ok: false }),
@@ -124,7 +132,7 @@ const CAMPOS: Record<string, string[]> = {
   ],
   "product.product": [
     "name", "display_name", "default_code", "barcode", "lst_price", "uom_id", "categ_id",
-    "write_date", "active", "sale_ok", "product_tmpl_id",
+    "write_date", "active", "sale_ok", "product_tmpl_id", "qty_available", "free_qty",
   ],
   "sale.order": ["name", "partner_id", "origin", "order_line", "amount_untaxed", "amount_tax", "amount_total", "state"],
   "sale.order.line": ["order_id", "product_id", "name", "product_uom_qty", "price_unit", "display_type", "sequence"],

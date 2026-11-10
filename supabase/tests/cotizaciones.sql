@@ -272,6 +272,59 @@ begin
 end $$;
 set local role authenticated;
 
+-- ── 2c. Cortes a medida dentro de la cotización (20261110000200) ────────────
+
+do $$
+declare
+  id_cot uuid;
+  fila   public.cotizacion_productos%rowtype;
+begin
+  -- 2c.1 Una línea de corte guarda su cálculo y su importe; la de producto, no.
+  id_cot := public.crear_cotizacion(
+    p_odoo_partner_id := 900006, p_cliente_nombre := 'Prueba SQL Corte',
+    p_lineas := '[
+      {"tipo": "corte", "odoo_product_id": 20, "producto_nombre": "ACRILICO ECO CRISTAL 3MM",
+       "producto_codigo": "F7E024", "cantidad": 3, "precio_unitario": 173.33, "importe": 545,
+       "descripcion": "Corte láser: 10 × 60×80 cm",
+       "corte": {"version": 1, "modalidad": "laser", "total": 545}},
+      {"odoo_product_id": 10, "producto_nombre": "BISAGRA", "cantidad": 4, "precio_unitario": 2.5}
+    ]'::jsonb
+  );
+
+  select * into fila from public.cotizacion_productos where cotizacion_id = id_cot and posicion = 1;
+  if fila.tipo <> 'corte' or fila.importe <> 545 or fila.corte ->> 'modalidad' <> 'laser' then
+    raise exception 'FALLO: la línea de corte no guardó su cálculo';
+  end if;
+  select * into fila from public.cotizacion_productos where cotizacion_id = id_cot and posicion = 2;
+  if fila.tipo <> 'producto' or fila.corte is not null or fila.importe is not null then
+    raise exception 'FALLO: la línea de producto quedó con datos de corte';
+  end if;
+
+  -- 2c.2 Un corte sin cálculo no entra.
+  begin
+    perform public.crear_cotizacion(900006, 'Prueba SQL Corte',
+      '[{"tipo": "corte", "odoo_product_id": 20, "producto_nombre": "X", "cantidad": 1,
+         "precio_unitario": 1, "importe": 1}]'::jsonb);
+    raise exception 'FALLO: se guardó un corte sin su cálculo';
+  exception when check_violation then null; end;
+
+  -- 2c.3 Ni sin importe.
+  begin
+    perform public.crear_cotizacion(900006, 'Prueba SQL Corte',
+      '[{"tipo": "corte", "odoo_product_id": 20, "producto_nombre": "X", "cantidad": 1,
+         "precio_unitario": 1, "corte": {"version": 1}}]'::jsonb);
+    raise exception 'FALLO: se guardó un corte sin importe';
+  exception when check_violation then null; end;
+
+  -- 2c.4 Y un producto no puede traer un cálculo de corte colgado.
+  begin
+    perform public.crear_cotizacion(900006, 'Prueba SQL Corte',
+      '[{"odoo_product_id": 10, "producto_nombre": "X", "cantidad": 1,
+         "precio_unitario": 1, "corte": {"version": 1}}]'::jsonb);
+    raise exception 'FALLO: un producto quedó con un cálculo de corte';
+  exception when check_violation then null; end;
+end $$;
+
 set local role postgres;
 
 -- ── 3. Otro rol no ve ni crea ───────────────────────────────────────────────

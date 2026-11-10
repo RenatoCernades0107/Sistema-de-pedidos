@@ -345,6 +345,123 @@ test("si Odoo no confirma, el pedido se registra igual y se confirma después", 
   expect(orden.state).toBe("sale");
 });
 
+/** Abre el editor de corte y elige el material escribiendo, como en mostrador. */
+async function abrirCorte(page: Page, material: string, nombre: RegExp) {
+  await page.getByRole("button", { name: "Corte a medida" }).click();
+  const buscador = page.getByLabel("Buscar material");
+  await buscador.fill(material);
+  await expect(page.getByRole("option", { name: nombre }).first()).toHaveAttribute("aria-selected", "true");
+  await buscador.press("Enter");
+  await expect(page.getByTestId("material-elegido")).toContainText(nombre);
+  // Con el material elegido, el foco pasa a la primera medida.
+  await expect(page.getByLabel("Ancho de la pieza 1")).toBeFocused();
+}
+
+async function escribirPieza(page: Page, n: number, ancho: string, alto: string, cantidad: string) {
+  await page.getByLabel(`Ancho de la pieza ${n}`).fill(ancho);
+  await page.getByLabel(`Alto de la pieza ${n}`).fill(alto);
+  await page.getByLabel(`Cantidad de la pieza ${n}`).fill(cantidad);
+}
+
+test("un corte a medida se cotiza: calcula las planchas, valida el stock y llega a Odoo", async ({ page }) => {
+  await entrar(page, "administracion");
+  await page.goto("/cotizaciones/nueva");
+  await elegirCliente(page, "jose", /E2E José Pérez Quispe/);
+
+  await abrirCorte(page, "eco cristal 3", /Acrílico ECO.*Cristal.*3 mm/);
+  await escribirPieza(page, 1, "60", "80", "10");
+
+  // Los tres formatos más baratos, y el stock de los tres en una sola consulta.
+  const formatos = page.getByRole("list", { name: "Formatos de plancha" });
+  await expect(formatos.getByRole("button")).toHaveCount(3);
+  await expect(page.getByText("Elegida la más barata con stock.")).toBeVisible();
+  const { llamadas } = await estado();
+  expect(llamadas.filter((l) => l.modelo === "product.product" && l.metodo === "search_read").length).toBeGreaterThan(0);
+
+  // 122×183: tres planchas (4 + 4 + 2 piezas); la tercera se cobra como media.
+  const elegida = formatos.getByRole("button", { name: /122×183/ });
+  await expect(elegida).toHaveAttribute("aria-pressed", "true");
+  await expect(elegida).toContainText("3 planchas");
+  await expect(elegida).toContainText("Hay 10");
+  await expect(formatos.getByRole("button", { name: /122×244/ })).toContainText("Solo hay 1");
+  // 200 + 200 + 200/2 × 1.20, más el láser, redondeado al sol.
+  await expect(page.getByTestId("total-corte")).toHaveText("S/ 545.00");
+  await expect(page.getByText("Plancha 3: las piezas caben en 1/2")).toBeVisible();
+
+  await page.getByRole("button", { name: "Agregar corte" }).click();
+  const linea = page.getByRole("listitem", { name: /Línea 1: Corte láser en Acrílico ECO · Cristal · 3 mm/ });
+  await expect(linea).toContainText("10 × 60×80 cm");
+  await expect(linea).toContainText("3 planchas de 122×183");
+  await expect(page.getByLabel("Buscar producto")).toBeFocused();
+
+  await page.getByRole("button", { name: "Crear cotización" }).click();
+  await expect(page).toHaveURL(/\/cotizaciones\/[0-9a-f-]{36}$/);
+  await expect(page.getByTestId("referencia-cotizacion")).toHaveText(/^S\d{5}$/);
+  const guardada = page.getByTestId("linea-corte");
+  await expect(guardada).toContainText("3 planchas de 122×183");
+  await expect(guardada).toContainText("cortar primero media plancha");
+  await expect(guardada.getByRole("img")).toHaveCount(3);
+
+  // En Odoo: las planchas por lo que se cobra de cada una, y el servicio.
+  const id = idDeLaUrl(page);
+  const orden = (await estado()).ordenes.find((o) => o.origin === `App Plexiacril ${id}`)!;
+  expect(orden.lineas.map((l) => [l.product_id[0], l.product_uom_qty, l.price_unit])).toEqual([
+    [20, 2, 200],
+    [20, 1, 120],
+    [31, 1, 25],
+  ]);
+  expect(orden.lineas[1].name).toContain("Se cobra media plancha");
+
+  const supabase = await sesionDe("administracion");
+  const { data } = await supabase
+    .from("cotizacion_productos")
+    .select("tipo, odoo_product_id, producto_codigo, cantidad, importe, corte")
+    .eq("cotizacion_id", id)
+    .single();
+  expect(data).toMatchObject({ tipo: "corte", odoo_product_id: 20, producto_codigo: "F7E024", cantidad: 3, importe: 545 });
+  expect(data!.corte).toMatchObject({ modalidad: "laser", montoMaterial: 520, montoServicio: 25, total: 545 });
+});
+
+test("el formato más barato sin stock no se sugiere, pero se puede elegir; un corte se edita", async ({ page }) => {
+  await entrar(page, "administracion");
+  await page.goto("/cotizaciones/nueva");
+  await elegirCliente(page, "20123456786", /E2E Corporación Andina SAC/);
+
+  // 145×290 solo entra en 150×300 (sin stock) y en 205×305 (más cara, con stock).
+  await abrirCorte(page, "eco cristal 3", /Acrílico ECO.*Cristal.*3 mm/);
+  await escribirPieza(page, 1, "145", "290", "1");
+
+  const formatos = page.getByRole("list", { name: "Formatos de plancha" });
+  const barata = formatos.getByRole("button", { name: /150×300/ });
+  const conStock = formatos.getByRole("button", { name: /205×305/ });
+  await expect(barata).toContainText("Sin stock");
+  await expect(conStock).toHaveAttribute("aria-pressed", "true");
+  await expect(conStock).toContainText("Hay 5");
+  // Donde no cabe, se dice y no se puede elegir.
+  await expect(formatos.getByRole("button", { name: /122×183/ })).toBeDisabled();
+  await expect(formatos.getByRole("button", { name: /122×183/ })).toContainText("no cabe");
+
+  // Quien cotiza sabe que mañana llega mercadería: la elige igual.
+  await barata.click();
+  await expect(barata).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Agregar corte" }).click();
+  const linea = page.getByRole("listitem", { name: /Línea 1: Corte láser/ });
+  await expect(linea).toContainText("1 plancha de 150×300");
+
+  // Editar: ahora a mano y con otra medida más, dictada con Enter.
+  await linea.getByRole("button", { name: /Editar el corte/ }).click();
+  await expect(page.getByLabel("Ancho de la pieza 1")).toHaveValue("145");
+  await page.getByRole("group", { name: "Tipo de corte" }).getByRole("button", { name: "Corte manual" }).click();
+  await page.getByLabel("Cantidad de la pieza 1").press("Enter");
+  await expect(page.getByLabel("Ancho de la pieza 2")).toBeFocused();
+  await escribirPieza(page, 2, "40", "40", "2");
+  await expect(page.getByText(/Corte manual: 3 piezas de 3 mm/)).toBeVisible();
+  await page.getByRole("button", { name: "Guardar corte" }).click();
+
+  await expect(page.getByRole("listitem", { name: /Línea \d/ })).toHaveCount(1);
+  await expect(page.getByRole("listitem", { name: /Línea 1: Corte manual/ })).toContainText("1 × 145×290 cm, 2 × 40×40 cm");
+});
+
 test("la lista filtra, y el formulario sugiere lo usado", async ({ page }) => {
   await entrar(page, "administracion");
   await page.goto("/cotizaciones");

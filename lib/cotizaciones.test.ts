@@ -9,6 +9,8 @@ const linea = (l: Partial<LineaGuardada>): LineaGuardada => ({
   descripcion: null,
   cantidad: 1,
   precioUnitario: 120,
+  corte: null,
+  importe: 120,
   ...l,
 });
 

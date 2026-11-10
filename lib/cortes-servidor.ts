@@ -7,8 +7,12 @@
 
 import { cache } from "react";
 import { clienteServidor } from "./supabase-servidor";
+import { calcularCorte } from "./cortes/calcular";
+import { colorDe, pideColor, type FormatoPlancha, type GrupoPlancha } from "./cortes/catalogo";
 import { leerConfigCortes, type ConfigCortes } from "./cortes/config";
-import type { FormatoPlancha, GrupoPlancha } from "./cortes/catalogo";
+import { guardarCorte, resumenPiezas, tituloCorte, type CorteGuardado } from "./cortes/guardado";
+import type { NuevaLineaCorte } from "./esquemas";
+import { productosPorCodigo } from "./odoo/catalogos";
 
 export const CLAVE_CONFIG_CORTES = "cortes";
 
@@ -100,4 +104,108 @@ export async function cargarGrupoPlancha(id: string): Promise<GrupoPlancha | nul
   const { data, error } = await supabase.from("grupos_plancha").select(COLUMNAS).eq("id", id).maybeSingle();
   if (error) throw new Error(`No se pudo leer el grupo de planchas: ${error.message}`);
   return data ? deGrupo(data as unknown as FilaGrupo) : null;
+}
+
+/* ── Un corte, calculado por el servidor ───────────────────────────────────── */
+
+/** La línea de corte lista para `crear_cotizacion`, en las columnas de la tabla. */
+export interface FilaDeCorte {
+  tipo: "corte";
+  odoo_product_id: number;
+  producto_nombre: string;
+  producto_codigo: string | null;
+  descripcion: string;
+  cantidad: number;
+  precio_unitario: number;
+  importe: number;
+  corte: CorteGuardado;
+}
+
+const redondear2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+/**
+ * Lo que cuesta cada formato de un grupo según Odoo, por su código. Del índice
+ * en memoria si ya está cargado: es lo que deja calcular mientras se escribe.
+ */
+export async function preciosDeGrupo(grupo: GrupoPlancha) {
+  const productos = await productosPorCodigo(grupo.formatos.map((f) => f.codigo));
+  return new Map(
+    grupo.formatos
+      .filter((f) => productos.has(f.codigo))
+      .map((f) => [f.codigo, { productoId: productos.get(f.codigo)!.id, precio: productos.get(f.codigo)!.precio }]),
+  );
+}
+
+/**
+ * Rehace el cálculo de un corte que llega del navegador. De allá vienen el
+ * material, las piezas y el formato elegido; el precio de la plancha lo dice
+ * Odoo y el del corte la configuración, leídos aquí.
+ *
+ * Si el total no coincide con el que vio quien cotiza —cambió un precio
+ * mientras armaba el pedido—, no se guarda: se le pide que lo revise.
+ */
+export async function prepararCorte(
+  linea: NuevaLineaCorte,
+): Promise<{ ok: true; fila: FilaDeCorte } | { ok: false; error: string }> {
+  const fallo = (error: string) => ({ ok: false as const, error });
+
+  const [grupo, config] = await Promise.all([cargarGrupoPlancha(linea.grupoId), cargarConfigCortes()]);
+  if (!grupo) return fallo("Ese material ya no está en el catálogo de planchas. Vuelve a elegirlo.");
+
+  const formato = grupo.formatos.find((f) => f.codigo === linea.formatoCodigo && f.activo);
+  if (!formato) return fallo(`El formato ${linea.formatoCodigo} ya no está disponible para ese material.`);
+
+  const codigoServicio = config.servicios[linea.modalidad];
+  const productos = await productosPorCodigo([formato.codigo, codigoServicio]);
+  const plancha = productos.get(formato.codigo);
+  if (!plancha) return fallo(`La plancha ${formato.codigo} no existe en Odoo. Revisa el código en Configuración.`);
+  const servicio = productos.get(codigoServicio);
+  if (!servicio) {
+    return fallo(`El servicio de corte ${codigoServicio} no existe en Odoo. Revisa el código en Configuración.`);
+  }
+
+  const calculo = calcularCorte(
+    { piezas: linea.piezas, espesorMm: grupo.espesorMm, modalidad: linea.modalidad, rotable: grupo.rotable },
+    { codigo: formato.codigo, ancho: formato.anchoCm, alto: formato.largoCm, precio: plancha.precio },
+    config,
+  );
+  if (calculo.problema) return fallo(calculo.problema);
+  if (Math.abs(calculo.total - linea.totalMostrado) > 0.01) {
+    return fallo(
+      `El precio del corte cambió mientras lo armabas (ahora es S/ ${calculo.total.toFixed(2)}). ` +
+        "Ábrelo de nuevo para revisarlo.",
+    );
+  }
+
+  const corte = guardarCorte(
+    {
+      grupoId: grupo.id,
+      material: grupo.material,
+      // Con un código para todos los colores, vale el que se pidió.
+      color: (pideColor(grupo) && linea.color) || colorDe(grupo),
+      espesorMm: grupo.espesorMm,
+      modalidad: linea.modalidad,
+      rotable: grupo.rotable,
+      piezas: linea.piezas,
+      servicio: { productoId: servicio.id, codigo: codigoServicio, nombre: servicio.nombre },
+      sobrantes: grupo.sobrantesActivo,
+    },
+    calculo,
+  );
+
+  return {
+    ok: true,
+    fila: {
+      tipo: "corte",
+      odoo_product_id: plancha.id,
+      producto_nombre: plancha.nombre,
+      producto_codigo: plancha.codigo,
+      descripcion: `${tituloCorte(corte)}: ${resumenPiezas(corte.piezas)}`,
+      cantidad: corte.planchas.length,
+      // Referencial: lo que vale es el importe de la línea.
+      precio_unitario: redondear2(corte.montoMaterial / corte.planchas.length),
+      importe: corte.total,
+      corte,
+    },
+  };
 }

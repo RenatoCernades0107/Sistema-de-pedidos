@@ -453,6 +453,8 @@ export const esquemaCambioPassword = z
  * vuelve a leer el servidor de Odoo: no se guarda lo que diga el POST.
  */
 export const esquemaLineaCotizacion = z.object({
+  // Opcional: una línea sin tipo es un producto, como siempre.
+  tipo: z.literal("producto").optional(),
   productoId: z.number().int().positive(),
   cantidad: z
     .number({ error: "La cantidad tiene que ser un número" })
@@ -467,11 +469,50 @@ export const esquemaLineaCotizacion = z.object({
   descripcion: z.string().trim().max(500, "El detalle es demasiado largo").nullable(),
 });
 
+const medidaDePieza = z
+  .number({ error: "Las medidas de cada pieza son números, en centímetros" })
+  .positive("Las medidas de cada pieza tienen que ser mayores que cero")
+  .max(2000, "Esa medida no es razonable")
+  .refine((n) => decimalesDe(n) <= 2, "Las medidas admiten hasta 2 decimales");
+
+/**
+ * Un corte a medida. Del navegador llegan el material (por su grupo del
+ * catálogo), las piezas y el formato de plancha elegido; el precio, las planchas
+ * y el acomodo los calcula el servidor con el mismo motor (`lib/cortes/`).
+ */
+export const esquemaLineaCorte = z.object({
+  tipo: z.literal("corte"),
+  grupoId: z.uuid("Elige el material del corte"),
+  /** Solo cuando el código de Odoo es de varios colores: cuál se pidió. */
+  color: z.string().trim().max(60, "El color es demasiado largo").nullable(),
+  modalidad: z.enum(["laser", "manual"]),
+  piezas: z
+    .array(
+      z.object({
+        ancho: medidaDePieza,
+        alto: medidaDePieza,
+        cantidad: z
+          .number({ error: "La cantidad de piezas tiene que ser un número" })
+          .int("La cantidad de piezas es un número entero")
+          .positive("La cantidad de piezas tiene que ser mayor que cero")
+          .max(2000, "Son demasiadas piezas de una misma medida"),
+      }),
+    )
+    .min(1, "Un corte necesita al menos una pieza")
+    .max(40, "Son demasiadas medidas distintas para un solo corte"),
+  formatoCodigo: z.string().trim().min(1, "Elige el formato de plancha").max(40),
+  /**
+   * El total que la pantalla le enseñó a quien cotiza. Si el servidor calcula
+   * otro —cambió un precio mientras tanto—, no se guarda a ciegas.
+   */
+  totalMostrado: z.number().min(0),
+});
+
 export const esquemaNuevaCotizacion = z.object({
   canal: z.enum(["tienda", "whatsapp"]),
   clienteId: z.number({ error: "Elige el cliente" }).int().positive("Elige el cliente"),
   lineas: z
-    .array(esquemaLineaCotizacion)
+    .array(z.union([esquemaLineaCorte, esquemaLineaCotizacion]))
     .min(1, "Agrega al menos un producto")
     .max(100, "Son demasiados productos para una cotización"),
   notas: z.string().trim().max(2000, "Las notas son demasiado largas").nullable(),
@@ -510,6 +551,7 @@ export const esquemaNuevoClienteOdoo = z.object({
 });
 
 export type NuevaCotizacion = z.output<typeof esquemaNuevaCotizacion>;
+export type NuevaLineaCorte = z.output<typeof esquemaLineaCorte>;
 export type NuevoClienteOdoo = z.output<typeof esquemaNuevoClienteOdoo>;
 export type FormNuevoClienteOdoo = z.input<typeof esquemaNuevoClienteOdoo>;
 

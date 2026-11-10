@@ -143,36 +143,45 @@ export type Database = {
       cotizacion_productos: {
         Row: {
           cantidad: number
+          corte: Json | null
           cotizacion_id: string
           descripcion: string | null
           id: string
+          importe: number | null
           odoo_product_id: number
           posicion: number
           precio_unitario: number
           producto_codigo: string | null
           producto_nombre: string
+          tipo: Database["public"]["Enums"]["tipo_linea"]
         }
         Insert: {
           cantidad: number
+          corte?: Json | null
           cotizacion_id: string
           descripcion?: string | null
           id?: string
+          importe?: number | null
           odoo_product_id: number
           posicion: number
           precio_unitario: number
           producto_codigo?: string | null
           producto_nombre: string
+          tipo?: Database["public"]["Enums"]["tipo_linea"]
         }
         Update: {
           cantidad?: number
+          corte?: Json | null
           cotizacion_id?: string
           descripcion?: string | null
           id?: string
+          importe?: number | null
           odoo_product_id?: number
           posicion?: number
           precio_unitario?: number
           producto_codigo?: string | null
           producto_nombre?: string
+          tipo?: Database["public"]["Enums"]["tipo_linea"]
         }
         Relationships: [
           {
@@ -1478,6 +1487,7 @@ export type Database = {
       sincronizacion_odoo: "pendiente" | "sincronizada" | "error"
       tipo_adjunto: "diseno" | "factura" | "guia" | "foto_entrega"
       tipo_documento: "DNI" | "CE"
+      tipo_linea: "producto" | "corte"
       tipo_notificacion: "pedido_creado" | "responsable_asignado"
       tipo_pago: "contado" | "a_cuenta" | "credito"
       tipo_pedido: "CL" | "CM" | "SP" | "PT" | "AC"
@@ -1643,6 +1653,7 @@ export const Constants = {
       sincronizacion_odoo: ["pendiente", "sincronizada", "error"],
       tipo_adjunto: ["diseno", "factura", "guia", "foto_entrega"],
       tipo_documento: ["DNI", "CE"],
+      tipo_linea: ["producto", "corte"],
       tipo_notificacion: ["pedido_creado", "responsable_asignado"],
       tipo_pago: ["contado", "a_cuenta", "credito"],
       tipo_pedido: ["CL", "CM", "SP", "PT", "AC"],
