@@ -111,6 +111,35 @@ export type Database = {
           },
         ]
       }
+      configuracion: {
+        Row: {
+          actualizado_en: string
+          actualizado_por: string | null
+          clave: string
+          valor: Json
+        }
+        Insert: {
+          actualizado_en?: string
+          actualizado_por?: string | null
+          clave: string
+          valor: Json
+        }
+        Update: {
+          actualizado_en?: string
+          actualizado_por?: string | null
+          clave?: string
+          valor?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "configuracion_actualizado_por_fkey"
+            columns: ["actualizado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cotizacion_productos: {
         Row: {
           cantidad: number
@@ -240,6 +269,27 @@ export type Database = {
             referencedRelation: "pedidos"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "cotizaciones_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: true
+            referencedRelation: "pedidos_admin"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cotizaciones_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: true
+            referencedRelation: "pedidos_logistica"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cotizaciones_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: true
+            referencedRelation: "pedidos_operaciones"
+            referencedColumns: ["id"]
+          },
         ]
       }
       departamentos: {
@@ -341,6 +391,80 @@ export type Database = {
             referencedColumns: ["id", "departamento_id"]
           },
         ]
+      }
+      formatos_plancha: {
+        Row: {
+          activo: boolean
+          ancho_cm: number
+          codigo_odoo: string
+          grupo_id: string
+          id: string
+          largo_cm: number
+          nota: string | null
+          por_verificar: boolean
+          sku_compartido: boolean
+        }
+        Insert: {
+          activo?: boolean
+          ancho_cm: number
+          codigo_odoo: string
+          grupo_id: string
+          id?: string
+          largo_cm: number
+          nota?: string | null
+          por_verificar?: boolean
+          sku_compartido?: boolean
+        }
+        Update: {
+          activo?: boolean
+          ancho_cm?: number
+          codigo_odoo?: string
+          grupo_id?: string
+          id?: string
+          largo_cm?: number
+          nota?: string | null
+          por_verificar?: boolean
+          sku_compartido?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "formatos_plancha_grupo_id_fkey"
+            columns: ["grupo_id"]
+            isOneToOne: false
+            referencedRelation: "grupos_plancha"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      grupos_plancha: {
+        Row: {
+          detalle: string
+          espesor_mm: number
+          id: string
+          material: string
+          rotable: boolean
+          sobrantes_activo: boolean
+          variante: string
+        }
+        Insert: {
+          detalle?: string
+          espesor_mm: number
+          id?: string
+          material: string
+          rotable?: boolean
+          sobrantes_activo?: boolean
+          variante?: string
+        }
+        Update: {
+          detalle?: string
+          espesor_mm?: number
+          id?: string
+          material?: string
+          rotable?: boolean
+          sobrantes_activo?: boolean
+          variante?: string
+        }
+        Relationships: []
       }
       historial_estados: {
         Row: {
@@ -872,25 +996,6 @@ export type Database = {
       }
     }
     Views: {
-      clientes_cotizados: {
-        Row: {
-          cliente_documento: string | null
-          cliente_nombre: string | null
-          cliente_telefono: string | null
-          odoo_partner_id: number | null
-          ultima_vez: string | null
-          veces: number | null
-        }
-        Relationships: []
-      }
-      productos_mas_cotizados: {
-        Row: {
-          odoo_product_id: number | null
-          ultima_vez: string | null
-          veces: number | null
-        }
-        Relationships: []
-      }
       auditoria_pedido: {
         Row: {
           campo: string | null
@@ -931,6 +1036,17 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      clientes_cotizados: {
+        Row: {
+          cliente_documento: string | null
+          cliente_nombre: string | null
+          cliente_telefono: string | null
+          odoo_partner_id: number | null
+          ultima_vez: string | null
+          veces: number | null
+        }
+        Relationships: []
       }
       historial_pedido: {
         Row: {
@@ -1199,6 +1315,14 @@ export type Database = {
           },
         ]
       }
+      productos_mas_cotizados: {
+        Row: {
+          odoo_product_id: number | null
+          ultima_vez: string | null
+          veces: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       array_sin_duplicados: { Args: { a: unknown }; Returns: boolean }
@@ -1256,7 +1380,6 @@ export type Database = {
         }
         Returns: string
       }
-      debug_mi_rol: { Args: never; Returns: Json }
       despachar_push: { Args: never; Returns: undefined }
       email_de_usuario: { Args: { nombre_usuario: string }; Returns: string }
       es_admin: { Args: never; Returns: boolean }
@@ -1527,3 +1650,4 @@ export const Constants = {
     },
   },
 } as const
+

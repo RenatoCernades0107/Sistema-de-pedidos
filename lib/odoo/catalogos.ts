@@ -6,7 +6,7 @@
 import { compactar, type CamposBuscables } from "../busqueda-inteligente";
 import { buscarClientesEnOdoo, cargarClientes } from "./clientes";
 import { IndiceOdoo } from "./indice";
-import { buscarProductosEnOdoo, cargarProductos, leerProductos } from "./productos";
+import { buscarProductosEnOdoo, cargarProductos, leerProductos, leerProductosPorCodigo } from "./productos";
 import { registrarReinicio } from "./rpc";
 import type { ClienteOdoo, ProductoOdoo, RespuestaBusqueda } from "./tipos";
 
@@ -106,6 +106,29 @@ export async function productosPorId(ids: number[]): Promise<Map<number, Product
   }
   for (const p of await leerProductos(faltan)) {
     mapa.set(p.id, p);
+    productos.agregar(p);
+  }
+  return mapa;
+}
+
+/**
+ * Los productos por su referencia interna (`default_code`), del índice si están
+ * y de Odoo —en una sola consulta— los que falten. Así se sabe el precio de cada
+ * formato de plancha sin un viaje a Odoo por cálculo.
+ *
+ * Si dos productos comparten código, gana el primero que se encuentre: en Odoo
+ * la referencia debería ser única, y aquí no hay forma de saber cuál se quiso.
+ */
+export async function productosPorCodigo(codigos: string[]): Promise<Map<string, ProductoOdoo>> {
+  await productos.asegurar().catch(() => {});
+  const buscados = new Set(codigos);
+  const mapa = new Map<string, ProductoOdoo>();
+  for (const p of productos.todos()) {
+    if (p.codigo && buscados.has(p.codigo) && !mapa.has(p.codigo)) mapa.set(p.codigo, p);
+  }
+  const faltan = [...buscados].filter((c) => !mapa.has(c));
+  for (const p of await leerProductosPorCodigo(faltan)) {
+    if (p.codigo && !mapa.has(p.codigo)) mapa.set(p.codigo, p);
     productos.agregar(p);
   }
   return mapa;

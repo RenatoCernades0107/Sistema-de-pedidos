@@ -122,3 +122,15 @@ E2E_URL=https://<dominio>.vercel.app npm run e2e
 - `lib/busqueda-inteligente.ts` — el buscador: el código manda (`AC-003`, `ac 003` y `AC003` son lo
   mismo; un código exacto va primero y un lector de códigos de barras agrega con Enter), cada
   palabra en cualquier orden, sin tildes y con errores de tipeo, y desempata lo más cotizado.
+- `lib/cortes/` — el cálculo de un corte ("10 piezas de 60×80 en acrílico de 3 mm"), puro: corre
+  igual en el navegador y en el servidor. `optimizador.ts` acomoda las piezas en planchas con
+  cortes de guillotina (prueba cuatro órdenes y se queda con el mejor); `cobro.ts` decide qué se
+  cobra de cada plancha —el cuarto o la media donde las piezas *realmente* caben, con recargo, o
+  la plancha entera— y deja el resto como sobrante; `laser.ts` y `manual.ts` son el servicio;
+  `calcular.ts` lo junta y ordena los formatos de plancha por precio.
+- **Configuración** (`app/(app)/configuracion/`, solo Administración): los precios de corte (tabla
+  del láser, corte manual por espesor, recargo, grosor del corte) y el catálogo de planchas
+  (`grupos_plancha` → `formatos_plancha`, cada formato con su código de Odoo). Los parámetros se
+  guardan en `configuracion`; un valor que falte o no sirva cae a su defecto
+  (`lib/cortes/config.ts`), así que una tabla mal escrita no deja a la tienda sin cotizar. El
+  precio de la plancha no se guarda: sale de Odoo por el código.

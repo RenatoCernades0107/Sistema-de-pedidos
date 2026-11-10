@@ -138,3 +138,15 @@ export async function leerProductos(ids: number[]): Promise<ProductoOdoo[]> {
   const filas = await ejecutar<Fila[]>(MODELO, "read", [ids], { fields: await campos() });
   return filas.map(deProducto);
 }
+
+/**
+ * Los productos por su referencia interna. Una sola consulta para todos: es lo
+ * que usa el cálculo de cortes para saber el precio de cada formato de plancha.
+ */
+export async function leerProductosPorCodigo(codigos: string[]): Promise<ProductoOdoo[]> {
+  if (codigos.length === 0) return [];
+  const filas = await ejecutar<Fila[]>(MODELO, "search_read", [[["default_code", "in", codigos]]], {
+    fields: await campos(),
+  });
+  return filas.map(deProducto);
+}
