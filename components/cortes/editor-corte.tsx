@@ -356,6 +356,7 @@ export function EditorCorte({
                 fresco
                 inputRef={buscador}
                 autoFocus
+                enLinea
               />
             </div>
           )}
