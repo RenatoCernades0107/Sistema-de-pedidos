@@ -68,7 +68,12 @@ export function CorteGuardadoVista({
               titulo={`Plancha ${i + 1} de ${c.planchas.length}: ${p.piezas} piezas en ${n(p.ancho)}×${n(p.alto)} cm`}
             />
             <figcaption className="text-muted-foreground text-xs">
-              Plancha {i + 1} · {p.piezas} {p.piezas === 1 ? "pieza" : "piezas"}
+              {p.origen.tipo === "sobrante" ? (
+                <span className="text-foreground font-medium">Sobrante {p.origen.id}</span>
+              ) : (
+                `Plancha ${i + 1}`
+              )}{" "}
+              · {p.piezas} {p.piezas === 1 ? "pieza" : "piezas"}
               {p.cobro.factor < 1 && (
                 <>
                   {" "}

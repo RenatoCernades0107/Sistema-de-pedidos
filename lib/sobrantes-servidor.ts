@@ -25,6 +25,7 @@ import {
   materialOdoo,
   notaDeLote,
   normalizarMedidas,
+  ordenDeUso,
   type EstadoSobrante,
   type OrigenSobrante,
   type Sobrante,
@@ -36,7 +37,8 @@ const COLUMNAS = `
   id, codigo, grupo_id, color, largo_cm, ancho_cm, ubicacion, estado, estandar, origen,
   odoo_lot_id, sincronizacion, error_sincronizacion, creado_en, linea_posicion,
   grupo:grupos_plancha ( material, variante, detalle, espesor_mm ),
-  pedido:pedidos ( codigo )
+  nacio:pedidos!sobrantes_pedido_id_fkey ( codigo ),
+  reserva:pedidos!sobrantes_reserva_pedido_id_fkey ( codigo )
 `;
 
 interface Fila {
@@ -56,7 +58,8 @@ interface Fila {
   creado_en: string;
   linea_posicion: number | null;
   grupo: { material: string; variante: string; detalle: string; espesor_mm: number } | null;
-  pedido: { codigo: string } | null;
+  nacio: { codigo: string } | null;
+  reserva: { codigo: string } | null;
 }
 
 const uno = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
@@ -79,7 +82,8 @@ function deFila(f: Fila): Sobrante {
     ubicacion: f.ubicacion,
     estado: f.estado,
     estandar: f.estandar,
-    pedido: uno(f.pedido)?.codigo ?? null,
+    pedido: uno(f.reserva)?.codigo ?? null,
+    nacioEn: uno(f.nacio)?.codigo ?? null,
     lineaPosicion: f.linea_posicion,
     origen: f.origen as OrigenSobrante,
     odooLotId: f.odoo_lot_id,
@@ -95,6 +99,41 @@ export async function cargarSobrantes(): Promise<Sobrante[]> {
   const { data, error } = await supabase.from("sobrantes").select(COLUMNAS).order("creado_en", { ascending: false });
   if (error) throw new Error(`No se pudieron leer los sobrantes: ${error.message}`);
   return ((data ?? []) as unknown as Fila[]).map(deFila);
+}
+
+export interface SobranteDisponible {
+  codigo: string;
+  largo: number;
+  ancho: number;
+  color: string | null;
+  estandar: boolean;
+  creadoEn: string;
+}
+
+/**
+ * Los sobrantes de un material que se pueden usar en un corte: disponibles y ya
+ * en Odoo (con su lote), en el orden en que conviene usarlos.
+ */
+export async function sobrantesDisponibles(grupoId: string): Promise<SobranteDisponible[]> {
+  const supabase = await clienteServidor();
+  const { data, error } = await supabase
+    .from("sobrantes")
+    .select("codigo, largo_cm, ancho_cm, color, estandar, creado_en")
+    .eq("grupo_id", grupoId)
+    .eq("estado", "disponible")
+    .eq("sincronizacion", "sincronizada")
+    .not("odoo_lot_id", "is", null);
+  if (error) throw new Error(`No se pudieron leer los sobrantes: ${error.message}`);
+  return ordenDeUso(
+    (data ?? []).map((f) => ({
+      codigo: f.codigo,
+      largo: Number(f.largo_cm),
+      ancho: Number(f.ancho_cm),
+      color: f.color,
+      estandar: f.estandar,
+      creadoEn: f.creado_en,
+    })),
+  );
 }
 
 /** Los que un pedido devolvió al almacén (sin los dados de baja). */
@@ -143,7 +182,7 @@ export async function llevarAOdoo(codigo: string): Promise<{ ok: true } | { ok: 
   if (s.origen === "corte") {
     return {
       ok: false,
-      error: `Este sobrante entra a Odoo al cerrar la producción de ${s.pedido ? `el pedido ${s.pedido}` : "su pedido"}: reintenta desde el pedido.`,
+      error: `Este sobrante entra a Odoo al cerrar la producción de ${s.nacioEn ? `el pedido ${s.nacioEn}` : "su pedido"}: reintenta desde el pedido.`,
     };
   }
 

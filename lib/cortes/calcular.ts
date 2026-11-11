@@ -12,7 +12,7 @@ import type { ConfigCortes } from "./config";
 import { cobrarPlancha, opcionesDeCobro, type PlanchaCobrada } from "./cobro";
 import { tiempoLaser, type PiezaPedida } from "./laser";
 import { mensajeSinPrecioManual, precioManual } from "./manual";
-import { empaquetar, type Pieza, type ResultadoCorte } from "./optimizador";
+import { empaquetar, type Contenedor, type Pieza, type ResultadoCorte } from "./optimizador";
 
 export type { PiezaPedida } from "./laser";
 
@@ -113,11 +113,19 @@ function agrupar(piezas: Pieza[]): PiezaPedida[] {
 export const kerfDe = (config: ConfigCortes, modalidad: Modalidad) =>
   modalidad === "laser" ? config.corte.kerfLaser : config.corte.kerfManual;
 
-/** El cálculo sobre un formato concreto. */
+/**
+ * El cálculo sobre un formato concreto.
+ *
+ * `sobrantes` son piezas del almacén del mismo material (piloto de sobrantes),
+ * en el orden en que conviene usarlas. Cambian el acomodo —qué se corta de
+ * dónde— pero no el precio: un corte cuesta lo mismo salga de donde salga, como
+ * si fueran planchas nuevas del formato elegido.
+ */
 export function calcularCorte(
   entrada: EntradaCorte,
   formato: FormatoCorte,
   config: ConfigCortes,
+  sobrantes: Contenedor[] = [],
 ): CalculoCorte {
   const total = contarPiezas(entrada.piezas);
   const vacio = (problema: string): CalculoCorte => ({
@@ -158,13 +166,28 @@ export function calcularCorte(
     margen: config.corte.margen,
     costo: (r) => cobradas(r).reduce((s, p) => s + p.cobro.monto, 0),
   });
-  const planchas = cobradas(corte);
+  const precio = cobradas(corte);
+  let planchas = precio;
+  if (sobrantes.length) {
+    /* El acomodo físico, con los sobrantes primero. Si no mejora nada (no se usó
+       ninguno) o dejara piezas fuera, vale el de planchas nuevas. */
+    const fisico = empaquetar(formato.ancho, formato.alto, piezas, {
+      rotar: entrada.rotable,
+      kerf,
+      margen: config.corte.margen,
+      previos: sobrantes,
+      costo: (r) => cobradas(r).reduce((s, p) => s + (p.origen.tipo === "plancha" ? p.cobro.monto : 0), 0),
+    });
+    if (fisico.noCaben.length === 0 && fisico.planchas.some((p) => p.origen.tipo === "sobrante")) {
+      planchas = cobradas(fisico);
+    }
+  }
 
-  const material = redondear2(planchas.reduce((s, p) => s + p.cobro.monto, 0));
-  const areaPlanchas = planchas.length * formato.ancho * formato.alto;
-  const areaUsada = planchas.reduce((s, p) => s + p.areaUsada, 0);
+  const material = redondear2(precio.reduce((s, p) => s + p.cobro.monto, 0));
+  const areaPlanchas = precio.length * formato.ancho * formato.alto;
+  const areaUsada = precio.reduce((s, p) => s + p.areaUsada, 0);
 
-  const desglose: LineaDesglose[] = planchas.map((p, i) => {
+  const desglose: LineaDesglose[] = precio.map((p, i) => {
     const medida = `${numero(formato.ancho)}×${numero(formato.alto)}`;
     if (p.cobro.factor < 1) {
       return {
@@ -242,9 +265,10 @@ export function compararFormatos(
   entrada: EntradaCorte,
   formatos: FormatoCorte[],
   config: ConfigCortes,
+  sobrantes: Contenedor[] = [],
 ): CalculoCorte[] {
   return formatos
-    .map((f) => calcularCorte(entrada, f, config))
+    .map((f) => calcularCorte(entrada, f, config, sobrantes))
     .sort(
       (a, b) =>
         Number(!!a.problema) - Number(!!b.problema) ||

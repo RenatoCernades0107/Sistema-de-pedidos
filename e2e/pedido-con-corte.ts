@@ -14,8 +14,12 @@ const manana = () => new Date(Date.now() + 86_400_000).toISOString().slice(0, 10
  * F7E024 (2 completas y 1 media), con indicaciones si se dan. Devuelve el código.
  */
 export async function registrarPedidoConCorte(page: Page, indicaciones?: string): Promise<string> {
-  await entrar(page, "administracion");
+  // Entra solo si hace falta: quien llama puede venir ya con la sesión de Administración.
   await page.goto("/pedidos/nuevo");
+  if (page.url().includes("/login")) {
+    await entrar(page, "administracion");
+    await page.goto("/pedidos/nuevo");
+  }
 
   const cliente = page.getByLabel("Buscar cliente");
   await cliente.fill("jose");

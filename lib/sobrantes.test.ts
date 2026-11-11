@@ -111,7 +111,7 @@ describe("el piloto", () => {
     paneles,
   });
 
-  it("propone como sobrantes las zonas libres de planchas nuevas que no son retazo", () => {
+  it("propone como sobrantes las zonas libres que no son retazo, también lo que queda de un sobrante", () => {
     const corte = {
       planchas: [
         plancha([
@@ -122,9 +122,13 @@ describe("el piloto", () => {
         plancha([{ x1: 50, y1: 0, x2: 100, y2: 60, libre: true }], "sobrante"),
       ],
     } as unknown as Parameters<typeof sobrantesDeCorte>[0];
-    expect(sobrantesDeCorte(corte, 30)).toEqual([{ largo: 183, ancho: 61 }]);
+    expect(sobrantesDeCorte(corte, 30)).toEqual([
+      { largo: 183, ancho: 61 },
+      { largo: 60, ancho: 50 },
+    ]);
     expect(sobrantesDeCorte(corte, 20)).toEqual([
       { largo: 183, ancho: 61 },
+      { largo: 60, ancho: 50 },
       { largo: 61, ancho: 23 },
     ]);
   });

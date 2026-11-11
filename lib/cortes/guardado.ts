@@ -181,10 +181,22 @@ export const materialDeCorte = (c: Omit<ParaTitulo, "modalidad">) =>
 /** "Corte láser · Acrílico ECO · Cristal · 3 mm". */
 export const tituloCorte = (c: ParaTitulo) => `${MODALIDADES[c.modalidad]} · ${materialDeCorte(c)}`;
 
-/** "3 planchas de 122×183". */
+/** Las planchas nuevas que abre un corte: sin los sobrantes del almacén. */
+export const planchasNuevas = (c: Pick<CorteGuardado, "planchas">) =>
+  c.planchas.filter((p) => p.origen.tipo === "plancha").length;
+
+/** Los sobrantes del almacén que usa un corte, por su código. */
+export const sobrantesUsados = (c: Pick<CorteGuardado, "planchas">) =>
+  c.planchas.flatMap((p) => (p.origen.tipo === "sobrante" ? [p.origen.id] : []));
+
+/** "3 planchas de 122×183"; con sobrantes, "2 planchas de 122×183 y 1 sobrante". */
 export function planchasTexto(c: Pick<CorteGuardado, "planchas" | "formato">): string {
-  const cuantas = c.planchas.length;
-  return `${cuantas} ${cuantas === 1 ? "plancha" : "planchas"} de ${n(c.formato.ancho)}×${n(c.formato.alto)}`;
+  const cuantas = planchasNuevas(c);
+  const sobrantes = c.planchas.length - cuantas;
+  const nuevas = `${cuantas} ${cuantas === 1 ? "plancha" : "planchas"} de ${n(c.formato.ancho)}×${n(c.formato.alto)}`;
+  if (!sobrantes) return nuevas;
+  const deAlmacen = `${sobrantes} ${sobrantes === 1 ? "sobrante" : "sobrantes"}`;
+  return cuantas ? `${nuevas} y ${deAlmacen}` : deAlmacen;
 }
 
 /** Cuántas piezas son en total. */

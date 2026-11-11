@@ -36,7 +36,7 @@ import {
 } from "@/lib/cotizaciones-servidor";
 import { registrarCotizacion } from "@/lib/cotizaciones-registro";
 import { cancelarVentaDePedido, descontarStockDePedido, leerLineasDePedido } from "@/lib/pedido-odoo-servidor";
-import { guardarSobrantesDeCorte } from "@/lib/produccion-servidor";
+import { guardarSobrantesDeCorte, reservarSobrantes } from "@/lib/produccion-servidor";
 import { detalleDesdeLineas, referenciaDe, sumaLineas } from "@/lib/cotizaciones";
 import { totalPiezas } from "@/lib/cortes/guardado";
 import { ODOO_NO_CONFIGURADO, odooConfigurado } from "@/lib/odoo/rpc";
@@ -226,6 +226,11 @@ export async function registrarPedido(entrada: unknown): Promise<Resultado> {
     return fallo(`${mensajeDeError(error)}${queda}`);
   }
 
+  /* Con el piloto de sobrantes, el acomodo de cada corte se rehace con los
+     sobrantes disponibles ahora, y esos quedan reservados para este pedido. */
+  const reserva = await reservarSobrantes(cotizacionId, c.lineas);
+  if (!reserva.ok) aviso = reserva.error;
+
   /* La cotización pasa a pedido de venta en Odoo, que es lo que reserva el stock.
      Va después del alta y no la deshace si falla: el pedido ya está, y la
      cotización se queda con el motivo para reintentar desde su detalle. */
@@ -307,6 +312,9 @@ export async function cambiarEstado(entrada: unknown): Promise<Resultado> {
     if (!r.ok) return { ok: true, aviso: `No se descontó el stock en Odoo: ${r.error}` };
   }
   if (estado === "anulado") {
+    // Los sobrantes que tenía reservados vuelven a estar disponibles.
+    const supabase = await clienteServidor();
+    await supabase.rpc("soltar_sobrantes_de_pedido", { p_codigo: codigo, p_consumir: false });
     const r = await cancelarVentaDePedido(codigo);
     if (!r.ok) return { ok: true, aviso: `No se canceló la venta en Odoo: ${r.error}` };
   }

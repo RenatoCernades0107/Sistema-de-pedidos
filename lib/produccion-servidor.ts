@@ -9,15 +9,26 @@
  * roles.
  */
 
-import { cargarGrupoPlancha } from "./cortes-servidor";
+import { cargarConfigCortes, cargarGrupoPlancha } from "./cortes-servidor";
+import { calcularCorte } from "./cortes/calcular";
 import { pideColor } from "./cortes/catalogo";
-import type { CorteGuardado } from "./cortes/guardado";
+import { guardarCorte, planchasNuevas, sobrantesUsados, type CorteGuardado } from "./cortes/guardado";
+import type { Json } from "./supabase-tipos";
 import { mensajeDeError } from "./errores";
 import { cancelarProduccion, cerrarProduccion, crearProduccion } from "./odoo/produccion";
 import { origenDe } from "./odoo/pedidos-venta";
 import { ErrorOdoo } from "./odoo/rpc";
 import type { LineaDePedido } from "./pedido-lineas";
-import { areaPiezasM2, esEstandar, materialOdoo, normalizarMedidas, notaDeLote, sobrantesDeCorte } from "./sobrantes";
+import {
+  areaPiezasM2,
+  contenedoresDe,
+  esEstandar,
+  materialOdoo,
+  normalizarMedidas,
+  notaDeLote,
+  sobrantesDeCorte,
+} from "./sobrantes";
+import { sobrantesDisponibles } from "./sobrantes-servidor";
 import { clienteServidor } from "./supabase-servidor";
 
 type Resultado = { ok: true } | { ok: false; error: string };
@@ -31,8 +42,18 @@ const mensaje = (e: unknown, contexto: string) => {
 /** Si la línea es un corte con el piloto encendido (al cotizarse). */
 export const conPiloto = (l: { corte: CorteGuardado | null }) => !!l.corte?.sobrantes;
 
-/** Las planchas nuevas del cálculo: las que la orden consume si nadie anotó otra cosa. */
-const planchasNuevas = (c: CorteGuardado) => c.planchas.filter((p) => p.origen.tipo === "plancha").length;
+
+/** Los lotes de Odoo de los sobrantes del almacén que usa un corte. */
+async function lotesConsumidos(corte: CorteGuardado): Promise<number[]> {
+  const codigos = sobrantesUsados(corte);
+  if (codigos.length === 0) return [];
+  const supabase = await clienteServidor();
+  const { data, error } = await supabase.from("sobrantes").select("codigo, odoo_lot_id").in("codigo", codigos);
+  if (error) throw new Error(`No se pudieron leer los sobrantes del corte: ${error.message}`);
+  const sinLote = codigos.filter((c) => !data?.find((f) => f.codigo === c)?.odoo_lot_id);
+  if (sinLote.length) throw new ErrorOdoo(`Los sobrantes ${sinLote.join(", ")} no tienen lote en Odoo.`);
+  return codigos.map((c) => data!.find((f) => f.codigo === c)!.odoo_lot_id!);
+}
 
 async function retazoMinimo(): Promise<number> {
   const supabase = await clienteServidor();
@@ -62,6 +83,7 @@ async function asegurarProduccion(
     planchaId: l.productoId,
     planchas: planchasNuevas(corte),
     sobrantesPrevistos: sobrantesDeCorte(corte, retazo).map((s) => ({ areaM2: (s.largo * s.ancho) / 10000 })),
+    consumidos: await lotesConsumidos(corte),
   });
 
   const supabase = await clienteServidor();
@@ -89,6 +111,59 @@ export async function producirCortes(
       await asegurarProduccion(cotizacionId, { ...l, produccionId: l.produccionId ?? null });
     } catch (e) {
       return { ok: false, error: `No se creó la orden de fabricación del corte: ${mensaje(e, "crear")}` };
+    }
+  }
+  return { ok: true };
+}
+
+/* ── La reserva ────────────────────────────────────────────────────────────── */
+
+/**
+ * Al registrar el pedido, el acomodo de cada corte con piloto se rehace con los
+ * sobrantes disponibles en ese momento —los que vio quien cotizó pueden ya no
+ * estar— y esos quedan reservados para el pedido, en la misma transacción que
+ * guarda el acomodo. Si otro pedido se lleva uno a la vez, se rehace sin él.
+ *
+ * El precio no cambia: es el de la cotización, salga de donde salga el material.
+ */
+export async function reservarSobrantes(
+  cotizacionId: string,
+  lineas: { posicion: number; corte: CorteGuardado | null }[],
+): Promise<Resultado> {
+  const supabase = await clienteServidor();
+  const config = await cargarConfigCortes();
+
+  for (const l of lineas.filter(conPiloto)) {
+    const corte = l.corte!;
+    const grupo = await cargarGrupoPlancha(corte.grupoId);
+    if (!grupo) continue;
+
+    for (let intento = 0; intento < 4; intento++) {
+      // El último intento, sin sobrantes: planchas nuevas, que siempre se pueden.
+      const disponibles = intento < 3 ? contenedoresDe(await sobrantesDisponibles(grupo.id), pideColor(grupo) ? corte.color : null) : [];
+      const calculo = calcularCorte(
+        { piezas: corte.piezas, espesorMm: corte.espesorMm, modalidad: corte.modalidad, rotable: corte.rotable },
+        corte.formato,
+        config,
+        disponibles,
+      );
+      const nuevo: CorteGuardado = {
+        ...corte,
+        planchas: guardarCorte({ ...corte }, { ...calculo, formato: corte.formato }).planchas,
+      };
+      const codigos = sobrantesUsados(nuevo);
+
+      const { error } = await supabase.rpc("reservar_sobrantes_de_corte", {
+        p_cotizacion: cotizacionId,
+        p_posicion: l.posicion,
+        p_corte: nuevo as unknown as Json,
+        p_codigos: codigos,
+      });
+      if (!error) break;
+      if (!error.message.includes("SOBRANTE_OCUPADO")) {
+        return { ok: false, error: `No se reservaron los sobrantes: ${mensajeDeError(error)}` };
+      }
+      // Otro pedido se llevó alguno a la vez: se vuelve a leer lo disponible.
     }
   }
   return { ok: true };
@@ -192,6 +267,7 @@ export async function cerrarCortesDePedido(
 
       const lotes = await cerrarProduccion(moId, {
         material,
+        consumidos: await lotesConsumidos(l.corte!),
         planchas: l.planchasUsadas ?? planchasNuevas(l.corte!),
         sobrantes: (filas ?? []).map((f) => ({
           nombre: f.codigo,
@@ -207,6 +283,12 @@ export async function cerrarCortesDePedido(
           .update({ odoo_lot_id: lotes.get(f.codigo) ?? null, sincronizacion: "sincronizada", error_sincronizacion: null })
           .eq("id", f.id);
       }
+      // Los sobrantes del almacén que usó el corte ya no están.
+      await supabase.rpc("soltar_sobrantes_de_pedido", {
+        p_codigo: codigoPedido,
+        p_consumir: true,
+        p_posicion: l.posicion,
+      });
       const { error: alAnotar } = await supabase.rpc("anotar_produccion", {
         p_cotizacion: cotizacionId,
         p_posicion: l.posicion,

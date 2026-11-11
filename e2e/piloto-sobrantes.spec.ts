@@ -32,9 +32,13 @@ async function piloto(encendido: boolean) {
   if (error) throw new Error(error.message);
 }
 
+/** Solo los de prueba (ubicación "E2E…"): la base es la real. */
 async function limpiarSobrantes() {
   const supabase = await sesionDe("administracion");
-  await supabase.from("sobrantes").update({ estado: "baja", odoo_lot_id: null }).eq("origen", "corte");
+  await supabase
+    .from("sobrantes")
+    .update({ estado: "baja", odoo_lot_id: null, reserva_pedido_id: null, reserva_posicion: null })
+    .like("ubicacion", "E2E%");
 }
 
 async function comoTaller(browser: Browser, codigo: string) {
@@ -53,6 +57,9 @@ test.beforeAll(async () => {
   await limpiarSobrantes();
   await piloto(true);
 });
+
+// Cada prueba empieza sin sobrantes de prueba disponibles: los de una no tocan el acomodo de la siguiente.
+test.beforeEach(limpiarSobrantes);
 
 test.afterAll(async () => {
   await piloto(false);
@@ -96,6 +103,7 @@ test("el corte se vende en m² y se fabrica: al terminar, los sobrantes vuelven 
   await primero.getByLabel("Ubicación").fill("E2E rack 9");
   await dialogo.getByRole("button", { name: "Agregar sobrante" }).click();
   const segundo = dialogo.getByRole("group", { name: "Sobrante 2" });
+  await segundo.getByLabel("Ubicación").fill("E2E rack 9");
   await segundo.getByLabel("Largo").fill("40");
   await segundo.getByLabel("Ancho").fill("20");
   await dialogo.getByRole("button", { name: "Pasar a Listo" }).click();
@@ -181,4 +189,81 @@ test("si Odoo falla al cerrar la producción, Sincronizar no duplica el sobrante
   await expect(lineas.getByText("Stock descontado en Odoo.")).toBeVisible();
   const nuevos = (await estado()).lotes.slice(lotesAntes);
   expect(nuevos.map((l) => [l.x_largo, l.x_ancho, l.cantidad])).toEqual([[183, 61, 1]]);
+});
+
+/** Registra a mano un sobrante de ECO cristal 3 mm, desde la pantalla de Sobrantes. Devuelve su código. */
+async function registrarSobrante(page: import("@playwright/test").Page, largo: string, ancho: string, ubicacion: string) {
+  await page.goto("/sobrantes");
+  await page.getByRole("button", { name: "Registrar sobrante" }).click();
+  const dialogo = page.getByRole("dialog", { name: "Registrar sobrante" });
+  await dialogo.getByLabel("Buscar material").fill("eco cristal 3");
+  await expect(dialogo.getByRole("option", { name: /Acrílico ECO.*Cristal.*3 mm/ }).first()).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await dialogo.getByLabel("Buscar material").press("Enter");
+  // Al elegir el material, el foco salta solo al largo: se espera, o lo escrito antes cae ahí.
+  await expect(dialogo.getByLabel("Largo (cm)")).toBeFocused();
+  await dialogo.getByLabel("Largo (cm)").fill(largo);
+  await dialogo.getByLabel("Ancho (cm)").fill(ancho);
+  await dialogo.getByLabel("Ubicación").fill(ubicacion);
+  await dialogo.getByRole("button", { name: "Registrar" }).click();
+  const aviso = page.getByText(/^SOB-\d+ registrado$/);
+  await expect(aviso).toBeVisible();
+  return (await aviso.textContent())!.replace(" registrado", "");
+}
+
+const sobranteEnBase = async (codigo: string) => {
+  const supabase = await sesionDe("administracion");
+  const { data } = await supabase.from("sobrantes").select("estado, reserva_pedido_id").eq("codigo", codigo).single();
+  return data!;
+};
+
+test("el corte usa primero un sobrante del almacén: queda reservado para el pedido y se consume al terminar", async ({
+  page: admin,
+  browser,
+}) => {
+  await entrar(admin, "administracion");
+  const codigoSobrante = await registrarSobrante(admin, "183", "61", "E2E rack 7");
+  const lote = (await estado()).lotes.find((l) => l.name === codigoSobrante)!;
+  const planchasAntes = await stockDe("F7E024");
+
+  const codigo = await registrarPedidoConCorte(admin);
+  // Dos piezas salen del sobrante: dos planchas nuevas en vez de tres, al mismo precio.
+  expect((await estado()).ordenes.at(-1)!.amount_total).toBe(784.7);
+  expect((await sobranteEnBase(codigoSobrante)).estado).toBe("reservado");
+  const mo = (await estado()).producciones.at(-1)!;
+  const crudos = mo.movimientos.filter((m) => (m.raw_material_production_id as [number])?.[0] === mo.id);
+  expect(crudos.map((m) => m.product_uom_qty)).toEqual([2, 1]);
+
+  const page = await comoTaller(browser, codigo);
+  const lineas = page.getByRole("region", { name: "Productos y cortes" });
+  await expect(lineas.getByText(`Sobrante ${codigoSobrante}`)).toBeVisible();
+  await page.getByRole("button", { name: "En proceso", exact: true }).click();
+  await expect(page.getByText(`${codigo} → En proceso`)).toBeVisible();
+  await page.getByRole("button", { name: "Listo", exact: true }).click();
+  const dialogo = page.getByRole("dialog", { name: "Pasar a Listo" });
+  await expect(dialogo.getByText(`Usa del almacén: ${codigoSobrante}`)).toBeVisible();
+  await expect(dialogo.getByLabel("Planchas usadas (F7E024)")).toHaveValue("2");
+  await dialogo.getByRole("button", { name: "Pasar a Listo" }).click();
+  await expect(lineas.getByText("Stock descontado en Odoo.")).toBeVisible();
+
+  // Se consumieron el sobrante (su lote queda sin stock) y dos planchas nuevas.
+  expect((await sobranteEnBase(codigoSobrante)).estado).toBe("consumido");
+  expect((await estado()).lotes.find((l) => l.id === lote.id)!.cantidad).toBe(0);
+  expect(await stockDe("F7E024")).toBe(planchasAntes! - 2);
+});
+
+test("al anular el pedido, el sobrante reservado vuelve a estar disponible", async ({ page: admin }) => {
+  await entrar(admin, "administracion");
+  const codigoSobrante = await registrarSobrante(admin, "183", "61", "E2E rack 6");
+  const codigo = await registrarPedidoConCorte(admin);
+  expect((await sobranteEnBase(codigoSobrante)).estado).toBe("reservado");
+
+  await admin.getByRole("button", { name: "Anulado", exact: true }).click();
+  const dialogo = admin.getByRole("dialog");
+  await dialogo.getByLabel("Motivo").fill("El cliente desistió del pedido");
+  await dialogo.getByRole("button", { name: "Confirmar cambio" }).click();
+  await expect(admin.getByText(`${codigo} → Anulado`)).toBeVisible();
+  expect(await sobranteEnBase(codigoSobrante)).toEqual({ estado: "disponible", reserva_pedido_id: null });
 });

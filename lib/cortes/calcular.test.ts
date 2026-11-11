@@ -198,3 +198,30 @@ describe("configuración", () => {
     expect(c.servicios).toEqual({ laser: "SRV002", manual: "SRV001" });
   });
 });
+
+describe("con sobrantes del almacén (piloto)", () => {
+  const F7: FormatoCorte = { codigo: "F7E024", ancho: 122, alto: 183, precio: 200 };
+
+  it("usa primero el sobrante donde caben las piezas, sin cambiar el precio", () => {
+    const entrada = corte([[60, 80, 2]]);
+    const sin = calcularCorte(entrada, F7, config);
+    const con = calcularCorte(entrada, F7, config, [{ id: "SOB-00012", ancho: 61, alto: 183 }]);
+
+    expect(con.planchas).toHaveLength(1);
+    expect(con.planchas[0].origen).toEqual({ tipo: "sobrante", id: "SOB-00012" });
+    expect(con.total).toBe(sin.total);
+    expect(con.material).toBe(sin.material);
+    expect(con.desglose).toEqual(sin.desglose);
+  });
+
+  it("si las piezas no caben en el sobrante, abre planchas nuevas como siempre", () => {
+    const r = calcularCorte(corte([[100, 100, 1]]), F7, config, [{ id: "SOB-1", ancho: 61, alto: 183 }]);
+    expect(r.planchas.map((p) => p.origen.tipo)).toEqual(["plancha"]);
+  });
+
+  it("reparte: lo que entra en el sobrante sale de ahí y el resto de planchas nuevas", () => {
+    const r = calcularCorte(corte([[60, 80, 6]]), F7, config, [{ id: "SOB-1", ancho: 61, alto: 183 }]);
+    expect(r.planchas.map((p) => p.origen.tipo).sort()).toEqual(["plancha", "sobrante"]);
+    expect(r.planchas.reduce((s, p) => s + p.piezas, 0)).toBe(6);
+  });
+});

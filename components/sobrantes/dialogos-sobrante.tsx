@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import * as acciones from "@/app/(app)/sobrantes/acciones";
 import {
@@ -80,7 +80,6 @@ function Formulario({ catalogo, alTerminar }: { catalogo: GrupoPlancha[]; alTerm
   const [ubicacion, setUbicacion] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pendiente, iniciar] = useTransition();
-  const medidaRef = useRef<HTMLInputElement>(null);
 
   const opciones: Opcion[] = useMemo(
     () =>
@@ -89,7 +88,6 @@ function Formulario({ catalogo, alTerminar }: { catalogo: GrupoPlancha[]; alTerm
         alElegir: () => {
           setGrupo(g);
           setError(null);
-          requestAnimationFrame(() => medidaRef.current?.focus());
         },
         contenido: (
           <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
@@ -167,36 +165,41 @@ function Formulario({ catalogo, alTerminar }: { catalogo: GrupoPlancha[]; alTerm
           </div>
         )}
 
-        {conColor && (
+        {/* Las medidas aparecen con el material elegido, y el largo llega con el foco. */}
+        {grupo && conColor && (
           <Campo label="Color de la pieza" requerido ayuda="Este material comparte código entre colores.">
-            <Input value={color} onChange={(e) => setColor(e.target.value)} maxLength={60} />
+            <Input autoFocus value={color} onChange={(e) => setColor(e.target.value)} maxLength={60} />
           </Campo>
         )}
 
-        <div className="grid grid-cols-2 gap-3">
-          <Campo label="Largo (cm)" requerido>
-            <Input
-              ref={medidaRef}
-              inputMode="decimal"
-              className="tnum"
-              value={largo}
-              onChange={(e) => setLargo(e.target.value)}
-            />
-          </Campo>
-          <Campo label="Ancho (cm)" requerido>
-            <Input inputMode="decimal" className="tnum" value={ancho} onChange={(e) => setAncho(e.target.value)} />
-          </Campo>
-        </div>
-        {medidas && (
-          <p className="text-muted-foreground -mt-2 text-xs" aria-live="polite">
-            {medidaSobrante(medidas)} cm
-            {estandar && " · es media o cuarta parte de una plancha: queda como estándar y se usa al final"}
-          </p>
-        )}
+        {grupo && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <Campo label="Largo (cm)" requerido>
+                <Input
+                  autoFocus={!conColor}
+                  inputMode="decimal"
+                  className="tnum"
+                  value={largo}
+                  onChange={(e) => setLargo(e.target.value)}
+                />
+              </Campo>
+              <Campo label="Ancho (cm)" requerido>
+                <Input inputMode="decimal" className="tnum" value={ancho} onChange={(e) => setAncho(e.target.value)} />
+              </Campo>
+            </div>
+            {medidas && (
+              <p className="text-muted-foreground -mt-2 text-xs" aria-live="polite">
+                {medidaSobrante(medidas)} cm
+                {estandar && " · es media o cuarta parte de una plancha: queda como estándar y se usa al final"}
+              </p>
+            )}
 
-        <Campo label="Ubicación" ayuda="Dónde lo guardas: rack, fila, estante.">
-          <Input value={ubicacion} onChange={(e) => setUbicacion(e.target.value)} maxLength={80} placeholder="Rack 2, fila B" />
-        </Campo>
+            <Campo label="Ubicación" ayuda="Dónde lo guardas: rack, fila, estante.">
+              <Input value={ubicacion} onChange={(e) => setUbicacion(e.target.value)} maxLength={80} placeholder="Rack 2, fila B" />
+            </Campo>
+          </>
+        )}
 
         {error && (
           <p role="alert" className="text-destructive text-sm">

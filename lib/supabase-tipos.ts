@@ -939,6 +939,8 @@ export type Database = {
           odoo_lot_id: number | null
           origen: string
           pedido_id: string | null
+          reserva_pedido_id: string | null
+          reserva_posicion: number | null
           sincronizacion: Database["public"]["Enums"]["sincronizacion_odoo"]
           ubicacion: string | null
         }
@@ -959,6 +961,8 @@ export type Database = {
           odoo_lot_id?: number | null
           origen?: string
           pedido_id?: string | null
+          reserva_pedido_id?: string | null
+          reserva_posicion?: number | null
           sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
           ubicacion?: string | null
         }
@@ -979,6 +983,8 @@ export type Database = {
           odoo_lot_id?: number | null
           origen?: string
           pedido_id?: string | null
+          reserva_pedido_id?: string | null
+          reserva_posicion?: number | null
           sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
           ubicacion?: string | null
         }
@@ -1021,6 +1027,34 @@ export type Database = {
           {
             foreignKeyName: "sobrantes_pedido_id_fkey"
             columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_operaciones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sobrantes_reserva_pedido_id_fkey"
+            columns: ["reserva_pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sobrantes_reserva_pedido_id_fkey"
+            columns: ["reserva_pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_admin"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sobrantes_reserva_pedido_id_fkey"
+            columns: ["reserva_pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_logistica"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sobrantes_reserva_pedido_id_fkey"
+            columns: ["reserva_pedido_id"]
             isOneToOne: false
             referencedRelation: "pedidos_operaciones"
             referencedColumns: ["id"]
@@ -1594,10 +1628,23 @@ export type Database = {
         }[]
       }
       purgar_notificaciones: { Args: never; Returns: undefined }
+      reservar_sobrantes_de_corte: {
+        Args: {
+          p_codigos: string[]
+          p_corte: Json
+          p_cotizacion: string
+          p_posicion: number
+        }
+        Returns: undefined
+      }
       retazo_minimo: { Args: never; Returns: number }
       sigla_de: {
         Args: { tipos: Database["public"]["Enums"]["tipo_pedido"][] }
         Returns: string
+      }
+      soltar_sobrantes_de_pedido: {
+        Args: { p_codigo: string; p_consumir: boolean; p_posicion?: number }
+        Returns: number
       }
       sufijo_codigo: { Args: never; Returns: string }
       texto_notificacion: {

@@ -9,7 +9,7 @@ import { hoy } from "@/lib/fecha";
 import { MODALIDADES } from "@/lib/cortes/calcular";
 import { fraccionEnPalabras, materialDeCorte, totalPiezas } from "@/lib/cortes/guardado";
 import { indicacionesDe, origenDePlancha, piezasDePlancha } from "@/lib/hoja-corte";
-import type { LineaDePedido } from "@/lib/pedido-lineas";
+import { planchasCalculadas, type LineaDePedido } from "@/lib/pedido-lineas";
 import { LeyendaPlano, PlanoCorte } from "@/components/cortes/plano-corte";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -234,7 +234,7 @@ function Corte({ linea: l, numero, de }: { linea: LineaDePedido; numero: number;
               &nbsp;
             </span>
           )}{" "}
-          <span className="text-muted-foreground">(calculadas: {n(l.cantidad)})</span>
+          <span className="text-muted-foreground">(calculadas: {n(planchasCalculadas(l))})</span>
         </p>
       </div>
     </section>

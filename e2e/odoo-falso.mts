@@ -640,6 +640,12 @@ export async function crearOdooFalso(
             throw new ErrorRpc("odoo.exceptions.UserError", "The quantity to produce must be positive!");
           }
           const crudos = movs.filter((m) => (mo.move_raw_ids as number[]).includes(m.id));
+          // Un componente con lotes se consume por sus líneas: la cantidad es su suma.
+          const lineasDe = (m: Registro) => tabla("stock.move.line").filter((l) => valorDe(l, "move_id") === m.id);
+          for (const m of crudos) {
+            const lineas = lineasDe(m);
+            if (lineas.length) m.quantity = lineas.reduce((t, l) => t + Number(l.quantity ?? 0), 0);
+          }
           const distinto = crudos.some((m) => Number(m.quantity) !== Number(m.product_uom_qty));
           if (distinto && !contexto.skip_consumption) {
             return { type: "ir.actions.act_window", res_model: "mrp.consumption.warning" };
@@ -647,6 +653,12 @@ export async function crearOdooFalso(
           for (const m of crudos) {
             m.state = Number(m.quantity) > 0 ? "done" : "cancel";
             if (m.picked) sumar(valorDe(m, "product_id"), -Number(m.quantity));
+            for (const l of lineasDe(m)) {
+              const quant = tabla("stock.quant").find(
+                (q) => valorDe(q, "lot_id") === valorDe(l, "lot_id") && valorDe(q, "location_id") === 8,
+              );
+              if (quant) quant.quantity = Number(quant.quantity) - Number(l.quantity ?? 0);
+            }
           }
           for (const m of movs.filter((x) => (mo.move_byproduct_ids as number[]).includes(x.id))) {
             const lineas = tabla("stock.move.line").filter((l) => valorDe(l, "move_id") === m.id);

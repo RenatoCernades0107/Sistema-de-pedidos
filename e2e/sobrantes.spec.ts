@@ -45,13 +45,16 @@ async function enOdoo<T>(modelo: string, metodo: string, args: unknown[], kwargs
   return json.result;
 }
 
-/** Los sobrantes de prueba se dan de baja y sueltan su lote (el Odoo falso vuelve a numerar desde 1). */
+/**
+ * Los sobrantes de prueba (los de ubicación "E2E…") se dan de baja y sueltan su
+ * lote: el Odoo falso vuelve a numerar desde 1. Nada más: la base es la real.
+ */
 async function limpiar() {
   const supabase = await sesionDe("administracion");
   await supabase
     .from("sobrantes")
-    .update({ estado: "baja", odoo_lot_id: null })
-    .or("ubicacion.like.E2E%,origen.eq.odoo");
+    .update({ estado: "baja", odoo_lot_id: null, reserva_pedido_id: null, reserva_posicion: null })
+    .like("ubicacion", "E2E%");
 }
 
 test.describe.configure({ mode: "serial" });
@@ -77,6 +80,8 @@ async function registrar(page: Page, largo: string, ancho: string, ubicacion: st
   );
   await dialogo.getByLabel("Buscar material").press("Enter");
   await expect(dialogo.getByTestId("material-sobrante")).toContainText("Acrílico ECO · Cristal · 3 mm");
+  // Al elegir el material, el foco salta solo al largo: se espera, o lo escrito antes cae ahí.
+  await expect(dialogo.getByLabel("Largo (cm)")).toBeFocused();
   await dialogo.getByLabel("Largo (cm)").fill(largo);
   await dialogo.getByLabel("Ancho (cm)").fill(ancho);
   await dialogo.getByLabel("Ubicación").fill(ubicacion);

@@ -7,7 +7,7 @@
  * también los componentes del navegador.
  */
 
-import type { CorteGuardado } from "./cortes/guardado";
+import { planchasNuevas, type CorteGuardado } from "./cortes/guardado";
 
 export interface LineaDePedido {
   posicion: number;
@@ -40,9 +40,16 @@ export interface OdooDePedido {
   errorAnulacion: string | null;
 }
 
+/**
+ * Las planchas que el cálculo abre. Con el piloto de sobrantes, solo las nuevas:
+ * las piezas del almacén que usa el corte no son planchas que descontar.
+ */
+export const planchasCalculadas = (l: Pick<LineaDePedido, "cantidad" | "corte">) =>
+  l.corte?.sobrantes ? planchasNuevas(l.corte) : l.cantidad;
+
 /** Las planchas que se descuentan de un corte: las anotadas o, si no, las calculadas. */
-export const planchasDe = (l: Pick<LineaDePedido, "cantidad" | "planchasUsadas">) =>
-  l.planchasUsadas ?? l.cantidad;
+export const planchasDe = (l: Pick<LineaDePedido, "cantidad" | "planchasUsadas" | "corte">) =>
+  l.planchasUsadas ?? planchasCalculadas(l);
 
 /** El tope de una cantidad de planchas anotada; el mismo que pone la base. */
 export const PLANCHAS_MAXIMAS = 9999;

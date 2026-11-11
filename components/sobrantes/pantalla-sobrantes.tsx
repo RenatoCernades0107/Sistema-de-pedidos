@@ -191,7 +191,7 @@ export function PantallaSobrantes({
                   >
                     <CircleAlert className="size-3.5" />
                     {s.origen === "corte"
-                      ? `Entra a Odoo al cerrar la producción de ${s.pedido ?? "su pedido"}`
+                      ? `Entra a Odoo al cerrar la producción de ${s.nacioEn ?? "su pedido"}`
                       : s.sincronizacion === "error"
                         ? "No está en Odoo"
                         : "Creándose en Odoo"}

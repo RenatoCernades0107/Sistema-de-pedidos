@@ -8,7 +8,7 @@ import * as acciones from "@/app/(app)/acciones";
 import { esTerminal, type Pedido } from "@/lib/dominio";
 import { money } from "@/lib/formato";
 import { useStore } from "@/lib/store";
-import { type LineaDePedido, type OdooDePedido } from "@/lib/pedido-lineas";
+import { planchasCalculadas, type LineaDePedido, type OdooDePedido } from "@/lib/pedido-lineas";
 import { medidaSobrante, type Sobrante } from "@/lib/sobrantes";
 import { CorteGuardadoVista } from "@/components/cortes/corte-guardado";
 import { DialogoPlanchas } from "@/components/planchas-usadas";
@@ -92,8 +92,8 @@ export function LineasPedido({
                   <p className="text-sm">
                     <span className="text-muted-foreground">Planchas usadas:</span>{" "}
                     <span className="tnum font-medium">{n(l.planchasUsadas)}</span>
-                    {l.planchasUsadas !== l.cantidad && (
-                      <span className="text-muted-foreground"> (calculadas: {n(l.cantidad)})</span>
+                    {l.planchasUsadas !== planchasCalculadas(l) && (
+                      <span className="text-muted-foreground"> (calculadas: {n(planchasCalculadas(l))})</span>
                     )}
                   </p>
                 )}

@@ -35,8 +35,10 @@ export interface Sobrante {
   ubicacion: string | null;
   estado: EstadoSobrante;
   estandar: boolean;
-  /** El pedido que lo tiene reservado, lo consumió o, si nació de un corte, del que salió. */
+  /** El pedido que lo tiene reservado o lo consumió. */
   pedido: string | null;
+  /** Si nació de un corte: el pedido del que salió. */
+  nacioEn: string | null;
   /** Si nació de un corte: la posición de esa línea en el pedido. */
   lineaPosicion: number | null;
   origen: OrigenSobrante;
@@ -157,11 +159,27 @@ export function leerNotaDeLote(nota: string | null): { ubicacion: string | null;
 
 /* ── El piloto: lo que sale de un corte ────────────────────────────────────── */
 
+/**
+ * Los sobrantes como piezas para el optimizador, ya en orden de uso. Si el
+ * material comparte código entre colores, solo los del color pedido. El largo
+ * va a lo alto, como en las planchas del catálogo.
+ */
+export function contenedoresDe(
+  sobrantes: { codigo: string; largo: number; ancho: number; color: string | null }[],
+  color: string | null,
+) {
+  const igual = (a: string | null, b: string | null) => (a ?? "").trim().toLowerCase() === (b ?? "").trim().toLowerCase();
+  return sobrantes
+    .filter((s) => color === null || igual(s.color, color))
+    .map((s) => ({ id: s.codigo, ancho: s.ancho, alto: s.largo }));
+}
+
 const redondear = (n: number, d: number) => Math.round((n + Number.EPSILON) * 10 ** d) / 10 ** d;
 
 /**
  * Los pedazos que pueden volver al almacén de un corte ya calculado: las zonas
- * libres de las planchas nuevas con los dos lados de al menos `retazoMin`. Es la
+ * libres con los dos lados de al menos `retazoMin`. También las de un sobrante
+ * usado: se consume entero, y lo que queda nace como un sobrante nuevo. Es la
  * propuesta que el taller confirma (o corrige) al terminar.
  */
 export function sobrantesDeCorte(
@@ -170,7 +188,6 @@ export function sobrantesDeCorte(
 ): { largo: number; ancho: number }[] {
   const salida: { largo: number; ancho: number }[] = [];
   for (const p of corte.planchas) {
-    if (p.origen.tipo !== "plancha") continue;
     for (const panel of p.paneles) {
       if (!panel.libre) continue;
       const m = normalizarMedidas(redondear(panel.x2 - panel.x1, 1), redondear(panel.y2 - panel.y1, 1));

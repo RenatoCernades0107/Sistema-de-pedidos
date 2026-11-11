@@ -13,6 +13,8 @@ import { leerConfigCortes, type ConfigCortes } from "./cortes/config";
 import { guardarCorte, resumenPiezas, tituloCorte, type CorteGuardado } from "./cortes/guardado";
 import type { NuevaLineaCorte } from "./esquemas";
 import { productosPorCodigo } from "./odoo/catalogos";
+import { contenedoresDe } from "./sobrantes";
+import { sobrantesDisponibles } from "./sobrantes-servidor";
 
 export const CLAVE_CONFIG_CORTES = "cortes";
 
@@ -164,10 +166,15 @@ export async function prepararCorte(
     return fallo(`El servicio de corte ${codigoServicio} no existe en Odoo. Revisa el código en Configuración.`);
   }
 
+  // Con el piloto, el acomodo usa primero los sobrantes del almacén. El precio no cambia.
+  const delAlmacen = grupo.sobrantesActivo
+    ? contenedoresDe(await sobrantesDisponibles(grupo.id), pideColor(grupo) ? (linea.color ?? null) : null)
+    : [];
   const calculo = calcularCorte(
     { piezas: linea.piezas, espesorMm: grupo.espesorMm, modalidad: linea.modalidad, rotable: grupo.rotable },
     { codigo: formato.codigo, ancho: formato.anchoCm, alto: formato.largoCm, precio: plancha.precio },
     config,
+    delAlmacen,
   );
   if (calculo.problema) return fallo(calculo.problema);
   if (Math.abs(calculo.total - linea.totalMostrado) > 0.01) {

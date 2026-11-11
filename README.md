@@ -221,3 +221,11 @@ E2E_URL=https://<dominio>.vercel.app npm run e2e
   anular, la orden se cancela. Un sobrante nacido de un corte solo entra a Odoo al cerrar su orden:
   *Sincronizar* no lo crea por su cuenta (lo pondría dos veces en el stock). Migración
   `20261112000200`. Necesita en Odoo el módulo Fabricación y la unidad m².
+- **El reuso de sobrantes** (piloto): el cálculo de un corte usa primero los sobrantes disponibles del
+  material (del color pedido si el código es compartido), del más chico al más grande y los estándar
+  al final; el precio no cambia, es el de planchas nuevas. Al registrar el pedido, el acomodo se
+  rehace con lo disponible en ese momento y esos sobrantes quedan reservados en la misma transacción
+  (`reservar_sobrantes_de_corte()`, migración `20261112000300`; si otro pedido se lleva uno, se rehace
+  sin él). La orden de fabricación los consume por lote; al cerrarla quedan consumidos y, si el
+  pedido se anula, vuelven a estar disponibles. `pedido_id` dice de qué corte nació un sobrante;
+  `reserva_pedido_id`, quién lo tiene reservado o lo consumió.

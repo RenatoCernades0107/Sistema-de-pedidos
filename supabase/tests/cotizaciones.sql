@@ -461,6 +461,68 @@ end $$;
 
 set local role postgres;
 
+-- ── 3b. La reserva de sobrantes (20261112000300) ────────────────────────────
+
+select set_config('request.jwt.claims',
+                  json_build_object('sub', current_setting('plexi.test_admin'), 'role', 'authenticated')::text,
+                  true);
+set local role authenticated;
+
+do $$
+declare
+  v_codigo text := nullif(current_setting('plexi.pedido_corte', true), '');
+  v_cot    uuid := (select cotizacion_id from public.odoo_de_pedido(v_codigo));
+  v_pedido uuid := (select id from public.pedidos where codigo = v_codigo);
+  v_grupo  uuid := (select g.id from public.grupos_plancha g join public.formatos_plancha f on f.grupo_id = g.id
+                     order by f.codigo_odoo limit 1);
+  v_corte  jsonb := (select corte from public.cotizacion_productos where cotizacion_id = v_cot and posicion = 1);
+  a text;
+  b text;
+begin
+  -- Con código propio: así no gastan números de la secuencia, que no vuelve atrás.
+  insert into public.sobrantes (codigo, grupo_id, largo_cm, ancho_cm, ubicacion)
+  values ('PRUEBA-SQL-A', v_grupo, 183, 61, 'Prueba SQL')
+  returning codigo into a;
+  insert into public.sobrantes (codigo, grupo_id, largo_cm, ancho_cm, ubicacion, estado)
+  values ('PRUEBA-SQL-B', v_grupo, 100, 50, 'Prueba SQL', 'consumido')
+  returning codigo into b;
+
+  -- Reserva y guarda el acomodo.
+  perform public.reservar_sobrantes_de_corte(v_cot, 1::smallint, v_corte || '{"marca": "nuevo"}'::jsonb, array[a]);
+  if not exists (select 1 from public.sobrantes where codigo = a and estado = 'reservado'
+                  and reserva_pedido_id = v_pedido and reserva_posicion = 1) then
+    raise exception 'FALLO: el sobrante no quedó reservado para el pedido';
+  end if;
+  if (select corte ->> 'marca' from public.cotizacion_productos where cotizacion_id = v_cot and posicion = 1) <> 'nuevo' then
+    raise exception 'FALLO: no se guardó el acomodo nuevo';
+  end if;
+
+  -- Todo o nada: con uno que ya no está disponible, no cambia nada.
+  begin
+    perform public.reservar_sobrantes_de_corte(v_cot, 1::smallint, v_corte, array[b]);
+    raise exception 'FALLO: se reservó un sobrante consumido';
+  exception when others then
+    if sqlerrm like 'FALLO:%' then raise; end if;
+    if sqlerrm not like '%SOBRANTE_OCUPADO%' then raise exception 'FALLO: error inesperado %', sqlerrm; end if;
+  end;
+  if (select estado from public.sobrantes where codigo = a) <> 'reservado' then
+    raise exception 'FALLO: una reserva fallida soltó la anterior';
+  end if;
+
+  -- Al anular, vuelve a estar disponible; al cerrar la producción, se consume.
+  perform public.soltar_sobrantes_de_pedido(v_codigo, false);
+  if (select estado::text || coalesce(reserva_pedido_id::text, '-') from public.sobrantes where codigo = a) <> 'disponible-' then
+    raise exception 'FALLO: anular no liberó el sobrante';
+  end if;
+  perform public.reservar_sobrantes_de_corte(v_cot, 1::smallint, v_corte, array[a]);
+  perform public.soltar_sobrantes_de_pedido(v_codigo, true, 1::smallint);
+  if (select estado from public.sobrantes where codigo = a) <> 'consumido' then
+    raise exception 'FALLO: cerrar la producción no consumió el sobrante';
+  end if;
+end $$;
+
+set local role postgres;
+
 -- ── 4. La cancelación en Odoo de un pedido anulado (20261111000100) ────────
 
 select set_config('request.jwt.claims',

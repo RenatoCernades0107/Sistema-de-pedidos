@@ -21,6 +21,8 @@ import {
   type GrupoPlancha,
 } from "@/lib/cortes/catalogo";
 import type { ConfigCortes } from "@/lib/cortes/config";
+import { planchasNuevas, planchasTexto } from "@/lib/cortes/guardado";
+import { contenedoresDe } from "@/lib/sobrantes";
 import { money } from "@/lib/formato";
 import type { LineaCorte } from "@/lib/lineas-cotizacion";
 import { cn } from "@/lib/utils";
@@ -66,14 +68,18 @@ function piezasDe(filas: FilaPieza[]): PiezaPedida[] {
 /* ── Precios y stock ───────────────────────────────────────────────────────── */
 
 type Precios = RespuestaPrecios["precios"];
+type Sobrantes = RespuestaPrecios["sobrantes"];
 
 /** Los precios de un material no cambian mientras se arma un corte: se piden una vez. */
-const preciosVistos = new Map<string, Precios>();
+const preciosVistos = new Map<string, { precios: Precios; sobrantes: Sobrantes }>();
 
 function usePrecios(grupoId: string | null) {
-  const [estado, setEstado] = useState<{ grupoId: string; precios: Precios | null; error: string | null } | null>(
-    null,
-  );
+  const [estado, setEstado] = useState<{
+    grupoId: string;
+    precios: Precios | null;
+    sobrantes: Sobrantes;
+    error: string | null;
+  } | null>(null);
 
   useEffect(() => {
     if (!grupoId) return;
@@ -86,24 +92,25 @@ function usePrecios(grupoId: string | null) {
         const res = await fetch(`/api/cortes/precios?grupo=${grupoId}`, { signal: ctrl.signal });
         const json = (await res.json()) as RespuestaPrecios & { error?: string };
         if (!res.ok) {
-          setEstado({ grupoId, precios: null, error: json.error ?? "No se pudieron leer los precios." });
+          setEstado({ grupoId, precios: null, sobrantes: [], error: json.error ?? "No se pudieron leer los precios." });
           return;
         }
-        preciosVistos.set(grupoId, json.precios);
-        setEstado({ grupoId, precios: json.precios, error: null });
+        preciosVistos.set(grupoId, { precios: json.precios, sobrantes: json.sobrantes ?? [] });
+        setEstado({ grupoId, precios: json.precios, sobrantes: json.sobrantes ?? [], error: null });
       } catch {
         if (!ctrl.signal.aborted) {
-          setEstado({ grupoId, precios: null, error: "No se pudieron leer los precios. Revisa la conexión." });
+          setEstado({ grupoId, precios: null, sobrantes: [], error: "No se pudieron leer los precios. Revisa la conexión." });
         }
       }
     })();
     return () => ctrl.abort();
   }, [grupoId]);
 
-  if (!grupoId) return { precios: null, error: null };
+  const nada = { precios: null, sobrantes: [] as Sobrantes, error: null };
+  if (!grupoId) return nada;
   const visto = preciosVistos.get(grupoId);
-  if (visto) return { precios: visto, error: null };
-  return estado?.grupoId === grupoId ? { precios: estado.precios, error: estado.error } : { precios: null, error: null };
+  if (visto) return { ...visto, error: null };
+  return estado?.grupoId === grupoId ? estado : nada;
 }
 
 type Stock = Record<string, number | null>;
@@ -191,7 +198,7 @@ export function EditorCorte({
 
   const grupo = catalogo.find((g) => g.id === grupoId) ?? null;
   const conColor = grupo ? pideColor(grupo) : false;
-  const { precios, error: errorPrecios } = usePrecios(grupoId);
+  const { precios, sobrantes, error: errorPrecios } = usePrecios(grupoId);
   const piezas = useMemo(() => piezasDe(filas), [filas]);
 
   const calculos = useMemo(() => {
@@ -199,8 +206,15 @@ export function EditorCorte({
     const formatos = grupo.formatos
       .filter((f) => precios[f.codigo])
       .map((f) => ({ codigo: f.codigo, ancho: f.anchoCm, alto: f.largoCm, precio: precios[f.codigo].precio }));
-    return compararFormatos({ piezas, espesorMm: grupo.espesorMm, modalidad, rotable: grupo.rotable }, formatos, config);
-  }, [grupo, precios, piezas, modalidad, config]);
+    // Con el piloto, los sobrantes del almacén van primero (del color pedido, si el código es compartido).
+    const delAlmacen = grupo.sobrantesActivo ? contenedoresDe(sobrantes, conColor ? color : null) : [];
+    return compararFormatos(
+      { piezas, espesorMm: grupo.espesorMm, modalidad, rotable: grupo.rotable },
+      formatos,
+      config,
+      delAlmacen,
+    );
+  }, [grupo, precios, sobrantes, piezas, modalidad, config, conColor, color]);
 
   const candidatos = calculos.slice(0, CANDIDATOS);
   // El formato elegido a mano también se valida, aunque ya no esté entre los tres.
@@ -210,7 +224,7 @@ export function EditorCorte({
 
   const alcanza = (c: CalculoCorte) => {
     const hay = stock?.[c.formato.codigo];
-    return typeof hay === "number" && hay >= c.planchas.length;
+    return typeof hay === "number" && hay >= planchasNuevas(c);
   };
   // Sin respuesta de Odoo no se sugiere nada: la sugerencia es "el mejor con stock".
   const sugerido = stock ? (candidatos.find((c) => !c.problema && alcanza(c)) ?? null) : null;
@@ -525,12 +539,23 @@ export function EditorCorte({
                       </div>
                     ))}
                   </dl>
+                  {elegido.planchas.some((p) => p.origen.tipo === "sobrante") && (
+                    <p className="text-muted-foreground text-xs">
+                      El precio es el de planchas nuevas; el corte sale en parte de sobrantes del almacén, que quedan
+                      reservados al registrar el pedido.
+                    </p>
+                  )}
                   <div className="grid gap-3 sm:grid-cols-2">
                     {elegido.planchas.slice(0, 4).map((p, i) => (
                       <figure key={i} className="flex flex-col gap-1">
                         <PlanoCorte plancha={p} titulo={`Plancha ${i + 1} de ${elegido.planchas.length}`} />
                         <figcaption className="text-muted-foreground text-xs">
-                          Plancha {i + 1} · {p.piezas} {p.piezas === 1 ? "pieza" : "piezas"} · {Math.round(p.usoPct)} % usado
+                          {p.origen.tipo === "sobrante" ? (
+                            <span className="text-foreground font-medium">Sobrante {p.origen.id} · </span>
+                          ) : (
+                            `Plancha ${i + 1} · `
+                          )}
+                          {p.piezas} {p.piezas === 1 ? "pieza" : "piezas"} · {Math.round(p.usoPct)} % usado
                         </figcaption>
                       </figure>
                     ))}
@@ -552,9 +577,7 @@ export function EditorCorte({
             {elegido && !elegido.problema ? (
               <>
                 <p className="text-muted-foreground text-xs">
-                  {elegido.planchas.length} {elegido.planchas.length === 1 ? "plancha" : "planchas"} de{" "}
-                  {elegido.formato.ancho}×{elegido.formato.alto} · {elegido.piezas}{" "}
-                  {elegido.piezas === 1 ? "pieza" : "piezas"}
+                  {planchasTexto(elegido)} · {elegido.piezas} {elegido.piezas === 1 ? "pieza" : "piezas"}
                 </p>
                 <p className="tnum text-lg leading-tight font-semibold" data-testid="total-corte">
                   {money(elegido.total)}
@@ -594,7 +617,7 @@ function TarjetaFormato({
   compartido: boolean;
   alElegir: () => void;
 }) {
-  const necesita = c.planchas.length;
+  const necesita = planchasNuevas(c);
   const alcanza = typeof hay === "number" && hay >= necesita;
 
   return (

@@ -4,7 +4,14 @@ import { useState } from "react";
 import { Layers, Plus, X } from "lucide-react";
 import { materialDeCorte } from "@/lib/cortes/guardado";
 import { MODALIDADES } from "@/lib/cortes/calcular";
-import { PLANCHAS_MAXIMAS, hastaDosDecimales, planchasDe, type LineaDePedido } from "@/lib/pedido-lineas";
+import {
+  PLANCHAS_MAXIMAS,
+  hastaDosDecimales,
+  planchasCalculadas,
+  planchasDe,
+  type LineaDePedido,
+} from "@/lib/pedido-lineas";
+import { sobrantesUsados } from "@/lib/cortes/guardado";
 import { normalizarMedidas, sobrantesDeCorte } from "@/lib/sobrantes";
 import type { Resultado } from "@/app/(app)/acciones";
 import { Button } from "@/components/ui/button";
@@ -199,8 +206,13 @@ function Formulario({
                   </p>
                   <p className="text-muted-foreground text-xs">
                     Plancha de {n(c.formato.ancho)}×{n(c.formato.alto)}{" "}
-                    <span className="font-mono">{c.formato.codigo}</span> · calculadas: {n(l.cantidad)}
+                    <span className="font-mono">{c.formato.codigo}</span> · calculadas: {n(planchasCalculadas(l))}
                   </p>
+                  {sobrantesUsados(c).length > 0 && (
+                    <p className="text-muted-foreground text-xs">
+                      Usa del almacén: <span className="text-foreground font-mono">{sobrantesUsados(c).join(", ")}</span>
+                    </p>
+                  )}
                 </div>
                 <Campo
                   label={`Planchas usadas (${c.formato.codigo})`}
