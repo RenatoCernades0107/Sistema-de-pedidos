@@ -39,6 +39,32 @@ dueño, después de cambiarla; la migración que la introdujo marcó también a 
 tests la bajan al empezar y la vuelven a dejar como estaba al terminar (`e2e/preparar.ts`); para
 trabajar en local sin pasar por esa pantalla, se baja a mano desde el panel de Supabase.
 
+## Datos de prueba en Odoo y Supabase
+
+`npm run seed:odoo` llena el **Odoo de pruebas** con productos (planchas, materiales, accesorios y
+servicios), tres clientes `SEED …` y sus cotizaciones (`sale.order`), y escribe
+`supabase/seeds/cotizaciones.sql` con las cotizaciones de ejemplo que apuntan a esos ids.
+
+- **Productos**: del Excel `supabase/seeds/productos.xlsx` (o `productos.csv`) si está; las columnas se
+  reconocen por la cabecera (código, nombre, precio, categoría, unidad). Si no está, usa las 244
+  planchas del catálogo de cortes con precio estimado y una lista de respaldo
+  (`scripts/seed-odoo-datos.mjs`). Avisa de los códigos del catálogo de cortes que falten.
+- Lee las `ODOO_*` de `.env.local` y **no hace nada sin `ODOO_SEED_OK=1`**: mira la base que imprime
+  antes. Se puede repetir; actualiza por `default_code` en vez de duplicar.
+
+```bash
+npm run seed:odoo -- --dry-run
+```
+
+```bash
+ODOO_SEED_OK=1 npm run seed:odoo -- --stock
+```
+
+`--stock` pone existencias (necesita el módulo Inventario). Después, Supabase: en local
+`npx supabase db reset` carga `seed.sql` y luego `seeds/cotizaciones.sql`; en el proyecto alojado, se
+pega `supabase/seeds/cotizaciones.sql` en el SQL Editor (va después de `seed.sql`, usa a Ana). El
+archivo del repo salió del Odoo falso: regenéralo contra tu Odoo para que los ids coincidan.
+
 ## Probarla
 
 ```bash

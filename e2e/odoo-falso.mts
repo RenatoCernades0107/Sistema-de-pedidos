@@ -107,6 +107,9 @@ function sembrar() {
   return {
     "res.partner": partners,
     "product.product": products,
+    "product.category": [
+      { id: 1, name: "Acrílicos" }, { id: 2, name: "PVC" }, { id: 3, name: "Servicios" },
+    ] as Registro[],
     "sale.order": [] as Registro[],
     "sale.order.line": [] as Registro[],
     "res.country": [{ id: 173, code: "PE", name: "Perú" }] as Registro[],
@@ -134,6 +137,10 @@ const CAMPOS: Record<string, string[]> = {
     "name", "display_name", "default_code", "barcode", "lst_price", "uom_id", "categ_id",
     "write_date", "active", "sale_ok", "product_tmpl_id", "qty_available", "free_qty",
   ],
+  "product.template": [
+    "name", "default_code", "list_price", "sale_ok", "categ_id", "uom_id", "active", "write_date",
+  ],
+  "product.category": ["name"],
   "sale.order": ["name", "partner_id", "origin", "order_line", "amount_untaxed", "amount_tax", "amount_total", "state"],
   "sale.order.line": ["order_id", "product_id", "name", "product_uom_qty", "price_unit", "display_type", "sequence"],
   "l10n_latam.identification.type": ["name", "l10n_pe_vat_code", "country_id"],
@@ -219,6 +226,8 @@ export async function crearOdooFalso(opciones: { puerto?: number } = {}) {
   let llamadas: Llamada[] = [];
 
   const tabla = (modelo: string) => {
+    // Aquí plantilla y variante son el mismo registro (lo usa scripts/seed-odoo.mjs).
+    if (modelo === "product.template") modelo = "product.product";
     const t = (datos as Record<string, Registro[]>)[modelo];
     if (!t) throw new ErrorRpc("builtins.KeyError", `Modelo desconocido: ${modelo}`);
     return t;
@@ -299,6 +308,22 @@ export async function crearOdooFalso(opciones: { puerto?: number } = {}) {
       return id;
     }
 
+    if (modelo === "product.category") {
+      t.push({ id, name: vals.name });
+      return id;
+    }
+
+    if (modelo === "product.template") {
+      const codigo = (vals.default_code as string) ?? false;
+      t.push({
+        id, name: vals.name, display_name: codigo ? `[${codigo}] ${vals.name}` : vals.name,
+        default_code: codigo, barcode: false, lst_price: vals.list_price ?? 0,
+        uom_id: [1, "Unidades"], categ_id: [vals.categ_id, ""], active: true,
+        sale_ok: vals.sale_ok ?? true, write_date: ahora(),
+      });
+      return id;
+    }
+
     throw new ErrorRpc("odoo.exceptions.AccessError", `El Odoo falso no crea ${modelo}.`);
   }
 
@@ -339,6 +364,19 @@ export async function crearOdooFalso(opciones: { puerto?: number } = {}) {
       }
       case "create":
         return crear(modelo, args[0] as Record<string, unknown>);
+      case "write": {
+        if (modelo !== "product.template") break;
+        const [ids, vals] = args as [number[], Record<string, unknown>];
+        for (const r of tabla(modelo).filter((r) => ids.includes(r.id))) {
+          if ("name" in vals) r.name = vals.name;
+          if ("list_price" in vals) r.lst_price = vals.list_price;
+          if ("active" in vals) r.active = vals.active;
+          if ("categ_id" in vals) r.categ_id = [vals.categ_id, ""];
+          r.display_name = r.default_code ? `[${r.default_code}] ${r.name}` : r.name;
+          r.write_date = ahora();
+        }
+        return true;
+      }
       case "action_confirm": {
         // Como Odoo: confirmar pasa la cotización a pedido de venta, y una que ya
         // no está en borrador no se vuelve a confirmar.

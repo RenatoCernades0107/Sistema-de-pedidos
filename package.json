@@ -10,7 +10,8 @@
     "test": "vitest run",
     "e2e": "playwright test",
     "tipos": "supabase gen types typescript --linked > lib/supabase-tipos.ts",
-    "iconos": "node scripts/gen-iconos.cjs"
+    "iconos": "node scripts/gen-iconos.cjs",
+    "seed:odoo": "node --env-file-if-exists=.env.local scripts/seed-odoo.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -50,6 +51,7 @@
     "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "^16.4.5",
+    "exceljs": "^4.4.0",
     "sharp": "^0.35.4",
     "supabase": "^2.117.0",
     "tailwindcss": "^4",

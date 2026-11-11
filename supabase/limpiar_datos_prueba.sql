@@ -36,6 +36,11 @@ select 'antes' as momento,
 -- eso esto solo se puede hacer desde aquí, a mano y a propósito.
 delete from public.pedidos;
 
+-- Las cotizaciones de ejemplo de `supabase/seeds/cotizaciones.sql`. Van antes
+-- que las cuentas: `cotizaciones.creado_por` apunta a Ana sin cascada. Sus
+-- líneas se van solas (`on delete cascade`).
+delete from public.cotizaciones where notas like '[SEED-COT-%';
+
 -- ── 3. Las tres cuentas de prueba ───────────────────────────────────────────
 --
 -- Comparten la contraseña `plexi2026`, que está escrita en `supabase/seed.sql`
