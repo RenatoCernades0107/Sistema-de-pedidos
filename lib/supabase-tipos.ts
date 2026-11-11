@@ -199,6 +199,7 @@ export type Database = {
       cotizaciones: {
         Row: {
           actualizado_en: string
+          anulada_en_odoo: boolean
           canal: Database["public"]["Enums"]["canal_cotizacion"]
           chat_agente_id: string | null
           cliente_documento: string | null
@@ -207,6 +208,7 @@ export type Database = {
           confirmada_en_odoo: boolean
           creado_en: string
           creado_por: string | null
+          error_anulacion: string | null
           error_confirmacion: string | null
           error_sincronizacion: string | null
           error_stock: string | null
@@ -224,6 +226,7 @@ export type Database = {
         }
         Insert: {
           actualizado_en?: string
+          anulada_en_odoo?: boolean
           canal?: Database["public"]["Enums"]["canal_cotizacion"]
           chat_agente_id?: string | null
           cliente_documento?: string | null
@@ -232,6 +235,7 @@ export type Database = {
           confirmada_en_odoo?: boolean
           creado_en?: string
           creado_por?: string | null
+          error_anulacion?: string | null
           error_confirmacion?: string | null
           error_sincronizacion?: string | null
           error_stock?: string | null
@@ -249,6 +253,7 @@ export type Database = {
         }
         Update: {
           actualizado_en?: string
+          anulada_en_odoo?: boolean
           canal?: Database["public"]["Enums"]["canal_cotizacion"]
           chat_agente_id?: string | null
           cliente_documento?: string | null
@@ -257,6 +262,7 @@ export type Database = {
           confirmada_en_odoo?: boolean
           creado_en?: string
           creado_por?: string | null
+          error_anulacion?: string | null
           error_confirmacion?: string | null
           error_sincronizacion?: string | null
           error_stock?: string | null
@@ -1343,6 +1349,10 @@ export type Database = {
       }
     }
     Functions: {
+      anotar_anulacion_en_odoo: {
+        Args: { p_anulada: boolean; p_codigo: string; p_error?: string }
+        Returns: undefined
+      }
       anotar_planchas_usadas: {
         Args: { p_codigo: string; p_planchas: number; p_posicion: number }
         Returns: undefined
@@ -1444,8 +1454,10 @@ export type Database = {
       odoo_de_pedido: {
         Args: { p_codigo: string }
         Returns: {
+          anulada_en_odoo: boolean
           confirmada_en_odoo: boolean
           cotizacion_id: string
+          error_anulacion: string
           error_stock: string
           odoo_order_id: number
           odoo_order_name: string

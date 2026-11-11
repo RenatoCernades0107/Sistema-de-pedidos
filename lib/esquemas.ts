@@ -18,6 +18,7 @@
 import { z } from "zod";
 import { admiteDecimales, type TipoPedido } from "./dominio";
 import { rucValido, soloDigitos, tipoDeDocumento } from "./busqueda-inteligente";
+import { PLANCHAS_MAXIMAS, hastaDosDecimales } from "./pedido-lineas";
 
 /* ── Piezas sueltas ─────────────────────────────────────────────────────────── */
 
@@ -302,6 +303,15 @@ export const esquemaDatosEditables = z
     }
   });
 
+const planchasUsadas = z.object({
+  posicion: z.number().int().min(0).max(32767),
+  planchas: z
+    .number({ error: "Escribe cuántas planchas se usaron" })
+    .min(0, "No pueden ser menos de cero planchas")
+    .max(PLANCHAS_MAXIMAS, "Son demasiadas planchas")
+    .refine(hastaDosDecimales, "Hasta dos decimales"),
+});
+
 export const esquemaCambioEstado = z.object({
   codigo,
   estado: estadoPedido,
@@ -313,9 +323,21 @@ export const esquemaCambioEstado = z.object({
     .trim()
     .regex(FORMATO_COMPROBANTE.regex, FORMATO_COMPROBANTE.ayuda)
     .nullable(),
+  /**
+   * Al pasar a Listo: cuántas planchas se usaron de verdad en cada corte, por la
+   * posición de su línea. Lo que se descuenta del stock en Odoo.
+   */
+  planchas: z.array(planchasUsadas).max(100).optional(),
 });
 
 export const esquemaUbicacion = z.object({ codigo, ubicacion });
+
+export const esquemaCodigo = z.object({ codigo });
+
+export const esquemaPlanchasUsadas = z.object({
+  codigo,
+  planchas: z.array(planchasUsadas).min(1).max(100),
+});
 
 export const esquemaResponsable = z.object({
   codigo,

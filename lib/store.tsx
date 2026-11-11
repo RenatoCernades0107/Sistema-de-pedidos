@@ -39,13 +39,21 @@ interface Store {
   cambiarEstado: (
     codigo: string,
     estado: Estado,
-    extra?: { motivo?: string | null; numeroComprobante?: string | null },
+    extra?: CambioEstadoExtra,
   ) => Promise<Resultado>;
   cambiarUbicacion: (codigo: string, ubicacion: Ubicacion) => Promise<Resultado>;
   asignarResponsable: (codigo: string, responsableId: string | null) => Promise<Resultado>;
   registrarAbono: (codigo: string, monto: number, metodo: MetodoPago) => Promise<Resultado>;
   editarDatos: (codigo: string, cambios: DatosEditables) => Promise<Resultado>;
   editarEnvio: (codigo: string, cambios: DatosEnvio) => Promise<Resultado>;
+}
+
+/** Lo que acompaña a un cambio de estado, según a dónde va. */
+export interface CambioEstadoExtra {
+  motivo?: string | null;
+  numeroComprobante?: string | null;
+  /** Al pasar a Listo: las planchas que de verdad se usaron en cada corte. */
+  planchas?: { posicion: number; planchas: number }[];
 }
 
 const Ctx = createContext<Store | null>(null);
@@ -109,13 +117,13 @@ export function StoreProvider({
     (
       parche: Parche | null,
       accion: () => Promise<Resultado>,
-      alExito?: () => void,
+      alExito?: (resultado: Resultado & { ok: true }) => void,
     ): Promise<Resultado> =>
       new Promise((resolver) => {
         iniciarTransicion(async () => {
           if (parche) aplicarParche(parche);
           const resultado = await accion();
-          if (resultado.ok) alExito?.();
+          if (resultado.ok) alExito?.(resultado);
           else toast.error("No se guardó", { description: resultado.error });
           resolver(resultado);
         });
@@ -168,7 +176,7 @@ export function StoreProvider({
     (
       codigo: string,
       estado: Estado,
-      extra?: { motivo?: string | null; numeroComprobante?: string | null },
+      extra?: CambioEstadoExtra,
     ) => {
       const actual = buscar(codigo);
       if (!actual) return Promise.resolve(sinCambios());
@@ -190,11 +198,14 @@ export function StoreProvider({
             tieneComprobante: actual.tieneComprobante || Boolean(numeroComprobante),
           },
         },
-        () => acciones.cambiarEstado({ codigo, estado, motivo, numeroComprobante }),
-        () =>
+        () => acciones.cambiarEstado({ codigo, estado, motivo, numeroComprobante, planchas: extra?.planchas }),
+        (r) => {
           toast.success(`${codigo} → ${ESTADOS[estado]}`, {
             description: `Registrado por ${usuario}`,
-          }),
+          });
+          // El pedido se movió, pero Odoo no hizo su parte: se reintenta desde el detalle.
+          if (r.aviso) toast.warning("Falta Odoo", { description: r.aviso, duration: 12_000 });
+        },
       );
     },
     [buscar, mutar, usuario],

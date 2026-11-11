@@ -35,6 +35,7 @@ import {
   sincronizarConOdoo,
 } from "@/lib/cotizaciones-servidor";
 import { registrarCotizacion } from "@/lib/cotizaciones-registro";
+import { cancelarVentaDePedido, descontarStockDePedido } from "@/lib/pedido-odoo-servidor";
 import { detalleDesdeLineas, referenciaDe, sumaLineas } from "@/lib/cotizaciones";
 import { totalPiezas } from "@/lib/cortes/guardado";
 import { ODOO_NO_CONFIGURADO, odooConfigurado } from "@/lib/odoo/rpc";
@@ -44,6 +45,8 @@ import { ERROR_SIN_FILAS, mensajeDeError } from "@/lib/errores";
 import {
   esquemaAbono,
   esquemaCambioEstado,
+  esquemaCodigo,
+  esquemaPlanchasUsadas,
   esquemaDatosEditables,
   esquemaEnvio,
   esquemaRegistroPedido,
@@ -245,16 +248,28 @@ export async function registrarPedido(entrada: unknown): Promise<Resultado> {
 /**
  * El estado, el motivo y el comprobante viajan en un solo UPDATE, así el historial
  * los registra como un solo movimiento.
+ *
+ * Dos estados además tocan Odoo, después de guardar y sin deshacer nada si Odoo
+ * falla (queda el motivo, y el detalle ofrece reintentar):
+ *   - **Listo**: el trabajo salió del taller, y con él las planchas. Se anotan
+ *     antes las que de verdad se usaron en cada corte, y se descuenta el stock.
+ *   - **Anulado**: si las planchas seguían reservadas, se cancela la venta para
+ *     soltarlas.
  */
 export async function cambiarEstado(entrada: unknown): Promise<Resultado> {
   const perfil = await exigirSesion();
 
   const datos = esquemaCambioEstado.safeParse(entrada);
   if (!datos.success) return falloDeEsquema(datos.error);
-  const { codigo, estado, motivo, numeroComprobante } = datos.data;
+  const { codigo, estado, motivo, numeroComprobante, planchas } = datos.data;
 
   if (requiereMotivo(estado) && !motivo) {
     return fallo("Explica el motivo: queda en el historial del pedido.");
+  }
+
+  if (estado === "listo" && planchas?.length) {
+    const anotadas = await anotarPlanchas(codigo, planchas);
+    if (!anotadas.ok) return anotadas;
   }
 
   const cambios: CambiosPedido = {
@@ -271,7 +286,65 @@ export async function cambiarEstado(entrada: unknown): Promise<Resultado> {
     cambios.numero_comprobante = numeroComprobante;
   }
 
-  return actualizarPedido(codigo, cambios);
+  const movido = await actualizarPedido(codigo, cambios);
+  if (!movido.ok) return movido;
+
+  if (estado === "listo") {
+    const r = await descontarStockDePedido(codigo);
+    if (!r.ok) return { ok: true, aviso: `No se descontó el stock en Odoo: ${r.error}` };
+  }
+  if (estado === "anulado") {
+    const r = await cancelarVentaDePedido(codigo);
+    if (!r.ok) return { ok: true, aviso: `No se canceló la venta en Odoo: ${r.error}` };
+  }
+  return movido;
+}
+
+async function anotarPlanchas(
+  codigo: string,
+  planchas: { posicion: number; planchas: number }[],
+): Promise<Resultado> {
+  const supabase = await clienteServidor();
+  for (const p of planchas) {
+    const { error } = await supabase.rpc("anotar_planchas_usadas", {
+      p_codigo: codigo,
+      p_posicion: p.posicion,
+      p_planchas: p.planchas,
+    });
+    if (error) return fallo(mensajeDeError(error));
+  }
+  return { ok: true };
+}
+
+/** Las planchas usadas de los cortes de un pedido, sin moverlo de estado. */
+export async function anotarPlanchasUsadas(entrada: unknown): Promise<Resultado> {
+  await exigirSesion();
+  const datos = esquemaPlanchasUsadas.safeParse(entrada);
+  if (!datos.success) return falloDeEsquema(datos.error);
+
+  const r = await anotarPlanchas(datos.data.codigo, datos.data.planchas);
+  if (r.ok) refresh();
+  return r;
+}
+
+/** Vuelve a intentar lo que Odoo no hizo al mover el pedido: descontar el stock o cancelar la venta. */
+export async function reintentarOdooDePedido(entrada: unknown): Promise<Resultado> {
+  await exigirSesion();
+  const datos = esquemaCodigo.safeParse(entrada);
+  if (!datos.success) return falloDeEsquema(datos.error);
+  const { codigo } = datos.data;
+
+  const supabase = await clienteServidor();
+  const { data } = await supabase.from("pedidos").select("estado").eq("codigo", codigo).maybeSingle();
+  if (!data) return fallo(ERROR_SIN_FILAS);
+
+  let r: Awaited<ReturnType<typeof descontarStockDePedido>>;
+  if (data.estado === "anulado") r = await cancelarVentaDePedido(codigo);
+  else if (["listo", "en_transito", "entregado"].includes(data.estado)) r = await descontarStockDePedido(codigo);
+  else return fallo("El stock se descuenta cuando el pedido pasa a Listo.");
+
+  refresh();
+  return r.ok ? { ok: true } : fallo(r.error);
 }
 
 /* ── Ubicación y responsable ────────────────────────────────────────────────── */

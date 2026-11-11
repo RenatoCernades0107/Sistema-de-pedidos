@@ -3,8 +3,10 @@
  *
  * Habla la misma JSON-RPC que `lib/odoo/rpc.ts` (`POST /jsonrpc`, servicios
  * `common` y `object`) y entiende lo justo de los modelos que la app usa:
- * `res.partner`, `product.product`, `sale.order`, `sale.order.line`, `ir.model`,
- * `res.country` y `l10n_latam.identification.type`. Con eso las pruebas
+ * `res.partner`, `product.product`, `sale.order`, `sale.order.line`,
+ * `stock.picking`, `stock.move`, `ir.model`, `res.country` y
+ * `l10n_latam.identification.type`. Las entregas son como las de la 17: la
+ * cantidad hecha de un movimiento es `quantity`, y `picked` la marca. Con eso las pruebas
  * recorren el camino real —el cliente de Odoo de la app, los route handlers, el
  * formulario— sin tocar el Odoo de la empresa.
  *
@@ -28,7 +30,8 @@ const UID = 7;
 type Registro = Record<string, unknown> & { id: number };
 
 /**
- * `caido`: crear o confirmar una cotización falla con un error de Odoo.
+ * `caido`: crear, confirmar o cancelar una venta, o validar su entrega, falla
+ * con un error de Odoo.
  * `perder-respuesta`: la cotización SÍ se crea, pero la respuesta llega como
  * error — lo que pasa cuando se corta la red justo después. Es el caso que
  * obliga a que reintentar no duplique.
@@ -41,6 +44,8 @@ interface Llamada {
   args: unknown[];
   kwargs: Record<string, unknown>;
 }
+
+type EntregaFalsa = Registro & { movimientos: Registro[] };
 
 const ahora = () => new Date().toISOString().replace("T", " ").slice(0, 19);
 
@@ -112,6 +117,8 @@ function sembrar() {
     ] as Registro[],
     "sale.order": [] as Registro[],
     "sale.order.line": [] as Registro[],
+    "stock.picking": [] as Registro[],
+    "stock.move": [] as Registro[],
     "res.country": [{ id: 173, code: "PE", name: "Perú" }] as Registro[],
     "l10n_latam.identification.type": [
       { id: 4, name: "RUC", l10n_pe_vat_code: "6" },
@@ -143,6 +150,8 @@ const CAMPOS: Record<string, string[]> = {
   "product.category": ["name"],
   "sale.order": ["name", "partner_id", "origin", "order_line", "amount_untaxed", "amount_tax", "amount_total", "state"],
   "sale.order.line": ["order_id", "product_id", "name", "product_uom_qty", "price_unit", "display_type", "sequence"],
+  "stock.picking": ["name", "sale_id", "picking_type_code", "state", "move_ids"],
+  "stock.move": ["picking_id", "product_id", "product_uom_qty", "quantity", "picked", "state", "sale_line_id"],
   "l10n_latam.identification.type": ["name", "l10n_pe_vat_code", "country_id"],
 };
 
@@ -167,6 +176,8 @@ function termino([campo, op, valor]: [string, string, unknown]): Predicado {
         return v !== valor;
       case "in":
         return (valor as unknown[]).includes(v);
+      case "not in":
+        return !(valor as unknown[]).includes(v);
       case "ilike":
         return typeof v === "string" && v.toLowerCase().includes(String(valor).toLowerCase());
       case "=ilike":
@@ -327,6 +338,37 @@ export async function crearOdooFalso(opciones: { puerto?: number } = {}) {
     throw new ErrorRpc("odoo.exceptions.AccessError", `El Odoo falso no crea ${modelo}.`);
   }
 
+  /**
+   * La entrega que nace al confirmar una venta: un movimiento por cada línea de
+   * un producto almacenable. Aquí, almacenable es el que tiene `qty_available`.
+   */
+  function crearEntrega(orden: Registro) {
+    const lineas = tabla("sale.order.line").filter((l) => (orden.order_line as number[]).includes(l.id));
+    const productos = tabla("product.product");
+    const almacenables = lineas.filter((l) => {
+      const p = productos.find((x) => x.id === valorDe(l, "product_id"));
+      return p && "qty_available" in p;
+    });
+    if (almacenables.length === 0) return;
+
+    const entregas = tabla("stock.picking");
+    const movimientos = tabla("stock.move");
+    const id = siguienteId(entregas);
+    const ids: number[] = [];
+    for (const l of almacenables) {
+      const idMov = siguienteId(movimientos);
+      movimientos.push({
+        id: idMov, picking_id: [id, ""], product_id: l.product_id, product_uom_qty: l.product_uom_qty,
+        quantity: 0, picked: false, state: "assigned", sale_line_id: [l.id, ""],
+      });
+      ids.push(idMov);
+    }
+    entregas.push({
+      id, name: `WH/OUT/${String(id).padStart(5, "0")}`, sale_id: [orden.id, orden.name],
+      picking_type_code: "outgoing", state: "assigned", move_ids: ids,
+    });
+  }
+
   function ejecutar(modelo: string, metodo: string, args: unknown[], kwargs: Record<string, unknown>) {
     llamadas.push({ modelo, metodo, args, kwargs });
     const deModelo = () => tabla(modelo).map((r) => ({ ...r, __modelo: modelo }));
@@ -365,8 +407,17 @@ export async function crearOdooFalso(opciones: { puerto?: number } = {}) {
       case "create":
         return crear(modelo, args[0] as Record<string, unknown>);
       case "write": {
-        if (modelo !== "product.template") break;
         const [ids, vals] = args as [number[], Record<string, unknown>];
+        if (modelo !== "product.template") {
+          // Lo demás (los movimientos de una entrega) se escribe tal cual, campo por campo.
+          for (const r of tabla(modelo).filter((x) => ids.includes(x.id))) {
+            for (const c of Object.keys(vals)) {
+              if (!(CAMPOS[modelo] ?? []).includes(c)) throw new ErrorRpc("ValueError", `Invalid field '${c}'`);
+            }
+            Object.assign(r, vals);
+          }
+          return true;
+        }
         for (const r of tabla(modelo).filter((r) => ids.includes(r.id))) {
           if ("name" in vals) r.name = vals.name;
           if ("list_price" in vals) r.lst_price = vals.list_price;
@@ -393,6 +444,64 @@ export async function crearOdooFalso(opciones: { puerto?: number } = {}) {
             );
           }
           orden.state = "sale";
+          crearEntrega(orden);
+        }
+        return true;
+      }
+      case "action_cancel": {
+        if (modelo !== "sale.order") break;
+        if (modo === "caido") {
+          throw new ErrorRpc("odoo.exceptions.UserError", "Odoo falso: caído a propósito.");
+        }
+        const ids = args[0] as number[];
+        const entregas = tabla("stock.picking").filter((p) => ids.includes(valorDe(p, "sale_id") as number));
+        if (entregas.some((p) => p.state === "done")) {
+          throw new ErrorRpc(
+            "odoo.exceptions.UserError",
+            "You can not cancel a sales order with delivered products.",
+          );
+        }
+        for (const orden of tabla(modelo).filter((r) => ids.includes(r.id))) orden.state = "cancel";
+        for (const p of entregas) {
+          p.state = "cancel";
+          for (const m of tabla("stock.move").filter((x) => valorDe(x, "picking_id") === p.id)) m.state = "cancel";
+        }
+        return true;
+      }
+      case "button_validate": {
+        if (modelo !== "stock.picking") break;
+        if (modo === "caido") {
+          throw new ErrorRpc("odoo.exceptions.UserError", "Odoo falso: caído a propósito.");
+        }
+        const ids = args[0] as number[];
+        const contexto = (kwargs.context ?? {}) as Record<string, unknown>;
+        for (const p of tabla(modelo).filter((r) => ids.includes(r.id))) {
+          const movs = tabla("stock.move").filter((m) => valorDe(m, "picking_id") === p.id && m.state !== "cancel");
+          const hechos = movs.filter((m) => m.picked && Number(m.quantity) > 0);
+          if (hechos.length === 0) {
+            throw new ErrorRpc(
+              "odoo.exceptions.UserError",
+              "You cannot validate a transfer if no quantities are reserved nor done.",
+            );
+          }
+          // Menos de lo pedido sin decir qué hacer con el resto: Odoo abre el asistente.
+          const parcial = movs.some((m) => !m.picked || Number(m.quantity) < Number(m.product_uom_qty));
+          if (parcial && !contexto.skip_backorder) {
+            return { type: "ir.actions.act_window", res_model: "stock.backorder.confirmation" };
+          }
+          for (const m of movs) {
+            if (!m.picked || Number(m.quantity) <= 0) {
+              m.state = "cancel";
+              continue;
+            }
+            m.state = "done";
+            const producto = tabla("product.product").find((x) => x.id === valorDe(m, "product_id"));
+            if (producto) {
+              producto.qty_available = Number(producto.qty_available ?? 0) - Number(m.quantity);
+              producto.free_qty = Number(producto.free_qty ?? 0) - Number(m.quantity);
+            }
+          }
+          p.state = "done";
         }
         return true;
       }
@@ -423,9 +532,15 @@ export async function crearOdooFalso(opciones: { puerto?: number } = {}) {
     modo,
     partners: datos["res.partner"],
     productos: datos["product.product"],
-    ordenes: datos["sale.order"].map((o) => ({
+    ordenes: datos["sale.order"].map((o): Registro & { lineas: Registro[]; entregas: EntregaFalsa[] } => ({
       ...o,
       lineas: datos["sale.order.line"].filter((l) => (o.order_line as number[]).includes(l.id)),
+      entregas: datos["stock.picking"]
+        .filter((p) => valorDe(p, "sale_id") === o.id)
+        .map((p): EntregaFalsa => ({
+          ...p,
+          movimientos: datos["stock.move"].filter((m) => valorDe(m, "picking_id") === p.id),
+        })),
     })),
     llamadas: llamadas.map(({ modelo, metodo, args, kwargs }) => ({ modelo, metodo, args, kwargs })),
   });

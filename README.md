@@ -181,3 +181,13 @@ E2E_URL=https://<dominio>.vercel.app npm run e2e
   Si Odoo falla, el pedido queda registrado igual y se reintenta desde la cotización. El taller ve
   las líneas sin precios por `lineas_de_pedido()` (migración `20261110000300`), y las planchas
   realmente usadas se anotan con `anotar_planchas_usadas()`.
+- **El stock al terminar** (`lib/pedido-odoo-servidor.ts`, `lib/odoo/entregas.ts`): el detalle del
+  pedido muestra sus productos y cortes con el plano de cada plancha (`components/lineas-pedido.tsx`).
+  Al pasar a **Listo** se pregunta cuántas planchas se usaron en cada corte —llegan las calculadas— y
+  se valida la entrega de la venta en Odoo con eso: es lo que baja el stock. Lo que no salió no deja
+  entrega pendiente. Al **anular** un pedido que no terminó, la venta se cancela en Odoo y lo
+  reservado queda libre; si el stock ya bajó, no se toca (la devolución se hace en Odoo). Si Odoo
+  falla, el pedido se mueve igual y el detalle ofrece *Reintentar*. Supone la entrega en un paso
+  (la configuración por defecto del almacén). Todo pasa por funciones de la base
+  (`odoo_de_pedido()`, `anotar_stock_de_pedido()`, `anotar_anulacion_en_odoo()`, migración
+  `20261111000100`) porque quien mueve el pedido puede ser el taller, que no lee `cotizaciones`.

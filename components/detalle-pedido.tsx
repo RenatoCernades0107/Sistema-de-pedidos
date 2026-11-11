@@ -40,8 +40,19 @@ import { EditarDatos, EditarEnvio } from "@/components/editar-pedido";
 import { RegistrarAbono } from "@/components/registrar-abono";
 import { AdjuntosPedido } from "@/components/adjuntos-pedido";
 import { Button } from "@/components/ui/button";
+import { LineasPedido } from "@/components/lineas-pedido";
+import type { LineaDePedido, OdooDePedido } from "@/lib/pedido-lineas";
 
-export function DetallePedido({ codigo }: { codigo: string }) {
+export function DetallePedido({
+  codigo,
+  lineas = null,
+  odoo = null,
+}: {
+  codigo: string;
+  /** Los productos y cortes del pedido. `null` si no se pudieron leer. */
+  lineas?: LineaDePedido[] | null;
+  odoo?: OdooDePedido | null;
+}) {
   const { pedido, permisos } = useStore();
   const p = pedido(codigo);
 
@@ -226,6 +237,14 @@ export function DetallePedido({ codigo }: { codigo: string }) {
             </dl>
           </Panel>
 
+          {lineas === null ? (
+            <p className="text-muted-foreground rounded-xl border border-dashed p-4 text-sm">
+              No se pudieron leer los productos y cortes del pedido. Recarga la página.
+            </p>
+          ) : (
+            lineas.length > 0 && <LineasPedido pedido={p} lineas={lineas} odoo={odoo} />
+          )}
+
           {p.esProvincia && p.envio && (
             <Panel
               titulo={
@@ -398,7 +417,11 @@ export function DetallePedido({ codigo }: { codigo: string }) {
         </div>
 
         <div className="order-1 flex flex-col gap-4 lg:order-2 lg:sticky lg:top-20">
-          <AccionesPedido pedido={p} />
+          <AccionesPedido
+            pedido={p}
+            cortes={lineas?.filter((l) => l.corte) ?? []}
+            stockDescontado={odoo?.stockDescontado ?? false}
+          />
           {permisos.verMontos && <PanelPago pedido={p} />}
         </div>
       </div>

@@ -40,10 +40,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EstadoBadge } from "@/components/estado-badge";
+import { DialogoPlanchas } from "@/components/planchas-usadas";
+import type { LineaDePedido } from "@/lib/pedido-lineas";
 
 type Campos = z.infer<typeof esquemaFormEstado>;
 
-export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
+export function AccionesPedido({
+  pedido: p,
+  cortes = [],
+  stockDescontado = false,
+}: {
+  pedido: Pedido;
+  /** Los cortes del pedido: al pasar a Listo se pregunta cuántas planchas se usaron. */
+  cortes?: LineaDePedido[];
+  stockDescontado?: boolean;
+}) {
   const {
     permisos,
     trabajadores,
@@ -53,6 +64,7 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
     asignarResponsable,
   } = useStore();
   const [destino, setDestino] = useState<Estado | null>(null);
+  const [aListo, setAListo] = useState(false);
 
   const validas = transicionesValidas(p);
 
@@ -66,6 +78,11 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
   });
 
   const pedirCambio = (nuevo: Estado) => {
+    // Las planchas salen del almacén al terminar: antes se confirma cuántas fueron.
+    if (nuevo === "listo" && cortes.length > 0 && !stockDescontado) {
+      setAListo(true);
+      return;
+    }
     const pideComprobante = ofreceComprobante(nuevo) && !p.tieneComprobante && puedeRegistrarComprobante;
     if (requiereMotivo(nuevo) || pideComprobante) {
       form.reset({ motivo: "", numeroComprobante: "" });
@@ -197,6 +214,15 @@ export function AccionesPedido({ pedido: p }: { pedido: Pedido }) {
           </Campo>
         </div>
       </section>
+
+      <DialogoPlanchas
+        abierto={aListo}
+        alCambiar={setAListo}
+        cortes={cortes}
+        alPasarAListo
+        pendiente={pendiente}
+        alConfirmar={(planchas) => cambiarEstado(p.codigo, "listo", { planchas })}
+      />
 
       {/* Este diálogo no lo abre un DialogTrigger sino el botón de la transición,
           así que Base UI necesita `triggerId={null}` para no quedarse esperando

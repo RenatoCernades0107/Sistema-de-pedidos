@@ -418,6 +418,15 @@ begin
     if not (select stock_descontado from public.odoo_de_pedido(v_codigo)) then
       raise exception 'FALLO: no quedó anotado el stock descontado';
     end if;
+    -- Descontar confirma la venta: sin confirmar no hay entrega (20261111000100).
+    if not (select confirmada_en_odoo from public.odoo_de_pedido(v_codigo)) then
+      raise exception 'FALLO: descontar el stock no dio por confirmada la venta';
+    end if;
+    -- La anulación solo se anota en un pedido anulado.
+    perform public.anotar_anulacion_en_odoo(v_codigo, true);
+    if (select anulada_en_odoo from public.odoo_de_pedido(v_codigo)) then
+      raise exception 'FALLO: se anotó la cancelación en Odoo de un pedido que no está anulado';
+    end if;
     -- Ya descontado, las planchas usadas no se cambian con una anotación.
     begin
       perform public.anotar_planchas_usadas(v_codigo, 1::smallint, 5);
@@ -430,6 +439,37 @@ begin
       '[{"odoo_product_id": 10, "producto_nombre": "X", "cantidad": 1, "precio_unitario": 1}]'::jsonb);
     raise exception 'FALLO: otro rol pudo crear una cotización';
   exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
+end $$;
+
+set local role postgres;
+
+-- ── 4. La cancelación en Odoo de un pedido anulado (20261111000100) ────────
+
+select set_config('request.jwt.claims',
+                  json_build_object('sub', current_setting('plexi.test_admin'), 'role', 'authenticated')::text,
+                  true);
+set local role authenticated;
+
+do $$
+declare
+  v_codigo text := nullif(current_setting('plexi.pedido_corte', true), '');
+begin
+  update public.pedidos set estado = 'anulado', motivo = 'Prueba SQL de anulación' where codigo = v_codigo;
+
+  perform public.anotar_anulacion_en_odoo(v_codigo, false, '  Odoo caído  ');
+  if (select error_anulacion from public.odoo_de_pedido(v_codigo)) is distinct from 'Odoo caído' then
+    raise exception 'FALLO: no quedó el motivo de la cancelación fallida';
+  end if;
+
+  perform public.anotar_anulacion_en_odoo(v_codigo, true);
+  if not (select anulada_en_odoo and error_anulacion is null from public.odoo_de_pedido(v_codigo)) then
+    raise exception 'FALLO: no quedó anotada la cancelación en Odoo';
+  end if;
+  -- Un fallo posterior (un reintento de más) no deshace lo hecho.
+  perform public.anotar_anulacion_en_odoo(v_codigo, false, 'otro intento');
+  if not (select anulada_en_odoo from public.odoo_de_pedido(v_codigo)) then
+    raise exception 'FALLO: un reintento fallido borró la cancelación';
+  end if;
 end $$;
 
 set local role postgres;
