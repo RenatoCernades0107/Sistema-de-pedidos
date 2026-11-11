@@ -45,10 +45,14 @@ trabajar en local sin pasar por esa pantalla, se baja a mano desde el panel de S
 servicios), tres clientes `SEED …` y sus cotizaciones (`sale.order`), y escribe
 `supabase/seeds/cotizaciones.sql` con las cotizaciones de ejemplo que apuntan a esos ids.
 
-- **Productos**: del Excel `supabase/seeds/productos.xlsx` (o `productos.csv`) si está; las columnas se
-  reconocen por la cabecera (código, nombre, precio, categoría, unidad). Si no está, usa las 244
-  planchas del catálogo de cortes con precio estimado y una lista de respaldo
-  (`scripts/seed-odoo-datos.mjs`). Avisa de los códigos del catálogo de cortes que falten.
+- **Productos**: del Excel `supabase/seeds/productos.xlsx`. **Cada hoja es una categoría y cada fila un
+  producto**: *Planchas* (material, ancho, largo, espesor, variante, detalle, código, alerta, nota),
+  *Accesorios* (material, medida, variante, detalle, código) y *Servicios* (nombre, código). Las
+  columnas se reconocen por la cabecera y `-` cuenta como vacío. Sin columna de nombre, se arma con
+  las demás; sin columna de precio, se estima (planchas por área × espesor, accesorios por material:
+  `PRECIOS_ACCESORIOS` en `scripts/seed-odoo-datos.mjs`). Un código repetido (`ACC001`) da un
+  producto por fila; por eso los productos se identifican por código + nombre. Avisa de los códigos
+  del catálogo de cortes que falten en el Excel.
 - Lee las `ODOO_*` de `.env.local` y **no hace nada sin `ODOO_SEED_OK=1`**: mira la base que imprime
   antes. Se puede repetir; actualiza por `default_code` en vez de duplicar.
 

@@ -13,7 +13,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { CATEGORIAS, CLIENTES, COTIZACIONES, EXTRAS, planchasDeLaMigracion } from "./seed-odoo-datos.mjs";
+import { CATEGORIAS, CLIENTES, COTIZACIONES, EXTRAS, PRECIOS_ACCESORIOS, planchasDeLaMigracion } from "./seed-odoo-datos.mjs";
 
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SEEDS = path.join(RAIZ, "supabase/seeds");
@@ -28,51 +28,95 @@ const normal = (s) =>
   String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 
 const COLUMNAS = {
-  codigo: ["codigo odoo", "codigo", "referencia", "ref", "default_code", "sku", "cod"],
-  nombre: ["nombre", "descripcion", "producto", "name", "detalle"],
-  precio: ["precio", "precio venta", "precio de venta", "pvp", "lst_price", "list_price", "precio unitario"],
-  categoria: ["categoria", "tipo", "familia", "linea"],
-  unidad: ["unidad", "uom", "unidad de medida", "um"],
+  codigo: ["codigo odoo", "codigo", "referencia", "default_code", "sku"],
+  nombre: ["nombre del servicio", "nombre", "producto", "name"],
+  material: ["material"],
+  medida: ["medida"],
+  variante: ["variante"],
+  detalle: ["detalle"],
+  ancho: ["ancho"],
+  largo: ["largo"],
+  espesor: ["espesor"],
+  precio: ["precio", "pvp", "lst_price", "list_price"],
+  unidad: ["unidad", "uom"],
+  categoria: ["categoria"],
+  alerta: ["alerta"],
+  nota: ["nota"],
 };
 
 function columnas(cabecera) {
   const h = cabecera.map(normal);
   const idx = {};
   for (const [campo, alias] of Object.entries(COLUMNAS)) {
-    idx[campo] = alias.map((a) => h.indexOf(a)).find((i) => i >= 0)
-      ?? h.findIndex((c) => alias.some((a) => c.startsWith(a)));
+    const exacta = alias.map((a) => h.indexOf(a)).find((i) => i >= 0);
+    idx[campo] = exacta ?? h.findIndex((c) => alias.some((a) => c.startsWith(a)));
   }
-  if (idx.codigo < 0 || idx.nombre < 0) {
-    throw new Error(`El Excel necesita columnas de código y nombre. Cabecera leída: ${cabecera.join(" | ")}`);
-  }
+  if (idx.codigo < 0) throw new Error(`no tiene columna de código (cabecera: ${cabecera.join(" | ")})`);
+  if (idx.nombre < 0 && idx.material < 0) throw new Error("no tiene columna de nombre ni de material");
   return idx;
 }
 
-function categoriaDe(texto, codigo) {
-  const t = normal(texto);
-  if (t.includes("serv") || /^SRV/i.test(codigo)) return "Servicios";
-  if (t.includes("acces")) return "Accesorios";
-  if (t.includes("plancha")) return "Planchas";
-  return texto ? String(texto).trim() : "Materiales";
+/** `-` y vacío son "nada". */
+const celda = (v) => {
+  const s = String(v ?? "").trim();
+  return s === "-" ? "" : s;
+};
+
+/** Mayúsculas y sin tildes (la Ñ se queda), como nombra la empresa en Odoo. */
+const mayus = (s) => s.toUpperCase().normalize("NFD").replace(/[̀́̈]/g, "").normalize("NFC");
+
+/** Erratas conocidas del Excel, para no llevarlas a Odoo. */
+const ERRATAS = [[/\bINTALACION\b/g, "INSTALACION"]];
+
+function categoriaDe(hoja, texto) {
+  const t = normal(texto || hoja);
+  if (t.startsWith("serv")) return "Servicios";
+  if (t.startsWith("acces")) return "Accesorios";
+  if (t.startsWith("plancha")) return "Planchas";
+  return String(texto || hoja).trim() || "Materiales";
 }
 
-function deFilas(filas) {
+function precioEstimado(categoria, material, nombre, ancho, largo, espesor) {
+  if (categoria === "Planchas" && ancho && largo && espesor) return Math.round((ancho / 100) * (largo / 100) * espesor * 22);
+  if (categoria === "Servicios") return /INSTALACION/.test(nombre) ? 80 : 1;
+  const m = normal(material);
+  const hit = Object.entries(PRECIOS_ACCESORIOS).find(([k]) => m.startsWith(k));
+  return hit ? hit[1] : 10;
+}
+
+/** Una fila = un producto. */
+function deFilas(filas, hoja, avisos) {
   const [cab, ...resto] = filas;
   const i = columnas(cab);
-  const out = new Map();
-  for (const f of resto) {
-    const codigo = String(f[i.codigo] ?? "").trim();
-    const nombre = String(f[i.nombre] ?? "").trim();
-    if (!codigo || !nombre) continue;
-    const precio = Number(String(f[i.precio] ?? "0").replace(/[^\d.,-]/g, "").replace(",", ".")) || 0;
-    const categoria = categoriaDe(i.categoria >= 0 ? f[i.categoria] : "", codigo);
-    out.set(codigo, {
-      codigo, nombre, precio, categoria,
-      unidad: (i.unidad >= 0 && String(f[i.unidad] ?? "").trim()) || "Unidades",
+  const v = (f, campo) => (i[campo] >= 0 ? celda(f[i[campo]]) : "");
+  const out = [];
+  resto.forEach((f, n) => {
+    const codigo = v(f, "codigo");
+    if (!f.some((x) => celda(x))) return;
+    if (!codigo) return avisos.push(`hoja "${hoja}", fila ${n + 2}: sin código, no se carga`);
+    const categoria = categoriaDe(hoja, v(f, "categoria"));
+    const [ancho, largo, espesor] = ["ancho", "largo", "espesor"].map((c) => Number(v(f, c)) || 0);
+    let nombre = v(f, "nombre");
+    if (!nombre) {
+      const partes = [v(f, "material"), v(f, "medida"), v(f, "variante"), v(f, "detalle")];
+      if (espesor) partes.push(`${espesor}MM`);
+      if (ancho && largo) partes.push(`${(ancho / 100).toFixed(2)}X${(largo / 100).toFixed(2)}`);
+      nombre = partes.filter(Boolean).join(" ");
+    }
+    nombre = ERRATAS.reduce((s, [re, bien]) => s.replace(re, bien), mayus(nombre).replace(/\s+/g, " "));
+    const precioCelda = v(f, "precio");
+    const precio = precioCelda
+      ? Number(precioCelda.replace(/[^\d.,-]/g, "").replace(",", ".")) || 0
+      : precioEstimado(categoria, v(f, "material"), nombre, ancho, largo, espesor);
+    const descripcion = [v(f, "alerta") && `Alerta de stock: ${v(f, "alerta")}`, v(f, "nota")].filter(Boolean).join("\n");
+    out.push({
+      codigo, nombre, precio, categoria, hoja,
+      unidad: v(f, "unidad") || "Unidades",
       servicio: categoria === "Servicios",
+      ...(descripcion ? { descripcion } : {}),
     });
-  }
-  return [...out.values()];
+  });
+  return out;
 }
 
 function leerCsv(texto) {
@@ -104,29 +148,33 @@ async function leerExcel(archivo) {
   const libro = new ExcelJS.Workbook();
   await libro.xlsx.readFile(archivo);
   const productos = [];
+  const avisos = [];
+  const hojas = [];
   for (const hoja of libro.worksheets) {
     const filas = [];
     hoja.eachRow((r) => filas.push(r.values.slice(1).map((v) => (v && typeof v === "object" ? v.result ?? v.text ?? "" : v))));
     if (filas.length < 2) continue;
     try {
-      productos.push(...deFilas(filas));
+      const de = deFilas(filas, hoja.name, avisos);
+      hojas.push(`${hoja.name}: ${de.length}`);
+      productos.push(...de);
     } catch (e) {
-      console.warn(`  · hoja "${hoja.name}" ignorada: ${e.message}`);
+      avisos.push(`hoja "${hoja.name}" ignorada: ${e.message}`);
     }
   }
-  return productos;
+  return { productos, avisos, hojas };
 }
 
 async function cargarProductos() {
   const planchasCatalogo = planchasDeLaMigracion(RAIZ);
   const xlsx = path.join(SEEDS, "productos.xlsx");
   const csv = path.join(SEEDS, "productos.csv");
-  let productos, fuente;
+  let productos, fuente, avisos = [], hojas = [];
   if (fs.existsSync(xlsx)) {
-    productos = await leerExcel(xlsx);
+    ({ productos, avisos, hojas } = await leerExcel(xlsx));
     fuente = path.relative(RAIZ, xlsx);
   } else if (fs.existsSync(csv)) {
-    productos = deFilas(leerCsv(fs.readFileSync(csv, "utf8")));
+    productos = deFilas(leerCsv(fs.readFileSync(csv, "utf8")), "Materiales", avisos);
     fuente = path.relative(RAIZ, csv);
   } else {
     const porCodigo = new Map([...planchasCatalogo, ...EXTRAS].map((p) => [p.codigo, p]));
@@ -135,7 +183,15 @@ async function cargarProductos() {
   }
 
   if (fuente) {
-    console.log(`Productos leídos de ${fuente}: ${productos.length}`);
+    console.log(`Productos leídos de ${fuente}: ${productos.length} (${hojas.join(" · ") || "1 hoja"})`);
+    const veces = Object.entries(Object.groupBy(productos, (p) => p.codigo)).filter(([, v]) => v.length > 1);
+    for (const [c, v] of veces) {
+      avisos.push(`el código ${c} está en ${v.length} filas: se crean ${v.length} productos con el mismo código (${v.map((p) => p.nombre).join(" / ")})`);
+    }
+    const llaves = Object.entries(Object.groupBy(productos, llave)).filter(([, v]) => v.length > 1);
+    for (const [k] of llaves) avisos.push(`fila repetida (mismo código y nombre), se carga una vez: ${k}`);
+    productos = [...new Map(productos.map((p) => [llave(p), p])).values()];
+    for (const a of avisos) console.warn(`  ! ${a}`);
     const enExcel = new Set(productos.map((p) => p.codigo));
     const faltan = planchasCatalogo.filter((p) => !enExcel.has(p.codigo));
     if (faltan.length) {
@@ -149,6 +205,9 @@ async function cargarProductos() {
   }
   return productos;
 }
+
+/** Un producto es su código + su nombre: el Excel repite códigos (ACC001). */
+const llave = (p) => `${p.codigo}|${p.nombre}`;
 
 /* ── 2. Odoo por JSON-RPC ───────────────────────────────────────────────── */
 
@@ -205,6 +264,9 @@ async function sembrarOdoo(x, productos) {
     : campos.includes("detailed_type") ? { detailed_type: "product" }
     : {};
 
+  const repetidos = new Map();
+  for (const p of productos) repetidos.set(p.codigo, (repetidos.get(p.codigo) ?? 0) + 1);
+
   let creados = 0, actualizados = 0;
   for (const p of productos) {
     const vals = {
@@ -213,7 +275,14 @@ async function sembrarOdoo(x, productos) {
     };
     const uom = p.unidad !== "Unidades" ? await uomDe(p.unidad) : null;
     if (uom) Object.assign(vals, { uom_id: uom, ...(campos.includes("uom_po_id") ? { uom_po_id: uom } : {}) });
-    const [id] = await x("product.template", "search", [[["default_code", "=", p.codigo], ["active", "in", [true, false]]]], { limit: 1 });
+    if (p.descripcion) vals.description = p.descripcion;
+    // Código + nombre; si el código es único en el Excel, basta el código (así
+    // un producto renombrado en el Excel se actualiza en vez de duplicarse).
+    const todos = ["active", "in", [true, false]];
+    let [id] = await x("product.template", "search", [[["default_code", "=", p.codigo], ["name", "=", p.nombre], todos]], { limit: 1 });
+    if (!id && repetidos.get(p.codigo) === 1) {
+      [id] = await x("product.template", "search", [[["default_code", "=", p.codigo], todos]], { limit: 1 });
+    }
     if (id) { await x("product.template", "write", [[id], { ...vals, active: true }]); actualizados++; }
     else { await x("product.template", "create", [vals]); creados++; }
   }
@@ -224,8 +293,12 @@ async function sembrarOdoo(x, productos) {
   const codigos = productos.map((p) => p.codigo);
   for (let i = 0; i < codigos.length; i += 500) {
     const filas = await x("product.product", "search_read", [[["default_code", "in", codigos.slice(i, i + 500)]]],
-      { fields: ["default_code", "display_name", "name", "lst_price"] });
-    for (const f of filas) variantes.set(f.default_code, f);
+      { fields: ["default_code", "display_name", "name", "lst_price"], order: "id" });
+    // Por código + nombre, y por código solo (el primero) para las cotizaciones.
+    for (const f of filas) {
+      variantes.set(`${f.default_code}|${f.name}`, f);
+      if (!variantes.has(f.default_code)) variantes.set(f.default_code, f);
+    }
   }
 
   if (CON_STOCK) {
@@ -240,7 +313,7 @@ async function ponerStock(x, productos, variantes) {
   if (!ubicacion) return console.warn("  ! Sin ubicación interna: no pongo stock.");
   let n = 0;
   for (const p of productos) {
-    const v = variantes.get(p.codigo);
+    const v = variantes.get(llave(p));
     if (!v || p.servicio) continue;
     // Determinista para que re-ejecutar no cambie los números.
     const qty = [...p.codigo].reduce((s, c) => s + c.charCodeAt(0), 0) % 15;
@@ -342,7 +415,7 @@ function generarSql(clientes, variantes, ordenes) {
       lineas.map(([c, qty, desc], i) => {
         const v = variantes.get(c);
         const nombre = String(v.display_name ?? v.name).replace(/^\[[^\]]*\]\s*/, "");
-        return `  (${i + 1}, ${v.id}, ${q(nombre)}, ${q(c)}, ${q(desc ?? null)}, ${qty}, ${v.lst_price})`;
+        return `  (${i + 1}, ${v.id}, ${q(nombre)}, ${q(c.split("|")[0])}, ${q(desc ?? null)}, ${qty}, ${v.lst_price})`;
       }).join(",\n"),
       `) as l(posicion, odoo_product_id, producto_nombre, producto_codigo, descripcion, cantidad, precio_unitario);`,
       "",
@@ -360,7 +433,14 @@ const porCategoria = Object.entries(Object.groupBy(productos, (p) => p.categoria
 console.log(`  ${porCategoria.join(" · ")}`);
 
 if (SECO) {
-  for (const p of productos.slice(0, 10)) console.log(`  ${p.codigo.padEnd(12)} ${p.nombre}  S/ ${p.precio}`);
+  for (const [cat, lista] of Object.entries(Object.groupBy(productos, (p) => p.categoria))) {
+    console.log(`\n  ${cat} (${lista.length})`);
+    for (const p of lista.slice(0, 5)) console.log(`    ${p.codigo.padEnd(10)} S/ ${String(p.precio).padStart(5)}  ${p.nombre}`);
+    if (lista.length > 5) console.log(`    … y ${lista.length - 5} más`);
+  }
+  const faltan = COTIZACIONES.flatMap((c) => c.lineas.map(([k]) => k))
+    .filter((k) => !productos.some((p) => p.codigo === k || llave(p) === k));
+  if (faltan.length) console.warn(`  ! las cotizaciones de ejemplo citan productos que no están: ${[...new Set(faltan)].join(", ")}`);
   console.log(`  … (--dry-run: no me conecto a Odoo ni escribo el SQL)`);
 } else {
   const x = await conectar();
