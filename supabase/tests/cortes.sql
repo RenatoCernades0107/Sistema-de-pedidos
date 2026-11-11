@@ -140,11 +140,16 @@ do $$
 begin
   if current_setting('plexi.test_otro') = '' then return; end if;
 
-  if (select count(*) from public.configuracion) > 0
-     or (select count(*) from public.grupos_plancha) > 0
-     or (select count(*) from public.formatos_plancha) > 0 then
-    raise exception 'FALLO: un rol que no es Administración ve la configuración o el catálogo';
+  if (select count(*) from public.configuracion) > 0 then
+    raise exception 'FALLO: un rol que no es Administración ve la configuración';
   end if;
+  -- El catálogo sí lo lee (sin precios: viven en Odoo), para registrar sobrantes
+  -- (20261112000100). Escribirlo no.
+  if (select count(*) from public.grupos_plancha) = 0 then
+    raise exception 'FALLO: otro rol no ve el catálogo de planchas';
+  end if;
+  update public.formatos_plancha set activo = activo;
+  if found then raise exception 'FALLO: otro rol pudo cambiar un formato'; end if;
 
   begin
     insert into public.configuracion (clave, valor) values ('intrusa', '{}'::jsonb);

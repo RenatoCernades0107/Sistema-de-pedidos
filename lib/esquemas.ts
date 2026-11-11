@@ -598,3 +598,37 @@ export type DatosEditables = z.output<typeof esquemaDatosEditables>;
 export type DatosEnvio = z.output<typeof esquemaEnvio>;
 export type CambioEstado = z.output<typeof esquemaCambioEstado>;
 export type CambioPassword = z.output<typeof esquemaCambioPassword>;
+
+/* ── Sobrantes ──────────────────────────────────────────────────────────────── */
+
+const ladoSobrante = z
+  .number({ error: "Escribe la medida en centímetros" })
+  .positive("La medida tiene que ser mayor que cero")
+  .max(1000, "Esa medida es más grande que cualquier plancha");
+
+const ubicacionSobrante = z
+  .string()
+  .trim()
+  .max(80, "La ubicación es muy larga")
+  .transform((v) => v || null)
+  .nullable();
+
+export const esquemaSobrante = z.object({
+  grupoId: z.uuid("Elige el material"),
+  color: z
+    .string()
+    .trim()
+    .max(60)
+    .transform((v) => v || null)
+    .nullable(),
+  largo: ladoSobrante,
+  ancho: ladoSobrante,
+  ubicacion: ubicacionSobrante,
+});
+
+export const esquemaUbicacionSobrante = z.object({
+  codigo: z.string().trim().min(1).max(60),
+  ubicacion: ubicacionSobrante,
+});
+
+export type NuevoSobrante = z.output<typeof esquemaSobrante>;

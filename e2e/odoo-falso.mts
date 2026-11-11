@@ -4,8 +4,10 @@
  * Habla la misma JSON-RPC que `lib/odoo/rpc.ts` (`POST /jsonrpc`, servicios
  * `common` y `object`) y entiende lo justo de los modelos que la app usa:
  * `res.partner`, `product.product`, `sale.order`, `sale.order.line`,
- * `stock.picking`, `stock.move`, `ir.model`, `res.country` y
- * `l10n_latam.identification.type`. Las entregas son como las de la 17: la
+ * `stock.picking`, `stock.move`, `stock.lot`, `stock.quant`, `stock.warehouse`,
+ * `stock.location`, `ir.model`, `ir.model.fields`, `res.country` y
+ * `l10n_latam.identification.type`. Los campos que la app crea en un modelo
+ * (`x_largo` en el lote) existen desde ese momento, como en Odoo. Las entregas son como las de la 17: la
  * cantidad hecha de un movimiento es `quantity`, y `picked` la marca. Con eso las pruebas
  * recorren el camino real —el cliente de Odoo de la app, los route handlers, el
  * formulario— sin tocar el Odoo de la empresa.
@@ -35,8 +37,9 @@ type Registro = Record<string, unknown> & { id: number };
  * `perder-respuesta`: la cotización SÍ se crea, pero la respuesta llega como
  * error — lo que pasa cuando se corta la red justo después. Es el caso que
  * obliga a que reintentar no duplique.
+ * `sin-admin`: el usuario no puede crear campos (`ir.model.fields`).
  */
-export type Modo = "caido" | "perder-respuesta" | null;
+export type Modo = "caido" | "perder-respuesta" | "sin-admin" | null;
 
 interface Llamada {
   modelo: string;
@@ -130,6 +133,15 @@ function sembrar() {
       { id: 2, model: "product.product" },
       { id: 3, model: "sale.order" },
       { id: 4, model: "l10n_latam.identification.type" },
+      { id: 5, model: "stock.lot" },
+    ] as Registro[],
+    "ir.model.fields": [] as Registro[],
+    "stock.lot": [] as Registro[],
+    "stock.quant": [] as Registro[],
+    "stock.warehouse": [{ id: 1, name: "WH", lot_stock_id: [8, "WH/Stock"] }] as Registro[],
+    "stock.location": [
+      { id: 8, name: "WH/Stock", usage: "internal" },
+      { id: 9, name: "Partners/Customers", usage: "customer" },
     ] as Registro[],
   };
 }
@@ -151,6 +163,10 @@ const CAMPOS: Record<string, string[]> = {
   "sale.order": ["name", "partner_id", "origin", "order_line", "amount_untaxed", "amount_tax", "amount_total", "state"],
   "sale.order.line": ["order_id", "product_id", "name", "product_uom_qty", "price_unit", "display_type", "sequence"],
   "stock.picking": ["name", "sale_id", "picking_type_code", "state", "move_ids"],
+  "stock.lot": ["name", "product_id", "note", "ref"],
+  "stock.quant": ["product_id", "location_id", "lot_id", "quantity", "inventory_quantity"],
+  "stock.warehouse": ["name", "lot_stock_id"],
+  "stock.location": ["name", "usage"],
   "stock.move": ["picking_id", "product_id", "product_uom_qty", "quantity", "picked", "state", "sale_line_id"],
   "l10n_latam.identification.type": ["name", "l10n_pe_vat_code", "country_id"],
 };
@@ -159,9 +175,13 @@ const CAMPOS: Record<string, string[]> = {
 
 type Predicado = (r: Registro) => boolean;
 
+/** Las ubicaciones del almacén falso: el stock y los clientes. */
+const USO_UBICACION: Record<number, string> = { 8: "internal", 9: "customer" };
+
 function valorDe(r: Registro, campo: string): unknown {
   // `product_tmpl_id.write_date`: aquí la plantilla y la variante son lo mismo.
   if (campo === "product_tmpl_id.write_date") return r.write_date;
+  if (campo === "location_id.usage") return USO_UBICACION[valorDe(r, "location_id") as number];
   const v = r[campo];
   return Array.isArray(v) ? v[0] : v;
 }
@@ -180,12 +200,16 @@ function termino([campo, op, valor]: [string, string, unknown]): Predicado {
         return !(valor as unknown[]).includes(v);
       case "ilike":
         return typeof v === "string" && v.toLowerCase().includes(String(valor).toLowerCase());
+      case "=like": {
+        const patron = String(valor).replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".");
+        return typeof v === "string" && new RegExp(`^${patron}$`).test(v);
+      }
       case "=ilike":
         return typeof v === "string" && v.toLowerCase() === String(valor).toLowerCase();
       case ">=":
         return typeof v === "string" && v >= String(valor);
       case ">":
-        return typeof v === "string" && v > String(valor);
+        return typeof valor === "number" ? Number(v) > valor : typeof v === "string" && v > String(valor);
       default:
         throw new Error(`Operador no soportado por el Odoo falso: ${op}`);
     }
@@ -246,6 +270,11 @@ export async function crearOdooFalso(
   let datos = sembrar();
   let modo: Modo = null;
   let llamadas: Llamada[] = [];
+  /** El `context` de la llamada en curso: `stock.quant` lo mira al crear. */
+  let contextoActual: Record<string, unknown> | null = null;
+  /** Los campos creados por `ir.model.fields`, por modelo. Se olvidan al reiniciar. */
+  let extras: Record<string, string[]> = {};
+  const camposDe = (modelo: string) => [...(CAMPOS[modelo] ?? []), ...(extras[modelo] ?? [])];
 
   const tabla = (modelo: string) => {
     // Aquí plantilla y variante son el mismo registro (lo usa scripts/seed-odoo.mjs).
@@ -259,7 +288,8 @@ export async function crearOdooFalso(
     if (!Array.isArray(campos) || campos.length === 0) return { ...r };
     const salida: Registro = { id: r.id };
     for (const c of campos as string[]) {
-      if (!(CAMPOS[r.__modelo as string] ?? Object.keys(r)).includes(c) && !(c in r)) {
+      const conocidos = CAMPOS[r.__modelo as string] ? camposDe(r.__modelo as string) : Object.keys(r);
+      if (!conocidos.includes(c) && !(c in r)) {
         throw new ErrorRpc("ValueError", `Invalid field '${c}'`);
       }
       salida[c] = c in r ? r[c] : false;
@@ -332,6 +362,46 @@ export async function crearOdooFalso(
       return id;
     }
 
+    if (modelo === "ir.model.fields") {
+      if (modo === "sin-admin") {
+        throw new ErrorRpc("odoo.exceptions.AccessError", "You are not allowed to create 'Fields' (ir.model.fields) records.");
+      }
+      const destino = tabla("ir.model").find((m) => m.id === vals.model_id)?.model as string | undefined;
+      if (!destino) throw new ErrorRpc("odoo.exceptions.MissingError", "El modelo no existe.");
+      if (!String(vals.name).startsWith("x_")) {
+        throw new ErrorRpc("odoo.exceptions.ValidationError", "Custom fields must have a name that starts with 'x_'!");
+      }
+      extras[destino] = [...(extras[destino] ?? []), String(vals.name)];
+      t.push({ id, ...vals });
+      return id;
+    }
+
+    if (modelo === "stock.lot") {
+      if (modo === "caido") throw new ErrorRpc("odoo.exceptions.UserError", "Odoo falso: caído a propósito.");
+      for (const c of Object.keys(vals)) {
+        if (!camposDe(modelo).includes(c)) throw new ErrorRpc("ValueError", `Invalid field '${c}' on model 'stock.lot'`);
+      }
+      const producto = tabla("product.product").find((p) => p.id === vals.product_id);
+      if (!producto) throw new ErrorRpc("odoo.exceptions.MissingError", "El producto no existe.");
+      if (t.some((l) => l.name === vals.name && valorDe(l, "product_id") === producto.id)) {
+        throw new ErrorRpc("odoo.exceptions.ValidationError", "The combination of serial number and product must be unique.");
+      }
+      t.push({ ...vals, id, product_id: [producto.id, producto.display_name] });
+      return id;
+    }
+
+    if (modelo === "stock.quant") {
+      const contexto = (contextoActual ?? {}) as Record<string, unknown>;
+      if (!contexto.inventory_mode) {
+        throw new ErrorRpc("odoo.exceptions.UserError", "Quant's creation is restricted, you can't do this operation.");
+      }
+      t.push({
+        id, product_id: [vals.product_id, ""], location_id: [vals.location_id, ""],
+        lot_id: vals.lot_id ? [vals.lot_id, ""] : false, quantity: 0, inventory_quantity: vals.inventory_quantity ?? 0,
+      });
+      return id;
+    }
+
     if (modelo === "product.category") {
       t.push({ id, name: vals.name });
       return id;
@@ -384,6 +454,7 @@ export async function crearOdooFalso(
 
   function ejecutar(modelo: string, metodo: string, args: unknown[], kwargs: Record<string, unknown>) {
     llamadas.push({ modelo, metodo, args, kwargs });
+    contextoActual = (kwargs.context as Record<string, unknown>) ?? null;
     const deModelo = () => tabla(modelo).map((r) => ({ ...r, __modelo: modelo }));
     const limpiar = (r: Registro) => {
       const resto: Record<string, unknown> = { ...r };
@@ -393,7 +464,7 @@ export async function crearOdooFalso(
 
     switch (metodo) {
       case "fields_get":
-        return Object.fromEntries((CAMPOS[modelo] ?? []).map((c) => [c, { type: "char" }]));
+        return Object.fromEntries(camposDe(modelo).map((c) => [c, { type: "char" }]));
       case "search_read": {
         const dominio = (args[0] as unknown[]) ?? [];
         const offset = Number(kwargs.offset ?? 0);
@@ -425,7 +496,7 @@ export async function crearOdooFalso(
           // Lo demás (los movimientos de una entrega) se escribe tal cual, campo por campo.
           for (const r of tabla(modelo).filter((x) => ids.includes(x.id))) {
             for (const c of Object.keys(vals)) {
-              if (!(CAMPOS[modelo] ?? []).includes(c)) throw new ErrorRpc("ValueError", `Invalid field '${c}'`);
+              if (!camposDe(modelo).includes(c)) throw new ErrorRpc("ValueError", `Invalid field '${c}'`);
             }
             Object.assign(r, vals);
           }
@@ -458,6 +529,13 @@ export async function crearOdooFalso(
           }
           orden.state = "sale";
           crearEntrega(orden);
+        }
+        return true;
+      }
+      case "action_apply_inventory": {
+        if (modelo !== "stock.quant") break;
+        for (const q of tabla(modelo).filter((r) => (args[0] as number[]).includes(r.id))) {
+          q.quantity = Number(q.inventory_quantity ?? 0);
         }
         return true;
       }
@@ -555,6 +633,12 @@ export async function crearOdooFalso(
           movimientos: datos["stock.move"].filter((m) => valorDe(m, "picking_id") === p.id),
         })),
     })),
+    lotes: datos["stock.lot"].map((l): Registro & { cantidad: number } => ({
+      ...l,
+      cantidad: datos["stock.quant"]
+        .filter((q) => valorDe(q, "lot_id") === l.id && USO_UBICACION[valorDe(q, "location_id") as number] === "internal")
+        .reduce((s, q) => s + Number(q.quantity ?? 0), 0),
+    })),
     llamadas: llamadas.map(({ modelo, metodo, args, kwargs }) => ({ modelo, metodo, args, kwargs })),
   });
 
@@ -582,6 +666,7 @@ export async function crearOdooFalso(
         datos = sembrar();
         modo = null;
         llamadas = [];
+        extras = {};
         return json(res, 200, { ok: true });
       }
       if (req.url === "/jsonrpc" && req.method === "POST") {
@@ -617,6 +702,7 @@ export async function crearOdooFalso(
       datos = sembrar();
       modo = null;
       llamadas = [];
+      extras = {};
     },
     cerrar: () => new Promise<void>((resolver) => servidor.close(() => resolver())),
   };

@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { Check, CircleAlert, Loader2, Plus, Trash2, X } from "lucide-react";
 import type { RespuestaPrecios } from "@/app/api/cortes/precios/route";
 import type { RespuestaStock } from "@/app/api/cortes/stock/route";
-import { compactar } from "@/lib/busqueda-inteligente";
 import {
   MODALIDADES,
   compararFormatos,
@@ -13,6 +12,7 @@ import {
   type PiezaPedida,
 } from "@/lib/cortes/calcular";
 import {
+  buscarGrupos,
   colorDe,
   espesorTexto,
   medidaDe,
@@ -264,15 +264,9 @@ export function EditorCorte({
     });
   };
 
-  const opciones: Opcion[] = useMemo(() => {
-    const palabras = consulta.split(/\s+/).map(compactar).filter(Boolean);
-    return catalogo
-      .filter((g) => {
-        const donde = compactar(nombreDeGrupo(g));
-        return palabras.every((p) => donde.includes(p));
-      })
-      .slice(0, 12)
-      .map((g) => ({
+  const opciones: Opcion[] = useMemo(
+    () =>
+      buscarGrupos(catalogo, consulta).map((g) => ({
         valor: g.id,
         alElegir: () => elegirGrupo(g),
         contenido: (
@@ -285,8 +279,9 @@ export function EditorCorte({
             </span>
           </span>
         ),
-      }));
-  }, [catalogo, consulta]);
+      })),
+    [catalogo, consulta],
+  );
 
   return (
     <Dialog open onOpenChange={(abierto) => !abierto && alCerrar()}>

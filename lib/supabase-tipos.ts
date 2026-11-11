@@ -912,6 +912,109 @@ export type Database = {
           },
         ]
       }
+      sobrantes: {
+        Row: {
+          actualizado_en: string
+          ancho_cm: number
+          codigo: string
+          color: string | null
+          creado_en: string
+          creado_por: string | null
+          error_sincronizacion: string | null
+          estado: Database["public"]["Enums"]["estado_sobrante"]
+          estandar: boolean
+          grupo_id: string
+          id: string
+          largo_cm: number
+          odoo_lot_id: number | null
+          origen: string
+          pedido_id: string | null
+          sincronizacion: Database["public"]["Enums"]["sincronizacion_odoo"]
+          ubicacion: string | null
+        }
+        Insert: {
+          actualizado_en?: string
+          ancho_cm: number
+          codigo?: string
+          color?: string | null
+          creado_en?: string
+          creado_por?: string | null
+          error_sincronizacion?: string | null
+          estado?: Database["public"]["Enums"]["estado_sobrante"]
+          estandar?: boolean
+          grupo_id: string
+          id?: string
+          largo_cm: number
+          odoo_lot_id?: number | null
+          origen?: string
+          pedido_id?: string | null
+          sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
+          ubicacion?: string | null
+        }
+        Update: {
+          actualizado_en?: string
+          ancho_cm?: number
+          codigo?: string
+          color?: string | null
+          creado_en?: string
+          creado_por?: string | null
+          error_sincronizacion?: string | null
+          estado?: Database["public"]["Enums"]["estado_sobrante"]
+          estandar?: boolean
+          grupo_id?: string
+          id?: string
+          largo_cm?: number
+          odoo_lot_id?: number | null
+          origen?: string
+          pedido_id?: string | null
+          sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
+          ubicacion?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sobrantes_creado_por_fkey"
+            columns: ["creado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sobrantes_grupo_id_fkey"
+            columns: ["grupo_id"]
+            isOneToOne: false
+            referencedRelation: "grupos_plancha"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sobrantes_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sobrantes_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_admin"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sobrantes_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_logistica"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sobrantes_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_operaciones"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       suscripciones_push: {
         Row: {
           auth: string
@@ -1466,6 +1569,7 @@ export type Database = {
         }[]
       }
       purgar_notificaciones: { Args: never; Returns: undefined }
+      retazo_minimo: { Args: never; Returns: number }
       sigla_de: {
         Args: { tipos: Database["public"]["Enums"]["tipo_pedido"][] }
         Returns: string
@@ -1526,6 +1630,7 @@ export type Database = {
         | "en_transito"
         | "entregado"
         | "anulado"
+      estado_sobrante: "disponible" | "reservado" | "consumido" | "baja"
       lugar_entrega: "tienda" | "taller" | "domicilio" | "agencia"
       metodo_pago:
         | "efectivo"
@@ -1690,6 +1795,7 @@ export const Constants = {
         "entregado",
         "anulado",
       ],
+      estado_sobrante: ["disponible", "reservado", "consumido", "baja"],
       lugar_entrega: ["tienda", "taller", "domicilio", "agencia"],
       metodo_pago: [
         "efectivo",

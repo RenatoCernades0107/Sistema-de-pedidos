@@ -198,3 +198,14 @@ E2E_URL=https://<dominio>.vercel.app npm run e2e
   primer corte cuando se cobra una fracción y lo que vuelve al almacén. Tiene casillas para ir
   marcando y un hueco para las planchas usadas. No muestra precios a nadie. Al imprimir se esconde el
   menú de la app y el tema oscuro no aplica: `globals.css` solo lo activa en pantalla.
+- **Sobrantes** (`/sobrantes`, los tres roles): los pedazos de plancha que vuelven al almacén. En Odoo
+  cada uno es un lote del producto *Sobrante* de su material (`SOB-<código de la plancha más chica del
+  grupo>`, almacenable y con lotes), con una unidad en stock y su medida en `x_largo` / `x_ancho`. La
+  app crea el producto y esos dos campos la primera vez (`lib/odoo/sobrantes.ts`; crear campos pide un
+  usuario de Odoo con permiso de administración). La tabla `sobrantes` es su espejo (migración
+  `20261112000100`): se busca por material y por la medida que hace falta, se registran a mano los
+  que ya están en el almacén, se cambia la ubicación (texto libre, va a la nota del lote) y se imprime
+  la etiqueta con QR (`/sobrantes/<código>/etiqueta`, 80 × 50 mm). *Sincronizar con Odoo* reconcilia
+  la tabla con el stock de Odoo, que es el que manda (`lib/sobrantes-servidor.ts`). Media o cuarta
+  parte de un formato queda marcada como estándar. Con un lado menor que el retazo mínimo de la
+  configuración no se registra.

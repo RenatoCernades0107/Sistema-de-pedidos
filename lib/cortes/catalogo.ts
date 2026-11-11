@@ -1,3 +1,5 @@
+import { compactar } from "../busqueda-inteligente";
+
 /**
  * El catálogo de planchas en el idioma de la pantalla. Sin dependencias de
  * servidor: lo usan también los componentes del navegador.
@@ -53,3 +55,18 @@ export const medidaDe = (f: Pick<FormatoPlancha, "anchoCm" | "largoCm">) =>
 
 /** Si en el grupo algún formato comparte código entre colores. */
 export const pideColor = (g: Pick<GrupoPlancha, "formatos">) => g.formatos.some((f) => f.skuCompartido);
+
+/** Los grupos que coinciden con lo escrito ("eco cristal 3"): cada palabra, en cualquier orden. */
+export function buscarGrupos<G extends Pick<GrupoPlancha, "material" | "variante" | "detalle" | "espesorMm">>(
+  catalogo: G[],
+  consulta: string,
+  limite = 12,
+): G[] {
+  const palabras = consulta.split(/\s+/).map(compactar).filter(Boolean);
+  return catalogo
+    .filter((g) => {
+      const donde = compactar(nombreDeGrupo(g));
+      return palabras.every((p) => donde.includes(p));
+    })
+    .slice(0, limite);
+}
