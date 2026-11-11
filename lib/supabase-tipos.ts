@@ -111,39 +111,89 @@ export type Database = {
           },
         ]
       }
+      configuracion: {
+        Row: {
+          actualizado_en: string
+          actualizado_por: string | null
+          clave: string
+          valor: Json
+        }
+        Insert: {
+          actualizado_en?: string
+          actualizado_por?: string | null
+          clave: string
+          valor: Json
+        }
+        Update: {
+          actualizado_en?: string
+          actualizado_por?: string | null
+          clave?: string
+          valor?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "configuracion_actualizado_por_fkey"
+            columns: ["actualizado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cotizacion_productos: {
         Row: {
           cantidad: number
+          corte: Json | null
           cotizacion_id: string
           descripcion: string | null
           id: string
+          importe: number | null
+          odoo_produccion_id: number | null
+          odoo_produccion_nombre: string | null
           odoo_product_id: number
+          planchas_usadas: number | null
           posicion: number
           precio_unitario: number
+          produccion_cerrada: boolean
           producto_codigo: string | null
           producto_nombre: string
+          tipo: Database["public"]["Enums"]["tipo_linea"]
         }
         Insert: {
           cantidad: number
+          corte?: Json | null
           cotizacion_id: string
           descripcion?: string | null
           id?: string
+          importe?: number | null
+          odoo_produccion_id?: number | null
+          odoo_produccion_nombre?: string | null
           odoo_product_id: number
+          planchas_usadas?: number | null
           posicion: number
           precio_unitario: number
+          produccion_cerrada?: boolean
           producto_codigo?: string | null
           producto_nombre: string
+          tipo?: Database["public"]["Enums"]["tipo_linea"]
         }
         Update: {
           cantidad?: number
+          corte?: Json | null
           cotizacion_id?: string
           descripcion?: string | null
           id?: string
+          importe?: number | null
+          odoo_produccion_id?: number | null
+          odoo_produccion_nombre?: string | null
           odoo_product_id?: number
+          planchas_usadas?: number | null
           posicion?: number
           precio_unitario?: number
+          produccion_cerrada?: boolean
           producto_codigo?: string | null
           producto_nombre?: string
+          tipo?: Database["public"]["Enums"]["tipo_linea"]
         }
         Relationships: [
           {
@@ -158,14 +208,19 @@ export type Database = {
       cotizaciones: {
         Row: {
           actualizado_en: string
+          anulada_en_odoo: boolean
           canal: Database["public"]["Enums"]["canal_cotizacion"]
           chat_agente_id: string | null
           cliente_documento: string | null
           cliente_nombre: string
           cliente_telefono: string | null
+          confirmada_en_odoo: boolean
           creado_en: string
           creado_por: string | null
+          error_anulacion: string | null
+          error_confirmacion: string | null
           error_sincronizacion: string | null
+          error_stock: string | null
           id: string
           monto_impuestos: number | null
           monto_sin_impuestos: number | null
@@ -174,18 +229,25 @@ export type Database = {
           odoo_order_id: number | null
           odoo_order_name: string | null
           odoo_partner_id: number
+          pedido_id: string | null
           sincronizacion: Database["public"]["Enums"]["sincronizacion_odoo"]
+          stock_descontado: boolean
         }
         Insert: {
           actualizado_en?: string
+          anulada_en_odoo?: boolean
           canal?: Database["public"]["Enums"]["canal_cotizacion"]
           chat_agente_id?: string | null
           cliente_documento?: string | null
           cliente_nombre: string
           cliente_telefono?: string | null
+          confirmada_en_odoo?: boolean
           creado_en?: string
           creado_por?: string | null
+          error_anulacion?: string | null
+          error_confirmacion?: string | null
           error_sincronizacion?: string | null
+          error_stock?: string | null
           id?: string
           monto_impuestos?: number | null
           monto_sin_impuestos?: number | null
@@ -194,18 +256,25 @@ export type Database = {
           odoo_order_id?: number | null
           odoo_order_name?: string | null
           odoo_partner_id: number
+          pedido_id?: string | null
           sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
+          stock_descontado?: boolean
         }
         Update: {
           actualizado_en?: string
+          anulada_en_odoo?: boolean
           canal?: Database["public"]["Enums"]["canal_cotizacion"]
           chat_agente_id?: string | null
           cliente_documento?: string | null
           cliente_nombre?: string
           cliente_telefono?: string | null
+          confirmada_en_odoo?: boolean
           creado_en?: string
           creado_por?: string | null
+          error_anulacion?: string | null
+          error_confirmacion?: string | null
           error_sincronizacion?: string | null
+          error_stock?: string | null
           id?: string
           monto_impuestos?: number | null
           monto_sin_impuestos?: number | null
@@ -214,7 +283,9 @@ export type Database = {
           odoo_order_id?: number | null
           odoo_order_name?: string | null
           odoo_partner_id?: number
+          pedido_id?: string | null
           sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
+          stock_descontado?: boolean
         }
         Relationships: [
           {
@@ -222,6 +293,34 @@ export type Database = {
             columns: ["creado_por"]
             isOneToOne: false
             referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cotizaciones_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: true
+            referencedRelation: "pedidos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cotizaciones_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: true
+            referencedRelation: "pedidos_admin"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cotizaciones_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: true
+            referencedRelation: "pedidos_logistica"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cotizaciones_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: true
+            referencedRelation: "pedidos_operaciones"
             referencedColumns: ["id"]
           },
         ]
@@ -325,6 +424,80 @@ export type Database = {
             referencedColumns: ["id", "departamento_id"]
           },
         ]
+      }
+      formatos_plancha: {
+        Row: {
+          activo: boolean
+          ancho_cm: number
+          codigo_odoo: string
+          grupo_id: string
+          id: string
+          largo_cm: number
+          nota: string | null
+          por_verificar: boolean
+          sku_compartido: boolean
+        }
+        Insert: {
+          activo?: boolean
+          ancho_cm: number
+          codigo_odoo: string
+          grupo_id: string
+          id?: string
+          largo_cm: number
+          nota?: string | null
+          por_verificar?: boolean
+          sku_compartido?: boolean
+        }
+        Update: {
+          activo?: boolean
+          ancho_cm?: number
+          codigo_odoo?: string
+          grupo_id?: string
+          id?: string
+          largo_cm?: number
+          nota?: string | null
+          por_verificar?: boolean
+          sku_compartido?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "formatos_plancha_grupo_id_fkey"
+            columns: ["grupo_id"]
+            isOneToOne: false
+            referencedRelation: "grupos_plancha"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      grupos_plancha: {
+        Row: {
+          detalle: string
+          espesor_mm: number
+          id: string
+          material: string
+          rotable: boolean
+          sobrantes_activo: boolean
+          variante: string
+        }
+        Insert: {
+          detalle?: string
+          espesor_mm: number
+          id?: string
+          material: string
+          rotable?: boolean
+          sobrantes_activo?: boolean
+          variante?: string
+        }
+        Update: {
+          detalle?: string
+          espesor_mm?: number
+          id?: string
+          material?: string
+          rotable?: boolean
+          sobrantes_activo?: boolean
+          variante?: string
+        }
+        Relationships: []
       }
       historial_estados: {
         Row: {
@@ -748,6 +921,146 @@ export type Database = {
           },
         ]
       }
+      sobrantes: {
+        Row: {
+          actualizado_en: string
+          ancho_cm: number
+          codigo: string
+          color: string | null
+          creado_en: string
+          creado_por: string | null
+          error_sincronizacion: string | null
+          estado: Database["public"]["Enums"]["estado_sobrante"]
+          estandar: boolean
+          grupo_id: string
+          id: string
+          largo_cm: number
+          linea_posicion: number | null
+          odoo_lot_id: number | null
+          origen: string
+          pedido_id: string | null
+          reserva_pedido_id: string | null
+          reserva_posicion: number | null
+          sincronizacion: Database["public"]["Enums"]["sincronizacion_odoo"]
+          ubicacion: string | null
+        }
+        Insert: {
+          actualizado_en?: string
+          ancho_cm: number
+          codigo?: string
+          color?: string | null
+          creado_en?: string
+          creado_por?: string | null
+          error_sincronizacion?: string | null
+          estado?: Database["public"]["Enums"]["estado_sobrante"]
+          estandar?: boolean
+          grupo_id: string
+          id?: string
+          largo_cm: number
+          linea_posicion?: number | null
+          odoo_lot_id?: number | null
+          origen?: string
+          pedido_id?: string | null
+          reserva_pedido_id?: string | null
+          reserva_posicion?: number | null
+          sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
+          ubicacion?: string | null
+        }
+        Update: {
+          actualizado_en?: string
+          ancho_cm?: number
+          codigo?: string
+          color?: string | null
+          creado_en?: string
+          creado_por?: string | null
+          error_sincronizacion?: string | null
+          estado?: Database["public"]["Enums"]["estado_sobrante"]
+          estandar?: boolean
+          grupo_id?: string
+          id?: string
+          largo_cm?: number
+          linea_posicion?: number | null
+          odoo_lot_id?: number | null
+          origen?: string
+          pedido_id?: string | null
+          reserva_pedido_id?: string | null
+          reserva_posicion?: number | null
+          sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
+          ubicacion?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sobrantes_creado_por_fkey"
+            columns: ["creado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sobrantes_grupo_id_fkey"
+            columns: ["grupo_id"]
+            isOneToOne: false
+            referencedRelation: "grupos_plancha"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sobrantes_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sobrantes_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_admin"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sobrantes_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_logistica"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sobrantes_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_operaciones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sobrantes_reserva_pedido_id_fkey"
+            columns: ["reserva_pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sobrantes_reserva_pedido_id_fkey"
+            columns: ["reserva_pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_admin"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sobrantes_reserva_pedido_id_fkey"
+            columns: ["reserva_pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_logistica"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sobrantes_reserva_pedido_id_fkey"
+            columns: ["reserva_pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_operaciones"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       suscripciones_push: {
         Row: {
           auth: string
@@ -856,25 +1169,6 @@ export type Database = {
       }
     }
     Views: {
-      clientes_cotizados: {
-        Row: {
-          cliente_documento: string | null
-          cliente_nombre: string | null
-          cliente_telefono: string | null
-          odoo_partner_id: number | null
-          ultima_vez: string | null
-          veces: number | null
-        }
-        Relationships: []
-      }
-      productos_mas_cotizados: {
-        Row: {
-          odoo_product_id: number | null
-          ultima_vez: string | null
-          veces: number | null
-        }
-        Relationships: []
-      }
       auditoria_pedido: {
         Row: {
           campo: string | null
@@ -915,6 +1209,17 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      clientes_cotizados: {
+        Row: {
+          cliente_documento: string | null
+          cliente_nombre: string | null
+          cliente_telefono: string | null
+          odoo_partner_id: number | null
+          ultima_vez: string | null
+          veces: number | null
+        }
+        Relationships: []
       }
       historial_pedido: {
         Row: {
@@ -1183,11 +1488,42 @@ export type Database = {
           },
         ]
       }
+      productos_mas_cotizados: {
+        Row: {
+          odoo_product_id: number | null
+          ultima_vez: string | null
+          veces: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
+      anotar_anulacion_en_odoo: {
+        Args: { p_anulada: boolean; p_codigo: string; p_error?: string }
+        Returns: undefined
+      }
+      anotar_planchas_usadas: {
+        Args: { p_codigo: string; p_planchas: number; p_posicion: number }
+        Returns: undefined
+      }
+      anotar_produccion: {
+        Args: {
+          p_cerrada?: boolean
+          p_cotizacion: string
+          p_id?: number
+          p_nombre?: string
+          p_posicion: number
+        }
+        Returns: undefined
+      }
+      anotar_stock_de_pedido: {
+        Args: { p_codigo: string; p_descontado: boolean; p_error?: string }
+        Returns: undefined
+      }
       array_sin_duplicados: { Args: { a: unknown }; Returns: boolean }
       auditoria_texto: { Args: { campo: string; valor: Json }; Returns: string }
       auth_rol: { Args: never; Returns: Database["public"]["Enums"]["rol"] }
+      corte_sin_precios: { Args: { c: Json }; Returns: Json }
       crear_cotizacion: {
         Args: {
           p_canal?: Database["public"]["Enums"]["canal_cotizacion"]
@@ -1210,6 +1546,7 @@ export type Database = {
         Args: {
           p_abono_inicial?: number
           p_cantidad: number
+          p_cotizacion_id?: string
           p_departamento_id?: number
           p_detalle?: string
           p_direccion_entrega?: string
@@ -1239,7 +1576,6 @@ export type Database = {
         }
         Returns: string
       }
-      debug_mi_rol: { Args: never; Returns: Json }
       despachar_push: { Args: never; Returns: undefined }
       email_de_usuario: { Args: { nombre_usuario: string }; Returns: string }
       es_admin: { Args: never; Returns: boolean }
@@ -1253,15 +1589,62 @@ export type Database = {
         }
         Returns: string
       }
+      lineas_de_pedido: {
+        Args: { p_codigo: string }
+        Returns: {
+          cantidad: number
+          corte: Json
+          descripcion: string
+          importe: number
+          odoo_produccion_id: number
+          odoo_produccion_nombre: string
+          odoo_product_id: number
+          planchas_usadas: number
+          posicion: number
+          precio_unitario: number
+          produccion_cerrada: boolean
+          producto_codigo: string
+          producto_nombre: string
+          tipo: Database["public"]["Enums"]["tipo_linea"]
+        }[]
+      }
       marcar_escritura_del_sistema: {
         Args: { activa: boolean }
         Returns: undefined
       }
       marcar_password_cambiada: { Args: never; Returns: undefined }
+      odoo_de_pedido: {
+        Args: { p_codigo: string }
+        Returns: {
+          anulada_en_odoo: boolean
+          confirmada_en_odoo: boolean
+          cotizacion_id: string
+          error_anulacion: string
+          error_stock: string
+          odoo_order_id: number
+          odoo_order_name: string
+          sincronizacion: Database["public"]["Enums"]["sincronizacion_odoo"]
+          stock_descontado: boolean
+        }[]
+      }
       purgar_notificaciones: { Args: never; Returns: undefined }
+      reservar_sobrantes_de_corte: {
+        Args: {
+          p_codigos: string[]
+          p_corte: Json
+          p_cotizacion: string
+          p_posicion: number
+        }
+        Returns: undefined
+      }
+      retazo_minimo: { Args: never; Returns: number }
       sigla_de: {
         Args: { tipos: Database["public"]["Enums"]["tipo_pedido"][] }
         Returns: string
+      }
+      soltar_sobrantes_de_pedido: {
+        Args: { p_codigo: string; p_consumir: boolean; p_posicion?: number }
+        Returns: number
       }
       sufijo_codigo: { Args: never; Returns: string }
       texto_notificacion: {
@@ -1319,6 +1702,7 @@ export type Database = {
         | "en_transito"
         | "entregado"
         | "anulado"
+      estado_sobrante: "disponible" | "reservado" | "consumido" | "baja"
       lugar_entrega: "tienda" | "taller" | "domicilio" | "agencia"
       metodo_pago:
         | "efectivo"
@@ -1338,6 +1722,7 @@ export type Database = {
       sincronizacion_odoo: "pendiente" | "sincronizada" | "error"
       tipo_adjunto: "diseno" | "factura" | "guia" | "foto_entrega"
       tipo_documento: "DNI" | "CE"
+      tipo_linea: "producto" | "corte"
       tipo_notificacion: "pedido_creado" | "responsable_asignado"
       tipo_pago: "contado" | "a_cuenta" | "credito"
       tipo_pedido: "CL" | "CM" | "SP" | "PT" | "AC"
@@ -1482,6 +1867,7 @@ export const Constants = {
         "entregado",
         "anulado",
       ],
+      estado_sobrante: ["disponible", "reservado", "consumido", "baja"],
       lugar_entrega: ["tienda", "taller", "domicilio", "agencia"],
       metodo_pago: [
         "efectivo",
@@ -1503,6 +1889,7 @@ export const Constants = {
       sincronizacion_odoo: ["pendiente", "sincronizada", "error"],
       tipo_adjunto: ["diseno", "factura", "guia", "foto_entrega"],
       tipo_documento: ["DNI", "CE"],
+      tipo_linea: ["producto", "corte"],
       tipo_notificacion: ["pedido_creado", "responsable_asignado"],
       tipo_pago: ["contado", "a_cuenta", "credito"],
       tipo_pedido: ["CL", "CM", "SP", "PT", "AC"],
@@ -1510,3 +1897,4 @@ export const Constants = {
     },
   },
 } as const
+

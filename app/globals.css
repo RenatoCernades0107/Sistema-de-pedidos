@@ -2,7 +2,14 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
+/* Oscuro solo en pantalla: al imprimir (la hoja de corte) el papel es blanco. */
+@custom-variant dark {
+  @media screen {
+    &:is(.dark *) {
+      @slot;
+    }
+  }
+}
 
 @theme inline {
   --color-background: var(--background);
@@ -176,65 +183,67 @@
    Fondo casi negro y texto blanco: ni un gramo de azul en el cromo.
    El azul y el amarillo solo aparecen como acento, aclarados para
    mantener el contraste sobre negro. */
-.dark {
-  --background: oklch(0.135 0 0);
-  --foreground: oklch(0.97 0 0);
-  --card: oklch(0.178 0 0);
-  --card-foreground: oklch(0.97 0 0);
-  --popover: oklch(0.198 0 0);
-  --popover-foreground: oklch(0.97 0 0);
+@media screen {
+  .dark {
+    --background: oklch(0.135 0 0);
+    --foreground: oklch(0.97 0 0);
+    --card: oklch(0.178 0 0);
+    --card-foreground: oklch(0.97 0 0);
+    --popover: oklch(0.198 0 0);
+    --popover-foreground: oklch(0.97 0 0);
 
-  --primary: oklch(0.68 0.145 253);
-  --primary-foreground: oklch(0.14 0 0);
+    --primary: oklch(0.68 0.145 253);
+    --primary-foreground: oklch(0.14 0 0);
 
-  --secondary: oklch(0.242 0 0);
-  --secondary-foreground: oklch(0.97 0 0);
-  --muted: oklch(0.232 0 0);
-  --muted-foreground: oklch(0.685 0 0);
-  --accent: oklch(0.255 0 0);
-  --accent-foreground: oklch(0.97 0 0);
-  --destructive: oklch(0.68 0.195 26);
+    --secondary: oklch(0.242 0 0);
+    --secondary-foreground: oklch(0.97 0 0);
+    --muted: oklch(0.232 0 0);
+    --muted-foreground: oklch(0.685 0 0);
+    --accent: oklch(0.255 0 0);
+    --accent-foreground: oklch(0.97 0 0);
+    --destructive: oklch(0.68 0.195 26);
 
-  --border: oklch(1 0 0 / 11%);
-  --input: oklch(1 0 0 / 14%);
-  --ring: oklch(0.68 0.145 253);
+    --border: oklch(1 0 0 / 11%);
+    --input: oklch(1 0 0 / 14%);
+    --ring: oklch(0.68 0.145 253);
 
-  --brand: oklch(0.846 0.173 86);
-  --brand-foreground: oklch(0.19 0.045 80);
-  --brand-soft: oklch(0.3 0.065 82);
+    --brand: oklch(0.846 0.173 86);
+    --brand-foreground: oklch(0.19 0.045 80);
+    --brand-soft: oklch(0.3 0.065 82);
 
-  --saldo-alerta: oklch(0.71 0.198 25);
+    --saldo-alerta: oklch(0.71 0.198 25);
 
-  --st-registrado: oklch(0.72 0 0);
-  --st-registrado-soft: oklch(0.27 0 0);
-  --st-en_proceso: oklch(0.72 0.13 253);
-  --st-en_proceso-soft: oklch(0.28 0.055 253);
-  --st-observado: oklch(0.72 0.15 25);
-  --st-observado-soft: oklch(0.28 0.06 25);
-  --st-listo: oklch(0.846 0.173 86);
-  --st-listo-soft: oklch(0.29 0.065 82);
-  --st-en_transito: oklch(0.79 0.13 66);
-  --st-en_transito-soft: oklch(0.285 0.06 66);
-  --st-entregado: oklch(0.75 0.125 150);
-  --st-entregado-soft: oklch(0.28 0.055 150);
-  --st-anulado: oklch(0.68 0.155 27);
-  --st-anulado-soft: oklch(0.28 0.06 27);
+    --st-registrado: oklch(0.72 0 0);
+    --st-registrado-soft: oklch(0.27 0 0);
+    --st-en_proceso: oklch(0.72 0.13 253);
+    --st-en_proceso-soft: oklch(0.28 0.055 253);
+    --st-observado: oklch(0.72 0.15 25);
+    --st-observado-soft: oklch(0.28 0.06 25);
+    --st-listo: oklch(0.846 0.173 86);
+    --st-listo-soft: oklch(0.29 0.065 82);
+    --st-en_transito: oklch(0.79 0.13 66);
+    --st-en_transito-soft: oklch(0.285 0.06 66);
+    --st-entregado: oklch(0.75 0.125 150);
+    --st-entregado-soft: oklch(0.28 0.055 150);
+    --st-anulado: oklch(0.68 0.155 27);
+    --st-anulado-soft: oklch(0.28 0.06 27);
 
-  --chart-1: oklch(0.64 0.14 253);
-  --chart-2: oklch(0.665 0.14 62);
-  --chart-tenue: oklch(0.38 0 0);
-  --chart-3: oklch(0.75 0.125 150);
-  --chart-4: oklch(0.79 0.13 66);
-  --chart-5: oklch(0.68 0.195 26);
+    --chart-1: oklch(0.64 0.14 253);
+    --chart-2: oklch(0.665 0.14 62);
+    --chart-tenue: oklch(0.38 0 0);
+    --chart-3: oklch(0.75 0.125 150);
+    --chart-4: oklch(0.79 0.13 66);
+    --chart-5: oklch(0.68 0.195 26);
 
-  --sidebar: oklch(0.155 0 0);
-  --sidebar-foreground: oklch(0.97 0 0);
-  --sidebar-primary: oklch(0.68 0.145 253);
-  --sidebar-primary-foreground: oklch(0.14 0 0);
-  --sidebar-accent: oklch(0.232 0 0);
-  --sidebar-accent-foreground: oklch(0.97 0 0);
-  --sidebar-border: oklch(1 0 0 / 11%);
-  --sidebar-ring: oklch(0.68 0.145 253);
+    --sidebar: oklch(0.155 0 0);
+    --sidebar-foreground: oklch(0.97 0 0);
+    --sidebar-primary: oklch(0.68 0.145 253);
+    --sidebar-primary-foreground: oklch(0.14 0 0);
+    --sidebar-accent: oklch(0.232 0 0);
+    --sidebar-accent-foreground: oklch(0.97 0 0);
+    --sidebar-border: oklch(1 0 0 / 11%);
+    --sidebar-ring: oklch(0.68 0.145 253);
+  }
 }
 
 @layer base {
@@ -359,5 +368,23 @@
   .plancha,
   .brillo-login {
     animation: none;
+  }
+}
+
+/* Al imprimir (la hoja de corte): A4 con un margen que no muerde el dibujo, y
+   el fondo blanco aunque la página tenga otro. */
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+  /* `next-themes` deja `color-scheme: dark` en línea sobre <html>: sin esto, el
+     margen de la hoja sale negro. */
+  html {
+    color-scheme: light !important;
+    background: #fff;
+  }
+  body {
+    background: #fff;
   }
 }

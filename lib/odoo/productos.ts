@@ -138,3 +138,43 @@ export async function leerProductos(ids: number[]): Promise<ProductoOdoo[]> {
   const filas = await ejecutar<Fila[]>(MODELO, "read", [ids], { fields: await campos() });
   return filas.map(deProducto);
 }
+
+/**
+ * Los productos por su referencia interna. Una sola consulta para todos: es lo
+ * que usa el cálculo de cortes para saber el precio de cada formato de plancha.
+ */
+export async function leerProductosPorCodigo(codigos: string[]): Promise<ProductoOdoo[]> {
+  if (codigos.length === 0) return [];
+  const filas = await ejecutar<Fila[]>(MODELO, "search_read", [[["default_code", "in", codigos]]], {
+    fields: await campos(),
+  });
+  return filas.map(deProducto);
+}
+
+/**
+ * Cuánto hay de cada producto, por su referencia interna. Una sola consulta
+ * para todos los códigos.
+ *
+ * `free_qty` es lo que hay menos lo que ya está reservado para otros pedidos: lo
+ * que de verdad se puede prometer. Si este Odoo no lo tiene, vale lo que hay en
+ * mano; si no tiene Inventario, `null` ("no se sabe"), que no es lo mismo que 0.
+ */
+export async function stockPorCodigo(codigos: string[]): Promise<Map<string, number | null>> {
+  const mapa = new Map<string, number | null>();
+  if (codigos.length === 0) return mapa;
+
+  const deStock = await camposExistentes(MODELO, ["free_qty", "qty_available"]);
+  const filas = await ejecutar<Fila[]>(MODELO, "search_read", [[["default_code", "in", codigos]]], {
+    fields: ["default_code", ...deStock],
+  });
+  for (const f of filas) {
+    const codigo = texto(f.default_code);
+    if (!codigo) continue;
+    const disponible = deStock.includes("free_qty") ? f.free_qty : f.qty_available;
+    const cantidad = typeof disponible === "number" ? disponible : null;
+    // Dos productos con el mismo código: su stock se suma.
+    const previo = mapa.get(codigo);
+    mapa.set(codigo, cantidad === null ? (previo ?? null) : (previo ?? 0) + cantidad);
+  }
+  return mapa;
+}

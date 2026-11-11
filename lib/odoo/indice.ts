@@ -114,6 +114,11 @@ export class IndiceOdoo<T extends { id: number }> {
     return this.items.size;
   }
 
+  /** Todo lo que hay ahora mismo, para recorrerlo por otro campo que no sea el id. */
+  todos(): IterableIterator<T> {
+    return this.items.values();
+  }
+
   /** El buscador sobre el contenido actual. Se rehace solo cuando el contenido cambió. */
   async buscadorActual(): Promise<Buscador<T>> {
     await this.asegurar();

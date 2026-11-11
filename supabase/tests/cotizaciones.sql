@@ -192,6 +192,170 @@ begin
   end if;
 end $$;
 
+-- ── 2b. Un pedido a partir de una cotización (20261106000100) ───────────────
+
+do $$
+declare
+  id_cot       uuid;
+  id_pendiente uuid;
+  v_codigo     text;
+  id_pedido    uuid;
+begin
+  id_cot := public.crear_cotizacion(
+    p_odoo_partner_id := 900004, p_cliente_nombre := 'Prueba SQL Pedido',
+    p_lineas := '[{"odoo_product_id": 10, "producto_nombre": "ACRILICO", "cantidad": 2, "precio_unitario": 50}]'::jsonb,
+    p_odoo_order_id := 900004, p_odoo_order_name := 'S99004', p_monto_total := 118
+  );
+  id_pendiente := public.crear_cotizacion(900005, 'Prueba SQL Pendiente',
+    '[{"odoo_product_id": 10, "producto_nombre": "ACRILICO", "cantidad": 1, "precio_unitario": 1}]'::jsonb);
+
+  -- 2b.1 El alta vincula la cotización y respeta la ubicación elegida.
+  v_codigo := public.crear_pedido(
+    p_es_provincia := false, p_nombre_cliente := 'Prueba SQL Pedido',
+    p_tipos_pedido := array['SP']::public.tipo_pedido[], p_cantidad := 2,
+    p_tipo_pago := 'credito', p_lugar_entrega := 'tienda',
+    p_fecha_prometida := current_date + 3, p_monto_total := 118,
+    p_ubicacion_actual := 'tienda', p_cotizacion_id := id_cot
+  );
+  select id into id_pedido from public.pedidos where codigo = v_codigo;
+  if (select pedido_id from public.cotizaciones where id = id_cot) is distinct from id_pedido then
+    raise exception 'FALLO: la cotización no quedó vinculada al pedido %', v_codigo;
+  end if;
+  if (select ubicacion_actual from public.pedidos where id = id_pedido) <> 'tienda' then
+    raise exception 'FALLO: el pedido no quedó en tienda';
+  end if;
+
+  -- 2b.2 Un segundo pedido de la misma cotización se rechaza, y no deja pedido suelto.
+  begin
+    perform public.crear_pedido(
+      p_es_provincia := false, p_nombre_cliente := 'Prueba SQL Pedido Doble',
+      p_tipos_pedido := array['SP']::public.tipo_pedido[], p_cantidad := 1,
+      p_tipo_pago := 'credito', p_lugar_entrega := 'tienda',
+      p_fecha_prometida := current_date + 3, p_cotizacion_id := id_cot
+    );
+    raise exception 'FALLO: una cotización generó dos pedidos';
+  exception when others then
+    if sqlerrm like 'FALLO:%' then raise; end if;
+    if sqlerrm not like 'Esa cotización ya tiene un pedido%' then
+      raise exception 'FALLO: error inesperado con el segundo pedido: %', sqlerrm;
+    end if;
+  end;
+  if exists (select 1 from public.pedidos_admin where nombre_cliente = 'Prueba SQL Pedido Doble') then
+    raise exception 'FALLO: el segundo pedido quedó registrado sin vínculo';
+  end if;
+
+  -- 2b.3 Una cotización que todavía no está en Odoo también da pedido (20261110000300):
+  -- con Odoo caído se registra igual, y se sincroniza después.
+  v_codigo := public.crear_pedido(
+    p_es_provincia := false, p_nombre_cliente := 'Prueba SQL Pendiente',
+    p_tipos_pedido := array['SP']::public.tipo_pedido[], p_cantidad := 1,
+    p_tipo_pago := 'credito', p_lugar_entrega := 'tienda',
+    p_fecha_prometida := current_date + 3, p_cotizacion_id := id_pendiente
+  );
+  if (select pedido_id from public.cotizaciones where id = id_pendiente) is null then
+    raise exception 'FALLO: la cotización pendiente no quedó vinculada a su pedido';
+  end if;
+
+  -- 2b.3b Las líneas del pedido, con precios para Administración.
+  if (select count(*) from public.lineas_de_pedido(v_codigo)) <> 1
+     or (select importe is null and precio_unitario is null from public.lineas_de_pedido(v_codigo)) is distinct from false then
+    raise exception 'FALLO: Administración no ve las líneas del pedido con sus precios';
+  end if;
+  if (select odoo_order_id from public.odoo_de_pedido(v_codigo)) is not null then
+    raise exception 'FALLO: odoo_de_pedido inventó una orden de Odoo';
+  end if;
+
+  -- 2b.4 La confirmación en Odoo se anota.
+  update public.cotizaciones set confirmada_en_odoo = true, error_confirmacion = null where id = id_cot;
+end $$;
+
+-- 2b.5 Borrar el pedido suelta la cotización (como postgres: borrar es otra prueba).
+set local role postgres;
+do $$
+declare
+  id_cot uuid := (select id from public.cotizaciones where odoo_order_id = 900004);
+begin
+  delete from public.pedidos where id = (select pedido_id from public.cotizaciones where id = id_cot);
+  if (select pedido_id from public.cotizaciones where id = id_cot) is not null then
+    raise exception 'FALLO: borrar el pedido no soltó la cotización';
+  end if;
+end $$;
+set local role authenticated;
+
+-- ── 2c. Cortes a medida dentro de la cotización (20261110000200) ────────────
+
+do $$
+declare
+  id_cot uuid;
+  fila   public.cotizacion_productos%rowtype;
+begin
+  -- 2c.1 Una línea de corte guarda su cálculo y su importe; la de producto, no.
+  id_cot := public.crear_cotizacion(
+    p_odoo_partner_id := 900006, p_cliente_nombre := 'Prueba SQL Corte',
+    p_lineas := '[
+      {"tipo": "corte", "odoo_product_id": 20, "producto_nombre": "ACRILICO ECO CRISTAL 3MM",
+       "producto_codigo": "F7E024", "cantidad": 3, "precio_unitario": 173.33, "importe": 545,
+       "descripcion": "Corte láser: 10 × 60×80 cm",
+       "corte": {"version": 1, "modalidad": "laser", "total": 545}},
+      {"odoo_product_id": 10, "producto_nombre": "BISAGRA", "cantidad": 4, "precio_unitario": 2.5}
+    ]'::jsonb
+  );
+
+  select * into fila from public.cotizacion_productos where cotizacion_id = id_cot and posicion = 1;
+  if fila.tipo <> 'corte' or fila.importe <> 545 or fila.corte ->> 'modalidad' <> 'laser' then
+    raise exception 'FALLO: la línea de corte no guardó su cálculo';
+  end if;
+  select * into fila from public.cotizacion_productos where cotizacion_id = id_cot and posicion = 2;
+  if fila.tipo <> 'producto' or fila.corte is not null or fila.importe is not null then
+    raise exception 'FALLO: la línea de producto quedó con datos de corte';
+  end if;
+
+  -- 2c.2 Un corte sin cálculo no entra.
+  begin
+    perform public.crear_cotizacion(900006, 'Prueba SQL Corte',
+      '[{"tipo": "corte", "odoo_product_id": 20, "producto_nombre": "X", "cantidad": 1,
+         "precio_unitario": 1, "importe": 1}]'::jsonb);
+    raise exception 'FALLO: se guardó un corte sin su cálculo';
+  exception when check_violation then null; end;
+
+  -- 2c.3 Ni sin importe.
+  begin
+    perform public.crear_cotizacion(900006, 'Prueba SQL Corte',
+      '[{"tipo": "corte", "odoo_product_id": 20, "producto_nombre": "X", "cantidad": 1,
+         "precio_unitario": 1, "corte": {"version": 1}}]'::jsonb);
+    raise exception 'FALLO: se guardó un corte sin importe';
+  exception when check_violation then null; end;
+
+  -- 2c.4 Y un producto no puede traer un cálculo de corte colgado.
+  begin
+    perform public.crear_cotizacion(900006, 'Prueba SQL Corte',
+      '[{"odoo_product_id": 10, "producto_nombre": "X", "cantidad": 1,
+         "precio_unitario": 1, "corte": {"version": 1}}]'::jsonb);
+    raise exception 'FALLO: un producto quedó con un cálculo de corte';
+  exception when check_violation then null; end;
+
+  -- 2c.5 Un pedido con un corte y un producto, para lo que sigue.
+  id_cot := public.crear_cotizacion(
+    p_odoo_partner_id := 900007, p_cliente_nombre := 'Prueba SQL Pedido Corte',
+    p_lineas := '[
+      {"tipo": "corte", "odoo_product_id": 20, "producto_nombre": "ACRILICO", "cantidad": 3,
+       "precio_unitario": 173.33, "importe": 545,
+       "corte": {"version": 1, "total": 545, "montoMaterial": 520, "montoServicio": 25,
+                 "formato": {"codigo": "F7E024", "precio": 200},
+                 "planchas": [{"cobro": {"nombre": "1", "monto": 200}}],
+                 "desglose": [{"etiqueta": "Total", "monto": 545}]}},
+      {"odoo_product_id": 10, "producto_nombre": "BISAGRA", "cantidad": 4, "precio_unitario": 2.5}
+    ]'::jsonb
+  );
+  -- El código viaja a la sección 3 por un ajuste: el otro rol no lee `cotizaciones`.
+  perform set_config('plexi.pedido_corte', public.crear_pedido(
+    p_es_provincia := false, p_nombre_cliente := 'Prueba SQL Pedido Corte',
+    p_tipos_pedido := array['CL']::public.tipo_pedido[], p_cantidad := 10,
+    p_tipo_pago := 'credito', p_lugar_entrega := 'tienda',
+    p_fecha_prometida := current_date + 3, p_cotizacion_id := id_cot
+  ), true);
+end $$;
+
 set local role postgres;
 
 -- ── 3. Otro rol no ve ni crea ───────────────────────────────────────────────
@@ -224,11 +388,168 @@ begin
     raise exception 'FALLO: las sugerencias dejan ver cotizaciones a otro rol';
   end if;
 
+  -- El taller ve las líneas de un pedido sin un solo precio, y puede anotar planchas.
+  declare
+    v_codigo text := nullif(current_setting('plexi.pedido_corte', true), '');
+    v_corte  jsonb;
+  begin
+    if v_codigo is null then raise exception 'FALLO: falta el pedido de prueba con corte'; end if;
+    select corte into v_corte from public.lineas_de_pedido(v_codigo) where tipo = 'corte';
+    if v_corte is null then raise exception 'FALLO: otro rol no ve el corte del pedido'; end if;
+    if (v_corte ->> 'total')::numeric <> 0 or (v_corte -> 'formato' ->> 'precio')::numeric <> 0
+       or (v_corte -> 'planchas' -> 0 -> 'cobro' ->> 'monto')::numeric <> 0
+       or jsonb_array_length(v_corte -> 'desglose') <> 0 then
+      raise exception 'FALLO: otro rol ve precios en el corte: %', v_corte;
+    end if;
+    if exists (select 1 from public.lineas_de_pedido(v_codigo) where importe is not null or precio_unitario is not null) then
+      raise exception 'FALLO: otro rol ve el importe de las líneas';
+    end if;
+
+    perform public.anotar_planchas_usadas(v_codigo, 1::smallint, 4);
+    if (select planchas_usadas from public.lineas_de_pedido(v_codigo) where posicion = 1) <> 4 then
+      raise exception 'FALLO: no quedaron anotadas las planchas usadas';
+    end if;
+    begin
+      perform public.anotar_planchas_usadas(v_codigo, 2::smallint, 1);
+      raise exception 'FALLO: se anotaron planchas en una línea que no es corte';
+    exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
+
+    perform public.anotar_stock_de_pedido(v_codigo, true);
+    if not (select stock_descontado from public.odoo_de_pedido(v_codigo)) then
+      raise exception 'FALLO: no quedó anotado el stock descontado';
+    end if;
+    -- Descontar confirma la venta: sin confirmar no hay entrega (20261111000100).
+    if not (select confirmada_en_odoo from public.odoo_de_pedido(v_codigo)) then
+      raise exception 'FALLO: descontar el stock no dio por confirmada la venta';
+    end if;
+    -- La orden de fabricación de un corte se anota desde cualquier rol, y cerrada
+    -- no vuelve atrás (20261112000200).
+    declare
+      v_cot uuid := (select cotizacion_id from public.odoo_de_pedido(v_codigo));
+    begin
+      perform public.anotar_produccion(v_cot, 1::smallint, 77, 'WH/MO/00077');
+      perform public.anotar_produccion(v_cot, 1::smallint, p_cerrada => true);
+      perform public.anotar_produccion(v_cot, 1::smallint, p_cerrada => false);
+      if not exists (select 1 from public.lineas_de_pedido(v_codigo)
+                      where posicion = 1 and odoo_produccion_id = 77
+                        and odoo_produccion_nombre = 'WH/MO/00077' and produccion_cerrada) then
+        raise exception 'FALLO: no quedó anotada la orden de fabricación del corte';
+      end if;
+      begin
+        perform public.anotar_produccion(v_cot, 2::smallint, 78, 'WH/MO/00078');
+        raise exception 'FALLO: se anotó una orden de fabricación en una línea que no es corte';
+      exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
+    end;
+    -- La anulación solo se anota en un pedido anulado.
+    perform public.anotar_anulacion_en_odoo(v_codigo, true);
+    if (select anulada_en_odoo from public.odoo_de_pedido(v_codigo)) then
+      raise exception 'FALLO: se anotó la cancelación en Odoo de un pedido que no está anulado';
+    end if;
+    -- Ya descontado, las planchas usadas no se cambian con una anotación.
+    begin
+      perform public.anotar_planchas_usadas(v_codigo, 1::smallint, 5);
+      raise exception 'FALLO: se cambiaron las planchas usadas con el stock ya descontado';
+    exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
+  end;
+
   begin
     perform public.crear_cotizacion(900003, 'Prueba SQL Intrusa',
       '[{"odoo_product_id": 10, "producto_nombre": "X", "cantidad": 1, "precio_unitario": 1}]'::jsonb);
     raise exception 'FALLO: otro rol pudo crear una cotización';
   exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
+end $$;
+
+set local role postgres;
+
+-- ── 3b. La reserva de sobrantes (20261112000300) ────────────────────────────
+
+select set_config('request.jwt.claims',
+                  json_build_object('sub', current_setting('plexi.test_admin'), 'role', 'authenticated')::text,
+                  true);
+set local role authenticated;
+
+do $$
+declare
+  v_codigo text := nullif(current_setting('plexi.pedido_corte', true), '');
+  v_cot    uuid := (select cotizacion_id from public.odoo_de_pedido(v_codigo));
+  v_pedido uuid := (select id from public.pedidos where codigo = v_codigo);
+  v_grupo  uuid := (select g.id from public.grupos_plancha g join public.formatos_plancha f on f.grupo_id = g.id
+                     order by f.codigo_odoo limit 1);
+  v_corte  jsonb := (select corte from public.cotizacion_productos where cotizacion_id = v_cot and posicion = 1);
+  a text;
+  b text;
+begin
+  -- Con código propio: así no gastan números de la secuencia, que no vuelve atrás.
+  insert into public.sobrantes (codigo, grupo_id, largo_cm, ancho_cm, ubicacion)
+  values ('PRUEBA-SQL-A', v_grupo, 183, 61, 'Prueba SQL')
+  returning codigo into a;
+  insert into public.sobrantes (codigo, grupo_id, largo_cm, ancho_cm, ubicacion, estado)
+  values ('PRUEBA-SQL-B', v_grupo, 100, 50, 'Prueba SQL', 'consumido')
+  returning codigo into b;
+
+  -- Reserva y guarda el acomodo.
+  perform public.reservar_sobrantes_de_corte(v_cot, 1::smallint, v_corte || '{"marca": "nuevo"}'::jsonb, array[a]);
+  if not exists (select 1 from public.sobrantes where codigo = a and estado = 'reservado'
+                  and reserva_pedido_id = v_pedido and reserva_posicion = 1) then
+    raise exception 'FALLO: el sobrante no quedó reservado para el pedido';
+  end if;
+  if (select corte ->> 'marca' from public.cotizacion_productos where cotizacion_id = v_cot and posicion = 1) <> 'nuevo' then
+    raise exception 'FALLO: no se guardó el acomodo nuevo';
+  end if;
+
+  -- Todo o nada: con uno que ya no está disponible, no cambia nada.
+  begin
+    perform public.reservar_sobrantes_de_corte(v_cot, 1::smallint, v_corte, array[b]);
+    raise exception 'FALLO: se reservó un sobrante consumido';
+  exception when others then
+    if sqlerrm like 'FALLO:%' then raise; end if;
+    if sqlerrm not like '%SOBRANTE_OCUPADO%' then raise exception 'FALLO: error inesperado %', sqlerrm; end if;
+  end;
+  if (select estado from public.sobrantes where codigo = a) <> 'reservado' then
+    raise exception 'FALLO: una reserva fallida soltó la anterior';
+  end if;
+
+  -- Al anular, vuelve a estar disponible; al cerrar la producción, se consume.
+  perform public.soltar_sobrantes_de_pedido(v_codigo, false);
+  if (select estado::text || coalesce(reserva_pedido_id::text, '-') from public.sobrantes where codigo = a) <> 'disponible-' then
+    raise exception 'FALLO: anular no liberó el sobrante';
+  end if;
+  perform public.reservar_sobrantes_de_corte(v_cot, 1::smallint, v_corte, array[a]);
+  perform public.soltar_sobrantes_de_pedido(v_codigo, true, 1::smallint);
+  if (select estado from public.sobrantes where codigo = a) <> 'consumido' then
+    raise exception 'FALLO: cerrar la producción no consumió el sobrante';
+  end if;
+end $$;
+
+set local role postgres;
+
+-- ── 4. La cancelación en Odoo de un pedido anulado (20261111000100) ────────
+
+select set_config('request.jwt.claims',
+                  json_build_object('sub', current_setting('plexi.test_admin'), 'role', 'authenticated')::text,
+                  true);
+set local role authenticated;
+
+do $$
+declare
+  v_codigo text := nullif(current_setting('plexi.pedido_corte', true), '');
+begin
+  update public.pedidos set estado = 'anulado', motivo = 'Prueba SQL de anulación' where codigo = v_codigo;
+
+  perform public.anotar_anulacion_en_odoo(v_codigo, false, '  Odoo caído  ');
+  if (select error_anulacion from public.odoo_de_pedido(v_codigo)) is distinct from 'Odoo caído' then
+    raise exception 'FALLO: no quedó el motivo de la cancelación fallida';
+  end if;
+
+  perform public.anotar_anulacion_en_odoo(v_codigo, true);
+  if not (select anulada_en_odoo and error_anulacion is null from public.odoo_de_pedido(v_codigo)) then
+    raise exception 'FALLO: no quedó anotada la cancelación en Odoo';
+  end if;
+  -- Un fallo posterior (un reintento de más) no deshace lo hecho.
+  perform public.anotar_anulacion_en_odoo(v_codigo, false, 'otro intento');
+  if not (select anulada_en_odoo from public.odoo_de_pedido(v_codigo)) then
+    raise exception 'FALLO: un reintento fallido borró la cancelación';
+  end if;
 end $$;
 
 set local role postgres;

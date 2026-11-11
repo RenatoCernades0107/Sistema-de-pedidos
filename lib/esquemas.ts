@@ -18,6 +18,7 @@
 import { z } from "zod";
 import { admiteDecimales, type TipoPedido } from "./dominio";
 import { rucValido, soloDigitos, tipoDeDocumento } from "./busqueda-inteligente";
+import { PLANCHAS_MAXIMAS, hastaDosDecimales } from "./pedido-lineas";
 
 /* ── Piezas sueltas ─────────────────────────────────────────────────────────── */
 
@@ -131,17 +132,22 @@ function reglaDelDocumento(
 
 /* ── Capa 1: formularios ────────────────────────────────────────────────────── */
 
-/** Registro de un pedido (`components/nuevo-pedido-form.tsx`). */
+/**
+ * Registro de un pedido (`components/nuevo-pedido-form.tsx`).
+ *
+ * El cliente y las líneas —productos de Odoo y cortes a medida— no están aquí:
+ * se arman con los buscadores, no con campos de texto, y el formulario los lleva
+ * aparte. Esto es lo demás: a dónde va, cuándo y cómo se paga.
+ */
 export const esquemaFormNuevoPedido = z
   .object({
-    cliente: z.string().trim().min(3, "Escribe el nombre del cliente"),
-    telefonoCliente: z.string().trim().optional(),
     tipos: z.array(tipoPedido).min(1, "Elige al menos un tipo de pedido"),
     producto: productoTerminado.optional(),
-    cantidad: z.coerce.number().positive("La cantidad tiene que ser mayor que cero"),
     destino: z.enum(["local", "provincia"]),
     entrega: lugarEntrega,
-    ubicacion,
+    // Llega sin valor a propósito: quien registra tiene que decir si va para el
+    // taller o para la tienda.
+    ubicacion: z.enum(["taller", "tienda"], { error: "Elige si el pedido va para el taller o para la tienda" }),
     direccion: z.string().trim().optional(),
     departamentoId: z.coerce.number().int().positive().optional(),
     provinciaId: z.coerce.number().int().positive().optional(),
@@ -157,14 +163,15 @@ export const esquemaFormNuevoPedido = z
     tipoPago,
     plazoCredito: z.coerce.number().optional(),
     metodoPago,
-    montoTotal: z.coerce.number().min(0, "No puede ser negativo"),
-    abono: z.coerce.number().min(0).optional(),
+    abono: z.coerce.number().min(0, "No puede ser negativo").optional(),
     responsableId: z.string().optional(),
-    detalle: z.string().trim().optional(),
+    indicaciones: z.string().trim().max(1000, "Las indicaciones son demasiado largas").optional(),
     observaciones: z.string().trim().optional(),
   })
   .superRefine((v, ctx) => {
-    reglasDelPedido({ tipos: v.tipos, producto: v.producto, cantidad: v.cantidad }, ctx);
+    if (v.tipos.includes("PT") && !v.producto) {
+      ctx.addIssue({ code: "custom", path: ["producto"], message: "Un producto terminado necesita su tipo" });
+    }
     if (v.destino === "local" && v.entrega === "domicilio" && !v.direccion) {
       ctx.addIssue({ code: "custom", path: ["direccion"], message: "Falta la dirección" });
     }
@@ -172,9 +179,6 @@ export const esquemaFormNuevoPedido = z
       ctx.addIssue({ code: "custom", path: ["departamentoId"], message: "Elige el departamento" });
     }
     reglaDelDocumento(v, ctx);
-    if (v.tipoPago === "a_cuenta" && (v.abono ?? 0) > v.montoTotal) {
-      ctx.addIssue({ code: "custom", path: ["abono"], message: "El abono supera el total" });
-    }
     if (v.tipoPago === "credito" && !v.plazoCredito) {
       ctx.addIssue({ code: "custom", path: ["plazoCredito"], message: "Elige el plazo del crédito" });
     }
@@ -273,71 +277,8 @@ export const esquemaEnvio = z
   })
   .superRefine(reglaDelDocumento);
 
-export const esquemaNuevoPedido = z
-  .object({
-    cliente: z.string().trim().min(3),
-    telefonoCliente: z.string().trim().nullable(),
-    tipos: z
-      .array(tipoPedido)
-      .min(1)
-      .refine((t) => new Set(t).size === t.length, "Hay un tipo repetido"),
-    producto: productoTerminado.nullable(),
-    cantidad: z.number().positive(),
-    esProvincia: z.boolean(),
-    entrega: lugarEntrega,
-    direccion: z.string().trim().nullable(),
-    envio: esquemaEnvio.nullable(),
-    fechaPrometida: fecha,
-    tipoPago,
-    plazoCredito: plazoCredito.nullable(),
-    montoTotal: dinero,
-    abonoInicial: dinero,
-    metodoPago,
-    responsableId: z.uuid().nullable(),
-    // Dónde queda físicamente el pedido al registrarlo. No se deduce del lugar de
-    // entrega: un pedido que se entrega en tienda puede nacer en el taller.
-    ubicacion,
-    detalle: z.string(),
-    observaciones: z.string().trim().nullable(),
-  })
-  .superRefine((v, ctx) => {
-    reglasDelPedido(v, ctx);
-    // Los mismos CHECK de `pedidos`, para no gastar un viaje a Postgres.
-    if ((v.entrega === "agencia") !== v.esProvincia) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["entrega"],
-        message: "Un pedido a provincia se entrega en agencia, y solo esos",
-      });
-    }
-    if (v.entrega === "domicilio" && !v.direccion) {
-      ctx.addIssue({ code: "custom", path: ["direccion"], message: "Falta la dirección" });
-    }
-    if (v.esProvincia && !v.envio) {
-      ctx.addIssue({ code: "custom", path: ["envio"], message: "Faltan los datos del envío" });
-    }
-    if (v.plazoCredito !== null && v.tipoPago !== "credito") {
-      ctx.addIssue({
-        code: "custom",
-        path: ["plazoCredito"],
-        message: "Solo un pedido al crédito tiene plazo",
-      });
-    }
-    if (v.tipoPago === "credito" && v.abonoInicial > 0) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["abonoInicial"],
-        message: "Un pedido al crédito no cobra nada al registrarse",
-      });
-    }
-    if (v.abonoInicial > v.montoTotal) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["abonoInicial"],
-        message: "El abono supera el total",
-      });
-    }
-  });
+/* El alta de un pedido (`esquemaRegistroPedido`) está al final: depende de las
+   líneas de la cotización, que se definen más abajo. */
 
 export const esquemaDatosEditables = z
   .object({
@@ -362,6 +303,15 @@ export const esquemaDatosEditables = z
     }
   });
 
+const planchasUsadas = z.object({
+  posicion: z.number().int().min(0).max(32767),
+  planchas: z
+    .number({ error: "Escribe cuántas planchas se usaron" })
+    .min(0, "No pueden ser menos de cero planchas")
+    .max(PLANCHAS_MAXIMAS, "Son demasiadas planchas")
+    .refine(hastaDosDecimales, "Hasta dos decimales"),
+});
+
 export const esquemaCambioEstado = z.object({
   codigo,
   estado: estadoPedido,
@@ -373,9 +323,42 @@ export const esquemaCambioEstado = z.object({
     .trim()
     .regex(FORMATO_COMPROBANTE.regex, FORMATO_COMPROBANTE.ayuda)
     .nullable(),
+  /**
+   * Al pasar a Listo: cuántas planchas se usaron de verdad en cada corte, por la
+   * posición de su línea. Lo que se descuenta del stock en Odoo.
+   */
+  planchas: z.array(planchasUsadas).max(100).optional(),
+  /**
+   * Al pasar a Listo, en los cortes con el piloto de sobrantes: los pedazos que
+   * de verdad se guardaron, por la posición de su línea.
+   */
+  sobrantes: z
+    .array(
+      z.object({
+        posicion: z.number().int().min(0).max(32767),
+        piezas: z
+          .array(
+            z.object({
+              largo: z.number().positive("Escribe el largo del sobrante").max(1000),
+              ancho: z.number().positive("Escribe el ancho del sobrante").max(1000),
+              ubicacion: z.string().trim().max(80).transform((v) => v || null).nullable(),
+            }),
+          )
+          .max(50),
+      }),
+    )
+    .max(100)
+    .optional(),
 });
 
 export const esquemaUbicacion = z.object({ codigo, ubicacion });
+
+export const esquemaCodigo = z.object({ codigo });
+
+export const esquemaPlanchasUsadas = z.object({
+  codigo,
+  planchas: z.array(planchasUsadas).min(1).max(100),
+});
 
 export const esquemaResponsable = z.object({
   codigo,
@@ -448,6 +431,8 @@ export const esquemaCambioPassword = z
  * vuelve a leer el servidor de Odoo: no se guarda lo que diga el POST.
  */
 export const esquemaLineaCotizacion = z.object({
+  // Opcional: una línea sin tipo es un producto, como siempre.
+  tipo: z.literal("producto").optional(),
   productoId: z.number().int().positive(),
   cantidad: z
     .number({ error: "La cantidad tiene que ser un número" })
@@ -462,11 +447,50 @@ export const esquemaLineaCotizacion = z.object({
   descripcion: z.string().trim().max(500, "El detalle es demasiado largo").nullable(),
 });
 
+const medidaDePieza = z
+  .number({ error: "Las medidas de cada pieza son números, en centímetros" })
+  .positive("Las medidas de cada pieza tienen que ser mayores que cero")
+  .max(2000, "Esa medida no es razonable")
+  .refine((n) => decimalesDe(n) <= 2, "Las medidas admiten hasta 2 decimales");
+
+/**
+ * Un corte a medida. Del navegador llegan el material (por su grupo del
+ * catálogo), las piezas y el formato de plancha elegido; el precio, las planchas
+ * y el acomodo los calcula el servidor con el mismo motor (`lib/cortes/`).
+ */
+export const esquemaLineaCorte = z.object({
+  tipo: z.literal("corte"),
+  grupoId: z.uuid("Elige el material del corte"),
+  /** Solo cuando el código de Odoo es de varios colores: cuál se pidió. */
+  color: z.string().trim().max(60, "El color es demasiado largo").nullable(),
+  modalidad: z.enum(["laser", "manual"]),
+  piezas: z
+    .array(
+      z.object({
+        ancho: medidaDePieza,
+        alto: medidaDePieza,
+        cantidad: z
+          .number({ error: "La cantidad de piezas tiene que ser un número" })
+          .int("La cantidad de piezas es un número entero")
+          .positive("La cantidad de piezas tiene que ser mayor que cero")
+          .max(2000, "Son demasiadas piezas de una misma medida"),
+      }),
+    )
+    .min(1, "Un corte necesita al menos una pieza")
+    .max(40, "Son demasiadas medidas distintas para un solo corte"),
+  formatoCodigo: z.string().trim().min(1, "Elige el formato de plancha").max(40),
+  /**
+   * El total que la pantalla le enseñó a quien cotiza. Si el servidor calcula
+   * otro —cambió un precio mientras tanto—, no se guarda a ciegas.
+   */
+  totalMostrado: z.number().min(0),
+});
+
 export const esquemaNuevaCotizacion = z.object({
   canal: z.enum(["tienda", "whatsapp"]),
   clienteId: z.number({ error: "Elige el cliente" }).int().positive("Elige el cliente"),
   lineas: z
-    .array(esquemaLineaCotizacion)
+    .array(z.union([esquemaLineaCorte, esquemaLineaCotizacion]))
     .min(1, "Agrega al menos un producto")
     .max(100, "Son demasiados productos para una cotización"),
   notas: z.string().trim().max(2000, "Las notas son demasiado largas").nullable(),
@@ -504,12 +528,128 @@ export const esquemaNuevoClienteOdoo = z.object({
     .transform((e) => e || null),
 });
 
+/* ── Registrar un pedido ────────────────────────────────────────────────────── */
+
+const lineasDePedido = z
+  .array(z.union([esquemaLineaCorte, esquemaLineaCotizacion]))
+  .min(1, "Agrega al menos un producto o un corte")
+  .max(100, "Son demasiados productos para un pedido");
+
+/**
+ * Lo que viaja a `registrarPedido`.
+ *
+ * Un pedido es una cotización más lo propio del pedido: a dónde va, cuándo y
+ * cómo se paga. O llega la cotización de la que sale (`cotizacionId`), o llegan
+ * el cliente y las líneas para crearla aquí mismo. El nombre del cliente, la
+ * cantidad, el detalle y el total no vienen: salen de las líneas, y los pone el
+ * servidor.
+ */
+export const esquemaRegistroPedido = z
+  .object({
+    cotizacionId: z.uuid().nullable(),
+    clienteId: z.number().int().positive().nullable(),
+    lineas: lineasDePedido.nullable(),
+    tipos: z
+      .array(tipoPedido)
+      .min(1, "Elige al menos un tipo de pedido")
+      .refine((t) => new Set(t).size === t.length, "Hay un tipo repetido"),
+    producto: productoTerminado.nullable(),
+    esProvincia: z.boolean(),
+    entrega: lugarEntrega,
+    direccion: z.string().trim().nullable(),
+    envio: esquemaEnvio.nullable(),
+    fechaPrometida: fecha,
+    tipoPago,
+    plazoCredito: plazoCredito.nullable(),
+    abonoInicial: dinero,
+    metodoPago,
+    responsableId: z.uuid().nullable(),
+    // Para dónde va: lo que lo pone en la vista del taller o en la de la tienda.
+    ubicacion,
+    /** Lo que el taller tiene que saber y no sale de las líneas. */
+    indicaciones: z.string().trim().max(1000, "Las indicaciones son demasiado largas").nullable(),
+    observaciones: z.string().trim().nullable(),
+  })
+  .superRefine((v, ctx) => {
+    if (!v.cotizacionId) {
+      if (!v.clienteId) ctx.addIssue({ code: "custom", path: ["clienteId"], message: "Elige el cliente" });
+      if (!v.lineas) {
+        ctx.addIssue({ code: "custom", path: ["lineas"], message: "Agrega al menos un producto o un corte" });
+      }
+    }
+    if (v.tipos.includes("PT") && !v.producto) {
+      ctx.addIssue({ code: "custom", path: ["producto"], message: "Un producto terminado necesita su tipo" });
+    }
+    // Los mismos CHECK de `pedidos`, para no gastar un viaje a Postgres.
+    if ((v.entrega === "agencia") !== v.esProvincia) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["entrega"],
+        message: "Un pedido a provincia se entrega en agencia, y solo esos",
+      });
+    }
+    if (v.entrega === "domicilio" && !v.direccion) {
+      ctx.addIssue({ code: "custom", path: ["direccion"], message: "Falta la dirección" });
+    }
+    if (v.esProvincia && !v.envio) {
+      ctx.addIssue({ code: "custom", path: ["envio"], message: "Faltan los datos del envío" });
+    }
+    if (v.plazoCredito !== null && v.tipoPago !== "credito") {
+      ctx.addIssue({ code: "custom", path: ["plazoCredito"], message: "Solo un pedido al crédito tiene plazo" });
+    }
+    if (v.tipoPago === "credito" && v.plazoCredito === null) {
+      ctx.addIssue({ code: "custom", path: ["plazoCredito"], message: "Elige el plazo del crédito" });
+    }
+    if (v.tipoPago === "credito" && v.abonoInicial > 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["abonoInicial"],
+        message: "Un pedido al crédito no cobra nada al registrarse",
+      });
+    }
+  });
+
 export type NuevaCotizacion = z.output<typeof esquemaNuevaCotizacion>;
+export type NuevaLineaCorte = z.output<typeof esquemaLineaCorte>;
 export type NuevoClienteOdoo = z.output<typeof esquemaNuevoClienteOdoo>;
 export type FormNuevoClienteOdoo = z.input<typeof esquemaNuevoClienteOdoo>;
 
-export type NuevoPedido = z.output<typeof esquemaNuevoPedido>;
+export type RegistroPedido = z.output<typeof esquemaRegistroPedido>;
 export type DatosEditables = z.output<typeof esquemaDatosEditables>;
 export type DatosEnvio = z.output<typeof esquemaEnvio>;
 export type CambioEstado = z.output<typeof esquemaCambioEstado>;
 export type CambioPassword = z.output<typeof esquemaCambioPassword>;
+
+/* ── Sobrantes ──────────────────────────────────────────────────────────────── */
+
+const ladoSobrante = z
+  .number({ error: "Escribe la medida en centímetros" })
+  .positive("La medida tiene que ser mayor que cero")
+  .max(1000, "Esa medida es más grande que cualquier plancha");
+
+const ubicacionSobrante = z
+  .string()
+  .trim()
+  .max(80, "La ubicación es muy larga")
+  .transform((v) => v || null)
+  .nullable();
+
+export const esquemaSobrante = z.object({
+  grupoId: z.uuid("Elige el material"),
+  color: z
+    .string()
+    .trim()
+    .max(60)
+    .transform((v) => v || null)
+    .nullable(),
+  largo: ladoSobrante,
+  ancho: ladoSobrante,
+  ubicacion: ubicacionSobrante,
+});
+
+export const esquemaUbicacionSobrante = z.object({
+  codigo: z.string().trim().min(1).max(60),
+  ubicacion: ubicacionSobrante,
+});
+
+export type NuevoSobrante = z.output<typeof esquemaSobrante>;

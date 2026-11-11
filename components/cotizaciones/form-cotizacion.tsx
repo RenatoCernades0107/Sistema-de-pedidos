@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useRef, useState, useTransition } from "react";
 import { flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Loader2, Scissors } from "lucide-react";
 import { toast } from "sonner";
 import { crearCotizacion } from "@/app/(app)/cotizaciones/acciones";
 import { CANALES, type Canal } from "@/lib/cotizaciones";
@@ -13,11 +13,16 @@ import {
   actualizarLinea,
   agregarProducto,
   cambiarCantidad,
+  esCorte,
+  ponerCorte,
   problemaDeLineas,
   quitarLinea,
   totalReferencial,
-  type LineaCotizacion,
+  type Linea,
 } from "@/lib/lineas-cotizacion";
+import type { GrupoPlancha } from "@/lib/cortes/catalogo";
+import type { ConfigCortes } from "@/lib/cortes/config";
+import { EditorCorte } from "@/components/cortes/editor-corte";
 import type { ClienteOdoo, ProductoOdoo } from "@/lib/odoo/tipos";
 import { Button } from "@/components/ui/button";
 import { Campo, Opciones } from "@/components/ui/campo";
@@ -36,11 +41,13 @@ import { LineasCotizacion } from "./lineas-cotizacion";
  * Al crear, se guarda en la base y se crea en Odoo en el mismo paso. Si Odoo
  * falla, lo cotizado queda guardado y el detalle ofrece reintentar.
  */
-export function FormCotizacion() {
+export function FormCotizacion({ catalogo, config }: { catalogo: GrupoPlancha[]; config: ConfigCortes }) {
   const router = useRouter();
   const [canal, setCanal] = useState<Canal>("tienda");
   const [cliente, setCliente] = useState<ClienteOdoo | null>(null);
-  const [lineas, setLineas] = useState<LineaCotizacion[]>([]);
+  const [lineas, setLineas] = useState<Linea[]>([]);
+  /** El editor de corte: cerrado, abierto para uno nuevo, o editando el de esa clave. */
+  const [corte, setCorte] = useState<{ clave: string | null } | null>(null);
   const [notas, setNotas] = useState("");
   const [resaltada, setResaltada] = useState<string | null>(null);
   const [pendiente, iniciar] = useTransition();
@@ -97,12 +104,7 @@ export function FormCotizacion() {
       const r = await crearCotizacion({
         canal,
         clienteId: cliente.id,
-        lineas: lineas.map((l) => ({
-          productoId: l.productoId,
-          cantidad: Number(l.cantidad),
-          precioUnitario: Number(l.precioUnitario),
-          descripcion: l.descripcion.trim() || null,
-        })),
+        lineas: lineas.map(lineaParaEnviar),
         notas: notas.trim() || null,
       });
 
@@ -176,7 +178,25 @@ export function FormCotizacion() {
           titulo="Productos"
           nota={lineas.length ? `${lineas.length} ${lineas.length === 1 ? "línea" : "líneas"}` : undefined}
         >
-          <BuscadorProducto alAgregar={agregar} inputRef={buscadorProducto} />
+          {/* En una sola fila siempre: si el botón bajara de línea, la lista de
+              resultados del buscador lo taparía. */}
+          <div className="flex items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <BuscadorProducto alAgregar={agregar} inputRef={buscadorProducto} />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 shrink-0 gap-1.5"
+              aria-label="Corte a medida"
+              onClick={() => setCorte({ clave: null })}
+              disabled={catalogo.length === 0}
+              title={catalogo.length === 0 ? "No hay planchas en el catálogo" : undefined}
+            >
+              <Scissors />
+              Corte<span className="hidden sm:inline"> a medida</span>
+            </Button>
+          </div>
           <LineasCotizacion
             lineas={lineas}
             resaltada={resaltada}
@@ -187,6 +207,7 @@ export function FormCotizacion() {
               setLineas((ls) => quitarLinea(ls, clave));
               buscadorProducto.current?.focus();
             }}
+            alEditarCorte={(clave) => setCorte({ clave })}
             alTerminar={() => buscadorProducto.current?.focus()}
           />
         </Seccion>
@@ -203,6 +224,23 @@ export function FormCotizacion() {
           </Campo>
         </Seccion>
       </div>
+
+      {corte && (
+        <EditorCorte
+          catalogo={catalogo}
+          config={config}
+          inicial={lineas.filter(esCorte).find((l) => l.clave === corte.clave) ?? null}
+          alCerrar={() => setCorte(null)}
+          alGuardar={(nuevo) => {
+            const { lineas: siguientes, clave } = ponerCorte(lineas, nuevo);
+            setLineas(siguientes);
+            setCorte(null);
+            marcar(clave);
+            // De vuelta al buscador: lo siguiente es otro producto o crear.
+            requestAnimationFrame(() => buscadorProducto.current?.focus());
+          }}
+        />
+      )}
 
       {/* La barra de crear acompaña al scroll. En el celular va encima de las pestañas. */}
       <div className="bg-background/90 sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-20 -mx-4 mt-4 border-t px-4 py-3 backdrop-blur-md md:bottom-0 md:-mx-6 md:px-6">
@@ -237,6 +275,31 @@ export function FormCotizacion() {
       </div>
     </div>
   );
+}
+
+/**
+ * Una línea como viaja a `crearCotizacion`. De un corte van el material, las
+ * piezas y el formato; el precio lo vuelve a calcular el servidor, y el total
+ * que se mostró va solo para que avise si ya no coincide.
+ */
+export function lineaParaEnviar(l: Linea) {
+  if (esCorte(l)) {
+    return {
+      tipo: "corte" as const,
+      grupoId: l.grupoId,
+      color: l.color.trim() || null,
+      modalidad: l.modalidad,
+      piezas: l.piezas,
+      formatoCodigo: l.calculo.formato.codigo,
+      totalMostrado: l.calculo.total,
+    };
+  }
+  return {
+    productoId: l.productoId,
+    cantidad: Number(l.cantidad),
+    precioUnitario: Number(l.precioUnitario),
+    descripcion: l.descripcion.trim() || null,
+  };
 }
 
 function Seccion({

@@ -11,7 +11,7 @@
  */
 
 import { expect, test } from "@playwright/test";
-import { borrarPedido, crearPedidoDePrueba, entrar, sesionDe } from "./apoyo";
+import { borrarCotizacionesDePrueba, borrarPedido, crearPedidoDePrueba, entrar, sesionDe } from "./apoyo";
 
 /** Un plano de mentira, pero un PDF de verdad: el bucket mira el tipo. */
 const PLANO = "e2e/archivos/plano-e2e.pdf";
@@ -130,6 +130,7 @@ test.describe("Los archivos al registrar el pedido", () => {
 
   test.afterAll(async () => {
     if (codigo) await borrarPedido(codigo);
+    await borrarCotizacionesDePrueba();
   });
 
   /* El pedido todavía no existe cuando se eligen los archivos —no hay uuid, y sin
@@ -139,13 +140,23 @@ test.describe("Los archivos al registrar el pedido", () => {
     await entrar(page, "administracion");
     await page.goto("/pedidos/nuevo");
 
-    await page.getByLabel("Nombre del cliente").fill("E2E alta con planos");
-    await page.getByLabel("Detalle del pedido").fill("1 Acrílico Alfa 3mm transparente F7");
-    await page.getByLabel("Cantidad (unidades)").fill("1");
+    // Cliente y producto salen del Odoo falso de las pruebas.
+    const cliente = page.getByLabel("Buscar cliente");
+    await cliente.fill("jose");
+    await expect(page.getByRole("option", { name: /E2E José/ })).toHaveAttribute("aria-selected", "true");
+    await cliente.press("Enter");
+    const producto = page.getByLabel("Buscar producto");
+    await producto.fill("ac 003");
+    await expect(page.getByRole("option", { name: /ACRILICO F8 CRISTAL 3MM/ }).first()).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await producto.press("Enter");
+    await page.getByRole("group", { name: "¿Para dónde va el pedido?" }).getByRole("button", { name: /Taller/ }).click();
+    await page.getByRole("group", { name: "Tipo de pedido" }).getByRole("button", { name: "Solo planchas" }).click();
     await page
       .getByLabel("Fecha prometida")
       .fill(new Date(Date.now() + 86_400_000).toISOString().slice(0, 10));
-    await page.getByLabel("Monto total").fill("150");
 
     await page.getByLabel("Elegir archivos de diseño").setInputFiles(PLANO);
     await expect(page.getByText("plano-e2e.pdf")).toBeVisible();

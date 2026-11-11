@@ -10,19 +10,44 @@
 import { cache } from "react";
 import { clienteServidor } from "./supabase-servidor";
 import { mensajeDeError } from "./errores";
-import type { Canal, Cotizacion, Sincronizacion } from "./cotizaciones";
+import {
+  importeDeProducto,
+  type Canal,
+  type Cotizacion,
+  type LineaGuardada,
+  type Sincronizacion,
+} from "./cotizaciones";
+import {
+  fraccionEnPalabras,
+  leerCorte,
+  materialDeCorte,
+  planchasPorCobro,
+  resumenPiezas,
+  totalPiezas,
+} from "./cortes/guardado";
 import { leerCliente } from "./odoo/clientes";
-import { crearPedidoDeVenta, leerPedidoDeVenta } from "./odoo/pedidos-venta";
+import {
+  confirmarPedidoDeVenta,
+  crearPedidoDeVenta,
+  leerPedidoDeVenta,
+  type LineaParaOdoo,
+} from "./odoo/pedidos-venta";
 import { ErrorOdoo, odooConfigurado } from "./odoo/rpc";
+import { PREFIJO_CORTE, productoCorte } from "./odoo/produccion";
+import { cargarGrupoPlancha } from "./cortes-servidor";
+import { producirCortes } from "./produccion-servidor";
+import { areaPiezasM2, lineasCorteAMedida, materialOdoo } from "./sobrantes";
 import type { ClienteOdoo } from "./odoo/tipos";
 
 const COLUMNAS = `
   id, canal, odoo_partner_id, cliente_nombre, cliente_documento, cliente_telefono,
   odoo_order_id, odoo_order_name, sincronizacion, error_sincronizacion,
   monto_sin_impuestos, monto_impuestos, monto_total, notas, chat_agente_id, creado_en,
+  confirmada_en_odoo, error_confirmacion,
   creador:usuarios!cotizaciones_creado_por_fkey ( nombre ),
+  pedido:pedidos!cotizaciones_pedido_id_fkey ( codigo ),
   cotizacion_productos ( posicion, odoo_product_id, producto_nombre, producto_codigo,
-                         descripcion, cantidad, precio_unitario )
+                         descripcion, cantidad, precio_unitario, tipo, corte, importe )
 `;
 
 interface Fila {
@@ -42,7 +67,10 @@ interface Fila {
   notas: string | null;
   chat_agente_id: string | null;
   creado_en: string;
+  confirmada_en_odoo: boolean;
+  error_confirmacion: string | null;
   creador: { nombre: string } | { nombre: string }[] | null;
+  pedido: { codigo: string } | { codigo: string }[] | null;
   cotizacion_productos: {
     posicion: number;
     odoo_product_id: number;
@@ -51,6 +79,9 @@ interface Fila {
     descripcion: string | null;
     cantidad: number;
     precio_unitario: number;
+    tipo: "producto" | "corte";
+    corte: unknown;
+    importe: number | null;
   }[];
 }
 
@@ -59,6 +90,7 @@ const num = (v: unknown): number | null => (v === null || v === undefined ? null
 
 function deFila(f: Fila): Cotizacion {
   const creador = Array.isArray(f.creador) ? f.creador[0] : f.creador;
+  const pedido = Array.isArray(f.pedido) ? f.pedido[0] : f.pedido;
   return {
     id: f.id,
     canal: f.canal,
@@ -79,6 +111,9 @@ function deFila(f: Fila): Cotizacion {
     chatAgenteId: f.chat_agente_id,
     creadoPor: creador?.nombre ?? null,
     creadoEn: f.creado_en,
+    pedido: pedido ? { codigo: pedido.codigo } : null,
+    confirmadaEnOdoo: f.confirmada_en_odoo,
+    errorConfirmacion: f.error_confirmacion,
     lineas: [...(f.cotizacion_productos ?? [])]
       .sort((a, b) => a.posicion - b.posicion)
       .map((l) => ({
@@ -89,6 +124,8 @@ function deFila(f: Fila): Cotizacion {
         descripcion: l.descripcion,
         cantidad: Number(l.cantidad),
         precioUnitario: Number(l.precio_unitario),
+        corte: l.tipo === "corte" ? leerCorte(l.corte) : null,
+        importe: num(l.importe) ?? importeDeProducto(Number(l.cantidad), Number(l.precio_unitario)),
       })),
   };
 }
@@ -107,14 +144,21 @@ export async function cargarCotizaciones(limite = 300): Promise<Cotizacion[]> {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export const cargarCotizacion = cache(async (id: string): Promise<Cotizacion | null> => {
+/**
+ * La cotización tal como está ahora mismo en la base. Para quien acaba de
+ * escribirla en esta misma petición: `cargarCotizacion` recordaría la de antes.
+ */
+export async function leerCotizacion(id: string): Promise<Cotizacion | null> {
   // Un id mal formado haría fallar a Postgres con un error de sintaxis; es un 404.
   if (!UUID.test(id)) return null;
   const supabase = await clienteServidor();
   const { data, error } = await supabase.from("cotizaciones").select(COLUMNAS).eq("id", id).maybeSingle();
   if (error) throw new Error(`No se pudo leer la cotización: ${error.message}`);
   return data ? deFila(data as unknown as Fila) : null;
-});
+}
+
+/** La misma, una vez por petición: para las páginas, que la piden desde varios sitios. */
+export const cargarCotizacion = cache(leerCotizacion);
 
 /* ── Sugerencias ───────────────────────────────────────────────────────────── */
 
@@ -196,6 +240,90 @@ async function leerPopularidadProductos(): Promise<Map<number, number>> {
 
 /* ── Odoo ──────────────────────────────────────────────────────────────────── */
 
+/**
+ * Una línea de la cotización, como va a Odoo.
+ *
+ * Un producto es una línea. Un corte son varias: la plancha, una línea por cada
+ * precio distinto ("2 planchas completas", "1 media plancha"), y el servicio de
+ * corte. La cantidad de planchas es la que Odoo descuenta del stock.
+ */
+export function lineasParaOdoo(
+  l: LineaGuardada,
+  /** Con el piloto de sobrantes, el producto "Corte a medida" del material. */
+  corteAMedida?: { productoId: number; nombre: string; codigo: string },
+): LineaParaOdoo[] {
+  if (!l.corte) {
+    return [
+      {
+        productoId: l.productoId,
+        nombreProducto: l.nombre,
+        codigo: l.codigo,
+        cantidad: l.cantidad,
+        precioUnitario: l.precioUnitario,
+        descripcion: l.descripcion,
+      },
+    ];
+  }
+
+  const corte = l.corte;
+  const piezas = totalPiezas(corte.piezas);
+  const paraCortar = `Para cortar: ${resumenPiezas(corte.piezas)}`;
+  const servicio = (precio: number) => ({
+    productoId: corte.servicio.productoId,
+    nombreProducto: corte.servicio.nombre,
+    codigo: corte.servicio.codigo,
+    cantidad: 1,
+    precioUnitario: precio,
+    descripcion: `${piezas} ${piezas === 1 ? "pieza" : "piezas"} en ${materialDeCorte(corte)}`,
+  });
+
+  /* Con el piloto, el corte es un producto que se fabrica: se vende en m² de
+     piezas, por el mismo importe que el cálculo por fracción de plancha. */
+  if (corte.sobrantes && corteAMedida) {
+    const m2 = lineasCorteAMedida(corte.montoMaterial, corte.montoServicio, areaPiezasM2(corte.piezas));
+    return [
+      {
+        productoId: corteAMedida.productoId,
+        nombreProducto: corteAMedida.nombre,
+        codigo: corteAMedida.codigo,
+        cantidad: m2.cantidad,
+        precioUnitario: m2.precio,
+        descripcion: paraCortar,
+      },
+      servicio(m2.servicio),
+    ];
+  }
+
+  return [
+    ...planchasPorCobro(corte).map((g) => ({
+      productoId: l.productoId,
+      nombreProducto: l.nombre,
+      codigo: l.codigo,
+      cantidad: g.cantidad,
+      precioUnitario: g.monto,
+      descripcion: g.nombre === "1" ? paraCortar : `Se cobra ${fraccionEnPalabras(g.nombre)}. ${paraCortar}`,
+    })),
+    servicio(corte.montoServicio),
+  ];
+}
+
+/** El "Corte a medida" de cada corte con piloto, por posición: hay que tenerlo en Odoo antes de cotizar. */
+async function productosDeCorte(lineas: LineaGuardada[]) {
+  const salida = new Map<number, { productoId: number; nombre: string; codigo: string }>();
+  for (const l of lineas) {
+    if (!l.corte?.sobrantes) continue;
+    const grupo = await cargarGrupoPlancha(l.corte.grupoId);
+    const material = grupo ? materialOdoo(grupo) : null;
+    if (!material) throw new ErrorOdoo("El material de un corte ya no tiene planchas en el catálogo.");
+    salida.set(l.posicion, {
+      productoId: await productoCorte(material),
+      nombre: material.nombre.replace(/^SOBRANTE /, "CORTE A MEDIDA "),
+      codigo: `${PREFIJO_CORTE}${material.codigoBase}`,
+    });
+  }
+  return salida;
+}
+
 export type ResultadoSincronizacion =
   | { ok: true; orderName: string }
   | { ok: false; error: string };
@@ -209,7 +337,8 @@ export type ResultadoSincronizacion =
  * marca de esta fila (ver `origenDe`).
  */
 export async function sincronizarConOdoo(id: string): Promise<ResultadoSincronizacion> {
-  const c = await cargarCotizacion(id);
+  // Sin la caché de la petición: quien llama puede haberla creado hace un instante.
+  const c = await leerCotizacion(id);
   if (!c) return { ok: false, error: "La cotización ya no existe." };
   if (c.sincronizacion === "sincronizada" && c.odooOrderName) {
     return { ok: true, orderName: c.odooOrderName };
@@ -218,17 +347,11 @@ export async function sincronizarConOdoo(id: string): Promise<ResultadoSincroniz
   const supabase = await clienteServidor();
 
   try {
+    const corteAMedida = await productosDeCorte(c.lineas);
     const venta = await crearPedidoDeVenta({
       cotizacionId: c.id,
       clienteId: c.cliente.id,
-      lineas: c.lineas.map((l) => ({
-        productoId: l.productoId,
-        nombreProducto: l.nombre,
-        codigo: l.codigo,
-        cantidad: l.cantidad,
-        precioUnitario: l.precioUnitario,
-        descripcion: l.descripcion,
-      })),
+      lineas: c.lineas.flatMap((l) => lineasParaOdoo(l, corteAMedida.get(l.posicion))),
     });
 
     const { data, error } = await supabase
@@ -264,6 +387,68 @@ export async function sincronizarConOdoo(id: string): Promise<ResultadoSincroniz
       .eq("id", id);
     return { ok: false, error: mensaje };
   }
+}
+
+/**
+ * Confirma en Odoo la cotización de la que salió un pedido: la `sale.order` pasa
+ * de cotización a pedido de venta. Anota el resultado en la fila; si Odoo falla,
+ * queda el motivo y el detalle ofrece "Confirmar en Odoo".
+ *
+ * Corre después del alta del pedido y nunca la deshace: el taller no tiene por
+ * qué esperar a que Odoo conteste. Repetirla no hace nada si ya está confirmada.
+ */
+export async function confirmarEnOdoo(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const supabase = await clienteServidor();
+  // Sin `cargarCotizacion`: está en caché por petición, y el alta acaba de cambiar la fila.
+  const { data: c, error } = await supabase
+    .from("cotizaciones")
+    .select("odoo_order_id, pedido_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) return { ok: false, error: mensajeDeError(error) };
+  if (!c) return { ok: false, error: "La cotización ya no existe." };
+  if (!c.pedido_id) return { ok: false, error: "Esta cotización todavía no tiene pedido." };
+
+  // Un pedido registrado con Odoo caído: primero hay que crear la orden allá.
+  let orderId = c.odoo_order_id;
+  if (!orderId) {
+    const creada = await sincronizarConOdoo(id);
+    if (!creada.ok) return { ok: false, error: `No se creó en Odoo: ${creada.error}` };
+    const { data: ahora } = await supabase.from("cotizaciones").select("odoo_order_id").eq("id", id).maybeSingle();
+    orderId = ahora?.odoo_order_id ?? null;
+    if (!orderId) return { ok: false, error: "La cotización se creó en Odoo, pero no quedó anotada aquí." };
+  }
+
+  let resultado: { ok: true } | { ok: false; error: string };
+  try {
+    await confirmarPedidoDeVenta(orderId);
+    resultado = { ok: true };
+  } catch (e) {
+    if (!(e instanceof ErrorOdoo)) console.error("[cotizaciones] confirmar en Odoo", e);
+    resultado = {
+      ok: false,
+      error: e instanceof ErrorOdoo ? e.message : "Algo falló al confirmar la cotización en Odoo.",
+    };
+  }
+
+  const { error: alAnotar } = await supabase
+    .from("cotizaciones")
+    .update(
+      resultado.ok
+        ? { confirmada_en_odoo: true, error_confirmacion: null }
+        : { confirmada_en_odoo: false, error_confirmacion: resultado.error },
+    )
+    .eq("id", id);
+  if (alAnotar && resultado.ok) {
+    return { ok: false, error: `Se confirmó en Odoo, pero no se pudo anotar aquí: ${mensajeDeError(alAnotar)}` };
+  }
+  if (!resultado.ok) return resultado;
+
+  /* Con la venta confirmada, las órdenes de fabricación de los cortes con piloto:
+     son las que reservan sus planchas. Si fallan, se vuelven a intentar al
+     pasar a Listo. */
+  const cotizacion = await leerCotizacion(id);
+  return cotizacion ? producirCortes(id, cotizacion.lineas) : resultado;
 }
 
 /**

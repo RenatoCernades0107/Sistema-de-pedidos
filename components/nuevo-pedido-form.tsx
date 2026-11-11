@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowLeft, Upload, X } from "lucide-react";
+import { ArrowLeft, Factory, FileText, Scissors, Store, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { useStore } from "@/lib/store";
 import { subirAdjuntos } from "@/lib/adjuntos-navegador";
@@ -21,15 +22,28 @@ import {
   PLAZOS,
   PRODUCTOS,
   TIPOS,
-  UBICACIONES,
-  admiteDecimales,
   siglaDe,
   sumarDias,
-  unidadDe,
   type PlazoCredito,
   type TipoPedido,
 } from "@/lib/dominio";
-import { fechaCompleta } from "@/lib/formato";
+import { fechaCompleta, money, numero } from "@/lib/formato";
+import type { LineaGuardada } from "@/lib/cotizaciones";
+import type { GrupoPlancha } from "@/lib/cortes/catalogo";
+import type { ConfigCortes } from "@/lib/cortes/config";
+import {
+  actualizarLinea,
+  agregarProducto,
+  cambiarCantidad,
+  esCorte,
+  ponerCorte,
+  problemaDeLineas,
+  quitarLinea,
+  totalReferencial,
+  type Linea,
+} from "@/lib/lineas-cotizacion";
+import type { ClienteOdoo, ProductoOdoo } from "@/lib/odoo/tipos";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Campo, Opciones } from "@/components/ui/campo";
@@ -42,19 +56,90 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { BuscadorCliente } from "@/components/cotizaciones/buscador-cliente";
+import { BuscadorProducto, CodigoProducto } from "@/components/cotizaciones/buscador-producto";
+import { lineaParaEnviar } from "@/components/cotizaciones/form-cotizacion";
+import { LineasCotizacion } from "@/components/cotizaciones/lineas-cotizacion";
+import { CorteGuardadoVista } from "@/components/cortes/corte-guardado";
+import { EditorCorte } from "@/components/cortes/editor-corte";
 
 const esquema = esquemaFormNuevoPedido;
 
 type Campos = z.input<typeof esquema>;
 
-export function NuevoPedidoForm() {
+/** Lo que el formulario toma de la cotización de la que sale el pedido. */
+export interface DesdeCotizacion {
+  id: string;
+  /** Como se nombra: la referencia de Odoo (`S04254`). */
+  referencia: string;
+  cliente: { nombre: string; documento: string | null; telefono: string | null };
+  lineas: LineaGuardada[];
+  total: number;
+  /** Si el total ya es el de Odoo, con impuestos. */
+  totalEnOdoo: boolean;
+}
+
+/** Las dos respuestas a "¿para dónde va?". */
+const DESTINOS = [
+  { valor: "taller", label: "Taller", icono: Factory, ayuda: "Hay que fabricarlo o cortarlo" },
+  { valor: "tienda", label: "Tienda", icono: Store, ayuda: "Se atiende y despacha desde tienda" },
+] as const;
+
+/**
+ * Los tipos de pedido que sugieren las líneas: un corte láser es CL, uno manual
+ * CM, y una plancha vendida entera SP. Lo demás (productos terminados,
+ * accesorios) no se adivina por el nombre: lo marca quien registra.
+ */
+function tiposDeLineas(lineas: { corte?: { modalidad: string } | null; esCorte?: boolean }[]): TipoPedido[] {
+  const tipos = new Set<TipoPedido>();
+  for (const l of lineas) {
+    if (l.corte?.modalidad === "laser") tipos.add("CL");
+    else if (l.corte?.modalidad === "manual") tipos.add("CM");
+  }
+  return [...tipos];
+}
+
+const comoGuardadas = (lineas: Linea[]) =>
+  lineas.map((l) => ({ corte: esCorte(l) ? { modalidad: l.modalidad } : null }));
+
+/**
+ * Registrar un pedido. Se arma como una cotización —cliente y productos de
+ * Odoo, y cortes a medida— más lo propio del pedido: a dónde va, cuándo y cómo
+ * se paga. Al registrarlo, el servidor guarda la cotización, la crea y la
+ * confirma en Odoo (que es lo que reserva el stock), y registra el pedido.
+ */
+export function NuevoPedidoForm({
+  catalogo,
+  config,
+  desdeCotizacion,
+}: {
+  catalogo: GrupoPlancha[];
+  config: ConfigCortes;
+  desdeCotizacion?: DesdeCotizacion;
+}) {
   const router = useRouter();
-  const { permisos, crearPedido, trabajadores, ubigeo, pendiente } = useStore();
+  const volverA = desdeCotizacion ? `/cotizaciones/${desdeCotizacion.id}` : "/pedidos";
+  const { permisos, registrarPedido, trabajadores, ubigeo, pendiente } = useStore();
+
+  const [cliente, setCliente] = useState<ClienteOdoo | null>(null);
+  const [lineas, setLineas] = useState<Linea[]>([]);
+  const [corte, setCorte] = useState<{ clave: string | null } | null>(null);
+  const [resaltada, setResaltada] = useState<string | null>(null);
+  const [errorLineas, setErrorLineas] = useState<string | null>(null);
+
+  const buscadorCliente = useRef<HTMLInputElement>(null);
+  const buscadorProducto = useRef<HTMLInputElement>(null);
+  const cantidades = useRef(new Map<string, HTMLInputElement>());
+  const temporizador = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const bloqueTrabajo = useRef<HTMLElement>(null);
 
   /* Los planos se quedan en memoria hasta que el pedido exista: la carpeta del
      bucket cuelga de su uuid, y el uuid lo pone Postgres al registrarlo. */
   const [archivos, setArchivos] = useState<File[]>([]);
   const entradaArchivos = useRef<HTMLInputElement>(null);
+  /* "¿Para dónde va?" es una botonera, no un campo registrado: react-hook-form no
+     sabe enfocarla cuando falta, y el error quedaría arriba, fuera de la vista. */
+  const bloqueDestino = useRef<HTMLElement>(null);
 
   const anadir = (elegidos: File[]) => {
     const buenos: File[] = [];
@@ -66,9 +151,7 @@ export function NuevoPedidoForm() {
     // Por nombre y tamaño: elegir dos veces la misma carpeta es lo normal.
     setArchivos((previos) => [
       ...previos,
-      ...buenos.filter(
-        (b) => !previos.some((p) => p.name === b.name && p.size === b.size),
-      ),
+      ...buenos.filter((b) => !previos.some((p) => p.name === b.name && p.size === b.size)),
     ]);
   };
 
@@ -76,20 +159,17 @@ export function NuevoPedidoForm() {
     resolver: zodResolver(esquema),
     mode: "onTouched",
     defaultValues: {
-      cliente: "",
-      telefonoCliente: "",
-      tipos: ["CL"],
-      cantidad: 1,
+      tipos: desdeCotizacion ? tiposDeLineas(desdeCotizacion.lineas) : [],
       destino: "local",
       entrega: "tienda",
-      ubicacion: "taller",
+      // No se presupone: hay que elegir taller o tienda.
+      ubicacion: undefined,
       tipoDocumento: "DNI",
       fletePagado: false,
       fechaPrometida: "",
       tipoPago: "a_cuenta",
       metodoPago: "efectivo",
-      montoTotal: 0,
-      detalle: "",
+      indicaciones: "",
       observaciones: "",
     },
   });
@@ -107,14 +187,13 @@ export function NuevoPedidoForm() {
   const provincias = ubigeo.find((d) => d.id === departamentoId)?.provincias ?? [];
   const plazoCredito = Number(form.watch("plazoCredito")) || null;
   const abono = Number(form.watch("abono")) || 0;
-  const montoTotal = Number(form.watch("montoTotal")) || 0;
+  const total = desdeCotizacion ? desdeCotizacion.total : totalReferencial(lineas);
 
   // Un pedido que combina trabajos lleva "MX": el código se dicta por teléfono.
   const codigoPreview = `${destino === "provincia" ? "P" : "L"}${
     tipos.length ? siglaDe(tipos) : "··"
   }_${hoy().slice(0, 4)}_····`;
 
-  const decimales = admiteDecimales(tipos);
   const documento = FORMATO_DOCUMENTO[tipoDocumento];
 
   /** Hay dinero de entrada, así que hay que decir por dónde entró. */
@@ -128,7 +207,42 @@ export function NuevoPedidoForm() {
     form.setValue("tipos", siguientes, { shouldValidate: form.formState.isSubmitted });
   };
 
-  if (!permisos.crearPedido) {
+  /** Las líneas cambiaron: los tipos que sugieren se suman a los marcados. */
+  const ponerLineas = (siguientes: Linea[]) => {
+    setLineas(siguientes);
+    setErrorLineas(null);
+    const sugeridos = tiposDeLineas(comoGuardadas(siguientes));
+    const actuales = (form.getValues("tipos") ?? []) as TipoPedido[];
+    const faltan = sugeridos.filter((t) => !actuales.includes(t));
+    if (faltan.length) form.setValue("tipos", [...actuales, ...faltan], { shouldValidate: form.formState.isSubmitted });
+  };
+
+  const marcar = (clave: string) => {
+    setResaltada(clave);
+    clearTimeout(temporizador.current);
+    temporizador.current = setTimeout(() => setResaltada(null), 1200);
+  };
+
+  const elegirCliente = (c: ClienteOdoo | null) => {
+    flushSync(() => setCliente(c));
+    if (c) buscadorProducto.current?.focus();
+  };
+
+  const agregar = (p: ProductoOdoo) => {
+    const { lineas: siguientes, clave } = agregarProducto(lineas, p);
+    flushSync(() => ponerLineas(siguientes));
+    marcar(clave);
+    const input = cantidades.current.get(clave);
+    input?.focus();
+    input?.select();
+  };
+
+  const refCantidad = useCallback((clave: string, el: HTMLInputElement | null) => {
+    if (el) cantidades.current.set(clave, el);
+    else cantidades.current.delete(clave);
+  }, []);
+
+  if (!permisos.crearPedido || !permisos.gestionarCotizaciones) {
     return (
       <div className="grid min-h-[60vh] place-items-center p-6 text-center">
         <div className="max-w-sm">
@@ -141,75 +255,117 @@ export function NuevoPedidoForm() {
     );
   }
 
-  const onSubmit = form.handleSubmit(async (v) => {
-    const esProvincia = v.destino === "provincia";
-    const resultado = await crearPedido({
-      cliente: v.cliente,
-      telefonoCliente: v.telefonoCliente || null,
-      tipos: v.tipos as TipoPedido[],
-      producto: v.producto ?? null,
-      cantidad: Number(v.cantidad),
-      esProvincia,
-      entrega: esProvincia ? "agencia" : v.entrega,
-      ubicacion: v.ubicacion,
-      direccion: v.direccion || null,
-      envio: esProvincia
-        ? {
-            departamentoId: Number(v.departamentoId),
-            provinciaId: Number(v.provinciaId) || null,
-            agencia: v.agencia || null,
-            personaQueRecoge: v.personaQueRecoge || null,
-            tipoDocumento: v.tipoDocumento,
-            numeroDocumento: v.numeroDocumento || null,
-            telefono: v.telefono || null,
-            montoFlete: Number(v.flete ?? 0),
-            fletePagado: !!v.fletePagado,
-            observacionesEnvio: v.observacionesEnvio || null,
-          }
-        : null,
-      fechaPrometida: v.fechaPrometida,
-      tipoPago: v.tipoPago,
-      plazoCredito: v.tipoPago === "credito" ? ((Number(v.plazoCredito) || null) as PlazoCredito | null) : null,
-      montoTotal: Number(v.montoTotal),
-      // Al crédito no entra nada al registrar, aunque el campo de abono conserve lo
-      // que se hubiera tecleado antes de cambiar el tipo de pago.
-      abonoInicial: v.tipoPago === "credito" ? 0 : Number(v.abono ?? 0),
-      metodoPago: v.metodoPago,
-      responsableId: v.responsableId || null,
-      detalle: v.detalle ?? "",
-      observaciones: v.observaciones || null,
-    });
-    // El código lo pone Postgres, así que hasta que no conteste no hay a dónde ir.
-    if (!resultado.ok || !resultado.codigo) return;
+  /** Lo que falta del cliente y las líneas, que no pasan por react-hook-form. */
+  const problemaDeTrabajo = (): string | null => {
+    if (desdeCotizacion) return null;
+    if (!cliente) return "Elige el cliente.";
+    return problemaDeLineas(lineas)?.replace("Agrega al menos un producto.", "Agrega al menos un producto o un corte.") ?? null;
+  };
 
-    /* Los planos van después del alta y no antes: hasta aquí no había pedido al
-       que colgarlos. Si alguno falla, el pedido ya está registrado y se dice
-       cuál faltó; perder el alta por un archivo sería mucho peor. */
-    if (archivos.length > 0) {
-      const { errores } = await subirAdjuntos(resultado.codigo, "diseno", archivos);
-      for (const error of errores) {
-        toast.error("El pedido se registró, pero un archivo no subió", { description: error });
+  const irAlTrabajo = () => {
+    bloqueTrabajo.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (!cliente) buscadorCliente.current?.focus({ preventScroll: true });
+    else buscadorProducto.current?.focus({ preventScroll: true });
+  };
+
+  const onSubmit = form.handleSubmit(
+    async (v) => {
+      const problema = problemaDeTrabajo();
+      if (problema) {
+        setErrorLineas(problema);
+        irAlTrabajo();
+        return;
       }
-    }
 
-    router.push(`/pedidos/${resultado.codigo}`);
-  });
+      const esProvincia = v.destino === "provincia";
+      const resultado = await registrarPedido(
+        {
+          cotizacionId: desdeCotizacion?.id ?? null,
+          clienteId: desdeCotizacion ? null : cliente!.id,
+          lineas: desdeCotizacion ? null : lineas.map(lineaParaEnviar),
+          tipos: v.tipos as TipoPedido[],
+          producto: v.tipos.includes("PT") ? (v.producto ?? null) : null,
+          esProvincia,
+          entrega: esProvincia ? "agencia" : v.entrega,
+          ubicacion: v.ubicacion,
+          direccion: v.direccion || null,
+          envio: esProvincia
+            ? {
+                departamentoId: Number(v.departamentoId),
+                provinciaId: Number(v.provinciaId) || null,
+                agencia: v.agencia || null,
+                personaQueRecoge: v.personaQueRecoge || null,
+                tipoDocumento: v.tipoDocumento,
+                numeroDocumento: v.numeroDocumento || null,
+                telefono: v.telefono || null,
+                montoFlete: Number(v.flete ?? 0),
+                fletePagado: !!v.fletePagado,
+                observacionesEnvio: v.observacionesEnvio || null,
+              }
+            : null,
+          fechaPrometida: v.fechaPrometida,
+          tipoPago: v.tipoPago,
+          plazoCredito:
+            v.tipoPago === "credito" ? ((Number(v.plazoCredito) || null) as PlazoCredito | null) : null,
+          // Al crédito no entra nada al registrar, aunque el campo de abono conserve lo
+          // que se hubiera tecleado antes de cambiar el tipo de pago.
+          abonoInicial: v.tipoPago === "credito" ? 0 : Number(v.abono ?? 0),
+          metodoPago: v.metodoPago,
+          responsableId: v.responsableId || null,
+          indicaciones: v.indicaciones || null,
+          observaciones: v.observaciones || null,
+        },
+        desdeCotizacion?.cliente.nombre ?? cliente?.nombre ?? "",
+      );
+      // El código lo pone Postgres, así que hasta que no conteste no hay a dónde ir.
+      if (!resultado.ok || !resultado.codigo) return;
+
+      /* Los planos van después del alta y no antes: hasta aquí no había pedido al
+         que colgarlos. Si alguno falla, el pedido ya está registrado y se dice
+         cuál faltó; perder el alta por un archivo sería mucho peor. */
+      if (archivos.length > 0) {
+        const { errores } = await subirAdjuntos(resultado.codigo, "diseno", archivos);
+        for (const error of errores) {
+          toast.error("El pedido se registró, pero un archivo no subió", { description: error });
+        }
+      }
+
+      router.push(`/pedidos/${resultado.codigo}`);
+    },
+    (errores) => {
+      const problema = problemaDeTrabajo();
+      if (problema) {
+        setErrorLineas(problema);
+        irAlTrabajo();
+        return;
+      }
+      if (!errores.ubicacion || !bloqueDestino.current) return;
+      bloqueDestino.current.scrollIntoView({ behavior: "smooth", block: "center" });
+      bloqueDestino.current.querySelector("button")?.focus({ preventScroll: true });
+    },
+  );
 
   return (
     <div className="px-4 py-5 md:px-6 md:py-6">
       <Button
-        render={<Link href="/pedidos" />}
+        render={<Link href={volverA} />}
         nativeButton={false}
         variant="ghost"
         size="sm"
         className="text-muted-foreground -ml-2 mb-3 gap-1.5"
       >
         <ArrowLeft className="size-3.5" />
-        Cancelar
+        {desdeCotizacion ? `Volver a ${desdeCotizacion.referencia}` : "Cancelar"}
       </Button>
 
       <header className="mb-5 flex flex-wrap items-end gap-4">
         <div>
+          {desdeCotizacion && (
+            <p className="eyebrow flex items-center gap-1.5">
+              <FileText className="size-3" />
+              Desde la cotización {desdeCotizacion.referencia}
+            </p>
+          )}
           <h1 className="text-xl font-semibold tracking-tight">Nuevo pedido</h1>
           <p className="text-muted-foreground mt-0.5 text-sm">
             Los campos marcados con <span className="text-destructive">*</span> son obligatorios.
@@ -221,40 +377,113 @@ export function NuevoPedidoForm() {
         </div>
       </header>
 
-      <form onSubmit={onSubmit} noValidate className="flex max-w-3xl flex-col gap-4">
-        <Seccion n={1} titulo="Cliente y trabajo">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Campo
-              label="Nombre del cliente"
-              requerido
-              error={form.formState.errors.cliente?.message}
-            >
-              <Input
-                autoFocus
-                placeholder="Ej. Corporación Andina SAC"
-                aria-invalid={!!form.formState.errors.cliente}
-                {...form.register("cliente")}
-              />
-            </Campo>
+      <form
+        onSubmit={onSubmit}
+        noValidate
+        className="flex max-w-3xl flex-col gap-4"
+        onKeyDown={(e) => {
+          // Enter en un buscador o en una cantidad no envía el pedido.
+          if (e.key === "Enter" && !(e.target instanceof HTMLTextAreaElement) && !(e.target instanceof HTMLButtonElement)) {
+            e.preventDefault();
+          }
+        }}
+      >
+        <section ref={bloqueDestino} className="bg-card rounded-xl border p-4">
+          <Campo
+            grupo
+            label="¿Para dónde va el pedido?"
+            requerido
+            ayuda="Decide si aparece en la vista del taller o en la de la tienda."
+            error={form.formState.errors.ubicacion?.message}
+          >
+            <div className="grid gap-2 sm:grid-cols-2">
+              {DESTINOS.map(({ valor, label, icono: Icono, ayuda }) => {
+                const activo = ubicacion === valor;
+                return (
+                  <button
+                    key={valor}
+                    type="button"
+                    aria-pressed={activo}
+                    onClick={() => form.setValue("ubicacion", valor, { shouldValidate: true })}
+                    className={cn(
+                      "flex items-center gap-3 rounded-lg border p-3 text-left transition-colors",
+                      "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
+                      activo ? "border-primary/50 bg-primary/8" : "hover:border-foreground/20",
+                      form.formState.errors.ubicacion && !activo && "border-destructive/40",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "grid size-9 shrink-0 place-items-center rounded-md",
+                        activo ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+                      )}
+                    >
+                      <Icono className="size-4" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium">{label}</span>
+                      <span className="text-muted-foreground block text-xs">{ayuda}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </Campo>
+        </section>
 
-            <Campo
-              label="Teléfono del cliente"
-              ayuda="Para avisar que el pedido está listo. El taller no lo ve."
-            >
-              <Input
-                inputMode="tel"
-                placeholder="9XX XXX XXX"
-                className="tnum"
-                {...form.register("telefonoCliente")}
+        <Seccion n={1} titulo="Cliente y productos" refSeccion={bloqueTrabajo}>
+          {desdeCotizacion ? (
+            <DeLaCotizacion d={desdeCotizacion} />
+          ) : (
+            <>
+              <BuscadorCliente cliente={cliente} alElegir={elegirCliente} inputRef={buscadorCliente} />
+              {/* En una sola fila siempre: si el botón bajara de línea, la lista de
+                  resultados del buscador lo taparía. */}
+              <div className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <BuscadorProducto alAgregar={agregar} inputRef={buscadorProducto} />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10 shrink-0 gap-1.5"
+                  aria-label="Corte a medida"
+                  onClick={() => setCorte({ clave: null })}
+                  disabled={catalogo.length === 0}
+                  title={catalogo.length === 0 ? "No hay planchas en el catálogo" : undefined}
+                >
+                  <Scissors />
+                  Corte<span className="hidden sm:inline"> a medida</span>
+                </Button>
+              </div>
+              <LineasCotizacion
+                lineas={lineas}
+                resaltada={resaltada}
+                refCantidad={refCantidad}
+                alCambiar={(clave, cambios) => ponerLineas(actualizarLinea(lineas, clave, cambios))}
+                alCambiarCantidad={(clave, delta) => ponerLineas(cambiarCantidad(lineas, clave, delta))}
+                alQuitar={(clave) => {
+                  ponerLineas(quitarLinea(lineas, clave));
+                  buscadorProducto.current?.focus();
+                }}
+                alEditarCorte={(clave) => setCorte({ clave })}
+                alTerminar={() => buscadorProducto.current?.focus()}
               />
-            </Campo>
-          </div>
+            </>
+          )}
+          {errorLineas && (
+            <p role="alert" className="text-destructive text-sm">
+              {errorLineas}
+            </p>
+          )}
+        </Seccion>
 
+        <Seccion n={2} titulo="Trabajo">
           <Campo
             grupo
             label="Tipo de pedido"
             requerido
-            ayuda="Un pedido puede combinar varios trabajos."
+            ayuda="Los cortes ya marcan el suyo. Agrega lo que falte: un pedido puede combinar varios trabajos."
             error={form.formState.errors.tipos?.message}
           >
             <Opciones
@@ -267,20 +496,14 @@ export function NuevoPedidoForm() {
           <AnimatePresence initial={false}>
             {tipos.includes("PT") && (
               <Condicional titulo="Porque incluye producto terminado">
-                <Campo
-                  label="Tipo de producto"
-                  requerido
-                  error={form.formState.errors.producto?.message}
-                >
+                <Campo label="Tipo de producto" requerido error={form.formState.errors.producto?.message}>
                   <Select
                     value={form.watch("producto") ?? ""}
                     onValueChange={(v) => v && form.setValue("producto", v as Campos["producto"])}
                   >
                     <SelectTrigger className="w-full">
                       <SelectValue>
-                        {form.watch("producto")
-                          ? PRODUCTOS[form.watch("producto")!]
-                          : "Selecciona…"}
+                        {form.watch("producto") ? PRODUCTOS[form.watch("producto")!] : "Selecciona…"}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
@@ -296,35 +519,16 @@ export function NuevoPedidoForm() {
             )}
           </AnimatePresence>
 
-          <Campo
-            label={`Cantidad (${unidadDe(tipos)})`}
-            requerido
-            ayuda={
-              decimales
-                ? "Las planchas admiten hasta 2 decimales: media plancha es 0.5."
-                : "Número de piezas. Medidas, material y acabados van en el detalle."
-            }
-            error={form.formState.errors.cantidad?.message}
-          >
-            <Input
-              type="number"
-              min={decimales ? 0.01 : 1}
-              step={decimales ? 0.01 : 1}
-              className="tnum max-w-32"
-              aria-invalid={!!form.formState.errors.cantidad}
-              {...form.register("cantidad")}
-            />
-          </Campo>
-
           <div className="grid gap-4 sm:grid-cols-2">
             <Campo
-              label="Detalle del pedido"
-              ayuda="Orden sugerido: Cantidad · Material · Marca · Espesor · Color · Formato. El texto es libre."
+              label="Indicaciones para el taller"
+              ayuda="Lo que no dicen los productos: acabados, pegado, cómo se entrega. Se suma al detalle."
+              error={form.formState.errors.indicaciones?.message}
             >
               <Textarea
                 rows={3}
-                placeholder="Ej. 5 Acrílico Alfa 5mm transparente F7"
-                {...form.register("detalle")}
+                placeholder="Ej. bordes pulidos; entregar con film"
+                {...form.register("indicaciones")}
               />
             </Campo>
 
@@ -396,7 +600,7 @@ export function NuevoPedidoForm() {
 
           <Campo
             label="Observaciones"
-            ayuda="Notas e incidencias del pedido. Lo que se produce va en el detalle."
+            ayuda="Notas e incidencias del pedido. Lo que se produce va en las líneas y las indicaciones."
           >
             <Textarea
               rows={2}
@@ -406,7 +610,7 @@ export function NuevoPedidoForm() {
           </Campo>
         </Seccion>
 
-        <Seccion n={2} titulo="Entrega" nota="Define si el pedido es local o de provincia">
+        <Seccion n={3} titulo="Entrega" nota="Define si el pedido es local o de provincia">
           <Campo grupo label="¿A dónde va?" requerido>
             <Opciones
               valores={[destino]}
@@ -598,19 +802,6 @@ export function NuevoPedidoForm() {
           </AnimatePresence>
 
           <Campo
-            grupo
-            label="¿Dónde está el pedido ahora?"
-            requerido
-            ayuda="Es la ubicación física, no el lugar de entrega: un pedido que se entrega en tienda puede quedarse en el taller."
-          >
-            <Opciones
-              valores={[ubicacion]}
-              onToggle={(v) => form.setValue("ubicacion", v as Campos["ubicacion"])}
-              opciones={Object.entries(UBICACIONES).map(([valor, label]) => ({ valor, label }))}
-            />
-          </Campo>
-
-          <Campo
             label="Fecha prometida"
             requerido
             ayuda="El taller ordena su trabajo por este campo."
@@ -625,7 +816,7 @@ export function NuevoPedidoForm() {
           </Campo>
         </Seccion>
 
-        <Seccion n={3} titulo="Pago">
+        <Seccion n={4} titulo="Pago">
           <Campo grupo label="Tipo de pago" requerido>
             <Opciones
               valores={[tipoPago]}
@@ -635,20 +826,17 @@ export function NuevoPedidoForm() {
           </Campo>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <Campo
-              label="Monto total"
-              requerido
-              error={form.formState.errors.montoTotal?.message}
-            >
-              <Input
-                type="number"
-                min={0}
-                step="0.01"
-                className="tnum"
-                aria-invalid={!!form.formState.errors.montoTotal}
-                {...form.register("montoTotal")}
-              />
-            </Campo>
+            <div className="flex flex-col gap-1.5">
+              <p className="text-xs font-medium">Total</p>
+              <p className="tnum flex h-9 items-center text-base font-semibold" data-testid="total-pedido">
+                {money(total)}
+              </p>
+              <p className="text-muted-foreground text-xs">
+                {desdeCotizacion?.totalEnOdoo
+                  ? "El de la cotización en Odoo, con impuestos."
+                  : "Sin impuestos. El definitivo lo pone Odoo al registrar."}
+              </p>
+            </div>
 
             {/* El abono inicial solo tiene sentido a cuenta: al contado se cobra
                 el total y al crédito no entra nada todavía. */}
@@ -705,7 +893,7 @@ export function NuevoPedidoForm() {
               label="Método de pago"
               ayuda={
                 tipoPago === "contado"
-                  ? `Por dónde entran los S/ ${montoTotal.toFixed(2)}.`
+                  ? `Por dónde entran los ${money(total)}.`
                   : `Por dónde entra el abono de S/ ${abono.toFixed(2)}.`
               }
             >
@@ -728,7 +916,7 @@ export function NuevoPedidoForm() {
           )}
         </Seccion>
 
-        <Seccion n={4} titulo="Producción">
+        <Seccion n={5} titulo="Producción">
           <Campo
             label="Responsable en taller"
             ayuda="Opcional al registrar. Logística o Administración lo asignan después."
@@ -757,13 +945,71 @@ export function NuevoPedidoForm() {
 
         <div className="flex flex-wrap gap-2">
           <Button type="submit" disabled={form.formState.isSubmitting || pendiente}>
-            {form.formState.isSubmitting ? "Registrando…" : "Registrar pedido"}
+            {form.formState.isSubmitting ? "Registrando en Odoo…" : "Registrar pedido"}
           </Button>
-          <Button type="button" variant="ghost" render={<Link href="/pedidos" />} nativeButton={false}>
+          <Button type="button" variant="ghost" render={<Link href={volverA} />} nativeButton={false}>
             Cancelar
           </Button>
         </div>
       </form>
+
+      {corte && (
+        <EditorCorte
+          catalogo={catalogo}
+          config={config}
+          inicial={lineas.filter(esCorte).find((l) => l.clave === corte.clave) ?? null}
+          alCerrar={() => setCorte(null)}
+          alGuardar={(nuevo) => {
+            const { lineas: siguientes, clave } = ponerCorte(lineas, nuevo);
+            ponerLineas(siguientes);
+            setCorte(null);
+            marcar(clave);
+            requestAnimationFrame(() => buscadorProducto.current?.focus());
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Lo que viene de la cotización: no se edita aquí; para cambiarlo, otra cotización. */
+function DeLaCotizacion({ d }: { d: DesdeCotizacion }) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="bg-muted/40 rounded-lg border px-3 py-2.5">
+        <p className="text-sm font-medium">{d.cliente.nombre}</p>
+        <p className="text-muted-foreground tnum mt-0.5 flex flex-wrap gap-x-3 text-xs">
+          {d.cliente.documento && <span>{d.cliente.documento}</span>}
+          {d.cliente.telefono && <span>{d.cliente.telefono}</span>}
+        </p>
+      </div>
+      <ul className="divide-y rounded-lg border" aria-label="Productos de la cotización">
+        {d.lineas.map((l) =>
+          l.corte ? (
+            <li key={l.posicion} className="px-3 py-3">
+              <CorteGuardadoVista corte={l.corte} conPrecios={false} />
+              <p className="tnum mt-2 text-right text-sm font-medium">{money(l.importe)}</p>
+            </li>
+          ) : (
+            <li key={l.posicion} className="flex flex-wrap items-start gap-x-4 gap-y-1 px-3 py-2.5">
+              <div className="min-w-0 flex-1">
+                <p className="flex flex-wrap items-center gap-2 text-sm">
+                  {l.codigo && <CodigoProducto codigo={l.codigo} />}
+                  <span className="font-medium">{l.nombre}</span>
+                </p>
+                {l.descripcion && <p className="text-muted-foreground mt-1 text-xs">{l.descripcion}</p>}
+              </div>
+              <p className="tnum text-muted-foreground text-sm">
+                {numero(l.cantidad)} × {money(l.precioUnitario)}
+              </p>
+              <p className="tnum w-24 text-right text-sm font-medium">{money(l.importe)}</p>
+            </li>
+          ),
+        )}
+      </ul>
+      <p className="text-muted-foreground text-xs">
+        Lo cotizado no se cambia aquí: si algo cambió, haz una cotización nueva.
+      </p>
     </div>
   );
 }
@@ -774,15 +1020,17 @@ function Seccion({
   n,
   titulo,
   nota,
+  refSeccion,
   children,
 }: {
   n: number;
   titulo: string;
   nota?: string;
+  refSeccion?: React.Ref<HTMLElement>;
   children: React.ReactNode;
 }) {
   return (
-    <section className="bg-card rounded-xl border">
+    <section ref={refSeccion} className="bg-card rounded-xl border">
       <header className="bg-muted/40 flex items-center gap-2.5 border-b px-4 py-3">
         <span className="bg-primary text-primary-foreground grid size-5 shrink-0 place-items-center rounded-full text-2xs font-semibold">
           {n}

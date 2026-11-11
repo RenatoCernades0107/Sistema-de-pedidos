@@ -6,7 +6,8 @@ import { hoy } from "./fecha";
 import * as acciones from "@/app/(app)/acciones";
 import type { Resultado } from "@/app/(app)/acciones";
 import type { Departamento, Trabajador } from "./catalogos-servidor";
-import type { DatosEditables, DatosEnvio, NuevoPedido } from "./esquemas";
+import type { z } from "zod";
+import type { DatosEditables, DatosEnvio, esquemaRegistroPedido } from "./esquemas";
 import {
   ESTADOS,
   LUGARES,
@@ -33,17 +34,28 @@ interface Store {
   /** Hay una escritura en vuelo. Sirve para deshabilitar botones. */
   pendiente: boolean;
   pedido: (codigo: string) => Pedido | undefined;
-  crearPedido: (datos: NuevoPedido) => Promise<Resultado>;
+  /** `cliente` es solo para el aviso: el nombre que vale lo lee el servidor de Odoo. */
+  registrarPedido: (datos: z.input<typeof esquemaRegistroPedido>, cliente: string) => Promise<Resultado>;
   cambiarEstado: (
     codigo: string,
     estado: Estado,
-    extra?: { motivo?: string | null; numeroComprobante?: string | null },
+    extra?: CambioEstadoExtra,
   ) => Promise<Resultado>;
   cambiarUbicacion: (codigo: string, ubicacion: Ubicacion) => Promise<Resultado>;
   asignarResponsable: (codigo: string, responsableId: string | null) => Promise<Resultado>;
   registrarAbono: (codigo: string, monto: number, metodo: MetodoPago) => Promise<Resultado>;
   editarDatos: (codigo: string, cambios: DatosEditables) => Promise<Resultado>;
   editarEnvio: (codigo: string, cambios: DatosEnvio) => Promise<Resultado>;
+}
+
+/** Lo que acompaña a un cambio de estado, según a dónde va. */
+export interface CambioEstadoExtra {
+  motivo?: string | null;
+  numeroComprobante?: string | null;
+  /** Al pasar a Listo: las planchas que de verdad se usaron en cada corte. */
+  planchas?: { posicion: number; planchas: number }[];
+  /** Y, en los cortes con piloto de sobrantes, los pedazos que se guardaron. */
+  sobrantes?: { posicion: number; piezas: { largo: number; ancho: number; ubicacion: string | null }[] }[];
 }
 
 const Ctx = createContext<Store | null>(null);
@@ -107,13 +119,13 @@ export function StoreProvider({
     (
       parche: Parche | null,
       accion: () => Promise<Resultado>,
-      alExito?: () => void,
+      alExito?: (resultado: Resultado & { ok: true }) => void,
     ): Promise<Resultado> =>
       new Promise((resolver) => {
         iniciarTransicion(async () => {
           if (parche) aplicarParche(parche);
           const resultado = await accion();
-          if (resultado.ok) alExito?.();
+          if (resultado.ok) alExito?.(resultado);
           else toast.error("No se guardó", { description: resultado.error });
           resolver(resultado);
         });
@@ -126,29 +138,37 @@ export function StoreProvider({
     [delServidor],
   );
 
-  const crearPedido = useCallback(
-    async (datos: NuevoPedido) => {
+  const registrarPedido = useCallback(
+    async (datos: z.input<typeof esquemaRegistroPedido>, cliente: string) => {
       // Sin parche optimista: el pedido todavía no tiene código, y el código lo
       // inventa Postgres. Se espera y se navega.
-      const resultado = await acciones.crearPedido(datos);
+      const resultado = await acciones.registrarPedido(datos);
       if (!resultado.ok) {
         toast.error("No se registró el pedido", { description: resultado.error });
         return resultado;
       }
 
+      // El total lo puso el servidor: sale de Odoo, con sus impuestos.
+      const total = resultado.total ?? 0;
       const cobrado =
         datos.tipoPago === "contado"
-          ? datos.montoTotal
+          ? total
           : datos.tipoPago === "a_cuenta"
-            ? Math.min(datos.abonoInicial, datos.montoTotal)
+            ? Math.min(datos.abonoInicial, total)
             : 0;
-      const saldo = datos.montoTotal - cobrado;
+      const saldo = total - cobrado;
 
       toast.success(`Pedido ${resultado.codigo} registrado`, {
-        description: `${datos.cliente} · entrega ${
+        description: `${cliente} · ${soles(total)} · entrega ${
           datos.esProvincia ? "a provincia" : LUGARES[datos.entrega].toLowerCase()
         } · ${saldo > 0 ? `saldo de ${soles(saldo)}` : "pagado"}`,
       });
+      if (resultado.aviso) {
+        toast.warning("El pedido quedó registrado, pero falta Odoo", {
+          description: `${resultado.aviso} Se reintenta desde la cotización del pedido.`,
+          duration: 12_000,
+        });
+      }
       return resultado;
     },
     [],
@@ -158,7 +178,7 @@ export function StoreProvider({
     (
       codigo: string,
       estado: Estado,
-      extra?: { motivo?: string | null; numeroComprobante?: string | null },
+      extra?: CambioEstadoExtra,
     ) => {
       const actual = buscar(codigo);
       if (!actual) return Promise.resolve(sinCambios());
@@ -180,11 +200,21 @@ export function StoreProvider({
             tieneComprobante: actual.tieneComprobante || Boolean(numeroComprobante),
           },
         },
-        () => acciones.cambiarEstado({ codigo, estado, motivo, numeroComprobante }),
-        () =>
+        () => acciones.cambiarEstado({
+            codigo,
+            estado,
+            motivo,
+            numeroComprobante,
+            planchas: extra?.planchas,
+            sobrantes: extra?.sobrantes,
+          }),
+        (r) => {
           toast.success(`${codigo} → ${ESTADOS[estado]}`, {
             description: `Registrado por ${usuario}`,
-          }),
+          });
+          // El pedido se movió, pero Odoo no hizo su parte: se reintenta desde el detalle.
+          if (r.aviso) toast.warning("Falta Odoo", { description: r.aviso, duration: 12_000 });
+        },
       );
     },
     [buscar, mutar, usuario],
@@ -313,7 +343,7 @@ export function StoreProvider({
       ubigeo,
       pendiente,
       pedido: (codigo) => pedidos.find((p) => p.codigo === codigo),
-      crearPedido,
+      registrarPedido,
       cambiarEstado,
       cambiarUbicacion,
       asignarResponsable,
@@ -328,7 +358,7 @@ export function StoreProvider({
       trabajadores,
       ubigeo,
       pendiente,
-      crearPedido,
+      registrarPedido,
       cambiarEstado,
       cambiarUbicacion,
       asignarResponsable,

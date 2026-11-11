@@ -1,72 +1,140 @@
 /**
- * Registrar un pedido rellenando el formulario, no llamando a `crear_pedido`.
+ * Registrar un pedido rellenando el formulario, como en mostrador: el cliente y
+ * los productos se buscan en Odoo, un corte se calcula, y lo demás —a dónde va,
+ * cuándo, cómo se paga— se elige por etiqueta.
  *
- * El resto de la carpeta crea sus pedidos por RPC porque hasta la Fase 6 las
- * etiquetas del formulario no señalaban a ningún campo: no había forma de
- * encontrarlos salvo por la estructura del DOM. Ahora cada `Campo` enlaza su
- * etiqueta con su control, así que este recorrido se escribe por nombre — y si
- * alguien vuelve a soltar una etiqueta, esta prueba se cae antes que un lector
- * de pantalla.
+ * Odoo es el falso de `e2e/odoo-falso.mts` (ver `playwright.config.ts`). Los
+ * pedidos y cotizaciones de prueba son de clientes `E2E…` y se borran al final.
  */
 
-import { expect, test } from "@playwright/test";
-import { borrarPedido, entrar } from "./apoyo";
+import { expect, test, type Page } from "@playwright/test";
+import { borrarCotizacionesDePrueba, entrar, sesionDe } from "./apoyo";
 
-const CLIENTE = "E2E formulario";
+const ODOO = process.env.E2E_ODOO_FALSO ?? "http://127.0.0.1:8069";
 
-let codigo: string | null = null;
+interface Orden {
+  origin: string;
+  state: string;
+  amount_total: number;
+  lineas: { product_id: [number, string]; product_uom_qty: number; price_unit: number }[];
+}
 
-test.afterAll(async () => {
-  if (codigo) await borrarPedido(codigo);
+const estado = async () => (await (await fetch(`${ODOO}/__estado`)).json()) as { ordenes: Orden[] };
+const manana = () => new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+
+test.describe.configure({ mode: "serial" });
+
+test.skip(!!process.env.E2E_URL, "Contra un despliegue la app habla con el Odoo de la empresa.");
+
+test.beforeAll(async () => {
+  await fetch(`${ODOO}/__reiniciar`, { method: "POST" });
+  await borrarCotizacionesDePrueba();
 });
 
-test("Administración registra un pedido local buscando los campos por su etiqueta", async ({
-  page,
-}) => {
+test.afterAll(async () => {
+  await borrarCotizacionesDePrueba();
+});
+
+async function elegirCliente(page: Page, texto: string, nombre: RegExp) {
+  const buscador = page.getByLabel("Buscar cliente");
+  await buscador.fill(texto);
+  await expect(page.getByRole("option", { name: nombre })).toHaveAttribute("aria-selected", "true");
+  await buscador.press("Enter");
+  await expect(page.getByTestId("cliente-elegido")).toContainText(nombre);
+}
+
+test("Administración registra un pedido con un producto y un corte, y Odoo lo reserva", async ({ page }) => {
   await entrar(page, "administracion");
   await page.goto("/pedidos/nuevo");
 
-  await page.getByLabel("Nombre del cliente").fill(CLIENTE);
-  await page.getByLabel("Teléfono del cliente").fill("987654321");
+  await elegirCliente(page, "jose", /E2E José Pérez Quispe/);
 
-  // Un `<textarea>` también tiene que responder a su etiqueta.
-  await page
-    .getByLabel("Detalle del pedido")
-    .fill("2 Acrílico Alfa 3mm transparente F7");
+  // Un producto de Odoo, por código.
+  const producto = page.getByLabel("Buscar producto");
+  await producto.fill("ac 003");
+  await expect(page.getByRole("option", { name: /ACRILICO F8 CRISTAL 3MM/ }).first()).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await producto.press("Enter");
 
-  // Los tipos de pedido son una botonera, no un `<select>`: se nombran como
-  // grupo y cada opción es un botón con `aria-pressed`.
+  // Y un corte: 10 piezas de 60×80.
+  await page.getByRole("button", { name: "Corte a medida" }).click();
+  await page.getByLabel("Buscar material").fill("eco cristal 3");
+  await expect(page.getByRole("option", { name: /Acrílico ECO.*Cristal.*3 mm/ }).first()).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await page.getByLabel("Buscar material").press("Enter");
+  await page.getByLabel("Ancho de la pieza 1").fill("60");
+  await page.getByLabel("Alto de la pieza 1").fill("80");
+  await page.getByLabel("Cantidad de la pieza 1").fill("10");
+  await expect(page.getByText("Elegida la más barata con stock.")).toBeVisible();
+  await page.getByRole("button", { name: "Agregar corte" }).click();
+
+  // El corte láser marca su tipo solo; la plancha entera se marca a mano.
   const tipos = page.getByRole("group", { name: "Tipo de pedido" });
-  await expect(tipos.getByRole("button", { name: "Corte láser" })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  await expect(tipos.getByRole("button", { name: "Corte láser" })).toHaveAttribute("aria-pressed", "true");
+  await tipos.getByRole("button", { name: "Solo planchas" }).click();
 
-  await page.getByLabel("Cantidad (unidades)").fill("2");
+  // 120 + 545, sin impuestos: el total con IGV lo pone Odoo al registrar.
+  await expect(page.getByTestId("total-pedido")).toHaveText("S/ 665.00");
 
-  // La ubicación se elige al registrar: por defecto el taller, aquí la tienda.
-  const donde = page.getByRole("group", { name: "¿Dónde está el pedido ahora?" });
-  await expect(donde.getByRole("button", { name: "En taller" })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-  await donde.getByRole("button", { name: "En tienda" }).click();
+  // Sin elegir taller o tienda no se registra.
+  await page.getByLabel("Fecha prometida").fill(manana());
+  await page.getByRole("button", { name: "Registrar pedido" }).click();
+  await expect(page.getByText("Elige si el pedido va para el taller o para la tienda")).toBeVisible();
 
-  const manana = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
-  await page.getByLabel("Fecha prometida").fill(manana);
-
-  await page.getByLabel("Monto total").fill("150");
-  await page.getByLabel("Abono inicial").fill("50");
-
+  await page.getByRole("group", { name: "¿Para dónde va el pedido?" }).getByRole("button", { name: /Taller/ }).click();
+  await page.getByLabel("Indicaciones para el taller").fill("Bordes pulidos");
+  await page.getByLabel("Abono inicial").fill("100");
   await page.getByRole("button", { name: "Registrar pedido" }).click();
 
-  // El código lo pone Postgres; la app navega al detalle en cuanto contesta.
   await page.waitForURL(/\/pedidos\/[A-Z0-9_]+$/);
-  codigo = page.url().split("/").pop()!;
+  const codigo = page.url().split("/").pop()!;
+  await expect(page.getByRole("heading", { name: "E2E José Pérez Quispe" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Ubicación actual" })).toContainText("En taller");
+  // 665 × 1.18 = 784.70, menos el abono.
+  await expect(page.getByText("S/ 684.70").first()).toBeVisible();
 
-  await expect(page.getByRole("heading", { name: CLIENTE })).toBeVisible();
-  // 150 − 50: el saldo se calcula en la base, no se envía.
-  await expect(page.getByText("S/ 100.00").first()).toBeVisible();
-  // La ubicación elegida llegó a Postgres: el pedido nace en tienda, no en taller.
-  await expect(page.getByRole("combobox", { name: "Ubicación actual" })).toContainText("En tienda");
+  // En Odoo: la orden con las planchas del corte, confirmada (eso reserva el stock).
+  const orden = (await estado()).ordenes.at(-1)!;
+  expect(orden.state).toBe("sale");
+  expect(orden.amount_total).toBe(784.7);
+  expect(orden.lineas.map((l) => [l.product_id[0], l.product_uom_qty, l.price_unit])).toEqual([
+    [10, 1, 120],
+    [20, 2, 200],
+    [20, 1, 120],
+    [31, 1, 25],
+  ]);
+
+  // El pedido está enlazado a su cotización, y el detalle sale de las líneas.
+  const supabase = await sesionDe("administracion");
+  const { data } = await supabase
+    .from("pedidos_admin")
+    .select("id, tipos_pedido, monto_total, detalle")
+    .eq("codigo", codigo)
+    .single();
+  expect(data).toMatchObject({ tipos_pedido: ["CL", "SP"], monto_total: 784.7 });
+  expect(data!.detalle).toContain("Corte láser · Acrílico ECO · Cristal · 3 mm: 10 piezas");
+  expect(data!.detalle).toContain("Bordes pulidos");
+  const { data: cot } = await supabase.from("cotizaciones").select("pedido_id").eq("pedido_id", data!.id!).single();
+  expect(cot?.pedido_id).toBe(data!.id);
+});
+
+test("sin cliente ni productos no se registra, y dice qué falta", async ({ page }) => {
+  await entrar(page, "administracion");
+  await page.goto("/pedidos/nuevo");
+  await page.getByRole("group", { name: "¿Para dónde va el pedido?" }).getByRole("button", { name: /Tienda/ }).click();
+  await page.getByRole("group", { name: "Tipo de pedido" }).getByRole("button", { name: "Accesorio" }).click();
+  await page.getByLabel("Fecha prometida").fill(manana());
+
+  await page.getByRole("button", { name: "Registrar pedido" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Elige el cliente." })).toBeVisible();
+  await expect(page.getByLabel("Buscar cliente")).toBeFocused();
+
+  await elegirCliente(page, "jose", /E2E José Pérez Quispe/);
+  await page.getByRole("button", { name: "Registrar pedido" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Agrega al menos un producto o un corte." })).toBeVisible();
+  await expect(page).toHaveURL(/\/pedidos\/nuevo$/);
 });

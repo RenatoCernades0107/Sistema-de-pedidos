@@ -42,7 +42,10 @@ export function ComboBusqueda({
   inputRef,
   autoFocus,
   className,
+  enLinea,
 }: {
+  /** La lista ocupa su lugar en el flujo en vez de flotar sobre lo de abajo. */
+  enLinea?: boolean;
   etiqueta: string;
   placeholder: string;
   consulta: string;
@@ -129,7 +132,12 @@ export function ComboBusqueda({
           // El foco se queda en el input: si el clic se lo llevara, la lista se
           // cerraría antes de que el clic llegue a la opción.
           onMouseDown={(e) => e.preventDefault()}
-          className="bg-popover text-popover-foreground absolute top-full z-40 mt-1 max-h-[min(22rem,60dvh)] w-full overflow-y-auto overscroll-contain rounded-lg border p-1 shadow-lg"
+          className={cn(
+            "bg-popover text-popover-foreground mt-1 max-h-[min(22rem,60dvh)] w-full overflow-y-auto overscroll-contain rounded-lg border p-1 shadow-lg",
+            // En un contenedor con scroll (un diálogo), una lista flotante queda
+            // recortada: en línea empuja el contenido y el diálogo crece.
+            enLinea ? "relative" : "absolute top-full z-40",
+          )}
         >
           {error && <p className="text-destructive px-2 py-2 text-sm">{error}</p>}
 

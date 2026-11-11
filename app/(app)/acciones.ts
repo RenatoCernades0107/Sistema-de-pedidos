@@ -28,15 +28,29 @@ import { refresh } from "next/cache";
 import { after } from "next/server";
 import { clienteServidor } from "@/lib/supabase-servidor";
 import { despacharNotificaciones } from "./notificaciones-acciones";
+import {
+  confirmarEnOdoo,
+  leerCotizacion,
+  olvidarPopularidad,
+  sincronizarConOdoo,
+} from "@/lib/cotizaciones-servidor";
+import { registrarCotizacion } from "@/lib/cotizaciones-registro";
+import { cancelarVentaDePedido, descontarStockDePedido, leerLineasDePedido } from "@/lib/pedido-odoo-servidor";
+import { guardarSobrantesDeCorte, reservarSobrantes } from "@/lib/produccion-servidor";
+import { detalleDesdeLineas, referenciaDe, sumaLineas } from "@/lib/cotizaciones";
+import { totalPiezas } from "@/lib/cortes/guardado";
+import { ODOO_NO_CONFIGURADO, odooConfigurado } from "@/lib/odoo/rpc";
 import { exigirCrearPedido, exigirSesion, type Perfil } from "@/lib/sesion";
-import { ROLES, ofreceComprobante, requiereMotivo } from "@/lib/dominio";
+import { ROLES, admiteDecimales, ofreceComprobante, requiereMotivo } from "@/lib/dominio";
 import { ERROR_SIN_FILAS, mensajeDeError } from "@/lib/errores";
 import {
   esquemaAbono,
   esquemaCambioEstado,
+  esquemaCodigo,
+  esquemaPlanchasUsadas,
   esquemaDatosEditables,
   esquemaEnvio,
-  esquemaNuevoPedido,
+  esquemaRegistroPedido,
   esquemaResponsable,
   esquemaUbicacion,
 } from "@/lib/esquemas";
@@ -46,7 +60,16 @@ import type { TablesUpdate } from "@/lib/supabase-tipos";
 /** Las columnas de `pedidos` que se pueden mandar en un UPDATE. */
 type CambiosPedido = TablesUpdate<"pedidos">;
 
-export type Resultado = { ok: true; codigo?: string } | { ok: false; error: string };
+export type Resultado =
+  | {
+      ok: true;
+      codigo?: string;
+      /** Salió bien, pero algo de fuera no: por ejemplo, Odoo no confirmó la cotización. */
+      aviso?: string;
+      /** Al registrar un pedido: el total con el que quedó. */
+      total?: number;
+    }
+  | { ok: false; error: string };
 
 const fallo = (error: string): Resultado => ({ ok: false, error });
 
@@ -90,22 +113,71 @@ async function actualizarPedido(codigo: string, cambios: CambiosPedido) {
 
 /* ── Registrar un pedido ────────────────────────────────────────────────────── */
 
-export async function crearPedido(entrada: unknown): Promise<Resultado> {
-  await exigirCrearPedido();
+const redondear2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
-  const datos = esquemaNuevoPedido.safeParse(entrada);
+/**
+ * Registra un pedido con su cliente de Odoo y sus líneas (productos y cortes).
+ *
+ * Detrás de cada pedido hay una cotización: es la que guarda el cliente y las
+ * líneas, y la que existe en Odoo como orden de venta. O ya existía —el pedido
+ * sale de una cotización— o se crea aquí con lo que llega del formulario.
+ *
+ * El orden importa:
+ *   1. Se guarda la cotización y se crea en Odoo. De ahí sale el total con
+ *      impuestos, que es el que se le cobra al cliente.
+ *   2. Se registra el pedido, enlazado en la misma transacción.
+ *   3. Se confirma la orden en Odoo, que es lo que reserva el stock.
+ *
+ * Odoo puede fallar en 1 o en 3 sin tumbar el alta: el pedido queda registrado,
+ * con el total sin impuestos si no hubo otro, y se reintenta desde la cotización.
+ */
+export async function registrarPedido(entrada: unknown): Promise<Resultado> {
+  const perfil = await exigirCrearPedido();
+  if (!ROLES[perfil.rol].gestionarCotizaciones) return fallo("Tu rol no registra pedidos con productos.");
+
+  const datos = esquemaRegistroPedido.safeParse(entrada);
   if (!datos.success) return falloDeEsquema(datos.error);
   const v = datos.data;
+
+  let cotizacionId = v.cotizacionId;
+  let aviso: string | undefined;
+  let enOdoo = true;
+
+  if (!cotizacionId) {
+    if (!odooConfigurado()) return fallo(ODOO_NO_CONFIGURADO);
+    const guardada = await registrarCotizacion({
+      canal: "tienda",
+      clienteId: v.clienteId!,
+      lineas: v.lineas!,
+      notas: null,
+    });
+    if (!guardada.ok) return fallo(guardada.error);
+    cotizacionId = guardada.id;
+
+    const creada = await sincronizarConOdoo(cotizacionId);
+    olvidarPopularidad();
+    if (!creada.ok) {
+      enOdoo = false;
+      aviso = `No se creó en Odoo: ${creada.error} El total del pedido quedó sin los impuestos de Odoo.`;
+    }
+  }
+
+  const c = await leerCotizacion(cotizacionId);
+  if (!c) return fallo("Esa cotización ya no existe.");
+  if (c.pedido) return fallo(`Esa cotización ya tiene el pedido ${c.pedido.codigo}.`);
+
+  // Lo que el pedido dice de sí mismo sale de las líneas, no del formulario.
+  const total = c.montoTotal ?? sumaLineas(c.lineas);
+  const unidades = c.lineas.reduce((s, l) => s + (l.corte ? totalPiezas(l.corte.piezas) : l.cantidad), 0);
+  // Media plancha existe; media pieza no. Es la misma regla que el CHECK de `pedidos`.
+  const cantidad = admiteDecimales(v.tipos) ? redondear2(unidades) : Math.max(1, Math.ceil(unidades));
+  const detalle = [detalleDesdeLineas(c.lineas), v.indicaciones].filter(Boolean).join("\n\n");
 
   /* Al contado se cobra el total en el acto, a cuenta lo que se haya adelantado, y
      al crédito no entra nada todavía. Lo decide el servidor: el importe cobrado no
      es algo que deba llegar del navegador. */
   const abono =
-    v.tipoPago === "contado"
-      ? v.montoTotal
-      : v.tipoPago === "a_cuenta"
-        ? Math.min(v.abonoInicial, v.montoTotal)
-        : 0;
+    v.tipoPago === "contado" ? total : v.tipoPago === "a_cuenta" ? Math.min(v.abonoInicial, total) : 0;
 
   /* Los argumentos opcionales de `crear_pedido` van sin `null`: los tipos generados
      los declaran `?: T`, y en la función todos tienen `default null`. Omitir uno y
@@ -115,20 +187,20 @@ export async function crearPedido(entrada: unknown): Promise<Resultado> {
   const supabase = await clienteServidor();
   const { data, error } = await supabase.rpc("crear_pedido", {
     p_es_provincia: v.esProvincia,
-    p_nombre_cliente: v.cliente,
-    p_telefono_cliente: sinValor(v.telefonoCliente),
+    p_nombre_cliente: c.cliente.nombre,
+    p_telefono_cliente: sinValor(c.cliente.telefono),
     p_tipos_pedido: v.tipos,
     p_tipo_producto_terminado: sinValor(v.tipos.includes("PT") ? v.producto : null),
-    p_cantidad: v.cantidad,
+    p_cantidad: cantidad,
     p_tipo_pago: v.tipoPago,
     p_plazo_credito_dias: sinValor(v.tipoPago === "credito" ? v.plazoCredito : null),
-    p_monto_total: v.montoTotal,
+    p_monto_total: total,
     p_lugar_entrega: v.entrega,
     p_direccion_entrega: sinValor(v.entrega === "domicilio" ? v.direccion : null),
-    // Dónde está el pedido ahora, tal como lo eligió quien lo registra.
+    // Para dónde va el pedido, tal como lo eligió quien lo registra.
     p_ubicacion_actual: v.ubicacion,
     p_fecha_prometida: v.fechaPrometida,
-    p_detalle: v.detalle,
+    p_detalle: detalle,
     p_observaciones: sinValor(v.observaciones),
     p_responsable_id: sinValor(v.responsableId),
     p_departamento_id: sinValor(v.envio?.departamentoId ?? null),
@@ -143,9 +215,29 @@ export async function crearPedido(entrada: unknown): Promise<Resultado> {
     p_observaciones_envio: sinValor(v.envio?.observacionesEnvio ?? null),
     p_abono_inicial: abono,
     p_metodo_pago: v.metodoPago,
+    // `crear_pedido` la vincula en la misma transacción, o falla entera.
+    p_cotizacion_id: cotizacionId,
   });
 
-  if (error) return fallo(mensajeDeError(error));
+  if (error) {
+    // Lo cotizado no se pierde: quedó como cotización, y de ahí se puede reintentar.
+    const queda = v.cotizacionId ? "" : ` Lo que armaste quedó guardado como la cotización ${referenciaDe(c)}.`;
+    refresh();
+    return fallo(`${mensajeDeError(error)}${queda}`);
+  }
+
+  /* Con el piloto de sobrantes, el acomodo de cada corte se rehace con los
+     sobrantes disponibles ahora, y esos quedan reservados para este pedido. */
+  const reserva = await reservarSobrantes(cotizacionId, c.lineas);
+  if (!reserva.ok) aviso = reserva.error;
+
+  /* La cotización pasa a pedido de venta en Odoo, que es lo que reserva el stock.
+     Va después del alta y no la deshace si falla: el pedido ya está, y la
+     cotización se queda con el motivo para reintentar desde su detalle. */
+  if (enOdoo) {
+    const r = await confirmarEnOdoo(cotizacionId);
+    if (!r.ok) aviso = `Odoo no confirmó la orden: ${r.error}`;
+  }
 
   /* El trigger `pedidos_notificar` ya encoló el aviso para el responsable. Esto
      solo lo apura: after() corre cuando la respuesta ya salió, así que quien
@@ -154,7 +246,7 @@ export async function crearPedido(entrada: unknown): Promise<Resultado> {
   if (v.responsableId) after(despacharNotificaciones);
 
   refresh();
-  return { ok: true, codigo: data ?? undefined };
+  return { ok: true, codigo: data ?? undefined, aviso, total };
 }
 
 /* ── Mover el estado ────────────────────────────────────────────────────────── */
@@ -162,16 +254,40 @@ export async function crearPedido(entrada: unknown): Promise<Resultado> {
 /**
  * El estado, el motivo y el comprobante viajan en un solo UPDATE, así el historial
  * los registra como un solo movimiento.
+ *
+ * Dos estados además tocan Odoo, después de guardar y sin deshacer nada si Odoo
+ * falla (queda el motivo, y el detalle ofrece reintentar):
+ *   - **Listo**: el trabajo salió del taller, y con él las planchas. Se anotan
+ *     antes las que de verdad se usaron en cada corte, y se descuenta el stock.
+ *   - **Anulado**: si las planchas seguían reservadas, se cancela la venta para
+ *     soltarlas.
  */
 export async function cambiarEstado(entrada: unknown): Promise<Resultado> {
   const perfil = await exigirSesion();
 
   const datos = esquemaCambioEstado.safeParse(entrada);
   if (!datos.success) return falloDeEsquema(datos.error);
-  const { codigo, estado, motivo, numeroComprobante } = datos.data;
+  const { codigo, estado, motivo, numeroComprobante, planchas, sobrantes } = datos.data;
 
   if (requiereMotivo(estado) && !motivo) {
     return fallo("Explica el motivo: queda en el historial del pedido.");
+  }
+
+  if (estado === "listo" && planchas?.length) {
+    const anotadas = await anotarPlanchas(codigo, planchas);
+    if (!anotadas.ok) return anotadas;
+  }
+
+  /* Los sobrantes que el taller guardó se registran antes de mover el pedido: si
+     algo no cuadra (un retazo), se corrige en el diálogo sin haber movido nada. */
+  if (estado === "listo" && sobrantes?.length) {
+    const lineas = await leerLineasDePedido(codigo);
+    for (const s of sobrantes) {
+      const linea = lineas.find((l) => l.posicion === s.posicion);
+      if (!linea) return fallo("Uno de los cortes ya no está en el pedido.");
+      const r = await guardarSobrantesDeCorte(codigo, linea, s.piezas);
+      if (!r.ok) return r;
+    }
   }
 
   const cambios: CambiosPedido = {
@@ -188,7 +304,68 @@ export async function cambiarEstado(entrada: unknown): Promise<Resultado> {
     cambios.numero_comprobante = numeroComprobante;
   }
 
-  return actualizarPedido(codigo, cambios);
+  const movido = await actualizarPedido(codigo, cambios);
+  if (!movido.ok) return movido;
+
+  if (estado === "listo") {
+    const r = await descontarStockDePedido(codigo);
+    if (!r.ok) return { ok: true, aviso: `No se descontó el stock en Odoo: ${r.error}` };
+  }
+  if (estado === "anulado") {
+    // Los sobrantes que tenía reservados vuelven a estar disponibles.
+    const supabase = await clienteServidor();
+    await supabase.rpc("soltar_sobrantes_de_pedido", { p_codigo: codigo, p_consumir: false });
+    const r = await cancelarVentaDePedido(codigo);
+    if (!r.ok) return { ok: true, aviso: `No se canceló la venta en Odoo: ${r.error}` };
+  }
+  return movido;
+}
+
+async function anotarPlanchas(
+  codigo: string,
+  planchas: { posicion: number; planchas: number }[],
+): Promise<Resultado> {
+  const supabase = await clienteServidor();
+  for (const p of planchas) {
+    const { error } = await supabase.rpc("anotar_planchas_usadas", {
+      p_codigo: codigo,
+      p_posicion: p.posicion,
+      p_planchas: p.planchas,
+    });
+    if (error) return fallo(mensajeDeError(error));
+  }
+  return { ok: true };
+}
+
+/** Las planchas usadas de los cortes de un pedido, sin moverlo de estado. */
+export async function anotarPlanchasUsadas(entrada: unknown): Promise<Resultado> {
+  await exigirSesion();
+  const datos = esquemaPlanchasUsadas.safeParse(entrada);
+  if (!datos.success) return falloDeEsquema(datos.error);
+
+  const r = await anotarPlanchas(datos.data.codigo, datos.data.planchas);
+  if (r.ok) refresh();
+  return r;
+}
+
+/** Vuelve a intentar lo que Odoo no hizo al mover el pedido: descontar el stock o cancelar la venta. */
+export async function reintentarOdooDePedido(entrada: unknown): Promise<Resultado> {
+  await exigirSesion();
+  const datos = esquemaCodigo.safeParse(entrada);
+  if (!datos.success) return falloDeEsquema(datos.error);
+  const { codigo } = datos.data;
+
+  const supabase = await clienteServidor();
+  const { data } = await supabase.from("pedidos").select("estado").eq("codigo", codigo).maybeSingle();
+  if (!data) return fallo(ERROR_SIN_FILAS);
+
+  let r: Awaited<ReturnType<typeof descontarStockDePedido>>;
+  if (data.estado === "anulado") r = await cancelarVentaDePedido(codigo);
+  else if (["listo", "en_transito", "entregado"].includes(data.estado)) r = await descontarStockDePedido(codigo);
+  else return fallo("El stock se descuenta cuando el pedido pasa a Listo.");
+
+  refresh();
+  return r.ok ? { ok: true } : fallo(r.error);
 }
 
 /* ── Ubicación y responsable ────────────────────────────────────────────────── */

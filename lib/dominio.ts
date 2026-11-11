@@ -253,6 +253,10 @@ export interface PermisosRol {
   gestionarCotizaciones: boolean;
   /** Ver el dashboard de ventas, cobranza y cumplimiento en `/metricas`. */
   verMetricas: boolean;
+  /** Cambiar los precios de corte y el catálogo de planchas en `/configuracion`. */
+  configurar: boolean;
+  /** Buscar, registrar y etiquetar los sobrantes del almacén en `/sobrantes`. */
+  verSobrantes: boolean;
 }
 
 export const ROLES: Record<Rol, PermisosRol> = {
@@ -275,6 +279,8 @@ export const ROLES: Record<Rol, PermisosRol> = {
     usarAgenteCotizacion: true,
     gestionarCotizaciones: true,
     verMetricas: true,
+    configurar: true,
+    verSobrantes: true,
   },
   logistica: {
     nombre: "Logística",
@@ -295,6 +301,8 @@ export const ROLES: Record<Rol, PermisosRol> = {
     usarAgenteCotizacion: false,
     gestionarCotizaciones: false,
     verMetricas: false,
+    configurar: false,
+    verSobrantes: true,
   },
   operaciones: {
     nombre: "Operaciones",
@@ -315,6 +323,8 @@ export const ROLES: Record<Rol, PermisosRol> = {
     usarAgenteCotizacion: false,
     gestionarCotizaciones: false,
     verMetricas: false,
+    configurar: false,
+    verSobrantes: true,
   },
 };
 
@@ -487,7 +497,9 @@ export interface ConfigHerramienta {
 
 export const HERRAMIENTAS: ConfigHerramienta[] = [
   { titulo: "Cotizaciones", href: "/cotizaciones", permiso: "gestionarCotizaciones" },
+  { titulo: "Sobrantes", href: "/sobrantes", permiso: "verSobrantes" },
   { titulo: "Métricas", href: "/metricas", permiso: "verMetricas" },
+  { titulo: "Configuración", href: "/configuracion", permiso: "configurar" },
 ];
 
 export const herramientasDe = (permisos: PermisosRol) =>

@@ -10,7 +10,8 @@
     "test": "vitest run",
     "e2e": "playwright test",
     "tipos": "supabase gen types typescript --linked > lib/supabase-tipos.ts",
-    "iconos": "node scripts/gen-iconos.cjs"
+    "iconos": "node scripts/gen-iconos.cjs",
+    "seed:odoo": "node --env-file-if-exists=.env.local scripts/seed-odoo.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -28,6 +29,7 @@
     "next": "^16.4.5",
     "next-themes": "^0.4.6",
     "pdfjs-dist": "^5.4.624",
+    "qrcode": "1.5.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-hook-form": "^7.86.0",
@@ -45,11 +47,13 @@
     "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^22.20.5",
+    "@types/qrcode": "1.5.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "^16.4.5",
+    "exceljs": "^4.4.0",
     "sharp": "^0.35.4",
     "supabase": "^2.117.0",
     "tailwindcss": "^4",

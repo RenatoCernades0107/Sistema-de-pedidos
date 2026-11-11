@@ -3,13 +3,24 @@
 import Link from "next/link";
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ExternalLink, FileDown, MessageSquareText, Plus, RotateCw, Scissors } from "lucide-react";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  ClipboardList,
+  ExternalLink,
+  FileDown,
+  MessageSquareText,
+  Plus,
+  RotateCw,
+  Scissors,
+} from "lucide-react";
 import { toast } from "sonner";
-import { reintentarSincronizacion } from "@/app/(app)/cotizaciones/acciones";
+import { reintentarConfirmacion, reintentarSincronizacion } from "@/app/(app)/cotizaciones/acciones";
 import { referenciaDe, sumaLineas, type Cotizacion } from "@/lib/cotizaciones";
 import { momentoEnLima } from "@/lib/fecha";
 import { fechaHora, money, numero } from "@/lib/formato";
 import { Button } from "@/components/ui/button";
+import { CorteGuardadoVista } from "@/components/cortes/corte-guardado";
 import { CodigoProducto } from "./buscador-producto";
 import { CanalBadge, EstadoSincronizacion } from "./estado-cotizacion";
 
@@ -17,14 +28,25 @@ export function DetalleCotizacion({
   cotizacion: c,
   enlaceOdoo,
   puedeAsistente,
+  puedeCrearPedido,
 }: {
   cotizacion: Cotizacion;
   /** Calculado en el servidor: la URL de Odoo no viaja en el bundle. */
   enlaceOdoo: string | null;
   puedeAsistente: boolean;
+  puedeCrearPedido: boolean;
 }) {
   const router = useRouter();
   const [reintentando, iniciar] = useTransition();
+  const [confirmando, iniciarConfirmacion] = useTransition();
+
+  const confirmar = () =>
+    iniciarConfirmacion(async () => {
+      const r = await reintentarConfirmacion(c.id);
+      if (r.ok) toast.success(`${referenciaDe(c)} confirmada en Odoo`);
+      else toast.error("Odoo no la confirmó", { description: r.error });
+      router.refresh();
+    });
 
   const reintentar = () =>
     iniciar(async () => {
@@ -78,11 +100,38 @@ export function DetalleCotizacion({
           <Button
             render={<Link href="/cotizaciones/nueva" />}
             nativeButton={false}
+            variant={puedeCrearPedido ? "outline" : "default"}
             className="gap-1.5"
           >
             <Plus />
             Nueva cotización
           </Button>
+          {puedeCrearPedido &&
+            (c.pedido ? (
+              <Button
+                render={<Link href={`/pedidos/${c.pedido.codigo}`} />}
+                nativeButton={false}
+                className="gap-1.5"
+              >
+                <ClipboardList />
+                Ver pedido {c.pedido.codigo}
+              </Button>
+            ) : c.sincronizacion === "sincronizada" ? (
+              <Button
+                render={<Link href={`/pedidos/nuevo?cotizacion=${c.id}`} />}
+                nativeButton={false}
+                className="gap-1.5"
+              >
+                <ClipboardList />
+                Crear pedido
+              </Button>
+            ) : (
+              // Sin orden en Odoo no hay qué confirmar al crear el pedido.
+              <Button disabled className="gap-1.5" title="Primero tiene que crearse en Odoo">
+                <ClipboardList />
+                Crear pedido
+              </Button>
+            ))}
         </div>
       </header>
 
@@ -106,6 +155,52 @@ export function DetalleCotizacion({
           </div>
         )}
 
+        {c.pedido && (
+          <section
+            className={
+              c.errorConfirmacion
+                ? "border-destructive/30 bg-destructive/10 flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 text-sm"
+                : "bg-card flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 text-sm"
+            }
+            role={c.errorConfirmacion ? "alert" : undefined}
+          >
+            <div className="min-w-0 flex-1">
+              <p className="font-medium">
+                Pedido{" "}
+                <Link href={`/pedidos/${c.pedido.codigo}`} className="text-primary tnum hover:underline">
+                  {c.pedido.codigo}
+                </Link>
+              </p>
+              {c.confirmadaEnOdoo ? (
+                <p className="text-muted-foreground mt-0.5 flex items-center gap-1.5">
+                  <CheckCircle2 className="text-st-entregado size-3.5" />
+                  Confirmada en Odoo como pedido de venta.
+                </p>
+              ) : c.errorConfirmacion ? (
+                <>
+                  <p className="text-destructive mt-0.5">No se confirmó en Odoo: {c.errorConfirmacion}</p>
+                  <p className="text-muted-foreground mt-1 text-xs">
+                    El pedido ya está registrado. Confirmar no la duplica en Odoo.
+                  </p>
+                </>
+              ) : (
+                <p className="text-muted-foreground mt-0.5">Todavía sin confirmar en Odoo.</p>
+              )}
+            </div>
+            {!c.confirmadaEnOdoo && (
+              <Button
+                onClick={confirmar}
+                disabled={confirmando}
+                variant={c.errorConfirmacion ? "default" : "outline"}
+                className="gap-1.5"
+              >
+                <RotateCw className={confirmando ? "animate-spin" : undefined} />
+                {confirmando ? "Confirmando…" : "Confirmar en Odoo"}
+              </Button>
+            )}
+          </section>
+        )}
+
         <section className="bg-card rounded-xl border p-4">
           <p className="eyebrow mb-1.5">Cliente</p>
           <p className="font-medium">{c.cliente.nombre}</p>
@@ -118,25 +213,30 @@ export function DetalleCotizacion({
         <section className="bg-card overflow-hidden rounded-xl border">
           <p className="eyebrow border-b px-4 py-2.5">Productos</p>
           <ul className="divide-y">
-            {c.lineas.map((l) => (
-              <li key={l.posicion} className="flex flex-wrap items-start gap-x-4 gap-y-1 px-4 py-3">
-                <div className="min-w-0 flex-1">
-                  <p className="flex flex-wrap items-center gap-2 text-sm">
-                    {l.codigo && <CodigoProducto codigo={l.codigo} />}
-                    <span className="font-medium">{l.nombre}</span>
+            {c.lineas.map((l) =>
+              l.corte ? (
+                // Un corte a medida: su cálculo entero, con el plano.
+                <li key={l.posicion} className="px-4 py-3" data-testid="linea-corte">
+                  <CorteGuardadoVista corte={l.corte} conPrecios />
+                </li>
+              ) : (
+                <li key={l.posicion} className="flex flex-wrap items-start gap-x-4 gap-y-1 px-4 py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="flex flex-wrap items-center gap-2 text-sm">
+                      {l.codigo && <CodigoProducto codigo={l.codigo} />}
+                      <span className="font-medium">{l.nombre}</span>
+                    </p>
+                    {l.descripcion && (
+                      <p className="text-muted-foreground mt-1 text-xs whitespace-pre-line">{l.descripcion}</p>
+                    )}
+                  </div>
+                  <p className="tnum text-muted-foreground text-sm">
+                    {numero(l.cantidad)} × {money(l.precioUnitario)}
                   </p>
-                  {l.descripcion && (
-                    <p className="text-muted-foreground mt-1 text-xs whitespace-pre-line">{l.descripcion}</p>
-                  )}
-                </div>
-                <p className="tnum text-muted-foreground text-sm">
-                  {numero(l.cantidad)} × {money(l.precioUnitario)}
-                </p>
-                <p className="tnum w-24 text-right text-sm font-medium">
-                  {money(Math.round(l.cantidad * l.precioUnitario * 100) / 100)}
-                </p>
-              </li>
-            ))}
+                  <p className="tnum w-24 text-right text-sm font-medium">{money(l.importe)}</p>
+                </li>
+              ),
+            )}
           </ul>
           <dl className="bg-muted/30 flex flex-col gap-1 border-t px-4 py-3 text-sm">
             {c.montoTotal !== null ? (

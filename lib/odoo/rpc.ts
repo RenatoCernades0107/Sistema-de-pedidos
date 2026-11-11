@@ -245,6 +245,11 @@ export async function camposExistentes(modelo: string, deseados: string[]): Prom
   return deseados.filter((c) => existen.has(c));
 }
 
+/** Para después de crear campos en un modelo: la próxima consulta los vuelve a pedir. */
+export function olvidarCampos(modelo: string) {
+  camposPorModelo.delete(modelo);
+}
+
 const modelosExistentes = new Map<string, Promise<boolean>>();
 
 /** Si un módulo opcional está instalado: la localización peruana, por ejemplo. */

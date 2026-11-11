@@ -6,6 +6,14 @@
  * `cotizaciones` de Supabase, con su espejo en Odoo.
  */
 
+import {
+  planchasTexto,
+  resumenPiezas,
+  tituloCorte,
+  totalPiezas,
+  type CorteGuardado,
+} from "./cortes/guardado";
+
 export type Canal = "tienda" | "whatsapp";
 export type Sincronizacion = "pendiente" | "sincronizada" | "error";
 
@@ -28,6 +36,13 @@ export interface LineaGuardada {
   descripcion: string | null;
   cantidad: number;
   precioUnitario: number;
+  /**
+   * Si la línea es un corte a medida, su cálculo. Entonces el producto es la
+   * plancha de la que sale y la cantidad, cuántas planchas se abren.
+   */
+  corte: CorteGuardado | null;
+  /** Lo que se cobra por la línea. En un producto, cantidad × precio. */
+  importe: number;
 }
 
 export interface Cotizacion {
@@ -52,6 +67,12 @@ export interface Cotizacion {
   creadoPor: string | null;
   creadoEn: string;
   lineas: LineaGuardada[];
+  /** El pedido que salió de esta cotización. Uno como mucho. */
+  pedido: { codigo: string } | null;
+  /** Si la `sale.order` ya pasó de cotización a pedido de venta en Odoo. */
+  confirmadaEnOdoo: boolean;
+  /** Por qué no se pudo confirmar en Odoo, hasta que se reintente. */
+  errorConfirmacion: string | null;
 }
 
 /** El nombre con que se muestra: la referencia de Odoo o, mientras no la hay, una provisional. */
@@ -59,8 +80,33 @@ export const referenciaDe = (c: Pick<Cotizacion, "odooOrderName" | "id">) =>
   c.odooOrderName ?? `Borrador ${c.id.slice(0, 8)}`;
 
 /** La suma de las líneas, para cuando Odoo todavía no puso su total. */
-export const sumaLineas = (lineas: Pick<LineaGuardada, "cantidad" | "precioUnitario">[]) =>
-  Math.round(lineas.reduce((s, l) => s + l.cantidad * l.precioUnitario, 0) * 100) / 100;
+export const sumaLineas = (lineas: Pick<LineaGuardada, "importe">[]) =>
+  Math.round(lineas.reduce((s, l) => s + l.importe, 0) * 100) / 100;
+
+/** El importe de una línea de producto: céntimos sin arrastre. */
+export const importeDeProducto = (cantidad: number, precioUnitario: number) =>
+  Math.round((cantidad * precioUnitario + Number.EPSILON) * 100) / 100;
+
+/**
+ * El detalle del pedido a partir de lo cotizado: una línea por producto, con
+ * cantidad, código y medidas. Es texto libre que el taller lee tal cual.
+ */
+export const detalleDesdeLineas = (lineas: LineaGuardada[]) =>
+  lineas
+    .map((l) => {
+      if (l.corte) {
+        const piezas = totalPiezas(l.corte.piezas);
+        return (
+          `${tituloCorte(l.corte)}: ${piezas} ${piezas === 1 ? "pieza" : "piezas"} ` +
+          `(${resumenPiezas(l.corte.piezas)}) — ${planchasTexto(l.corte)}`
+        );
+      }
+      const cantidad = String(+l.cantidad.toFixed(3));
+      const producto = l.codigo ? `[${l.codigo}] ${l.nombre}` : l.nombre;
+      const medidas = l.descripcion?.replace(/\s+/g, " ").trim();
+      return `${cantidad} × ${producto}${medidas ? ` — ${medidas}` : ""}`;
+    })
+    .join("\n");
 
 /** Lo que se busca en la lista. */
 export const textoBuscable = (c: Cotizacion) =>
@@ -71,7 +117,8 @@ export const textoBuscable = (c: Cotizacion) =>
     c.cliente.telefono,
     CANALES[c.canal],
     c.notas,
-    ...c.lineas.flatMap((l) => [l.nombre, l.codigo, l.descripcion]),
+    c.pedido?.codigo,
+    ...c.lineas.flatMap((l) => [l.nombre, l.codigo, l.descripcion, l.corte?.material, l.corte?.color]),
   ]
     .filter(Boolean)
     .join(" ");
