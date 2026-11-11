@@ -422,6 +422,24 @@ begin
     if not (select confirmada_en_odoo from public.odoo_de_pedido(v_codigo)) then
       raise exception 'FALLO: descontar el stock no dio por confirmada la venta';
     end if;
+    -- La orden de fabricación de un corte se anota desde cualquier rol, y cerrada
+    -- no vuelve atrás (20261112000200).
+    declare
+      v_cot uuid := (select cotizacion_id from public.odoo_de_pedido(v_codigo));
+    begin
+      perform public.anotar_produccion(v_cot, 1::smallint, 77, 'WH/MO/00077');
+      perform public.anotar_produccion(v_cot, 1::smallint, p_cerrada => true);
+      perform public.anotar_produccion(v_cot, 1::smallint, p_cerrada => false);
+      if not exists (select 1 from public.lineas_de_pedido(v_codigo)
+                      where posicion = 1 and odoo_produccion_id = 77
+                        and odoo_produccion_nombre = 'WH/MO/00077' and produccion_cerrada) then
+        raise exception 'FALLO: no quedó anotada la orden de fabricación del corte';
+      end if;
+      begin
+        perform public.anotar_produccion(v_cot, 2::smallint, 78, 'WH/MO/00078');
+        raise exception 'FALLO: se anotó una orden de fabricación en una línea que no es corte';
+      exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
+    end;
     -- La anulación solo se anota en un pedido anulado.
     perform public.anotar_anulacion_en_odoo(v_codigo, true);
     if (select anulada_en_odoo from public.odoo_de_pedido(v_codigo)) then

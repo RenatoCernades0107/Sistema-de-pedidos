@@ -33,6 +33,10 @@ import {
   type LineaParaOdoo,
 } from "./odoo/pedidos-venta";
 import { ErrorOdoo, odooConfigurado } from "./odoo/rpc";
+import { PREFIJO_CORTE, productoCorte } from "./odoo/produccion";
+import { cargarGrupoPlancha } from "./cortes-servidor";
+import { producirCortes } from "./produccion-servidor";
+import { areaPiezasM2, lineasCorteAMedida, materialOdoo } from "./sobrantes";
 import type { ClienteOdoo } from "./odoo/tipos";
 
 const COLUMNAS = `
@@ -243,7 +247,11 @@ async function leerPopularidadProductos(): Promise<Map<number, number>> {
  * precio distinto ("2 planchas completas", "1 media plancha"), y el servicio de
  * corte. La cantidad de planchas es la que Odoo descuenta del stock.
  */
-export function lineasParaOdoo(l: LineaGuardada): LineaParaOdoo[] {
+export function lineasParaOdoo(
+  l: LineaGuardada,
+  /** Con el piloto de sobrantes, el producto "Corte a medida" del material. */
+  corteAMedida?: { productoId: number; nombre: string; codigo: string },
+): LineaParaOdoo[] {
   if (!l.corte) {
     return [
       {
@@ -260,6 +268,32 @@ export function lineasParaOdoo(l: LineaGuardada): LineaParaOdoo[] {
   const corte = l.corte;
   const piezas = totalPiezas(corte.piezas);
   const paraCortar = `Para cortar: ${resumenPiezas(corte.piezas)}`;
+  const servicio = (precio: number) => ({
+    productoId: corte.servicio.productoId,
+    nombreProducto: corte.servicio.nombre,
+    codigo: corte.servicio.codigo,
+    cantidad: 1,
+    precioUnitario: precio,
+    descripcion: `${piezas} ${piezas === 1 ? "pieza" : "piezas"} en ${materialDeCorte(corte)}`,
+  });
+
+  /* Con el piloto, el corte es un producto que se fabrica: se vende en m² de
+     piezas, por el mismo importe que el cálculo por fracción de plancha. */
+  if (corte.sobrantes && corteAMedida) {
+    const m2 = lineasCorteAMedida(corte.montoMaterial, corte.montoServicio, areaPiezasM2(corte.piezas));
+    return [
+      {
+        productoId: corteAMedida.productoId,
+        nombreProducto: corteAMedida.nombre,
+        codigo: corteAMedida.codigo,
+        cantidad: m2.cantidad,
+        precioUnitario: m2.precio,
+        descripcion: paraCortar,
+      },
+      servicio(m2.servicio),
+    ];
+  }
+
   return [
     ...planchasPorCobro(corte).map((g) => ({
       productoId: l.productoId,
@@ -269,15 +303,25 @@ export function lineasParaOdoo(l: LineaGuardada): LineaParaOdoo[] {
       precioUnitario: g.monto,
       descripcion: g.nombre === "1" ? paraCortar : `Se cobra ${fraccionEnPalabras(g.nombre)}. ${paraCortar}`,
     })),
-    {
-      productoId: corte.servicio.productoId,
-      nombreProducto: corte.servicio.nombre,
-      codigo: corte.servicio.codigo,
-      cantidad: 1,
-      precioUnitario: corte.montoServicio,
-      descripcion: `${piezas} ${piezas === 1 ? "pieza" : "piezas"} en ${materialDeCorte(corte)}`,
-    },
+    servicio(corte.montoServicio),
   ];
+}
+
+/** El "Corte a medida" de cada corte con piloto, por posición: hay que tenerlo en Odoo antes de cotizar. */
+async function productosDeCorte(lineas: LineaGuardada[]) {
+  const salida = new Map<number, { productoId: number; nombre: string; codigo: string }>();
+  for (const l of lineas) {
+    if (!l.corte?.sobrantes) continue;
+    const grupo = await cargarGrupoPlancha(l.corte.grupoId);
+    const material = grupo ? materialOdoo(grupo) : null;
+    if (!material) throw new ErrorOdoo("El material de un corte ya no tiene planchas en el catálogo.");
+    salida.set(l.posicion, {
+      productoId: await productoCorte(material),
+      nombre: material.nombre.replace(/^SOBRANTE /, "CORTE A MEDIDA "),
+      codigo: `${PREFIJO_CORTE}${material.codigoBase}`,
+    });
+  }
+  return salida;
 }
 
 export type ResultadoSincronizacion =
@@ -303,10 +347,11 @@ export async function sincronizarConOdoo(id: string): Promise<ResultadoSincroniz
   const supabase = await clienteServidor();
 
   try {
+    const corteAMedida = await productosDeCorte(c.lineas);
     const venta = await crearPedidoDeVenta({
       cotizacionId: c.id,
       clienteId: c.cliente.id,
-      lineas: c.lineas.flatMap(lineasParaOdoo),
+      lineas: c.lineas.flatMap((l) => lineasParaOdoo(l, corteAMedida.get(l.posicion))),
     });
 
     const { data, error } = await supabase
@@ -397,7 +442,13 @@ export async function confirmarEnOdoo(id: string): Promise<{ ok: true } | { ok: 
   if (alAnotar && resultado.ok) {
     return { ok: false, error: `Se confirmó en Odoo, pero no se pudo anotar aquí: ${mensajeDeError(alAnotar)}` };
   }
-  return resultado;
+  if (!resultado.ok) return resultado;
+
+  /* Con la venta confirmada, las órdenes de fabricación de los cortes con piloto:
+     son las que reservan sus planchas. Si fallan, se vuelven a intentar al
+     pasar a Listo. */
+  const cotizacion = await leerCotizacion(id);
+  return cotizacion ? producirCortes(id, cotizacion.lineas) : resultado;
 }
 
 /**

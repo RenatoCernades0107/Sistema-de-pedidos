@@ -42,13 +42,20 @@ import { AdjuntosPedido } from "@/components/adjuntos-pedido";
 import { Button } from "@/components/ui/button";
 import { LineasPedido } from "@/components/lineas-pedido";
 import type { LineaDePedido, OdooDePedido } from "@/lib/pedido-lineas";
+import type { Sobrante } from "@/lib/sobrantes";
 
 export function DetallePedido({
   codigo,
   lineas = null,
   odoo = null,
+  retazoMin,
+  sobrantes = [],
 }: {
   codigo: string;
+  /** El lado mínimo de un sobrante (de la configuración de cortes). */
+  retazoMin?: number;
+  /** Los sobrantes que este pedido devolvió al almacén. */
+  sobrantes?: Sobrante[];
   /** Los productos y cortes del pedido. `null` si no se pudieron leer. */
   lineas?: LineaDePedido[] | null;
   odoo?: OdooDePedido | null;
@@ -242,7 +249,7 @@ export function DetallePedido({
               No se pudieron leer los productos y cortes del pedido. Recarga la página.
             </p>
           ) : (
-            lineas.length > 0 && <LineasPedido pedido={p} lineas={lineas} odoo={odoo} />
+            lineas.length > 0 && <LineasPedido pedido={p} lineas={lineas} odoo={odoo} sobrantes={sobrantes} />
           )}
 
           {p.esProvincia && p.envio && (
@@ -421,6 +428,7 @@ export function DetallePedido({
             pedido={p}
             cortes={lineas?.filter((l) => l.corte) ?? []}
             stockDescontado={odoo?.stockDescontado ?? false}
+            retazoMin={retazoMin}
           />
           {permisos.verMontos && <PanelPago pedido={p} />}
         </div>

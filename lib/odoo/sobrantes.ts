@@ -40,12 +40,35 @@ let camposLote: Promise<void> | null = null;
 let ubicacion: Promise<number> | null = null;
 const productos = new Map<string, Promise<number>>();
 
-registrarReinicio(() => {
+export function olvidarSobrantes() {
   modeloLote = null;
   camposLote = null;
   ubicacion = null;
   productos.clear();
-});
+  olvidarCampos("stock.lot");
+  olvidarCampos("stock.production.lot");
+}
+
+registrarReinicio(olvidarSobrantes);
+
+/** Si un error de Odoo dice que algo de lo aprendido ya no existe (un campo, un producto). */
+export const esConocimientoViejo = (e: unknown) =>
+  e instanceof ErrorOdoo && /ValueError|MissingError/.test(e.tipo ?? "");
+
+/**
+ * Lo aprendido de Odoo (el producto Sobrante, los campos del lote) puede quedar
+ * viejo: alguien borró el producto, o el campo. Si Odoo responde que algo no
+ * existe, se olvida todo y se intenta una vez más, que lo vuelve a crear.
+ */
+export async function conLoAprendidoAlDia<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (!esConocimientoViejo(e)) throw e;
+    olvidarSobrantes();
+    return fn();
+  }
+}
 
 /** Que un fallo no quede guardado: la siguiente llamada lo vuelve a intentar. */
 function recordar<T>(p: Promise<T>, olvidar: () => void): Promise<T> {
@@ -191,7 +214,11 @@ export interface LoteNuevo {
  * lote ya existe (un intento anterior que se cortó a medias), lo reutiliza, y
  * solo pone stock si todavía no lo tiene.
  */
-export async function crearLoteSobrante(l: LoteNuevo): Promise<number> {
+export function crearLoteSobrante(l: LoteNuevo): Promise<number> {
+  return conLoAprendidoAlDia(() => crearLote(l));
+}
+
+async function crearLote(l: LoteNuevo): Promise<number> {
   await asegurarCamposDeLote();
   const [modelo, productoId, ubicacionId] = await Promise.all([
     modeloDeLote(),
@@ -252,7 +279,11 @@ export interface LoteEnStock {
  * Los sobrantes que Odoo tiene en stock: los lotes de productos Sobrante con
  * existencias en alguna ubicación interna.
  */
-export async function lotesEnStock(): Promise<LoteEnStock[]> {
+export function lotesEnStock(): Promise<LoteEnStock[]> {
+  return conLoAprendidoAlDia(leerLotesEnStock);
+}
+
+async function leerLotesEnStock(): Promise<LoteEnStock[]> {
   await asegurarCamposDeLote();
   const modelo = await modeloDeLote();
 

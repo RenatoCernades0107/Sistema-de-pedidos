@@ -35,7 +35,8 @@ import {
   sincronizarConOdoo,
 } from "@/lib/cotizaciones-servidor";
 import { registrarCotizacion } from "@/lib/cotizaciones-registro";
-import { cancelarVentaDePedido, descontarStockDePedido } from "@/lib/pedido-odoo-servidor";
+import { cancelarVentaDePedido, descontarStockDePedido, leerLineasDePedido } from "@/lib/pedido-odoo-servidor";
+import { guardarSobrantesDeCorte } from "@/lib/produccion-servidor";
 import { detalleDesdeLineas, referenciaDe, sumaLineas } from "@/lib/cotizaciones";
 import { totalPiezas } from "@/lib/cortes/guardado";
 import { ODOO_NO_CONFIGURADO, odooConfigurado } from "@/lib/odoo/rpc";
@@ -261,7 +262,7 @@ export async function cambiarEstado(entrada: unknown): Promise<Resultado> {
 
   const datos = esquemaCambioEstado.safeParse(entrada);
   if (!datos.success) return falloDeEsquema(datos.error);
-  const { codigo, estado, motivo, numeroComprobante, planchas } = datos.data;
+  const { codigo, estado, motivo, numeroComprobante, planchas, sobrantes } = datos.data;
 
   if (requiereMotivo(estado) && !motivo) {
     return fallo("Explica el motivo: queda en el historial del pedido.");
@@ -270,6 +271,18 @@ export async function cambiarEstado(entrada: unknown): Promise<Resultado> {
   if (estado === "listo" && planchas?.length) {
     const anotadas = await anotarPlanchas(codigo, planchas);
     if (!anotadas.ok) return anotadas;
+  }
+
+  /* Los sobrantes que el taller guardó se registran antes de mover el pedido: si
+     algo no cuadra (un retazo), se corrige en el diálogo sin haber movido nada. */
+  if (estado === "listo" && sobrantes?.length) {
+    const lineas = await leerLineasDePedido(codigo);
+    for (const s of sobrantes) {
+      const linea = lineas.find((l) => l.posicion === s.posicion);
+      if (!linea) return fallo("Uno de los cortes ya no está en el pedido.");
+      const r = await guardarSobrantesDeCorte(codigo, linea, s.piezas);
+      if (!r.ok) return r;
+    }
   }
 
   const cambios: CambiosPedido = {

@@ -73,6 +73,13 @@ describe("crearLoteSobrante", () => {
     expect(odoo.estado().lotes).toHaveLength(0);
   });
 
+  it("si Odoo perdió el producto o los campos, los vuelve a crear en vez de fallar", async () => {
+    await crearLoteSobrante(lote("SOB-00001"));
+    odoo.reiniciar(); // Odoo olvida todo; la app todavía recuerda el producto y los campos.
+    await crearLoteSobrante(lote("SOB-00002"));
+    expect(odoo.estado().lotes).toEqual([expect.objectContaining({ name: "SOB-00002", x_largo: 183, cantidad: 1 })]);
+  });
+
   it("reutiliza el producto que ya existe", async () => {
     const id = await productoSobrante(material);
     reiniciarCacheOdoo();

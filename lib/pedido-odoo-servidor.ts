@@ -15,6 +15,7 @@ import { mensajeDeError } from "./errores";
 import { cancelarPedidoDeVenta, validarEntrega } from "./odoo/entregas";
 import { ErrorOdoo, ODOO_NO_CONFIGURADO, odooConfigurado } from "./odoo/rpc";
 import { cantidadesParaDescontar, type LineaDePedido, type OdooDePedido } from "./pedido-lineas";
+import { cancelarCortesDePedido, cerrarCortesDePedido } from "./produccion-servidor";
 import { clienteServidor } from "./supabase-servidor";
 
 const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
@@ -33,6 +34,9 @@ export async function leerLineasDePedido(codigo: string): Promise<LineaDePedido[
     corte: f.tipo === "corte" ? leerCorte(f.corte) : null,
     planchasUsadas: num(f.planchas_usadas),
     importe: num(f.importe),
+    produccionId: f.odoo_produccion_id,
+    produccionNombre: f.odoo_produccion_nombre,
+    produccionCerrada: f.produccion_cerrada,
   }));
 }
 
@@ -91,8 +95,15 @@ export async function descontarStockDePedido(codigo: string): Promise<ResultadoO
   } else {
     try {
       const lineas = await leerLineasDePedido(codigo);
-      await validarEntrega(odoo.orderId, cantidadesParaDescontar(lineas));
-      resultado = { ok: true };
+      /* Con el piloto, el corte se fabrica: primero se cierra su orden (consume las
+         planchas y devuelve los sobrantes al almacén) y después la entrega saca
+         el corte terminado. */
+      const cortes = await cerrarCortesDePedido(codigo, odoo.cotizacionId, lineas);
+      if (!cortes.ok) resultado = cortes;
+      else {
+        await validarEntrega(odoo.orderId, cantidadesParaDescontar(lineas));
+        resultado = { ok: true };
+      }
     } catch (e) {
       resultado = { ok: false, error: mensaje(e, "descontar stock") };
     }
@@ -129,6 +140,8 @@ export async function cancelarVentaDePedido(codigo: string): Promise<ResultadoOd
     resultado = { ok: false, error: ODOO_NO_CONFIGURADO };
   } else {
     try {
+      const cortes = await cancelarCortesDePedido(await leerLineasDePedido(codigo));
+      if (!cortes.ok) throw new ErrorOdoo(`No se canceló la orden de fabricación: ${cortes.error}`);
       await cancelarPedidoDeVenta(odoo.orderId);
       resultado = { ok: true };
     } catch (e) {

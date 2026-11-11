@@ -22,6 +22,10 @@ export interface LineaDePedido {
   planchasUsadas: number | null;
   /** Solo para Administración; `null` para los demás. */
   importe: number | null;
+  /** Con el piloto de sobrantes: la orden de fabricación del corte en Odoo. */
+  produccionId: number | null;
+  produccionNombre: string | null;
+  produccionCerrada: boolean;
 }
 
 export interface OdooDePedido {

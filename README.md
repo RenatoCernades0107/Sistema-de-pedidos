@@ -209,3 +209,15 @@ E2E_URL=https://<dominio>.vercel.app npm run e2e
   la tabla con el stock de Odoo, que es el que manda (`lib/sobrantes-servidor.ts`). Media o cuarta
   parte de un formato queda marcada como estándar. Con un lado menor que el retazo mínimo de la
   configuración no se registra.
+- **La producción con piloto** (`lib/odoo/produccion.ts`, `lib/produccion-servidor.ts`): en un material
+  con el piloto encendido (Configuración), un corte se vende como *Corte a medida* de su material
+  (`CAM-<código>`, en m² de piezas) por el mismo importe que el cálculo por fracción; lo que el precio
+  por m² no cuadra al céntimo lo absorbe la línea del servicio. Al confirmar el pedido nace su orden
+  de fabricación, sin lista de materiales: consume las planchas nuevas del cálculo, produce los m² y
+  prevé los sobrantes (con su parte del costo por área). Al pasar a **Listo**, el diálogo propone los
+  pedazos que vuelven al almacén (las zonas libres que no son retazo); el taller los mide, les pone
+  ubicación, quita o agrega. Se guardan en `sobrantes` antes de ir a Odoo, la orden se cierra con lo
+  real (un lote por sobrante, con `x_largo` / `x_ancho`) y la entrega saca el corte terminado. Al
+  anular, la orden se cancela. Un sobrante nacido de un corte solo entra a Odoo al cerrar su orden:
+  *Sincronizar* no lo crea por su cuenta (lo pondría dos veces en el stock). Migración
+  `20261112000200`. Necesita en Odoo el módulo Fabricación y la unidad m².

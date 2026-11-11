@@ -34,7 +34,7 @@ import { clienteServidor } from "./supabase-servidor";
 
 const COLUMNAS = `
   id, codigo, grupo_id, color, largo_cm, ancho_cm, ubicacion, estado, estandar, origen,
-  odoo_lot_id, sincronizacion, error_sincronizacion, creado_en,
+  odoo_lot_id, sincronizacion, error_sincronizacion, creado_en, linea_posicion,
   grupo:grupos_plancha ( material, variante, detalle, espesor_mm ),
   pedido:pedidos ( codigo )
 `;
@@ -54,6 +54,7 @@ interface Fila {
   sincronizacion: SincronizacionSobrante;
   error_sincronizacion: string | null;
   creado_en: string;
+  linea_posicion: number | null;
   grupo: { material: string; variante: string; detalle: string; espesor_mm: number } | null;
   pedido: { codigo: string } | null;
 }
@@ -79,6 +80,7 @@ function deFila(f: Fila): Sobrante {
     estado: f.estado,
     estandar: f.estandar,
     pedido: uno(f.pedido)?.codigo ?? null,
+    lineaPosicion: f.linea_posicion,
     origen: f.origen as OrigenSobrante,
     odooLotId: f.odoo_lot_id,
     sincronizacion: f.sincronizacion,
@@ -92,6 +94,22 @@ export async function cargarSobrantes(): Promise<Sobrante[]> {
   const supabase = await clienteServidor();
   const { data, error } = await supabase.from("sobrantes").select(COLUMNAS).order("creado_en", { ascending: false });
   if (error) throw new Error(`No se pudieron leer los sobrantes: ${error.message}`);
+  return ((data ?? []) as unknown as Fila[]).map(deFila);
+}
+
+/** Los que un pedido devolvió al almacén (sin los dados de baja). */
+export async function cargarSobrantesDePedido(codigoPedido: string): Promise<Sobrante[]> {
+  const supabase = await clienteServidor();
+  const { data: pedido } = await supabase.from("pedidos").select("id").eq("codigo", codigoPedido).maybeSingle();
+  if (!pedido) return [];
+  const { data, error } = await supabase
+    .from("sobrantes")
+    .select(COLUMNAS)
+    .eq("pedido_id", pedido.id)
+    .eq("origen", "corte")
+    .neq("estado", "baja")
+    .order("codigo");
+  if (error) throw new Error(`No se pudieron leer los sobrantes del pedido: ${error.message}`);
   return ((data ?? []) as unknown as Fila[]).map(deFila);
 }
 
@@ -120,6 +138,14 @@ export async function llevarAOdoo(codigo: string): Promise<{ ok: true } | { ok: 
   const s = await cargarSobrante(codigo);
   if (!s) return { ok: false, error: "Ese sobrante ya no existe." };
   if (s.sincronizacion === "sincronizada" && s.odooLotId) return { ok: true };
+  /* Uno que salió de un corte entra a Odoo por la orden de fabricación de su
+     pedido, al cerrarla: crearlo aquí lo pondría dos veces en el stock. */
+  if (s.origen === "corte") {
+    return {
+      ok: false,
+      error: `Este sobrante entra a Odoo al cerrar la producción de ${s.pedido ? `el pedido ${s.pedido}` : "su pedido"}: reintenta desde el pedido.`,
+    };
+  }
 
   const anotar = async (cambios: { odoo_lot_id?: number; sincronizacion: SincronizacionSobrante; error_sincronizacion: string | null }) => {
     const { error } = await supabase.from("sobrantes").update(cambios).eq("codigo", codigo);
@@ -247,7 +273,10 @@ export async function sincronizarSobrantes(): Promise<ResumenSincronizacion> {
   const resumen: ResumenSincronizacion = { traidos: 0, agotados: 0, llevados: 0, problemas: [] };
 
   const todos = await cargarSobrantes();
-  for (const s of todos.filter((x) => x.sincronizacion !== "sincronizada" && (x.estado === "disponible" || x.estado === "reservado"))) {
+  const sinLote = todos.filter(
+    (x) => x.origen !== "corte" && x.sincronizacion !== "sincronizada" && (x.estado === "disponible" || x.estado === "reservado"),
+  );
+  for (const s of sinLote) {
     const r = await llevarAOdoo(s.codigo);
     if (r.ok) resumen.llevados++;
     else resumen.problemas.push(`${s.codigo}: ${r.error}`);

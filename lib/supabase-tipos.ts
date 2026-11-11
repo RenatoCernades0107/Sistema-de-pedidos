@@ -148,10 +148,13 @@ export type Database = {
           descripcion: string | null
           id: string
           importe: number | null
+          odoo_produccion_id: number | null
+          odoo_produccion_nombre: string | null
           odoo_product_id: number
           planchas_usadas: number | null
           posicion: number
           precio_unitario: number
+          produccion_cerrada: boolean
           producto_codigo: string | null
           producto_nombre: string
           tipo: Database["public"]["Enums"]["tipo_linea"]
@@ -163,10 +166,13 @@ export type Database = {
           descripcion?: string | null
           id?: string
           importe?: number | null
+          odoo_produccion_id?: number | null
+          odoo_produccion_nombre?: string | null
           odoo_product_id: number
           planchas_usadas?: number | null
           posicion: number
           precio_unitario: number
+          produccion_cerrada?: boolean
           producto_codigo?: string | null
           producto_nombre: string
           tipo?: Database["public"]["Enums"]["tipo_linea"]
@@ -178,10 +184,13 @@ export type Database = {
           descripcion?: string | null
           id?: string
           importe?: number | null
+          odoo_produccion_id?: number | null
+          odoo_produccion_nombre?: string | null
           odoo_product_id?: number
           planchas_usadas?: number | null
           posicion?: number
           precio_unitario?: number
+          produccion_cerrada?: boolean
           producto_codigo?: string | null
           producto_nombre?: string
           tipo?: Database["public"]["Enums"]["tipo_linea"]
@@ -926,6 +935,7 @@ export type Database = {
           grupo_id: string
           id: string
           largo_cm: number
+          linea_posicion: number | null
           odoo_lot_id: number | null
           origen: string
           pedido_id: string | null
@@ -945,6 +955,7 @@ export type Database = {
           grupo_id: string
           id?: string
           largo_cm: number
+          linea_posicion?: number | null
           odoo_lot_id?: number | null
           origen?: string
           pedido_id?: string | null
@@ -964,6 +975,7 @@ export type Database = {
           grupo_id?: string
           id?: string
           largo_cm?: number
+          linea_posicion?: number | null
           odoo_lot_id?: number | null
           origen?: string
           pedido_id?: string | null
@@ -1460,6 +1472,16 @@ export type Database = {
         Args: { p_codigo: string; p_planchas: number; p_posicion: number }
         Returns: undefined
       }
+      anotar_produccion: {
+        Args: {
+          p_cerrada?: boolean
+          p_cotizacion: string
+          p_id?: number
+          p_nombre?: string
+          p_posicion: number
+        }
+        Returns: undefined
+      }
       anotar_stock_de_pedido: {
         Args: { p_codigo: string; p_descontado: boolean; p_error?: string }
         Returns: undefined
@@ -1540,10 +1562,13 @@ export type Database = {
           corte: Json
           descripcion: string
           importe: number
+          odoo_produccion_id: number
+          odoo_produccion_nombre: string
           odoo_product_id: number
           planchas_usadas: number
           posicion: number
           precio_unitario: number
+          produccion_cerrada: boolean
           producto_codigo: string
           producto_nombre: string
           tipo: Database["public"]["Enums"]["tipo_linea"]

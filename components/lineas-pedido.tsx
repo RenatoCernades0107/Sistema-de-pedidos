@@ -3,12 +3,13 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { CircleCheck, Package, Printer, RotateCw, TriangleAlert } from "lucide-react";
+import { CircleCheck, Factory, Package, Printer, RotateCw, TriangleAlert } from "lucide-react";
 import * as acciones from "@/app/(app)/acciones";
 import { esTerminal, type Pedido } from "@/lib/dominio";
 import { money } from "@/lib/formato";
 import { useStore } from "@/lib/store";
 import { type LineaDePedido, type OdooDePedido } from "@/lib/pedido-lineas";
+import { medidaSobrante, type Sobrante } from "@/lib/sobrantes";
 import { CorteGuardadoVista } from "@/components/cortes/corte-guardado";
 import { DialogoPlanchas } from "@/components/planchas-usadas";
 import { Button } from "@/components/ui/button";
@@ -29,10 +30,13 @@ export function LineasPedido({
   pedido: p,
   lineas,
   odoo,
+  sobrantes = [],
 }: {
   pedido: Pedido;
   lineas: LineaDePedido[];
   odoo: OdooDePedido | null;
+  /** Los sobrantes que el pedido devolvió al almacén (piloto de sobrantes). */
+  sobrantes?: Sobrante[];
 }) {
   const { permisos } = useStore();
   const [anotando, setAnotando] = useState(false);
@@ -93,6 +97,9 @@ export function LineasPedido({
                     )}
                   </p>
                 )}
+                {l.corte.sobrantes && (
+                  <Produccion linea={l} sobrantes={sobrantes.filter((s) => s.lineaPosicion === l.posicion)} />
+                )}
               </>
             ) : (
               <div className="flex items-start gap-3">
@@ -127,6 +134,51 @@ export function LineasPedido({
         />
       )}
     </section>
+  );
+}
+
+/**
+ * Con el piloto de sobrantes: la orden de fabricación del corte y los pedazos
+ * que volvieron al almacén, cada uno con su etiqueta.
+ */
+function Produccion({ linea: l, sobrantes }: { linea: LineaDePedido; sobrantes: Sobrante[] }) {
+  return (
+    <div className="bg-muted/30 flex flex-col gap-2 rounded-lg border px-3 py-2.5 text-sm">
+      <p className="flex flex-wrap items-center gap-x-2">
+        <Factory className="text-muted-foreground size-4" aria-hidden />
+        <span className="font-medium">Producción</span>
+        <span className="text-muted-foreground">
+          {l.produccionNombre
+            ? `${l.produccionNombre} · ${l.produccionCerrada ? "cerrada en Odoo" : "abierta en Odoo"}`
+            : "La orden de fabricación se crea en Odoo al confirmar el pedido."}
+        </span>
+      </p>
+      {sobrantes.length > 0 && (
+        <ul className="flex flex-col gap-1.5" aria-label="Sobrantes guardados">
+          {sobrantes.map((s) => (
+            <li key={s.codigo} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="text-primary font-mono text-xs font-semibold">{s.codigo}</span>
+              <span className="tnum">{medidaSobrante(s)} cm</span>
+              <span className="text-muted-foreground text-xs">{s.ubicacion ?? "Sin ubicación"}</span>
+              {s.sincronizacion !== "sincronizada" && (
+                <span className="text-st-observado text-xs">Falta crearlo en Odoo</span>
+              )}
+              <Button
+                render={<Link href={`/sobrantes/${encodeURIComponent(s.codigo)}/etiqueta`} />}
+                nativeButton={false}
+                variant="ghost"
+                size="xs"
+                className="ml-auto gap-1"
+                aria-label={`Etiqueta de ${s.codigo}`}
+              >
+                <Printer className="size-3" />
+                Etiqueta
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

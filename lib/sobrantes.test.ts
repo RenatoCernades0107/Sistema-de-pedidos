@@ -10,6 +10,9 @@ import {
   normalizarMedidas,
   notaDeLote,
   ordenDeUso,
+  sobrantesDeCorte,
+  areaPiezasM2,
+  lineasCorteAMedida,
 } from "./sobrantes";
 
 const formatos = [
@@ -99,5 +102,41 @@ describe("lo que va a Odoo", () => {
     expect(leerNotaDeLote("Rack 2 · Color: rojo")).toEqual({ ubicacion: "Rack 2", color: "rojo" });
     expect(leerNotaDeLote("Color: azul")).toEqual({ ubicacion: null, color: "azul" });
     expect(leerNotaDeLote("Estante bajo")).toEqual({ ubicacion: "Estante bajo", color: null });
+  });
+});
+
+describe("el piloto", () => {
+  const plancha = (paneles: { x1: number; y1: number; x2: number; y2: number; libre: boolean }[], tipo = "plancha") => ({
+    origen: tipo === "plancha" ? { tipo: "plancha" as const } : { tipo: "sobrante" as const, id: "SOB-1" },
+    paneles,
+  });
+
+  it("propone como sobrantes las zonas libres de planchas nuevas que no son retazo", () => {
+    const corte = {
+      planchas: [
+        plancha([
+          { x1: 0, y1: 0, x2: 61, y2: 160, libre: false },
+          { x1: 61, y1: 0, x2: 122, y2: 183, libre: true },
+          { x1: 0, y1: 160, x2: 61, y2: 183, libre: true },
+        ]),
+        plancha([{ x1: 50, y1: 0, x2: 100, y2: 60, libre: true }], "sobrante"),
+      ],
+    } as unknown as Parameters<typeof sobrantesDeCorte>[0];
+    expect(sobrantesDeCorte(corte, 30)).toEqual([{ largo: 183, ancho: 61 }]);
+    expect(sobrantesDeCorte(corte, 20)).toEqual([
+      { largo: 183, ancho: 61 },
+      { largo: 61, ancho: 23 },
+    ]);
+  });
+
+  it("los m² son los de las piezas", () => {
+    expect(areaPiezasM2([{ ancho: 60, alto: 80, cantidad: 10 }])).toBe(4.8);
+  });
+
+  it("el material en m² y el servicio cuadran al céntimo con lo calculado", () => {
+    const r = lineasCorteAMedida(545, 41.3, 4.8);
+    expect(r).toEqual({ cantidad: 4.8, precio: 113.54, servicio: 41.31 });
+    const total = Math.round(r.cantidad * r.precio * 100) / 100 + r.servicio;
+    expect(Math.round(total * 100) / 100).toBe(586.3);
   });
 });

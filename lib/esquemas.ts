@@ -328,6 +328,27 @@ export const esquemaCambioEstado = z.object({
    * posición de su línea. Lo que se descuenta del stock en Odoo.
    */
   planchas: z.array(planchasUsadas).max(100).optional(),
+  /**
+   * Al pasar a Listo, en los cortes con el piloto de sobrantes: los pedazos que
+   * de verdad se guardaron, por la posición de su línea.
+   */
+  sobrantes: z
+    .array(
+      z.object({
+        posicion: z.number().int().min(0).max(32767),
+        piezas: z
+          .array(
+            z.object({
+              largo: z.number().positive("Escribe el largo del sobrante").max(1000),
+              ancho: z.number().positive("Escribe el ancho del sobrante").max(1000),
+              ubicacion: z.string().trim().max(80).transform((v) => v || null).nullable(),
+            }),
+          )
+          .max(50),
+      }),
+    )
+    .max(100)
+    .optional(),
 });
 
 export const esquemaUbicacion = z.object({ codigo, ubicacion });

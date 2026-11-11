@@ -190,13 +190,17 @@ export function PantallaSobrantes({
                     title={s.errorSincronizacion ?? undefined}
                   >
                     <CircleAlert className="size-3.5" />
-                    {s.sincronizacion === "error" ? "No está en Odoo" : "Creándose en Odoo"}
+                    {s.origen === "corte"
+                      ? `Entra a Odoo al cerrar la producción de ${s.pedido ?? "su pedido"}`
+                      : s.sincronizacion === "error"
+                        ? "No está en Odoo"
+                        : "Creándose en Odoo"}
                   </span>
                 )}
               </div>
 
               <div className="ml-auto flex flex-wrap gap-1">
-                {s.sincronizacion === "error" && (s.estado === "disponible" || s.estado === "reservado") && (
+                {s.sincronizacion === "error" && s.origen !== "corte" && (s.estado === "disponible" || s.estado === "reservado") && (
                   <Button
                     variant="outline"
                     size="sm"

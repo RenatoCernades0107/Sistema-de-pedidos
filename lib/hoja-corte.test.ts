@@ -13,6 +13,9 @@ const producto: LineaDePedido = {
   corte: null,
   planchasUsadas: null,
   importe: null,
+  produccionId: null,
+  produccionNombre: null,
+  produccionCerrada: false,
 };
 
 describe("indicacionesDe", () => {

@@ -54,6 +54,8 @@ export interface CambioEstadoExtra {
   numeroComprobante?: string | null;
   /** Al pasar a Listo: las planchas que de verdad se usaron en cada corte. */
   planchas?: { posicion: number; planchas: number }[];
+  /** Y, en los cortes con piloto de sobrantes, los pedazos que se guardaron. */
+  sobrantes?: { posicion: number; piezas: { largo: number; ancho: number; ubicacion: string | null }[] }[];
 }
 
 const Ctx = createContext<Store | null>(null);
@@ -198,7 +200,14 @@ export function StoreProvider({
             tieneComprobante: actual.tieneComprobante || Boolean(numeroComprobante),
           },
         },
-        () => acciones.cambiarEstado({ codigo, estado, motivo, numeroComprobante, planchas: extra?.planchas }),
+        () => acciones.cambiarEstado({
+            codigo,
+            estado,
+            motivo,
+            numeroComprobante,
+            planchas: extra?.planchas,
+            sobrantes: extra?.sobrantes,
+          }),
         (r) => {
           toast.success(`${codigo} → ${ESTADOS[estado]}`, {
             description: `Registrado por ${usuario}`,

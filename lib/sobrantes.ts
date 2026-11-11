@@ -7,6 +7,7 @@
  */
 
 import { colorDe, espesorTexto, type FormatoPlancha, type GrupoPlancha } from "./cortes/catalogo";
+import type { CorteGuardado } from "./cortes/guardado";
 
 export type EstadoSobrante = "disponible" | "reservado" | "consumido" | "baja";
 export type OrigenSobrante = "manual" | "corte" | "odoo";
@@ -34,8 +35,10 @@ export interface Sobrante {
   ubicacion: string | null;
   estado: EstadoSobrante;
   estandar: boolean;
-  /** El pedido que lo tiene reservado o lo consumió. */
+  /** El pedido que lo tiene reservado, lo consumió o, si nació de un corte, del que salió. */
   pedido: string | null;
+  /** Si nació de un corte: la posición de esa línea en el pedido. */
+  lineaPosicion: number | null;
   origen: OrigenSobrante;
   odooLotId: number | null;
   sincronizacion: SincronizacionSobrante;
@@ -151,3 +154,47 @@ export function leerNotaDeLote(nota: string | null): { ubicacion: string | null;
   return { ubicacion, color };
 }
 
+
+/* ── El piloto: lo que sale de un corte ────────────────────────────────────── */
+
+const redondear = (n: number, d: number) => Math.round((n + Number.EPSILON) * 10 ** d) / 10 ** d;
+
+/**
+ * Los pedazos que pueden volver al almacén de un corte ya calculado: las zonas
+ * libres de las planchas nuevas con los dos lados de al menos `retazoMin`. Es la
+ * propuesta que el taller confirma (o corrige) al terminar.
+ */
+export function sobrantesDeCorte(
+  corte: Pick<CorteGuardado, "planchas">,
+  retazoMin: number,
+): { largo: number; ancho: number }[] {
+  const salida: { largo: number; ancho: number }[] = [];
+  for (const p of corte.planchas) {
+    if (p.origen.tipo !== "plancha") continue;
+    for (const panel of p.paneles) {
+      if (!panel.libre) continue;
+      const m = normalizarMedidas(redondear(panel.x2 - panel.x1, 1), redondear(panel.y2 - panel.y1, 1));
+      if (m.ancho >= retazoMin) salida.push(m);
+    }
+  }
+  return salida.sort((a, b) => b.largo * b.ancho - a.largo * a.ancho);
+}
+
+/** Los m² de piezas de un corte: lo que se vende como "Corte a medida". */
+export const areaPiezasM2 = (piezas: { ancho: number; alto: number; cantidad: number }[]) =>
+  redondear(
+    piezas.reduce((s, p) => s + (p.cantidad > 0 ? Math.floor(p.cantidad) * p.ancho * p.alto : 0), 0) / 10000,
+    4,
+  );
+
+/**
+ * Cómo va a Odoo un corte con piloto: el material como m² de corte a medida y
+ * el servicio aparte. Odoo redondea cada línea al céntimo; lo que el precio por
+ * m² no alcanza a cuadrar lo absorbe el servicio, así el total es el calculado.
+ */
+export function lineasCorteAMedida(montoMaterial: number, montoServicio: number, areaM2: number) {
+  const cantidad = Math.max(areaM2, 0.0001);
+  const precio = redondear(montoMaterial / cantidad, 2);
+  const subtotal = redondear(cantidad * precio, 2);
+  return { cantidad, precio, servicio: redondear(montoServicio + montoMaterial - subtotal, 2) };
+}

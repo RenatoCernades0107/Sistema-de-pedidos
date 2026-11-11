@@ -49,11 +49,14 @@ export function AccionesPedido({
   pedido: p,
   cortes = [],
   stockDescontado = false,
+  retazoMin,
 }: {
   pedido: Pedido;
   /** Los cortes del pedido: al pasar a Listo se pregunta cuántas planchas se usaron. */
   cortes?: LineaDePedido[];
   stockDescontado?: boolean;
+  /** El lado mínimo de un sobrante, para proponer los que vuelven al almacén. */
+  retazoMin?: number;
 }) {
   const {
     permisos,
@@ -221,7 +224,8 @@ export function AccionesPedido({
         cortes={cortes}
         alPasarAListo
         pendiente={pendiente}
-        alConfirmar={(planchas) => cambiarEstado(p.codigo, "listo", { planchas })}
+        retazoMin={retazoMin}
+        alConfirmar={(planchas, sobrantes) => cambiarEstado(p.codigo, "listo", { planchas, sobrantes })}
       />
 
       {/* Este diálogo no lo abre un DialogTrigger sino el botón de la transición,
