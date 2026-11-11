@@ -143,3 +143,11 @@ E2E_URL=https://<dominio>.vercel.app npm run e2e
   que se mostró, lo rechaza. La línea guarda el cálculo entero en `cotizacion_productos.corte`
   (`lib/cortes/guardado.ts`): es lo que se cotizó, y de ahí sale el plano. A Odoo va como una
   línea de plancha por cada precio distinto ("2 completas", "1 media") más el servicio de corte.
+- **Pedidos con productos de Odoo** (`components/nuevo-pedido-form.tsx`): un pedido se arma como
+  una cotización —cliente, productos y cortes con los mismos buscadores y el mismo editor— más lo
+  suyo (a dónde va, cuándo, cómo se paga). Detrás de cada pedido hay una cotización:
+  `registrarPedido` la guarda (`lib/cotizaciones-registro.ts`), la crea en Odoo (de ahí el total
+  con impuestos), registra el pedido enlazado y confirma la orden, que es lo que reserva el stock.
+  Si Odoo falla, el pedido queda registrado igual y se reintenta desde la cotización. El taller ve
+  las líneas sin precios por `lineas_de_pedido()` (migración `20261110000300`), y las planchas
+  realmente usadas se anotan con `anotar_planchas_usadas()`.

@@ -244,16 +244,26 @@ begin
     raise exception 'FALLO: el segundo pedido quedó registrado sin vínculo';
   end if;
 
-  -- 2b.3 Una cotización que no está en Odoo no genera pedido.
-  begin
-    perform public.crear_pedido(
-      p_es_provincia := false, p_nombre_cliente := 'Prueba SQL Pendiente',
-      p_tipos_pedido := array['SP']::public.tipo_pedido[], p_cantidad := 1,
-      p_tipo_pago := 'credito', p_lugar_entrega := 'tienda',
-      p_fecha_prometida := current_date + 3, p_cotizacion_id := id_pendiente
-    );
-    raise exception 'FALLO: una cotización pendiente de Odoo generó un pedido';
-  exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
+  -- 2b.3 Una cotización que todavía no está en Odoo también da pedido (20261110000300):
+  -- con Odoo caído se registra igual, y se sincroniza después.
+  v_codigo := public.crear_pedido(
+    p_es_provincia := false, p_nombre_cliente := 'Prueba SQL Pendiente',
+    p_tipos_pedido := array['SP']::public.tipo_pedido[], p_cantidad := 1,
+    p_tipo_pago := 'credito', p_lugar_entrega := 'tienda',
+    p_fecha_prometida := current_date + 3, p_cotizacion_id := id_pendiente
+  );
+  if (select pedido_id from public.cotizaciones where id = id_pendiente) is null then
+    raise exception 'FALLO: la cotización pendiente no quedó vinculada a su pedido';
+  end if;
+
+  -- 2b.3b Las líneas del pedido, con precios para Administración.
+  if (select count(*) from public.lineas_de_pedido(v_codigo)) <> 1
+     or (select importe is null and precio_unitario is null from public.lineas_de_pedido(v_codigo)) is distinct from false then
+    raise exception 'FALLO: Administración no ve las líneas del pedido con sus precios';
+  end if;
+  if (select odoo_order_id from public.odoo_de_pedido(v_codigo)) is not null then
+    raise exception 'FALLO: odoo_de_pedido inventó una orden de Odoo';
+  end if;
 
   -- 2b.4 La confirmación en Odoo se anota.
   update public.cotizaciones set confirmada_en_odoo = true, error_confirmacion = null where id = id_cot;
@@ -323,6 +333,27 @@ begin
          "precio_unitario": 1, "corte": {"version": 1}}]'::jsonb);
     raise exception 'FALLO: un producto quedó con un cálculo de corte';
   exception when check_violation then null; end;
+
+  -- 2c.5 Un pedido con un corte y un producto, para lo que sigue.
+  id_cot := public.crear_cotizacion(
+    p_odoo_partner_id := 900007, p_cliente_nombre := 'Prueba SQL Pedido Corte',
+    p_lineas := '[
+      {"tipo": "corte", "odoo_product_id": 20, "producto_nombre": "ACRILICO", "cantidad": 3,
+       "precio_unitario": 173.33, "importe": 545,
+       "corte": {"version": 1, "total": 545, "montoMaterial": 520, "montoServicio": 25,
+                 "formato": {"codigo": "F7E024", "precio": 200},
+                 "planchas": [{"cobro": {"nombre": "1", "monto": 200}}],
+                 "desglose": [{"etiqueta": "Total", "monto": 545}]}},
+      {"odoo_product_id": 10, "producto_nombre": "BISAGRA", "cantidad": 4, "precio_unitario": 2.5}
+    ]'::jsonb
+  );
+  -- El código viaja a la sección 3 por un ajuste: el otro rol no lee `cotizaciones`.
+  perform set_config('plexi.pedido_corte', public.crear_pedido(
+    p_es_provincia := false, p_nombre_cliente := 'Prueba SQL Pedido Corte',
+    p_tipos_pedido := array['CL']::public.tipo_pedido[], p_cantidad := 10,
+    p_tipo_pago := 'credito', p_lugar_entrega := 'tienda',
+    p_fecha_prometida := current_date + 3, p_cotizacion_id := id_cot
+  ), true);
 end $$;
 
 set local role postgres;
@@ -356,6 +387,43 @@ begin
   if (select count(*) from public.productos_mas_cotizados) > 0 then
     raise exception 'FALLO: las sugerencias dejan ver cotizaciones a otro rol';
   end if;
+
+  -- El taller ve las líneas de un pedido sin un solo precio, y puede anotar planchas.
+  declare
+    v_codigo text := nullif(current_setting('plexi.pedido_corte', true), '');
+    v_corte  jsonb;
+  begin
+    if v_codigo is null then raise exception 'FALLO: falta el pedido de prueba con corte'; end if;
+    select corte into v_corte from public.lineas_de_pedido(v_codigo) where tipo = 'corte';
+    if v_corte is null then raise exception 'FALLO: otro rol no ve el corte del pedido'; end if;
+    if (v_corte ->> 'total')::numeric <> 0 or (v_corte -> 'formato' ->> 'precio')::numeric <> 0
+       or (v_corte -> 'planchas' -> 0 -> 'cobro' ->> 'monto')::numeric <> 0
+       or jsonb_array_length(v_corte -> 'desglose') <> 0 then
+      raise exception 'FALLO: otro rol ve precios en el corte: %', v_corte;
+    end if;
+    if exists (select 1 from public.lineas_de_pedido(v_codigo) where importe is not null or precio_unitario is not null) then
+      raise exception 'FALLO: otro rol ve el importe de las líneas';
+    end if;
+
+    perform public.anotar_planchas_usadas(v_codigo, 1::smallint, 4);
+    if (select planchas_usadas from public.lineas_de_pedido(v_codigo) where posicion = 1) <> 4 then
+      raise exception 'FALLO: no quedaron anotadas las planchas usadas';
+    end if;
+    begin
+      perform public.anotar_planchas_usadas(v_codigo, 2::smallint, 1);
+      raise exception 'FALLO: se anotaron planchas en una línea que no es corte';
+    exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
+
+    perform public.anotar_stock_de_pedido(v_codigo, true);
+    if not (select stock_descontado from public.odoo_de_pedido(v_codigo)) then
+      raise exception 'FALLO: no quedó anotado el stock descontado';
+    end if;
+    -- Ya descontado, las planchas usadas no se cambian con una anotación.
+    begin
+      perform public.anotar_planchas_usadas(v_codigo, 1::smallint, 5);
+      raise exception 'FALLO: se cambiaron las planchas usadas con el stock ya descontado';
+    exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
+  end;
 
   begin
     perform public.crear_cotizacion(900003, 'Prueba SQL Intrusa',

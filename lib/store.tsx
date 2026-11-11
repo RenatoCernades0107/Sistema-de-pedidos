@@ -6,7 +6,8 @@ import { hoy } from "./fecha";
 import * as acciones from "@/app/(app)/acciones";
 import type { Resultado } from "@/app/(app)/acciones";
 import type { Departamento, Trabajador } from "./catalogos-servidor";
-import type { DatosEditables, DatosEnvio, NuevoPedido } from "./esquemas";
+import type { z } from "zod";
+import type { DatosEditables, DatosEnvio, esquemaRegistroPedido } from "./esquemas";
 import {
   ESTADOS,
   LUGARES,
@@ -33,7 +34,8 @@ interface Store {
   /** Hay una escritura en vuelo. Sirve para deshabilitar botones. */
   pendiente: boolean;
   pedido: (codigo: string) => Pedido | undefined;
-  crearPedido: (datos: NuevoPedido) => Promise<Resultado>;
+  /** `cliente` es solo para el aviso: el nombre que vale lo lee el servidor de Odoo. */
+  registrarPedido: (datos: z.input<typeof esquemaRegistroPedido>, cliente: string) => Promise<Resultado>;
   cambiarEstado: (
     codigo: string,
     estado: Estado,
@@ -126,32 +128,35 @@ export function StoreProvider({
     [delServidor],
   );
 
-  const crearPedido = useCallback(
-    async (datos: NuevoPedido) => {
+  const registrarPedido = useCallback(
+    async (datos: z.input<typeof esquemaRegistroPedido>, cliente: string) => {
       // Sin parche optimista: el pedido todavía no tiene código, y el código lo
       // inventa Postgres. Se espera y se navega.
-      const resultado = await acciones.crearPedido(datos);
+      const resultado = await acciones.registrarPedido(datos);
       if (!resultado.ok) {
         toast.error("No se registró el pedido", { description: resultado.error });
         return resultado;
       }
 
+      // El total lo puso el servidor: sale de Odoo, con sus impuestos.
+      const total = resultado.total ?? 0;
       const cobrado =
         datos.tipoPago === "contado"
-          ? datos.montoTotal
+          ? total
           : datos.tipoPago === "a_cuenta"
-            ? Math.min(datos.abonoInicial, datos.montoTotal)
+            ? Math.min(datos.abonoInicial, total)
             : 0;
-      const saldo = datos.montoTotal - cobrado;
+      const saldo = total - cobrado;
 
       toast.success(`Pedido ${resultado.codigo} registrado`, {
-        description: `${datos.cliente} · entrega ${
+        description: `${cliente} · ${soles(total)} · entrega ${
           datos.esProvincia ? "a provincia" : LUGARES[datos.entrega].toLowerCase()
         } · ${saldo > 0 ? `saldo de ${soles(saldo)}` : "pagado"}`,
       });
       if (resultado.aviso) {
-        toast.warning("Odoo no confirmó la cotización", {
-          description: `${resultado.aviso} Puedes reintentarlo desde la cotización.`,
+        toast.warning("El pedido quedó registrado, pero falta Odoo", {
+          description: `${resultado.aviso} Se reintenta desde la cotización del pedido.`,
+          duration: 12_000,
         });
       }
       return resultado;
@@ -318,7 +323,7 @@ export function StoreProvider({
       ubigeo,
       pendiente,
       pedido: (codigo) => pedidos.find((p) => p.codigo === codigo),
-      crearPedido,
+      registrarPedido,
       cambiarEstado,
       cambiarUbicacion,
       asignarResponsable,
@@ -333,7 +338,7 @@ export function StoreProvider({
       trabajadores,
       ubigeo,
       pendiente,
-      crearPedido,
+      registrarPedido,
       cambiarEstado,
       cambiarUbicacion,
       asignarResponsable,

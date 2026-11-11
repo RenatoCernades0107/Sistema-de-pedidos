@@ -149,6 +149,7 @@ export type Database = {
           id: string
           importe: number | null
           odoo_product_id: number
+          planchas_usadas: number | null
           posicion: number
           precio_unitario: number
           producto_codigo: string | null
@@ -163,6 +164,7 @@ export type Database = {
           id?: string
           importe?: number | null
           odoo_product_id: number
+          planchas_usadas?: number | null
           posicion: number
           precio_unitario: number
           producto_codigo?: string | null
@@ -177,6 +179,7 @@ export type Database = {
           id?: string
           importe?: number | null
           odoo_product_id?: number
+          planchas_usadas?: number | null
           posicion?: number
           precio_unitario?: number
           producto_codigo?: string | null
@@ -206,6 +209,7 @@ export type Database = {
           creado_por: string | null
           error_confirmacion: string | null
           error_sincronizacion: string | null
+          error_stock: string | null
           id: string
           monto_impuestos: number | null
           monto_sin_impuestos: number | null
@@ -216,6 +220,7 @@ export type Database = {
           odoo_partner_id: number
           pedido_id: string | null
           sincronizacion: Database["public"]["Enums"]["sincronizacion_odoo"]
+          stock_descontado: boolean
         }
         Insert: {
           actualizado_en?: string
@@ -229,6 +234,7 @@ export type Database = {
           creado_por?: string | null
           error_confirmacion?: string | null
           error_sincronizacion?: string | null
+          error_stock?: string | null
           id?: string
           monto_impuestos?: number | null
           monto_sin_impuestos?: number | null
@@ -239,6 +245,7 @@ export type Database = {
           odoo_partner_id: number
           pedido_id?: string | null
           sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
+          stock_descontado?: boolean
         }
         Update: {
           actualizado_en?: string
@@ -252,6 +259,7 @@ export type Database = {
           creado_por?: string | null
           error_confirmacion?: string | null
           error_sincronizacion?: string | null
+          error_stock?: string | null
           id?: string
           monto_impuestos?: number | null
           monto_sin_impuestos?: number | null
@@ -262,6 +270,7 @@ export type Database = {
           odoo_partner_id?: number
           pedido_id?: string | null
           sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
+          stock_descontado?: boolean
         }
         Relationships: [
           {
@@ -1334,9 +1343,18 @@ export type Database = {
       }
     }
     Functions: {
+      anotar_planchas_usadas: {
+        Args: { p_codigo: string; p_planchas: number; p_posicion: number }
+        Returns: undefined
+      }
+      anotar_stock_de_pedido: {
+        Args: { p_codigo: string; p_descontado: boolean; p_error?: string }
+        Returns: undefined
+      }
       array_sin_duplicados: { Args: { a: unknown }; Returns: boolean }
       auditoria_texto: { Args: { campo: string; valor: Json }; Returns: string }
       auth_rol: { Args: never; Returns: Database["public"]["Enums"]["rol"] }
+      corte_sin_precios: { Args: { c: Json }; Returns: Json }
       crear_cotizacion: {
         Args: {
           p_canal?: Database["public"]["Enums"]["canal_cotizacion"]
@@ -1402,11 +1420,39 @@ export type Database = {
         }
         Returns: string
       }
+      lineas_de_pedido: {
+        Args: { p_codigo: string }
+        Returns: {
+          cantidad: number
+          corte: Json
+          descripcion: string
+          importe: number
+          odoo_product_id: number
+          planchas_usadas: number
+          posicion: number
+          precio_unitario: number
+          producto_codigo: string
+          producto_nombre: string
+          tipo: Database["public"]["Enums"]["tipo_linea"]
+        }[]
+      }
       marcar_escritura_del_sistema: {
         Args: { activa: boolean }
         Returns: undefined
       }
       marcar_password_cambiada: { Args: never; Returns: undefined }
+      odoo_de_pedido: {
+        Args: { p_codigo: string }
+        Returns: {
+          confirmada_en_odoo: boolean
+          cotizacion_id: string
+          error_stock: string
+          odoo_order_id: number
+          odoo_order_name: string
+          sincronizacion: Database["public"]["Enums"]["sincronizacion_odoo"]
+          stock_descontado: boolean
+        }[]
+      }
       purgar_notificaciones: { Args: never; Returns: undefined }
       sigla_de: {
         Args: { tipos: Database["public"]["Enums"]["tipo_pedido"][] }

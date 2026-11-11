@@ -140,14 +140,21 @@ export async function cargarCotizaciones(limite = 300): Promise<Cotizacion[]> {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export const cargarCotizacion = cache(async (id: string): Promise<Cotizacion | null> => {
+/**
+ * La cotización tal como está ahora mismo en la base. Para quien acaba de
+ * escribirla en esta misma petición: `cargarCotizacion` recordaría la de antes.
+ */
+export async function leerCotizacion(id: string): Promise<Cotizacion | null> {
   // Un id mal formado haría fallar a Postgres con un error de sintaxis; es un 404.
   if (!UUID.test(id)) return null;
   const supabase = await clienteServidor();
   const { data, error } = await supabase.from("cotizaciones").select(COLUMNAS).eq("id", id).maybeSingle();
   if (error) throw new Error(`No se pudo leer la cotización: ${error.message}`);
   return data ? deFila(data as unknown as Fila) : null;
-});
+}
+
+/** La misma, una vez por petición: para las páginas, que la piden desde varios sitios. */
+export const cargarCotizacion = cache(leerCotizacion);
 
 /* ── Sugerencias ───────────────────────────────────────────────────────────── */
 
@@ -286,7 +293,8 @@ export type ResultadoSincronizacion =
  * marca de esta fila (ver `origenDe`).
  */
 export async function sincronizarConOdoo(id: string): Promise<ResultadoSincronizacion> {
-  const c = await cargarCotizacion(id);
+  // Sin la caché de la petición: quien llama puede haberla creado hace un instante.
+  const c = await leerCotizacion(id);
   if (!c) return { ok: false, error: "La cotización ya no existe." };
   if (c.sincronizacion === "sincronizada" && c.odooOrderName) {
     return { ok: true, orderName: c.odooOrderName };
@@ -355,11 +363,20 @@ export async function confirmarEnOdoo(id: string): Promise<{ ok: true } | { ok: 
   if (error) return { ok: false, error: mensajeDeError(error) };
   if (!c) return { ok: false, error: "La cotización ya no existe." };
   if (!c.pedido_id) return { ok: false, error: "Esta cotización todavía no tiene pedido." };
-  if (!c.odoo_order_id) return { ok: false, error: "Esta cotización no está en Odoo." };
+
+  // Un pedido registrado con Odoo caído: primero hay que crear la orden allá.
+  let orderId = c.odoo_order_id;
+  if (!orderId) {
+    const creada = await sincronizarConOdoo(id);
+    if (!creada.ok) return { ok: false, error: `No se creó en Odoo: ${creada.error}` };
+    const { data: ahora } = await supabase.from("cotizaciones").select("odoo_order_id").eq("id", id).maybeSingle();
+    orderId = ahora?.odoo_order_id ?? null;
+    if (!orderId) return { ok: false, error: "La cotización se creó en Odoo, pero no quedó anotada aquí." };
+  }
 
   let resultado: { ok: true } | { ok: false; error: string };
   try {
-    await confirmarPedidoDeVenta(c.odoo_order_id);
+    await confirmarPedidoDeVenta(orderId);
     resultado = { ok: true };
   } catch (e) {
     if (!(e instanceof ErrorOdoo)) console.error("[cotizaciones] confirmar en Odoo", e);

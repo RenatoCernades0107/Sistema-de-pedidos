@@ -277,17 +277,19 @@ test("una cotización pasa a pedido: se elige taller o tienda y se confirma en O
   await expect(page).toHaveURL(`/pedidos/nuevo?cotizacion=${id}`);
   await expect(page.getByText(`Desde la cotización ${referencia}`)).toBeVisible();
 
-  // Lo cotizado llega llenado: cliente, teléfono, total de Odoo y el detalle.
-  await expect(page.getByLabel("Nombre del cliente")).toHaveValue("E2E José Pérez Quispe");
-  await expect(page.getByLabel("Teléfono del cliente")).toHaveValue("987 654 321");
-  await expect(page.getByLabel("Monto total")).toHaveValue("283.2"); // 2 × 120 + 18 %
-  await expect(page.getByLabel("Detalle del pedido")).toHaveValue("2 × [AC-003] ACRILICO F8 CRISTAL 3MM");
+  // Lo cotizado llega puesto, sin editar: cliente, líneas y el total de Odoo.
+  await expect(page.getByText("E2E José Pérez Quispe")).toBeVisible();
+  await expect(page.getByText("987 654 321")).toBeVisible();
+  await expect(page.getByRole("list", { name: "Productos de la cotización" })).toContainText("ACRILICO F8 CRISTAL 3MM");
+  await expect(page.getByTestId("total-pedido")).toHaveText("S/ 283.20"); // 2 × 120 + 18 %
+  await expect(page.getByLabel("Buscar producto")).toHaveCount(0);
+  // Una plancha entera no marca su tipo sola: se marca a mano.
+  await page.getByRole("group", { name: "Tipo de pedido" }).getByRole("button", { name: "Solo planchas" }).click();
 
   // Taller o tienda no viene elegido: sin elegirlo no se registra.
   const destino = page.getByRole("group", { name: "¿Para dónde va el pedido?" });
   await expect(destino.getByRole("button", { name: /Taller/ })).toHaveAttribute("aria-pressed", "false");
   await expect(destino.getByRole("button", { name: /Tienda/ })).toHaveAttribute("aria-pressed", "false");
-  await expect(page.getByRole("group", { name: "¿Dónde está el pedido ahora?" })).toHaveCount(0);
 
   await page.getByLabel("Fecha prometida").fill(manana());
   await page.getByRole("button", { name: "Registrar pedido" }).click();
@@ -326,12 +328,13 @@ test("si Odoo no confirma, el pedido se registra igual y se confirma después", 
     .getByRole("group", { name: "¿Para dónde va el pedido?" })
     .getByRole("button", { name: /Taller/ })
     .click();
+  await page.getByRole("group", { name: "Tipo de pedido" }).getByRole("button", { name: "Solo planchas" }).click();
   await page.getByLabel("Fecha prometida").fill(manana());
 
   await modo("caido");
   await page.getByRole("button", { name: "Registrar pedido" }).click();
   await page.waitForURL(/\/pedidos\/[A-Z0-9_]+$/);
-  await expect(page.getByText("Odoo no confirmó la cotización")).toBeVisible();
+  await expect(page.getByText("El pedido quedó registrado, pero falta Odoo")).toBeVisible();
   await expect(page.getByRole("combobox", { name: "Ubicación actual" })).toContainText("En taller");
   await modo(null);
 
