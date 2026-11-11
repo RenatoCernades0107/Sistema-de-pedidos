@@ -231,7 +231,18 @@ class ErrorRpc extends Error {
   }
 }
 
-export async function crearOdooFalso(opciones: { puerto?: number } = {}) {
+export async function crearOdooFalso(
+  opciones: {
+    puerto?: number;
+    /**
+     * Desde qué id numera las órdenes de venta. Las e2e corren contra una base
+     * con `supabase/seeds/cotizaciones.sql`, que trae cotizaciones con las órdenes
+     * 1, 2, 3… de este mismo Odoo: empezar más arriba evita que una prueba cree
+     * una orden con un id que la base ya tiene registrado.
+     */
+    primeraOrden?: number;
+  } = {},
+) {
   let datos = sembrar();
   let modo: Modo = null;
   let llamadas: Llamada[] = [];
@@ -281,6 +292,8 @@ export async function crearOdooFalso(opciones: { puerto?: number } = {}) {
     }
 
     if (modelo === "sale.order") {
+      // El id, no menos que `primeraOrden`; el nombre sale de él.
+      const id = Math.max(siguienteId(t), opciones.primeraOrden ?? 1);
       if (modo === "caido") {
         throw new ErrorRpc("odoo.exceptions.UserError", "Odoo falso: caído a propósito.");
       }
@@ -612,6 +625,6 @@ export async function crearOdooFalso(opciones: { puerto?: number } = {}) {
 /* Corrido directamente (Playwright lo levanta así): escucha en ODOO_FALSO_PUERTO o 8069. */
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const puerto = Number(process.env.ODOO_FALSO_PUERTO ?? 8069);
-  const odoo = await crearOdooFalso({ puerto });
+  const odoo = await crearOdooFalso({ puerto, primeraOrden: Number(process.env.ODOO_FALSO_PRIMERA_ORDEN ?? 1001) });
   console.log(`Odoo falso escuchando en ${odoo.url} (base ${BASE})`);
 }

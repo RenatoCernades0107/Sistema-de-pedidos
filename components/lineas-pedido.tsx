@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { CircleCheck, Package, RotateCw, TriangleAlert } from "lucide-react";
+import { CircleCheck, Package, Printer, RotateCw, TriangleAlert } from "lucide-react";
 import * as acciones from "@/app/(app)/acciones";
 import { esTerminal, type Pedido } from "@/lib/dominio";
 import { money } from "@/lib/formato";
@@ -53,15 +53,29 @@ export function LineasPedido({
 
   return (
     <section className="bg-card rounded-xl border" aria-labelledby="titulo-lineas">
-      <header className="flex items-center gap-2 border-b py-2 pr-2 pl-4">
-        <h2 id="titulo-lineas" className="text-sm font-medium">
+      <header className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b py-2 pr-2 pl-4">
+        <h2 id="titulo-lineas" className="text-sm font-medium whitespace-nowrap">
           Productos y cortes
         </h2>
-        {puedeAnotar && (
-          <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setAnotando(true)}>
-            Planchas usadas
-          </Button>
-        )}
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
+          {puedeAnotar && (
+            <Button variant="ghost" size="sm" onClick={() => setAnotando(true)}>
+              Planchas usadas
+            </Button>
+          )}
+          {cortes.length > 0 && (
+            <Button
+              render={<Link href={`/pedidos/${encodeURIComponent(p.codigo)}/hoja-de-corte`} />}
+              nativeButton={false}
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+            >
+              <Printer className="size-3.5" />
+              Hoja de corte
+            </Button>
+          )}
+        </div>
       </header>
 
       <ul className="flex flex-col divide-y">

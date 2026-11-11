@@ -191,3 +191,10 @@ E2E_URL=https://<dominio>.vercel.app npm run e2e
   (la configuración por defecto del almacén). Todo pasa por funciones de la base
   (`odoo_de_pedido()`, `anotar_stock_de_pedido()`, `anotar_anulacion_en_odoo()`, migración
   `20261111000100`) porque quien mueve el pedido puede ser el taller, que no lee `cotizaciones`.
+- **La hoja de corte** (`/pedidos/<código>/hoja-de-corte`, `components/hoja-corte.tsx`): se abre desde
+  *Productos y cortes* y se imprime en A4. Lleva los datos del pedido y sus indicaciones (sin la lista
+  de productos que el detalle repite, `lib/hoja-corte.ts`), y por cada corte la lista de medidas
+  numeradas y cada plancha a escala: de dónde sale (plancha nueva o sobrante), qué piezas lleva, el
+  primer corte cuando se cobra una fracción y lo que vuelve al almacén. Tiene casillas para ir
+  marcando y un hueco para las planchas usadas. No muestra precios a nadie. Al imprimir se esconde el
+  menú de la app y el tema oscuro no aplica: `globals.css` solo lo activa en pantalla.

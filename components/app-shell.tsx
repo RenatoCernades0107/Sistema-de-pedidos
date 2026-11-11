@@ -81,7 +81,7 @@ export function AppShell({
       </a>
 
       {/* Cromo: casi invisible. El color se reserva para los datos. */}
-      <header className="bg-background/85 sticky top-0 z-30 border-b backdrop-blur-md">
+      <header className="bg-background/85 sticky top-0 z-30 border-b backdrop-blur-md print:hidden">
         <div className="flex h-14 items-center gap-3 px-4">
           {/* A la raíz, no a /admin: el taller no tiene esa vista. */}
           <Link href="/" className="flex items-center gap-2.5 rounded-md">
@@ -122,7 +122,7 @@ export function AppShell({
 
       <div className="flex flex-1">
         {/* Sidebar */}
-        <aside className="bg-sidebar hidden w-56 shrink-0 border-r p-3 md:block">
+        <aside className="bg-sidebar hidden w-56 shrink-0 border-r p-3 md:block print:hidden">
           <nav aria-label="Menú principal" className="flex flex-col gap-0.5">
             <p className="eyebrow px-2.5 pt-2 pb-2">{permisos.nombre}</p>
             {/* Una sola entrada: Todos, Míos, Taller, Tienda, Logística e
@@ -190,7 +190,7 @@ export function AppShell({
         </aside>
 
         {/* `tabIndex={-1}` para que el enlace de salto pueda dejar el foco aquí. */}
-        <main id="contenido" tabIndex={-1} className="min-w-0 flex-1 pb-20 md:pb-0">
+        <main id="contenido" tabIndex={-1} className="min-w-0 flex-1 pb-20 md:pb-0 print:pb-0">
           {children}
         </main>
       </div>
@@ -198,7 +198,7 @@ export function AppShell({
       {/* Tabs móviles */}
       <nav
         aria-label="Navegación"
-        className="bg-background/90 fixed inset-x-0 bottom-0 z-30 flex border-t pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden"
+        className="bg-background/90 fixed inset-x-0 bottom-0 z-30 flex border-t pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden print:hidden"
       >
         <Link
           href={RUTA_PEDIDOS}
