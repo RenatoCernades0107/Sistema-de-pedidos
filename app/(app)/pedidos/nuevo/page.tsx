@@ -8,6 +8,7 @@ import { cargarCatalogoPlanchas, cargarConfigCortes } from "@/lib/cortes-servido
 import { calentarCatalogos } from "@/lib/odoo/catalogos";
 import { odooConfigurado } from "@/lib/odoo/rpc";
 import { AvisoOdoo } from "@/components/cotizaciones/aviso-odoo";
+import { cargarCatalogoTerminados } from "@/lib/terminados-servidor";
 import { NuevoPedidoForm, type DesdeCotizacion } from "@/components/nuevo-pedido-form";
 
 /**
@@ -51,7 +52,11 @@ export default async function Page({ searchParams }: PageProps<"/pedidos/nuevo">
   // Mientras la página llega al navegador, el servidor va cargando los catálogos
   // de Odoo: así la primera búsqueda no espera la carga entera.
   after(() => calentarCatalogos());
-  const [catalogo, config] = await Promise.all([cargarCatalogoPlanchas(true), cargarConfigCortes()]);
+  const [catalogo, config, terminados] = await Promise.all([
+    cargarCatalogoPlanchas(true),
+    cargarConfigCortes(),
+    cargarCatalogoTerminados(true),
+  ]);
 
-  return <NuevoPedidoForm catalogo={catalogo} config={config} desdeCotizacion={desde} />;
+  return <NuevoPedidoForm catalogo={catalogo} config={config} terminados={terminados} desdeCotizacion={desde} />;
 }

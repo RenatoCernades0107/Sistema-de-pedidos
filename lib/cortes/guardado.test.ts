@@ -87,6 +87,7 @@ describe("el corte que se guarda", () => {
 });
 
 const guardada: LineaGuardada = {
+  terminado: null,
   posicion: 1,
   productoId: 20,
   nombre: "ACRILICO ECO CRISTAL 3MM 1.22X1.83",

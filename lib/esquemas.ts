@@ -49,11 +49,15 @@ export const decimalesDe = (n: number) => (String(n).split(".")[1] ?? "").length
 const tipoPedido = z.enum(["CL", "CM", "SP", "PT", "AC"]);
 const productoTerminado = z.enum([
   "cajas",
-  "porta_afiches",
-  "pivotante",
-  "letreros",
-  "letras",
+  "anforas",
   "displays",
+  "porta_afiches",
+  "letras",
+  "letreros",
+  "alzadores",
+  "tarecos",
+  "atriles",
+  "pivotante",
   "otro",
 ]);
 const lugarEntrega = z.enum(["tienda", "taller", "domicilio", "agencia"]);
@@ -312,6 +316,23 @@ const planchasUsadas = z.object({
     .refine(hastaDosDecimales, "Hasta dos decimales"),
 });
 
+/** Lo que se usó en un producto terminado: productos de Odoo y cuánto de cada uno. */
+const materialesDeTerminado = z.object({
+  posicion: z.number().int().min(0).max(32767),
+  usados: z
+    .array(
+      z.object({
+        productoId: z.number().int().positive(),
+        cantidad: z
+          .number({ error: "La cantidad usada tiene que ser un número" })
+          .min(0, "La cantidad usada no puede ser negativa")
+          .max(99_999, "Esa cantidad no es razonable")
+          .refine((n) => decimalesDe(n) <= 3, "La cantidad usada admite hasta 3 decimales"),
+      }),
+    )
+    .max(60, "Son demasiados materiales para un solo producto"),
+});
+
 export const esquemaCambioEstado = z.object({
   codigo,
   estado: estadoPedido,
@@ -349,6 +370,16 @@ export const esquemaCambioEstado = z.object({
     )
     .max(100)
     .optional(),
+  /**
+   * Al pasar a Listo: lo que de verdad se usó en cada producto terminado, por la
+   * posición de su línea. Lo que se descuenta del stock en Odoo.
+   */
+  materiales: z.array(materialesDeTerminado).max(100).optional(),
+});
+
+export const esquemaMaterialesUsados = z.object({
+  codigo,
+  materiales: z.array(materialesDeTerminado).min(1).max(100),
 });
 
 export const esquemaUbicacion = z.object({ codigo, ubicacion });
@@ -486,11 +517,88 @@ export const esquemaLineaCorte = z.object({
   totalMostrado: z.number().min(0),
 });
 
+const medidaDeTerminado = z
+  .number({ error: "Las medidas son números, en centímetros" })
+  .positive("Las medidas tienen que ser mayores que cero")
+  .max(2000, "Esa medida no es razonable")
+  .refine((n) => decimalesDe(n) <= 2, "Las medidas admiten hasta 2 decimales")
+  .nullable();
+
+/**
+ * Un producto terminado. Del navegador llegan referencias y lo que decidió
+ * quien cotiza: qué producto del catálogo (o ninguno, si es personalizado),
+ * medidas, material, opciones, cantidad y el precio final. El nombre, los
+ * extras, el material estimado y el precio sugerido los rehace el servidor.
+ */
+export const esquemaLineaTerminado = z
+  .object({
+    tipo: z.literal("terminado"),
+    /** "CAJ-001". `null`: es un personalizado. */
+    productoCodigo: z.string().trim().max(20).nullable(),
+    /** Solo en un personalizado: cómo se llama y, si se sabe, de qué tipo es. */
+    nombre: z.string().trim().max(160, "El nombre es demasiado largo").nullable(),
+    tipoCodigo: z.string().trim().max(5).nullable(),
+    medidas: z.object({
+      m1: medidaDeTerminado,
+      m2: medidaDeTerminado,
+      m3: medidaDeTerminado,
+      diametro: medidaDeTerminado,
+      altura: medidaDeTerminado,
+      letras: z.number().int().positive().max(500, "Son demasiadas letras").nullable(),
+    }),
+    /** El material del catálogo de planchas. Un personalizado puede no llevarlo. */
+    grupoId: z.uuid("Elige el material").nullable(),
+    color: z.string().trim().max(60, "El color es demasiado largo").nullable(),
+    /** Los ids de las personalizaciones, acabados y complementos elegidos. */
+    opciones: z.array(z.number().int().positive()).max(80),
+    texto: z.string().trim().max(300, "El texto es demasiado largo").nullable(),
+    notas: z.string().trim().max(1000, "Las notas son demasiado largas").nullable(),
+    /** El área de una unidad corregida a mano (m²). `null`: la que dé la forma. */
+    areaM2: z
+      .number()
+      .positive("El área tiene que ser mayor que cero")
+      .max(500, "Esa área no es razonable")
+      .nullable(),
+    /** Lo demás que se estima usar, para toda la línea. */
+    accesorios: z
+      .array(
+        z.object({
+          productoId: z.number().int().positive(),
+          cantidad: z
+            .number({ error: "La cantidad de un material tiene que ser un número" })
+            .positive("La cantidad de un material tiene que ser mayor que cero")
+            .max(100_000, "Esa cantidad no es razonable"),
+        }),
+      )
+      .max(40, "Son demasiados materiales para un solo producto"),
+    cantidad: z
+      .number({ error: "La cantidad tiene que ser un número" })
+      .int("La cantidad de productos es un número entero")
+      .positive("La cantidad tiene que ser mayor que cero")
+      .max(100_000, "Esa cantidad no es razonable"),
+    precioUnitario: z
+      .number({ error: "El precio tiene que ser un número" })
+      .min(0, "El precio no puede ser negativo")
+      .max(10_000_000, "Ese precio no es razonable")
+      .refine((n) => decimalesDe(n) <= 2, "El precio admite hasta 2 decimales"),
+    /** Si lo estimado se reserva en Odoo al confirmar el pedido. */
+    reservar: z.boolean(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.productoCodigo) {
+      if (!v.grupoId) ctx.addIssue({ code: "custom", path: ["grupoId"], message: "Elige el material del producto" });
+    } else if (!v.nombre) {
+      ctx.addIssue({ code: "custom", path: ["nombre"], message: "Escribe qué producto es" });
+    }
+  });
+
+const lineaDeCotizacion = z.union([esquemaLineaCorte, esquemaLineaTerminado, esquemaLineaCotizacion]);
+
 export const esquemaNuevaCotizacion = z.object({
   canal: z.enum(["tienda", "whatsapp"]),
   clienteId: z.number({ error: "Elige el cliente" }).int().positive("Elige el cliente"),
   lineas: z
-    .array(z.union([esquemaLineaCorte, esquemaLineaCotizacion]))
+    .array(lineaDeCotizacion)
     .min(1, "Agrega al menos un producto")
     .max(100, "Son demasiados productos para una cotización"),
   notas: z.string().trim().max(2000, "Las notas son demasiado largas").nullable(),
@@ -531,7 +639,7 @@ export const esquemaNuevoClienteOdoo = z.object({
 /* ── Registrar un pedido ────────────────────────────────────────────────────── */
 
 const lineasDePedido = z
-  .array(z.union([esquemaLineaCorte, esquemaLineaCotizacion]))
+  .array(lineaDeCotizacion)
   .min(1, "Agrega al menos un producto o un corte")
   .max(100, "Son demasiados productos para un pedido");
 
@@ -611,6 +719,7 @@ export const esquemaRegistroPedido = z
 
 export type NuevaCotizacion = z.output<typeof esquemaNuevaCotizacion>;
 export type NuevaLineaCorte = z.output<typeof esquemaLineaCorte>;
+export type NuevaLineaTerminado = z.output<typeof esquemaLineaTerminado>;
 export type NuevoClienteOdoo = z.output<typeof esquemaNuevoClienteOdoo>;
 export type FormNuevoClienteOdoo = z.input<typeof esquemaNuevoClienteOdoo>;
 

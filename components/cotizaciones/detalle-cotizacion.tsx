@@ -20,6 +20,7 @@ import { referenciaDe, sumaLineas, type Cotizacion } from "@/lib/cotizaciones";
 import { momentoEnLima } from "@/lib/fecha";
 import { fechaHora, money, numero } from "@/lib/formato";
 import { Button } from "@/components/ui/button";
+import { TerminadoGuardadoVista } from "@/components/terminados/terminado-guardado";
 import { CorteGuardadoVista } from "@/components/cortes/corte-guardado";
 import { CodigoProducto } from "./buscador-producto";
 import { CanalBadge, EstadoSincronizacion } from "./estado-cotizacion";
@@ -218,6 +219,10 @@ export function DetalleCotizacion({
                 // Un corte a medida: su cálculo entero, con el plano.
                 <li key={l.posicion} className="px-4 py-3" data-testid="linea-corte">
                   <CorteGuardadoVista corte={l.corte} conPrecios />
+                </li>
+              ) : l.terminado ? (
+                <li key={l.posicion} className="px-4 py-3">
+                  <TerminadoGuardadoVista terminado={l.terminado} cantidad={l.cantidad} importe={l.importe} conPrecios />
                 </li>
               ) : (
                 <li key={l.posicion} className="flex flex-wrap items-start gap-x-4 gap-y-1 px-4 py-3">

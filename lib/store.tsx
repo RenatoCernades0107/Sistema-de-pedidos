@@ -56,6 +56,8 @@ export interface CambioEstadoExtra {
   planchas?: { posicion: number; planchas: number }[];
   /** Y, en los cortes con piloto de sobrantes, los pedazos que se guardaron. */
   sobrantes?: { posicion: number; piezas: { largo: number; ancho: number; ubicacion: string | null }[] }[];
+  /** Y lo que de verdad se usó en cada producto terminado. */
+  materiales?: { posicion: number; usados: { productoId: number; cantidad: number }[] }[];
 }
 
 const Ctx = createContext<Store | null>(null);
@@ -207,6 +209,7 @@ export function StoreProvider({
             numeroComprobante,
             planchas: extra?.planchas,
             sobrantes: extra?.sobrantes,
+            materiales: extra?.materiales,
           }),
         (r) => {
           toast.success(`${codigo} → ${ESTADOS[estado]}`, {

@@ -8,6 +8,7 @@
  */
 
 import { planchasNuevas, type CorteGuardado } from "./cortes/guardado";
+import type { MaterialUsado, TerminadoGuardado } from "./terminados/guardado";
 
 export interface LineaDePedido {
   posicion: number;
@@ -20,6 +21,10 @@ export interface LineaDePedido {
   corte: CorteGuardado | null;
   /** Lo que el taller anotó que usó de verdad. `null`: nadie lo dijo todavía. */
   planchasUsadas: number | null;
+  /** Si la línea es un producto terminado, su ficha (sin precios para quien no es Administración). */
+  terminado: TerminadoGuardado | null;
+  /** Lo que logística anotó que se usó en el producto terminado. `null`: nadie lo dijo todavía. */
+  materialesUsados: MaterialUsado[] | null;
   /** Solo para Administración; `null` para los demás. */
   importe: number | null;
   /** Con el piloto de sobrantes: la orden de fabricación del corte en Odoo. */

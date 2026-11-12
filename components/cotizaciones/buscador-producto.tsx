@@ -22,12 +22,23 @@ const RUTA = "/api/cotizaciones/buscar/productos";
 export function BuscadorProducto({
   alAgregar,
   inputRef,
+  ruta = RUTA,
+  sinPrecio = false,
+  enLinea = false,
+  etiqueta = "Buscar producto",
 }: {
   alAgregar: (producto: ProductoOdoo) => void;
   inputRef?: Ref<HTMLInputElement>;
+  /** De dónde se busca. Por defecto, el buscador de cotizaciones. */
+  ruta?: string;
+  /** Para quien no ve dinero: los resultados salen sin precio. */
+  sinPrecio?: boolean;
+  /** Dentro de un diálogo: la lista ocupa su lugar en vez de flotar. */
+  enLinea?: boolean;
+  etiqueta?: string;
 }) {
   const [consulta, setConsulta] = useState("");
-  const busqueda = useBusqueda<ProductoOdoo>(RUTA, consulta, true);
+  const busqueda = useBusqueda<ProductoOdoo>(ruta, consulta, true);
   const q = consulta.trim();
 
   const agregar = (p: ProductoOdoo) => {
@@ -38,12 +49,13 @@ export function BuscadorProducto({
   const opciones: Opcion[] = busqueda.resultados.map((r) => ({
     valor: `producto-${r.item.id}`,
     alElegir: () => agregar(r.item),
-    contenido: <FilaProducto resultado={r} consulta={q} />,
+    contenido: <FilaProducto resultado={r} consulta={q} sinPrecio={sinPrecio} />,
   }));
 
   return (
     <ComboBusqueda
-      etiqueta="Buscar producto"
+      etiqueta={etiqueta}
+      enLinea={enLinea}
       placeholder="Código o nombre del producto…"
       consulta={consulta}
       alEscribir={setConsulta}
@@ -61,7 +73,7 @@ export function BuscadorProducto({
         // Lector de código de barras o código tecleado de memoria: si hay uno
         // solo que coincide exacto, se agrega ya, sin esperar a la lista.
         if (!q) return;
-        const r = await buscarUnaVez<ProductoOdoo>(`${RUTA}?exacto=1&q=${encodeURIComponent(q)}`);
+        const r = await buscarUnaVez<ProductoOdoo>(`${ruta}?exacto=1&q=${encodeURIComponent(q)}`);
         if (r?.resultados.length === 1) agregar(r.resultados[0].item);
       }}
       inputRef={inputRef}
@@ -69,7 +81,15 @@ export function BuscadorProducto({
   );
 }
 
-function FilaProducto({ resultado, consulta }: { resultado: Resultado<ProductoOdoo>; consulta: string }) {
+function FilaProducto({
+  resultado,
+  consulta,
+  sinPrecio,
+}: {
+  resultado: Resultado<ProductoOdoo>;
+  consulta: string;
+  sinPrecio?: boolean;
+}) {
   const p = resultado.item;
   const exacto = resultado.porCodigo === "exacto";
   // Si lo que se escribió está en el código de barras, se enseña: es lo que lo trajo.
@@ -99,7 +119,7 @@ function FilaProducto({ resultado, consulta }: { resultado: Resultado<ProductoOd
         )}
       </span>
       <span className="flex shrink-0 flex-col items-end">
-        <span className="tnum font-medium">{money(p.precio)}</span>
+        {!sinPrecio && <span className="tnum font-medium">{money(p.precio)}</span>}
         <span className="text-muted-foreground text-xs">
           {resultado.veces ? `${resultado.veces}× · ` : ""}
           {p.unidad ?? ""}

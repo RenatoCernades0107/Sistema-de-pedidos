@@ -12,6 +12,8 @@ import { planchasCalculadas, type LineaDePedido, type OdooDePedido } from "@/lib
 import { medidaSobrante, type Sobrante } from "@/lib/sobrantes";
 import { CorteGuardadoVista } from "@/components/cortes/corte-guardado";
 import { DialogoPlanchas } from "@/components/planchas-usadas";
+import { DialogoMateriales, type MaterialesAnotados } from "@/components/terminados/materiales-usados";
+import { TerminadoGuardadoVista } from "@/components/terminados/terminado-guardado";
 import { Button } from "@/components/ui/button";
 
 const n = (x: number) => String(+x.toFixed(2));
@@ -40,10 +42,23 @@ export function LineasPedido({
 }) {
   const { permisos } = useStore();
   const [anotando, setAnotando] = useState(false);
+  const [anotandoMateriales, setAnotandoMateriales] = useState(false);
   const [pendiente, iniciar] = useTransition();
 
   const cortes = lineas.filter((l) => l.corte);
   const puedeAnotar = cortes.length > 0 && !odoo?.stockDescontado && !esTerminal(p.estado);
+  const terminados = lineas.filter((l) => l.terminado);
+  const puedeAnotarMateriales = terminados.length > 0 && !odoo?.stockDescontado && !esTerminal(p.estado);
+
+  const anotarMateriales = (materiales: MaterialesAnotados) =>
+    new Promise<acciones.Resultado>((resolver) =>
+      iniciar(async () => {
+        const r = await acciones.anotarMaterialesUsados({ codigo: p.codigo, materiales });
+        if (r.ok) toast.success("Materiales anotados");
+        else toast.error("No se guardó", { description: r.error });
+        resolver(r);
+      }),
+    );
 
   const anotar = (planchas: { posicion: number; planchas: number }[]) =>
     new Promise<acciones.Resultado>((resolver) =>
@@ -65,6 +80,11 @@ export function LineasPedido({
           {puedeAnotar && (
             <Button variant="ghost" size="sm" onClick={() => setAnotando(true)}>
               Planchas usadas
+            </Button>
+          )}
+          {puedeAnotarMateriales && (
+            <Button variant="ghost" size="sm" onClick={() => setAnotandoMateriales(true)}>
+              Materiales usados
             </Button>
           )}
           {cortes.length > 0 && (
@@ -101,6 +121,22 @@ export function LineasPedido({
                   <Produccion linea={l} sobrantes={sobrantes.filter((s) => s.lineaPosicion === l.posicion)} />
                 )}
               </>
+            ) : l.terminado ? (
+              <>
+                <TerminadoGuardadoVista
+                  terminado={l.terminado}
+                  cantidad={l.cantidad}
+                  importe={l.importe}
+                  usados={l.materialesUsados}
+                  conPrecios={permisos.verMontos}
+                />
+                {l.produccionNombre && (
+                  <p className="text-muted-foreground flex items-center gap-1.5 pl-7 text-xs">
+                    <Factory className="size-3.5" aria-hidden />
+                    {l.produccionNombre} · {l.produccionCerrada ? "cerrada en Odoo" : "abierta en Odoo: reserva el material"}
+                  </p>
+                )}
+              </>
             ) : (
               <div className="flex items-start gap-3">
                 <Package className="text-muted-foreground mt-0.5 size-4 shrink-0" aria-hidden />
@@ -122,7 +158,17 @@ export function LineasPedido({
         ))}
       </ul>
 
-      {odoo && <EstadoOdoo pedido={p} odoo={odoo} hayCortes={cortes.length > 0} />}
+      {odoo && <EstadoOdoo pedido={p} odoo={odoo} hayCortes={cortes.length > 0} hayTerminados={terminados.length > 0} />}
+
+      {puedeAnotarMateriales && (
+        <DialogoMateriales
+          abierto={anotandoMateriales}
+          alCambiar={setAnotandoMateriales}
+          terminados={terminados}
+          pendiente={pendiente}
+          alConfirmar={anotarMateriales}
+        />
+      )}
 
       {puedeAnotar && (
         <DialogoPlanchas
@@ -182,7 +228,17 @@ function Produccion({ linea: l, sobrantes }: { linea: LineaDePedido; sobrantes: 
   );
 }
 
-function EstadoOdoo({ pedido: p, odoo, hayCortes }: { pedido: Pedido; odoo: OdooDePedido; hayCortes: boolean }) {
+function EstadoOdoo({
+  pedido: p,
+  odoo,
+  hayCortes,
+  hayTerminados,
+}: {
+  pedido: Pedido;
+  odoo: OdooDePedido;
+  hayCortes: boolean;
+  hayTerminados: boolean;
+}) {
   const { permisos } = useStore();
   const [pendiente, iniciar] = useTransition();
 
@@ -216,7 +272,9 @@ function EstadoOdoo({ pedido: p, odoo, hayCortes }: { pedido: Pedido; odoo: Odoo
   } else {
     aviso = {
       tono: "nota",
-      texto: hayCortes
+      texto: hayTerminados
+        ? "El material se descuenta del stock en Odoo al pasar a Listo, con lo que anotes como usado."
+        : hayCortes
         ? "Las planchas se descuentan del stock en Odoo al pasar a Listo, con las que anotes como usadas."
         : "Los productos se descuentan del stock en Odoo al pasar a Listo.",
     };

@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/select";
 import { EstadoBadge } from "@/components/estado-badge";
 import { DialogoPlanchas } from "@/components/planchas-usadas";
+import { DialogoMateriales, type MaterialesAnotados } from "@/components/terminados/materiales-usados";
 import type { LineaDePedido } from "@/lib/pedido-lineas";
 
 type Campos = z.infer<typeof esquemaFormEstado>;
@@ -48,12 +49,15 @@ type Campos = z.infer<typeof esquemaFormEstado>;
 export function AccionesPedido({
   pedido: p,
   cortes = [],
+  terminados = [],
   stockDescontado = false,
   retazoMin,
 }: {
   pedido: Pedido;
   /** Los cortes del pedido: al pasar a Listo se pregunta cuántas planchas se usaron. */
   cortes?: LineaDePedido[];
+  /** Los productos terminados: al pasar a Listo se pregunta qué material se usó de verdad. */
+  terminados?: LineaDePedido[];
   stockDescontado?: boolean;
   /** El lado mínimo de un sobrante, para proponer los que vuelven al almacén. */
   retazoMin?: number;
@@ -68,6 +72,9 @@ export function AccionesPedido({
   } = useStore();
   const [destino, setDestino] = useState<Estado | null>(null);
   const [aListo, setAListo] = useState(false);
+  /** Lo usado en los productos terminados: se pregunta antes que las planchas de los cortes. */
+  const [conMateriales, setConMateriales] = useState(false);
+  const [materiales, setMateriales] = useState<MaterialesAnotados | undefined>(undefined);
 
   const validas = transicionesValidas(p);
 
@@ -82,7 +89,12 @@ export function AccionesPedido({
 
   const pedirCambio = (nuevo: Estado) => {
     // Las planchas salen del almacén al terminar: antes se confirma cuántas fueron.
+    if (nuevo === "listo" && terminados.length > 0 && !stockDescontado) {
+      setConMateriales(true);
+      return;
+    }
     if (nuevo === "listo" && cortes.length > 0 && !stockDescontado) {
+      setMateriales(undefined);
       setAListo(true);
       return;
     }
@@ -225,7 +237,25 @@ export function AccionesPedido({
         alPasarAListo
         pendiente={pendiente}
         retazoMin={retazoMin}
-        alConfirmar={(planchas, sobrantes) => cambiarEstado(p.codigo, "listo", { planchas, sobrantes })}
+        alConfirmar={(planchas, sobrantes) => cambiarEstado(p.codigo, "listo", { planchas, sobrantes, materiales })}
+      />
+
+      <DialogoMateriales
+        abierto={conMateriales}
+        alCambiar={setConMateriales}
+        terminados={terminados}
+        alPasarAListo
+        siguePlanchas={cortes.length > 0}
+        pendiente={pendiente}
+        alConfirmar={(usados) => {
+          // Con cortes en el pedido, falta confirmar sus planchas: el pedido se mueve ahí.
+          if (cortes.length > 0) {
+            setMateriales(usados);
+            setAListo(true);
+            return;
+          }
+          return cambiarEstado(p.codigo, "listo", { materiales: usados });
+        }}
       />
 
       {/* Este diálogo no lo abre un DialogTrigger sino el botón de la transición,

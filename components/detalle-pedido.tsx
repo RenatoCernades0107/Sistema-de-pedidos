@@ -427,6 +427,7 @@ export function DetallePedido({
           <AccionesPedido
             pedido={p}
             cortes={lineas?.filter((l) => l.corte) ?? []}
+            terminados={lineas?.filter((l) => l.terminado) ?? []}
             stockDescontado={odoo?.stockDescontado ?? false}
             retazoMin={retazoMin}
           />
