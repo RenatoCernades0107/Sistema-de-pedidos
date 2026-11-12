@@ -92,6 +92,21 @@ describe("casos fijos", () => {
     expect(empaquetar(305, 205, piezas)).toEqual(empaquetar(305, 205, piezas));
   });
 
+  it("dos de 70×120 salen de una plancha de 122×183 si se acuestan", () => {
+    // Paradas no: 70 + 70 > 122. Acostadas sí: 70 + 70 = 140 ≤ 183.
+    const piezas = varias(2, 70, 120);
+    const r = empaquetar(122, 183, piezas);
+    expect(r.planchas).toHaveLength(1);
+    comprobar(r, piezas);
+  });
+
+  it("tres de 70×120 con piezas chicas: dos planchas, no tres", () => {
+    const piezas = [...varias(3, 70, 120, "g"), ...varias(5, 22, 30, "c"), ...varias(2, 40, 2, "t")];
+    const r = empaquetar(122, 183, piezas);
+    expect(r.planchas).toHaveLength(2);
+    comprobar(r, piezas);
+  });
+
   it("abre otra plancha cuando la primera se llena", () => {
     const piezas = varias(10, 60, 80);
     const r = empaquetar(122, 183, piezas);
