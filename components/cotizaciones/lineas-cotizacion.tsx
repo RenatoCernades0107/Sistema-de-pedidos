@@ -74,7 +74,7 @@ export function LineasCotizacion({
   if (lineas.length === 0) {
     return (
       <p className="text-muted-foreground rounded-lg border border-dashed px-4 py-6 text-center text-sm">
-        Todavía no hay productos. Búscalos arriba por código o por nombre, o agrega un corte a medida.
+        Todavía no hay productos. Búscalos arriba por código o por nombre, o agrega un corte a medida o un producto terminado.
       </p>
     );
   }

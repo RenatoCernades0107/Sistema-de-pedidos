@@ -1,10 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useRef, useState, useTransition } from "react";
 import { flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Loader2, Package, Scissors } from "lucide-react";
+import { Package, Scissors } from "lucide-react";
 import { toast } from "sonner";
 import { crearCotizacion } from "@/app/(app)/cotizaciones/acciones";
 import { CANALES, type Canal } from "@/lib/cotizaciones";
@@ -29,7 +28,11 @@ import { EditorTerminado } from "@/components/terminados/editor-terminado";
 import type { CatalogoTerminados } from "@/lib/terminados/catalogo";
 import type { ClienteOdoo, ProductoOdoo } from "@/lib/odoo/tipos";
 import { Button } from "@/components/ui/button";
+import { BarraEnvio } from "@/components/ui/barra-envio";
+import { CabeceraFormulario } from "@/components/ui/cabecera-formulario";
 import { Campo, Opciones } from "@/components/ui/campo";
+import { Seccion } from "@/components/ui/seccion";
+import { useAvisoSalida } from "@/lib/use-aviso-salida";
 import { Textarea } from "@/components/ui/textarea";
 import { BuscadorCliente } from "./buscador-cliente";
 import { BuscadorProducto } from "./buscador-producto";
@@ -66,6 +69,10 @@ export function FormCotizacion({
   const [notas, setNotas] = useState("");
   const [resaltada, setResaltada] = useState<string | null>(null);
   const [pendiente, iniciar] = useTransition();
+  /** Ya se intentó crear: desde ahí, lo que falta se dice junto a su sección. */
+  const [intentado, setIntentado] = useState(false);
+  /** Creada: ya no hay nada que perder al salir. */
+  const [creada, setCreada] = useState(false);
 
   const buscadorProducto = useRef<HTMLInputElement>(null);
   const buscadorCliente = useRef<HTMLInputElement>(null);
@@ -104,10 +111,14 @@ export function FormCotizacion({
   }, []);
 
   const total = totalReferencial(lineas);
-  const problema = !cliente ? "Elige el cliente." : problemaDeLineas(lineas);
+  const problemaLineas = problemaDeLineas(lineas);
+  const problema = !cliente ? "Elige el cliente." : problemaLineas;
+
+  useAvisoSalida(!creada && (!!cliente || lineas.length > 0 || notas.trim() !== ""));
 
   const crear = () => {
     if (pendiente) return;
+    setIntentado(true);
     if (problema || !cliente) {
       toast.error(problema ?? "Falta el cliente.");
       if (!cliente) buscadorCliente.current?.focus();
@@ -134,6 +145,7 @@ export function FormCotizacion({
           description: r.errorOdoo ?? undefined,
         });
       }
+      setCreada(true);
       router.push(`/cotizaciones/${r.id}`);
     });
   };
@@ -148,31 +160,23 @@ export function FormCotizacion({
         }
       }}
     >
-      <Button
-        render={<Link href="/cotizaciones" />}
-        nativeButton={false}
-        variant="ghost"
-        size="sm"
-        className="text-muted-foreground -ml-2 mb-3 gap-1.5"
-      >
-        <ArrowLeft className="size-3.5" />
-        Cotizaciones
-      </Button>
+      <CabeceraFormulario
+        volverA="/cotizaciones"
+        volverTexto="Cotizaciones"
+        titulo="Nueva cotización"
+        subtitulo="Se crea también en Odoo."
+        lateral={
+          <p className="hidden text-xs text-white/70 md:block">
+            Crear sin soltar el teclado:{" "}
+            <kbd className="rounded border border-white/25 bg-white/10 px-1 py-px font-mono text-2xs text-white">Ctrl</kbd>{" "}
+            +{" "}
+            <kbd className="rounded border border-white/25 bg-white/10 px-1 py-px font-mono text-2xs text-white">Enter</kbd>
+          </p>
+        }
+      />
 
-      <header className="mb-5">
-        <h1 className="text-xl font-semibold tracking-tight">Nueva cotización</h1>
-        <p className="text-muted-foreground mt-0.5 text-sm">
-          Se crea también en Odoo.
-          <span className="hidden md:inline">
-            {" "}
-            Para crearla sin soltar el teclado: <kbd className="kbd">Ctrl</kbd> +{" "}
-            <kbd className="kbd">Enter</kbd>.
-          </span>
-        </p>
-      </header>
-
-      <div className="flex max-w-3xl flex-col gap-4">
-        <Seccion n={1} titulo="Cliente">
+      <div className="relative -mt-10 flex max-w-3xl flex-col gap-4">
+        <Seccion n={1} titulo="Cliente" completa={!!cliente}>
           <Campo grupo label="Canal" ayuda="De dónde llegó el pedido de cotización.">
             <Opciones
               valores={[canal]}
@@ -186,11 +190,17 @@ export function FormCotizacion({
             inputRef={buscadorCliente}
             autoFocus
           />
+          {intentado && !cliente && (
+            <p role="alert" className="text-destructive text-sm">
+              Elige el cliente.
+            </p>
+          )}
         </Seccion>
 
         <Seccion
           n={2}
           titulo="Productos"
+          completa={lineas.length > 0 && !problemaLineas}
           nota={lineas.length ? `${lineas.length} ${lineas.length === 1 ? "línea" : "líneas"}` : undefined}
         >
           {/* En una sola fila siempre: si el botón bajara de línea, la lista de
@@ -236,6 +246,11 @@ export function FormCotizacion({
             alEditarTerminado={(clave) => setTerminado({ clave })}
             alTerminar={() => buscadorProducto.current?.focus()}
           />
+          {intentado && problemaLineas && (
+            <p role="alert" className="text-destructive text-sm">
+              {problemaLineas}
+            </p>
+          )}
         </Seccion>
 
         <Seccion n={3} titulo="Notas" nota="Opcional">
@@ -284,37 +299,17 @@ export function FormCotizacion({
         />
       )}
 
-      {/* La barra de crear acompaña al scroll. En el celular va encima de las pestañas. */}
-      <div className="bg-background/90 sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-20 -mx-4 mt-4 border-t px-4 py-3 backdrop-blur-md md:bottom-0 md:-mx-6 md:px-6">
-        <div className="flex max-w-3xl items-center gap-3">
-          <div className="min-w-0 flex-1">
-            <p className="text-muted-foreground text-xs">
-              {lineas.length} {lineas.length === 1 ? "producto" : "productos"} · total referencial
-            </p>
-            <p className="tnum text-lg leading-tight font-semibold" aria-live="polite">
-              {money(total)}
-            </p>
-          </div>
-          <Button
-            type="button"
-            size="lg"
-            onClick={crear}
-            disabled={pendiente}
-            aria-disabled={!!problema}
-            title={problema ?? undefined}
-            className={problema ? "opacity-60" : undefined}
-          >
-            {pendiente ? (
-              <>
-                <Loader2 className="animate-spin" />
-                Creando en Odoo…
-              </>
-            ) : (
-              "Crear cotización"
-            )}
-          </Button>
-        </div>
-      </div>
+      <BarraEnvio
+        resumen={[
+          { etiqueta: lineas.length === 1 ? "Producto" : "Productos", valor: String(lineas.length) },
+          { etiqueta: "Total", valor: money(total) },
+        ]}
+        problema={problema}
+        texto="Crear cotización"
+        textoPendiente="Creando en Odoo…"
+        pendiente={pendiente}
+        onClick={crear}
+      />
     </div>
   );
 }
@@ -369,29 +364,4 @@ export function lineaParaEnviar(l: Linea) {
     precioUnitario: Number(l.precioUnitario),
     descripcion: l.descripcion.trim() || null,
   };
-}
-
-function Seccion({
-  n,
-  titulo,
-  nota,
-  children,
-}: {
-  n: number;
-  titulo: string;
-  nota?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="bg-card rounded-xl border">
-      <header className="bg-muted/40 flex items-center gap-2.5 border-b px-4 py-3">
-        <span className="bg-primary text-primary-foreground text-2xs grid size-5 shrink-0 place-items-center rounded-full font-semibold">
-          {n}
-        </span>
-        <h2 className="text-sm font-medium">{titulo}</h2>
-        {nota && <span className="text-muted-foreground ml-auto text-xs">{nota}</span>}
-      </header>
-      <div className="flex flex-col gap-4 p-4">{children}</div>
-    </section>
-  );
 }

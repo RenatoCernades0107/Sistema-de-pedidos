@@ -152,7 +152,7 @@ test.describe("Los archivos al registrar el pedido", () => {
       "true",
     );
     await producto.press("Enter");
-    await page.getByRole("group", { name: "¿Para dónde va el pedido?" }).getByRole("button", { name: /Taller/ }).click();
+    await page.getByRole("group", { name: "Área que lo atiende" }).getByRole("button", { name: /Taller/ }).click();
     await page
       .getByLabel("Fecha prometida")
       .fill(new Date(Date.now() + 86_400_000).toISOString().slice(0, 10));

@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import Image from "next/image";
 import type { Metadata } from "next";
 import { ClipboardList, Factory, Truck } from "lucide-react";
+import { FondoAcrilico } from "@/components/fondo-acrilico";
 import { FormularioLogin } from "./formulario-login";
 import logo from "@/public/logo-plexiacril.webp";
 
@@ -20,7 +21,7 @@ export default function LoginPage() {
     <main className="grid min-h-dvh lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
       {/* ── Panel de marca (solo en pantallas anchas) ── */}
       <aside className="relative hidden overflow-hidden bg-[#003a6e] text-white lg:flex lg:flex-col lg:justify-between lg:p-12 xl:p-16">
-        <PlanchasAcrilico />
+        <FondoAcrilico />
 
         <span className="relative text-xs font-medium tracking-[0.2em] text-white/70 uppercase">
           Sistema de pedidos
@@ -89,49 +90,5 @@ export default function LoginPage() {
         </p>
       </section>
     </main>
-  );
-}
-
-/** Planchas translúcidas superpuestas: un guiño al material, sin imágenes. */
-function PlanchasAcrilico() {
-  return (
-    <svg
-      aria-hidden
-      className="pointer-events-none absolute inset-0 size-full"
-      viewBox="0 0 600 800"
-      preserveAspectRatio="xMidYMid slice"
-    >
-      <defs>
-        <linearGradient id="fondo" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#004c8f" />
-          <stop offset="1" stopColor="#00284d" />
-        </linearGradient>
-        <linearGradient id="plancha" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#ffffff" stopOpacity="0.14" />
-          <stop offset="1" stopColor="#ffffff" stopOpacity="0.02" />
-        </linearGradient>
-        <linearGradient id="amarilla" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#ffc200" stopOpacity="0.55" />
-          <stop offset="1" stopColor="#ffc200" stopOpacity="0.08" />
-        </linearGradient>
-        <linearGradient id="brillo" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0" stopColor="#ffffff" stopOpacity="0" />
-          <stop offset="0.5" stopColor="#ffffff" stopOpacity="0.09" />
-          <stop offset="1" stopColor="#ffffff" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <rect width="600" height="800" fill="url(#fondo)" />
-      <g transform="rotate(-18 450 200)">
-        <rect className="plancha" x="330" y="-60" width="300" height="380" rx="18" fill="url(#plancha)" stroke="#fff" strokeOpacity="0.18" />
-        <rect className="plancha plancha-2" x="390" y="10" width="300" height="380" rx="18" fill="url(#plancha)" stroke="#fff" strokeOpacity="0.12" />
-        <rect className="plancha plancha-3" x="455" y="90" width="210" height="260" rx="16" fill="url(#amarilla)" stroke="#ffc200" strokeOpacity="0.5" />
-      </g>
-      <g transform="rotate(14 120 700)">
-        <rect className="plancha plancha-4" x="-80" y="600" width="320" height="260" rx="18" fill="url(#plancha)" stroke="#fff" strokeOpacity="0.12" />
-      </g>
-      <g transform="rotate(20 300 400)">
-        <rect className="brillo-login" x="0" y="-400" width="160" height="1600" fill="url(#brillo)" />
-      </g>
-    </svg>
   );
 }

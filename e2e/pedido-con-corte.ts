@@ -48,8 +48,8 @@ export async function registrarPedidoConCorte(page: Page, indicaciones?: string)
   await page.getByRole("button", { name: "Agregar corte" }).click();
 
   await page.getByLabel("Fecha prometida").fill(manana());
-  await page.getByRole("group", { name: "¿Para dónde va el pedido?" }).getByRole("button", { name: /Taller/ }).click();
-  if (indicaciones) await page.getByLabel("Notas generales").fill(indicaciones);
+  await page.getByRole("group", { name: "Área que lo atiende" }).getByRole("button", { name: /Taller/ }).click();
+  if (indicaciones) await page.getByLabel("Notas para el taller").fill(indicaciones);
   await page.getByRole("button", { name: "Registrar pedido" }).click();
   await page.waitForURL(/\/pedidos\/P\d{4}-\d{3}$/);
   return page.url().split("/").pop()!;

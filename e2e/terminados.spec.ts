@@ -91,7 +91,7 @@ async function elegirMaterial(dialogo: ReturnType<Page["getByRole"]>) {
 
 async function registrar(page: Page) {
   await page.getByLabel("Fecha prometida").fill(manana());
-  await page.getByRole("group", { name: "¿Para dónde va el pedido?" }).getByRole("button", { name: /Taller/ }).click();
+  await page.getByRole("group", { name: "Área que lo atiende" }).getByRole("button", { name: /Taller/ }).click();
   await page.getByRole("button", { name: "Registrar pedido" }).click();
   await page.waitForURL(/\/pedidos\/P\d{4}-\d{3}$/);
   return page.url().split("/").pop()!;

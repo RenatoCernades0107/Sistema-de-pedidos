@@ -285,7 +285,7 @@ test("una cotización pasa a pedido: se elige taller o tienda y se confirma en O
   await expect(page.getByLabel("Buscar producto")).toHaveCount(0);
 
   // Taller o tienda no viene elegido: sin elegirlo no se registra.
-  const destino = page.getByRole("group", { name: "¿Para dónde va el pedido?" });
+  const destino = page.getByRole("group", { name: "Área que lo atiende" });
   await expect(destino.getByRole("button", { name: /Taller/ })).toHaveAttribute("aria-pressed", "false");
   await expect(destino.getByRole("button", { name: /Tienda/ })).toHaveAttribute("aria-pressed", "false");
 
@@ -323,7 +323,7 @@ test("si Odoo no confirma, el pedido se registra igual y se confirma después", 
 
   await page.goto(`/pedidos/nuevo?cotizacion=${id}`);
   await page
-    .getByRole("group", { name: "¿Para dónde va el pedido?" })
+    .getByRole("group", { name: "Área que lo atiende" })
     .getByRole("button", { name: /Taller/ })
     .click();
   await page.getByLabel("Fecha prometida").fill(manana());

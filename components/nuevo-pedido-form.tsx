@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
@@ -8,7 +7,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowLeft, Factory, FileText, Package, Scissors, Store, Upload, X } from "lucide-react";
+import { Factory, FileText, NotebookPen, Package, Scissors, Store, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { useStore } from "@/lib/store";
 import { subirAdjuntos } from "@/lib/adjuntos-navegador";
@@ -36,6 +35,10 @@ import {
 import type { ClienteOdoo, ProductoOdoo } from "@/lib/odoo/tipos";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { BarraEnvio } from "@/components/ui/barra-envio";
+import { CabeceraFormulario } from "@/components/ui/cabecera-formulario";
+import { Seccion } from "@/components/ui/seccion";
+import { useAvisoSalida } from "@/lib/use-aviso-salida";
 import { Input } from "@/components/ui/input";
 import { Campo, Opciones } from "@/components/ui/campo";
 import { Textarea } from "@/components/ui/textarea";
@@ -74,7 +77,19 @@ export interface DesdeCotizacion {
   totalEnOdoo: boolean;
 }
 
-/** Las dos respuestas a "¿para dónde va?". */
+/** Los campos que pueden fallar, en el orden en que aparecen en pantalla. */
+const ORDEN_ERRORES = [
+  "ubicacion",
+  "departamentoId",
+  "numeroDocumento",
+  "direccion",
+  "fechaPrometida",
+  "abono",
+  "plazoCredito",
+  "notas",
+] as const;
+
+/** Las dos respuestas a "¿qué área lo atiende?". */
 const DESTINOS = [
   { valor: "taller", label: "Taller", icono: Factory, ayuda: "Hay que fabricarlo o cortarlo" },
   { valor: "tienda", label: "Tienda", icono: Store, ayuda: "Se atiende y despacha desde tienda" },
@@ -96,6 +111,29 @@ interface ArchivoElegido {
 }
 
 const GENERAL = "general";
+
+const ID_FORM = "form-nuevo-pedido";
+
+/** Las fechas prometidas de siempre, a un toque. */
+const ATAJOS_FECHA = [
+  { dias: 0, label: "Hoy" },
+  { dias: 1, label: "Mañana" },
+  { dias: 3, label: "En 3 días" },
+  { dias: 7, label: "En una semana" },
+] as const;
+
+const conDiaDeSemana = new Intl.DateTimeFormat("es-PE", {
+  weekday: "long",
+  day: "numeric",
+  month: "long",
+  timeZone: "UTC",
+});
+
+/** `2026-11-14` → "Sábado 14 de noviembre". */
+function diaConNombre(iso: string) {
+  const texto = conDiaDeSemana.format(new Date(`${iso}T00:00:00Z`));
+  return texto.charAt(0).toUpperCase() + texto.slice(1);
+}
 
 /**
  * Registrar un pedido. Se arma como una cotización —cliente y productos de
@@ -138,9 +176,17 @@ export function NuevoPedidoForm({
   /* Las indicaciones de cada ítem para el taller, por su clave. */
   const [indicaciones, setIndicaciones] = useState<Record<string, string>>({});
   const entradaArchivos = useRef<HTMLInputElement>(null);
+  const [arrastrando, setArrastrando] = useState(false);
+  const [conObservaciones, setConObservaciones] = useState(false);
+  const [registrado, setRegistrado] = useState(false);
+  const refForm = useRef<HTMLFormElement>(null);
+  /* Los controles que no son inputs registrados (botoneras, Select): cuando
+     fallan, react-hook-form no sabe llevar el foco hasta ellos. */
+  const bloqueDepartamento = useRef<HTMLDivElement>(null);
+  const bloquePlazo = useRef<HTMLDivElement>(null);
   /* "¿Para dónde va?" es una botonera, no un campo registrado: react-hook-form no
      sabe enfocarla cuando falta, y el error quedaría arriba, fuera de la vista. */
-  const bloqueDestino = useRef<HTMLElement>(null);
+  const bloqueDestino = useRef<HTMLDivElement>(null);
 
   const anadir = (elegidos: File[]) => {
     const buenos: File[] = [];
@@ -202,10 +248,14 @@ export function NuevoPedidoForm({
   const provincias = ubigeo.find((d) => d.id === departamentoId)?.provincias ?? [];
   const plazoCredito = Number(form.watch("plazoCredito")) || null;
   const abono = Number(form.watch("abono")) || 0;
+  const fechaPrometida = form.watch("fechaPrometida");
+  const direccion = form.watch("direccion") ?? "";
   const total = desdeCotizacion ? desdeCotizacion.total : totalReferencial(lineas);
+  const saldo = Math.max(0, total - abono);
+  const hoyIso = hoy();
 
   // P, año y mes: el correlativo lo pone Postgres al registrar.
-  const codigoPreview = `P${hoy().slice(2, 4)}${hoy().slice(5, 7)}-···`;
+  const codigoPreview = `P${hoyIso.slice(2, 4)}${hoyIso.slice(5, 7)}-···`;
 
   const documento = FORMATO_DOCUMENTO[tipoDocumento];
 
@@ -246,6 +296,48 @@ export function NuevoPedidoForm({
     else cantidades.current.delete(clave);
   }, []);
 
+  /* Lo que va completo, para marcar cada sección y decir en la barra qué falta. */
+  const problemaLineas = desdeCotizacion
+    ? null
+    : !cliente
+      ? "Elige el cliente."
+      : (problemaDeLineas(lineas)?.replace("Agrega al menos un producto.", "Agrega al menos un producto o un corte.") ?? null);
+  const trabajoListo = !problemaLineas;
+  const problemaEntrega = !ubicacion
+    ? "Elige el área que atiende el pedido."
+    : destino === "provincia" && !departamentoId
+      ? "Elige el departamento del envío."
+      : destino === "local" && entrega === "domicilio" && !direccion.trim()
+        ? "Falta la dirección de entrega."
+        : !fechaPrometida
+          ? "Pon la fecha prometida."
+          : fechaPrometida < hoyIso
+            ? "La fecha prometida ya pasó."
+            : null;
+  const entregaLista = !problemaEntrega;
+  const problemaPago =
+    tipoPago === "credito" && !plazoCredito
+      ? "Elige el plazo del crédito."
+      : tipoPago === "a_cuenta" && abono > total && total > 0
+        ? "El abono pasa el total."
+        : null;
+  const pagoListo = !problemaPago;
+  const faltante = problemaLineas ?? problemaEntrega ?? problemaPago;
+
+  const resumenBarra =
+    tipoPago === "a_cuenta" && abono > 0
+      ? [
+          { etiqueta: "Total", valor: money(total) },
+          { etiqueta: "Abono", valor: money(abono) },
+          { etiqueta: "Saldo", valor: money(saldo) },
+        ]
+      : [
+          { etiqueta: desdeCotizacion ? "Ítems" : lineas.length === 1 ? "Ítem" : "Ítems", valor: String(items.length) },
+          { etiqueta: "Total", valor: money(total) },
+        ];
+
+  useAvisoSalida(!registrado && (!!cliente || lineas.length > 0 || archivos.length > 0 || form.formState.isDirty));
+
   if (!permisos.crearPedido || !permisos.gestionarCotizaciones) {
     return (
       <div className="grid min-h-[60vh] place-items-center p-6 text-center">
@@ -260,11 +352,7 @@ export function NuevoPedidoForm({
   }
 
   /** Lo que falta del cliente y las líneas, que no pasan por react-hook-form. */
-  const problemaDeTrabajo = (): string | null => {
-    if (desdeCotizacion) return null;
-    if (!cliente) return "Elige el cliente.";
-    return problemaDeLineas(lineas)?.replace("Agrega al menos un producto.", "Agrega al menos un producto o un corte.") ?? null;
-  };
+  const problemaDeTrabajo = () => problemaLineas;
 
   const irAlTrabajo = () => {
     bloqueTrabajo.current?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -278,6 +366,12 @@ export function NuevoPedidoForm({
       if (problema) {
         setErrorLineas(problema);
         irAlTrabajo();
+        return;
+      }
+
+      // El abono no puede pasar lo que cuesta el pedido.
+      if (v.tipoPago === "a_cuenta" && Number(v.abono ?? 0) > total) {
+        form.setError("abono", { message: `No puede pasar el total (${money(total)}).` }, { shouldFocus: true });
         return;
       }
 
@@ -325,6 +419,7 @@ export function NuevoPedidoForm({
       );
       // El código lo pone Postgres, así que hasta que no conteste no hay a dónde ir.
       if (!resultado.ok || !resultado.codigo) return;
+      setRegistrado(true);
 
       /* Los planos van después del alta y no antes: hasta aquí no había pedido al
          que colgarlos. Si alguno falla, el pedido ya está registrado y se dice
@@ -352,99 +447,73 @@ export function NuevoPedidoForm({
         irAlTrabajo();
         return;
       }
-      if (!errores.ubicacion || !bloqueDestino.current) return;
-      bloqueDestino.current.scrollIntoView({ behavior: "smooth", block: "center" });
-      bloqueDestino.current.querySelector("button")?.focus({ preventScroll: true });
+      /* react-hook-form ya llevó el foco al primer input registrado que falló.
+         Si lo primero que falta (en el orden de la pantalla) es una botonera o
+         un Select, el foco va ahí, que si no queda fuera de la vista. */
+      const primero = ORDEN_ERRORES.find((campo) => errores[campo]);
+      const bloque =
+        primero === "ubicacion"
+          ? bloqueDestino.current
+          : primero === "departamentoId"
+            ? bloqueDepartamento.current
+            : primero === "plazoCredito"
+              ? bloquePlazo.current
+              : null;
+      if (!bloque) return;
+      bloque.scrollIntoView({ behavior: "smooth", block: "center" });
+      bloque.querySelector<HTMLElement>("button, [role=combobox]")?.focus({ preventScroll: true });
     },
   );
 
   return (
     <div className="px-4 py-5 md:px-6 md:py-6">
-      <Button
-        render={<Link href={volverA} />}
-        nativeButton={false}
-        variant="ghost"
-        size="sm"
-        className="text-muted-foreground -ml-2 mb-3 gap-1.5"
-      >
-        <ArrowLeft className="size-3.5" />
-        {desdeCotizacion ? `Volver a ${desdeCotizacion.referencia}` : "Cancelar"}
-      </Button>
-
-      <header className="mb-5 flex flex-wrap items-end gap-4">
-        <div>
-          {desdeCotizacion && (
-            <p className="eyebrow flex items-center gap-1.5">
+      <CabeceraFormulario
+        volverA={volverA}
+        volverTexto={desdeCotizacion ? `Volver a ${desdeCotizacion.referencia}` : "Pedidos"}
+        eyebrow={
+          desdeCotizacion && (
+            <>
               <FileText className="size-3" />
               Desde la cotización {desdeCotizacion.referencia}
+            </>
+          )
+        }
+        titulo="Nuevo pedido"
+        subtitulo={
+          <>
+            Los campos marcados con <span className="text-[#ffc200]">*</span> son obligatorios.
+          </>
+        }
+        lateral={
+          <div className="text-right">
+            <p className="text-2xs font-medium tracking-[0.08em] text-white/65 uppercase">Código que se generará</p>
+            <p className="tnum mt-1 inline-block rounded-md bg-[#ffc200] px-2 py-0.5 text-sm font-semibold text-[#3b2a00]">
+              {codigoPreview}
             </p>
-          )}
-          <h1 className="text-xl font-semibold tracking-tight">Nuevo pedido</h1>
-          <p className="text-muted-foreground mt-0.5 text-sm">
-            Los campos marcados con <span className="text-destructive">*</span> son obligatorios.
-          </p>
-        </div>
-        <div className="ml-auto text-right">
-          <p className="eyebrow">Código que se generará</p>
-          <p className="text-primary mt-0.5 text-sm font-medium tabular-nums">{codigoPreview}</p>
-        </div>
-      </header>
+          </div>
+        }
+      />
 
       <form
+        id={ID_FORM}
+        ref={refForm}
         onSubmit={onSubmit}
         noValidate
-        className="flex max-w-3xl flex-col gap-4"
+        className="relative -mt-10 flex max-w-3xl flex-col gap-4"
         onKeyDown={(e) => {
+          // Ctrl/⌘ + Enter registra desde cualquier campo, como en la cotización.
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            refForm.current?.requestSubmit();
+            return;
+          }
           // Enter en un buscador o en una cantidad no envía el pedido.
           if (e.key === "Enter" && !(e.target instanceof HTMLTextAreaElement) && !(e.target instanceof HTMLButtonElement)) {
             e.preventDefault();
           }
         }}
       >
-        <section ref={bloqueDestino} className="bg-card rounded-xl border p-4">
-          <Campo
-            grupo
-            label="¿Para dónde va el pedido?"
-            requerido
-            ayuda="Decide si aparece en la vista del taller o en la de la tienda."
-            error={form.formState.errors.ubicacion?.message}
-          >
-            <div className="grid gap-2 sm:grid-cols-2">
-              {DESTINOS.map(({ valor, label, icono: Icono, ayuda }) => {
-                const activo = ubicacion === valor;
-                return (
-                  <button
-                    key={valor}
-                    type="button"
-                    aria-pressed={activo}
-                    onClick={() => form.setValue("ubicacion", valor, { shouldValidate: true })}
-                    className={cn(
-                      "flex items-center gap-3 rounded-lg border p-3 text-left transition-colors",
-                      "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
-                      activo ? "border-primary/50 bg-primary/8" : "hover:border-foreground/20",
-                      form.formState.errors.ubicacion && !activo && "border-destructive/40",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "grid size-9 shrink-0 place-items-center rounded-md",
-                        activo ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
-                      )}
-                    >
-                      <Icono className="size-4" />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block text-sm font-medium">{label}</span>
-                      <span className="text-muted-foreground block text-xs">{ayuda}</span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </Campo>
-        </section>
-
-        <Seccion n={1} titulo="Cliente y productos" refSeccion={bloqueTrabajo}>
+        <Seccion n={1} titulo="Cliente y productos" refSeccion={bloqueTrabajo} completa={trabajoListo}>
           {desdeCotizacion ? (
             <DeLaCotizacion
               d={desdeCotizacion}
@@ -508,116 +577,53 @@ export function NuevoPedidoForm({
           )}
         </Seccion>
 
-        <Seccion n={2} titulo="Trabajo">
-          <Campo
-            grupo
-            label="Archivos"
-            ayuda="Planos, PDF o imágenes. Hasta 10 MB cada uno. Cada archivo puede ser de un ítem o de todo el pedido."
-          >
-            <div
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                anadir(Array.from(e.dataTransfer.files));
-              }}
-              className="text-muted-foreground flex flex-col items-center justify-center rounded-lg border border-dashed p-4 text-center text-sm"
+        <Seccion n={2} titulo="Entrega" completa={entregaLista}>
+          <div ref={bloqueDestino} className="scroll-mt-24">
+            <Campo
+              grupo
+              label="Área que lo atiende"
+              requerido
+              ayuda="Decide si aparece en la vista del taller o en la de la tienda."
+              error={form.formState.errors.ubicacion?.message}
             >
-              <Upload className="mb-2 size-4 opacity-50" />
-              Arrastra planos, PDF o imágenes
-              <input
-                ref={entradaArchivos}
-                type="file"
-                multiple
-                accept={ACEPTA}
-                className="sr-only"
-                aria-label="Elegir archivos"
-                onChange={(e) => {
-                  anadir(Array.from(e.target.files ?? []));
-                  e.target.value = "";
-                }}
-              />
-              <div className="mt-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => entradaArchivos.current?.click()}>
-                  Elegir archivos
-                </Button>
-              </div>
-            </div>
-
-            {archivos.length > 0 && (
-              <ul className="mt-2 flex flex-col gap-1.5" aria-label="Archivos por subir">
-                {archivos.map((elegido) => (
-                  <li
-                    key={`${elegido.archivo.name}-${elegido.archivo.size}`}
-                    className="bg-muted/40 flex flex-wrap items-center gap-2 rounded-md py-1 pr-1 pl-2"
-                  >
-                    <span className="min-w-0 flex-1 truncate text-xs">{elegido.archivo.name}</span>
-                    <Select
-                      value={elegido.itemClave ?? GENERAL}
-                      onValueChange={(v) =>
-                        v &&
-                        setArchivos((previos) =>
-                          previos.map((p) => (p === elegido ? { ...p, itemClave: v === GENERAL ? null : v } : p)),
-                        )
-                      }
-                    >
-                      <SelectTrigger
-                        size="sm"
-                        className="w-52 max-w-full"
-                        aria-label={`¿De qué es ${elegido.archivo.name}?`}
-                      >
-                        <SelectValue>
-                          {elegido.itemClave
-                            ? `Ítem ${items.find((i) => i.clave === elegido.itemClave)?.posicion ?? "?"}`
-                            : "Todo el pedido"}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={GENERAL}>Todo el pedido</SelectItem>
-                        {items.map((i) => (
-                          <SelectItem key={i.clave} value={i.clave}>
-                            Ítem {i.posicion} · {i.nombre}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button
+              <div className="grid gap-2 sm:grid-cols-2">
+                {DESTINOS.map(({ valor, label, icono: Icono, ayuda }) => {
+                  const activo = ubicacion === valor;
+                  return (
+                    <button
+                      key={valor}
                       type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-6 shrink-0"
-                      aria-label={`Quitar ${elegido.archivo.name}`}
-                      onClick={() => setArchivos((previos) => previos.filter((p) => p !== elegido))}
+                      aria-pressed={activo}
+                      onClick={() => form.setValue("ubicacion", valor, { shouldValidate: true })}
+                      className={cn(
+                        "flex items-center gap-3 rounded-lg border p-3 text-left transition-colors",
+                        "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
+                        activo
+                          ? "border-primary bg-primary/[0.07] ring-primary ring-1"
+                          : "bg-card hover:border-primary/40 hover:bg-primary/[0.03]",
+                        form.formState.errors.ubicacion && !activo && "border-destructive/50",
+                      )}
                     >
-                      <X className="size-3" />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Campo>
+                      <span
+                        className={cn(
+                          "grid size-9 shrink-0 place-items-center rounded-md transition-colors",
+                          activo ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+                        )}
+                      >
+                        <Icono className="size-4" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium">{label}</span>
+                        <span className="text-muted-foreground block text-xs">{ayuda}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </Campo>
+          </div>
 
-          <Campo
-            label="Observaciones"
-            ayuda="Notas e incidencias del pedido. Lo que se produce va en los ítems y en las notas generales."
-          >
-            <Textarea
-              rows={2}
-              placeholder="Ej. el cliente pasa a revisar la muestra el lunes"
-              {...form.register("observaciones")}
-            />
-          </Campo>
-
-          <Campo
-            label="Notas generales"
-            ayuda="Lo que el taller tiene que saber de todo el pedido: acabados, pegado, cómo se entrega. Se suma al detalle."
-            error={form.formState.errors.notas?.message}
-          >
-            <Textarea rows={3} placeholder="Ej. bordes pulidos; entregar con film" {...form.register("notas")} />
-          </Campo>
-        </Seccion>
-
-        <Seccion n={3} titulo="Entrega" nota="Define si el pedido es local o de provincia">
-          <Campo grupo label="¿A dónde va?" requerido>
+          <Campo grupo label="Destino del envío" requerido>
             <Opciones
               valores={[destino]}
               onToggle={(v) => {
@@ -637,34 +643,36 @@ export function NuevoPedidoForm({
             {destino === "provincia" ? (
               <Condicional key="prov" titulo="Datos del envío a provincia">
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Campo
-                    label="Departamento"
-                    requerido
-                    error={form.formState.errors.departamentoId?.message}
-                  >
-                    <Select
-                      value={departamentoId ? String(departamentoId) : ""}
-                      onValueChange={(v) => {
-                        if (!v) return;
-                        form.setValue("departamentoId", Number(v), { shouldValidate: true });
-                        // Cambiar de departamento invalida la provincia anterior.
-                        form.setValue("provinciaId", undefined);
-                      }}
+                  <div ref={bloqueDepartamento} className="scroll-mt-24">
+                    <Campo
+                      label="Departamento"
+                      requerido
+                      error={form.formState.errors.departamentoId?.message}
                     >
-                      <SelectTrigger className="w-full">
-                        <SelectValue>
-                          {ubigeo.find((d) => d.id === departamentoId)?.nombre ?? "Selecciona…"}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {ubigeo.map((d) => (
-                          <SelectItem key={d.id} value={String(d.id)}>
-                            {d.nombre}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Campo>
+                      <Select
+                        value={departamentoId ? String(departamentoId) : ""}
+                        onValueChange={(v) => {
+                          if (!v) return;
+                          form.setValue("departamentoId", Number(v), { shouldValidate: true });
+                          // Cambiar de departamento invalida la provincia anterior.
+                          form.setValue("provinciaId", undefined);
+                        }}
+                      >
+                        <SelectTrigger className="w-full" aria-invalid={!!form.formState.errors.departamentoId}>
+                          <SelectValue>
+                            {ubigeo.find((d) => d.id === departamentoId)?.nombre ?? "Selecciona…"}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {ubigeo.map((d) => (
+                            <SelectItem key={d.id} value={String(d.id)}>
+                              {d.nombre}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Campo>
+                  </div>
                   <Campo label="Provincia">
                     <Select
                       value={provinciaId ? String(provinciaId) : ""}
@@ -741,13 +749,16 @@ export function NuevoPedidoForm({
                     />
                   </Campo>
                   <Campo label="Monto del flete">
-                    <Input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      className="tnum"
-                      {...form.register("flete")}
-                    />
+                    <ConSoles>
+                      <Input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        placeholder="0.00"
+                        className="tnum pl-8"
+                        {...form.register("flete")}
+                      />
+                    </ConSoles>
                   </Campo>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -777,13 +788,13 @@ export function NuevoPedidoForm({
                 transition={{ duration: 0.18 }}
                 className="flex flex-col gap-4 overflow-hidden"
               >
-                <Campo grupo label="Lugar de entrega" requerido>
+                <Campo grupo label="Cómo se entrega" requerido>
                   <Opciones
                     valores={[entrega]}
                     onToggle={(v) => form.setValue("entrega", v as Campos["entrega"])}
                     opciones={[
-                      { valor: "tienda", label: "En tienda" },
-                      { valor: "taller", label: "En taller" },
+                      { valor: "tienda", label: "Recoge en tienda" },
+                      { valor: "taller", label: "Recoge en taller" },
                       { valor: "domicilio", label: "A domicilio" },
                     ]}
                   />
@@ -810,19 +821,49 @@ export function NuevoPedidoForm({
           <Campo
             label="Fecha prometida"
             requerido
-            ayuda="El taller ordena su trabajo por este campo."
+            ayuda={
+              fechaPrometida && fechaPrometida >= hoyIso
+                ? `${diaConNombre(fechaPrometida)}. El taller ordena su trabajo por esta fecha.`
+                : "El taller ordena su trabajo por esta fecha."
+            }
             error={form.formState.errors.fechaPrometida?.message}
           >
-            <Input
-              type="date"
-              className="tnum max-w-48"
-              aria-invalid={!!form.formState.errors.fechaPrometida}
-              {...form.register("fechaPrometida")}
-            />
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                type="date"
+                min={hoyIso}
+                className="tnum w-44"
+                aria-invalid={!!form.formState.errors.fechaPrometida}
+                {...form.register("fechaPrometida")}
+              />
+              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Atajos de fecha">
+                {ATAJOS_FECHA.map(({ dias, label }) => {
+                  const valor = sumarDias(hoyIso, dias);
+                  const activo = fechaPrometida === valor;
+                  return (
+                    <button
+                      key={dias}
+                      type="button"
+                      aria-pressed={activo}
+                      onClick={() => form.setValue("fechaPrometida", valor, { shouldValidate: true, shouldTouch: true })}
+                      className={cn(
+                        "rounded-full border px-2.5 py-1 text-xs transition-colors",
+                        "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
+                        activo
+                          ? "border-primary bg-primary text-primary-foreground font-medium"
+                          : "bg-card text-foreground/80 hover:border-primary/40 hover:text-foreground",
+                      )}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </Campo>
         </Seccion>
 
-        <Seccion n={4} titulo="Pago">
+        <Seccion n={3} titulo="Pago" completa={pagoListo}>
           <Campo grupo label="Tipo de pago" requerido>
             <Opciones
               valores={[tipoPago]}
@@ -831,36 +872,52 @@ export function NuevoPedidoForm({
             />
           </Campo>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="bg-muted/60 grid gap-4 rounded-lg border p-3 sm:grid-cols-3">
             <div className="flex flex-col gap-1.5">
               <p className="text-xs font-medium">Total</p>
-              <p className="tnum flex h-9 items-center text-base font-semibold" data-testid="total-pedido">
+              <p className="tnum flex h-9 items-center text-lg font-semibold" data-testid="total-pedido">
                 {money(total)}
               </p>
-              <p className="text-muted-foreground text-xs">
-                {desdeCotizacion?.totalEnOdoo
-                  ? "El de la cotización en Odoo, con impuestos."
-                  : "Sin impuestos. El definitivo lo pone Odoo al registrar."}
-              </p>
+              {desdeCotizacion?.totalEnOdoo && (
+                <p className="text-muted-foreground text-xs">El de la cotización en Odoo.</p>
+              )}
             </div>
 
             {/* El abono inicial solo tiene sentido a cuenta: al contado se cobra
                 el total y al crédito no entra nada todavía. */}
             {tipoPago === "a_cuenta" && (
-              <Campo
-                label="Abono inicial"
-                ayuda="Opcional. El saldo se calcula solo."
-                error={form.formState.errors.abono?.message}
-              >
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  className="tnum"
-                  aria-invalid={!!form.formState.errors.abono}
-                  {...form.register("abono")}
-                />
-              </Campo>
+              <>
+                <Campo
+                  label="Abono inicial"
+                  ayuda="Opcional."
+                  error={form.formState.errors.abono?.message}
+                >
+                  <ConSoles>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      placeholder="0.00"
+                      className="tnum bg-card pl-8"
+                      aria-invalid={!!form.formState.errors.abono}
+                      {...form.register("abono")}
+                    />
+                  </ConSoles>
+                </Campo>
+                <div className="flex flex-col gap-1.5">
+                  <p className="text-xs font-medium">Saldo</p>
+                  <p
+                    className={cn(
+                      "tnum flex h-9 items-center text-lg font-semibold",
+                      saldo > 0 ? "text-saldo-alerta" : "text-st-entregado",
+                    )}
+                    data-testid="saldo-pedido"
+                  >
+                    {money(saldo)}
+                  </p>
+                  <p className="text-muted-foreground text-xs">Lo que queda por cobrar.</p>
+                </div>
+              </>
             )}
           </div>
 
@@ -872,26 +929,28 @@ export function NuevoPedidoForm({
           )}
 
           {tipoPago === "credito" && (
-            <Campo
-              grupo
-              label="Plazo del crédito"
-              requerido
-              ayuda={
-                plazoCredito
-                  ? `Vence el ${fechaCompleta(sumarDias(hoy(), plazoCredito))}, contado desde hoy.`
-                  : "Días desde el registro del pedido."
-              }
-              error={form.formState.errors.plazoCredito?.message}
-            >
-              <Opciones
-                valores={plazoCredito ? [String(plazoCredito)] : []}
-                onToggle={(v) => form.setValue("plazoCredito", Number(v))}
-                opciones={PLAZOS.map((d) => ({
-                  valor: String(d),
-                  label: d === 1 ? "1 día" : `${d} días`,
-                }))}
-              />
-            </Campo>
+            <div ref={bloquePlazo} className="scroll-mt-24">
+              <Campo
+                grupo
+                label="Plazo del crédito"
+                requerido
+                ayuda={
+                  plazoCredito
+                    ? `Vence el ${fechaCompleta(sumarDias(hoyIso, plazoCredito))}, contado desde hoy.`
+                    : "Días desde el registro del pedido."
+                }
+                error={form.formState.errors.plazoCredito?.message}
+              >
+                <Opciones
+                  valores={plazoCredito ? [String(plazoCredito)] : []}
+                  onToggle={(v) => form.setValue("plazoCredito", Number(v), { shouldValidate: true })}
+                  opciones={PLAZOS.map((d) => ({
+                    valor: String(d),
+                    label: d === 1 ? "1 día" : `${d} días`,
+                  }))}
+                />
+              </Campo>
+            </div>
           )}
 
           {cobraAhora && (
@@ -900,7 +959,7 @@ export function NuevoPedidoForm({
               ayuda={
                 tipoPago === "contado"
                   ? `Por dónde entran los ${money(total)}.`
-                  : `Por dónde entra el abono de S/ ${abono.toFixed(2)}.`
+                  : `Por dónde entra el abono de ${money(abono)}.`
               }
             >
               <Select
@@ -922,10 +981,127 @@ export function NuevoPedidoForm({
           )}
         </Seccion>
 
-        <Seccion n={5} titulo="Producción">
+        <Seccion n={4} titulo="Para el taller" nota="Opcional">
+          <Campo
+            label="Notas para el taller"
+            ayuda="Lo que el taller tiene que saber de todo el pedido: acabados, pegado, cómo se entrega. Lo de un solo ítem va en sus indicaciones."
+            error={form.formState.errors.notas?.message}
+          >
+            <Textarea rows={3} placeholder="Ej. bordes pulidos; entregar con film" {...form.register("notas")} />
+          </Campo>
+
+          <Campo
+            grupo
+            label="Archivos"
+            ayuda="Planos, PDF o imágenes. Hasta 10 MB cada uno. Cada archivo puede ser de un ítem o de todo el pedido."
+          >
+            <div
+              role="button"
+              tabIndex={0}
+              aria-label="Elegir o arrastrar archivos"
+              onClick={() => entradaArchivos.current?.click()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  entradaArchivos.current?.click();
+                }
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setArrastrando(true);
+              }}
+              onDragLeave={() => setArrastrando(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setArrastrando(false);
+                anadir(Array.from(e.dataTransfer.files));
+              }}
+              className={cn(
+                "text-muted-foreground flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed p-5 text-center text-sm transition-colors",
+                "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
+                arrastrando
+                  ? "border-primary bg-primary/[0.06] text-primary"
+                  : "hover:border-primary/40 hover:bg-primary/[0.03]",
+              )}
+            >
+              <span className="bg-primary/10 text-primary mb-2 grid size-9 place-items-center rounded-full">
+                <Upload className="size-4" />
+              </span>
+              <span>
+                <span className="text-primary font-medium">Elige archivos</span> o arrástralos aquí
+              </span>
+            </div>
+              <input
+                ref={entradaArchivos}
+                type="file"
+                multiple
+                accept={ACEPTA}
+                className="sr-only"
+                aria-label="Elegir archivos"
+                tabIndex={-1}
+                onChange={(e) => {
+                  anadir(Array.from(e.target.files ?? []));
+                  e.target.value = "";
+                }}
+              />
+
+            {archivos.length > 0 && (
+              <ul className="mt-2 flex flex-col gap-1.5" aria-label="Archivos por subir">
+                {archivos.map((elegido) => (
+                  <li
+                    key={`${elegido.archivo.name}-${elegido.archivo.size}`}
+                    className="bg-muted/60 flex flex-wrap items-center gap-2 rounded-md border py-1 pr-1 pl-2"
+                  >
+                    <FileText className="text-primary size-3.5 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate text-xs">{elegido.archivo.name}</span>
+                    <Select
+                      value={elegido.itemClave ?? GENERAL}
+                      onValueChange={(v) =>
+                        v &&
+                        setArchivos((previos) =>
+                          previos.map((p) => (p === elegido ? { ...p, itemClave: v === GENERAL ? null : v } : p)),
+                        )
+                      }
+                    >
+                      <SelectTrigger
+                        size="sm"
+                        className="bg-card w-52 max-w-full"
+                        aria-label={`¿De qué es ${elegido.archivo.name}?`}
+                      >
+                        <SelectValue>
+                          {elegido.itemClave
+                            ? `Ítem ${items.find((i) => i.clave === elegido.itemClave)?.posicion ?? "?"}`
+                            : "Todo el pedido"}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={GENERAL}>Todo el pedido</SelectItem>
+                        {items.map((i) => (
+                          <SelectItem key={i.clave} value={i.clave}>
+                            Ítem {i.posicion} · {i.nombre}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-6 shrink-0"
+                      aria-label={`Quitar ${elegido.archivo.name}`}
+                      onClick={() => setArchivos((previos) => previos.filter((p) => p !== elegido))}
+                    >
+                      <X className="size-3" />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Campo>
+
           <Campo
             label="Responsable en taller"
-            ayuda="Opcional al registrar. Logística o Administración lo asignan después."
+            ayuda="Logística o Administración lo pueden asignar después."
           >
             <Select
               value={form.watch("responsableId") ?? "sin"}
@@ -947,17 +1123,42 @@ export function NuevoPedidoForm({
               </SelectContent>
             </Select>
           </Campo>
-        </Seccion>
 
-        <div className="flex flex-wrap gap-2">
-          <Button type="submit" disabled={form.formState.isSubmitting || pendiente}>
-            {form.formState.isSubmitting ? "Registrando en Odoo…" : "Registrar pedido"}
-          </Button>
-          <Button type="button" variant="ghost" render={<Link href={volverA} />} nativeButton={false}>
-            Cancelar
-          </Button>
-        </div>
+          {conObservaciones ? (
+            <Campo
+              label="Observaciones internas"
+              ayuda="Notas e incidencias del pedido para la oficina; no son instrucciones de producción."
+            >
+              <Textarea
+                rows={2}
+                autoFocus={!form.getValues("observaciones")}
+                placeholder="Ej. el cliente pasa a revisar la muestra el lunes"
+                {...form.register("observaciones")}
+              />
+            </Campo>
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              className="text-muted-foreground -ml-2 gap-1 self-start"
+              onClick={() => setConObservaciones(true)}
+            >
+              <NotebookPen />
+              Agregar observación interna
+            </Button>
+          )}
+        </Seccion>
       </form>
+
+      <BarraEnvio
+        form={ID_FORM}
+        resumen={resumenBarra}
+        problema={faltante}
+        texto="Registrar pedido"
+        textoPendiente="Registrando en Odoo…"
+        pendiente={form.formState.isSubmitting || pendiente}
+      />
 
       {corte && (
         <EditorCorte
@@ -1058,30 +1259,15 @@ function DeLaCotizacion({
 
 /* ── Piezas del formulario ── */
 
-function Seccion({
-  n,
-  titulo,
-  nota,
-  refSeccion,
-  children,
-}: {
-  n: number;
-  titulo: string;
-  nota?: string;
-  refSeccion?: React.Ref<HTMLElement>;
-  children: React.ReactNode;
-}) {
+/** Un campo de dinero con el "S/" delante, como el precio de las líneas. */
+function ConSoles({ children }: { children: React.ReactNode }) {
   return (
-    <section ref={refSeccion} className="bg-card rounded-xl border">
-      <header className="bg-muted/40 flex items-center gap-2.5 border-b px-4 py-3">
-        <span className="bg-primary text-primary-foreground grid size-5 shrink-0 place-items-center rounded-full text-2xs font-semibold">
-          {n}
-        </span>
-        <h2 className="text-sm font-medium">{titulo}</h2>
-        {nota && <span className="text-muted-foreground ml-auto text-xs">{nota}</span>}
-      </header>
-      <div className="flex flex-col gap-4 p-4">{children}</div>
-    </section>
+    <div className="relative">
+      <span className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-sm">
+        S/
+      </span>
+      {children}
+    </div>
   );
 }
 
