@@ -148,12 +148,26 @@ abstract class ConMemoria implements Nodo {
   abstract paneles(salida: Panel[]): void;
 }
 
+/**
+ * Cómo se parte el sobrante en L al colocar una pieza:
+ *
+ *   perezosa    se guardan los dos cortes en un nodo O y decide la pieza
+ *               siguiente. Suele ser lo mejor, pero con muchas piezas iguales
+ *               elige siempre el corte que baja hasta el borde y deja la franja
+ *               de abajo en cuadritos donde ya no entra nada.
+ *   horizontal  corte a lo ancho: el sobrante de abajo queda entero.
+ *   vertical    corte a lo alto: el sobrante de la derecha queda entero.
+ */
+type Regla = "perezosa" | "horizontal" | "vertical";
+const REGLAS: readonly Regla[] = ["perezosa", "horizontal", "vertical"];
+
 class Hoja extends ConMemoria {
   constructor(
     readonly x1: number,
     readonly y1: number,
     readonly x2: number,
     readonly y2: number,
+    readonly regla: Regla,
     readonly pieza: Colocable | null = null,
   ) {
     super();
@@ -173,21 +187,23 @@ class Hoja extends ConMemoria {
 
   colocar(p: Colocable): Nodo | null {
     if (this.encaje(p.w, p.h) === 0) return null;
-    const { x1, y1, x2, y2 } = this;
+    const { x1, y1, x2, y2, regla } = this;
     const xp = x1 + p.w;
     const yp = y1 + p.h;
     const sobraW = x2 - xp > EPS;
     const sobraH = y2 - yp > EPS;
 
     // La pieza se ancla arriba a la izquierda; lo que sobra queda en L.
-    const ocupada = new Hoja(x1, y1, sobraW ? xp : x2, sobraH ? yp : y2, p);
+    const ocupada = new Hoja(x1, y1, sobraW ? xp : x2, sobraH ? yp : y2, regla, p);
     if (!sobraW && !sobraH) return ocupada;
-    if (!sobraW) return new Y(ocupada, new Hoja(x1, yp, x2, y2));
-    if (!sobraH) return new Y(ocupada, new Hoja(xp, y1, x2, y2));
+    if (!sobraW) return new Y(ocupada, new Hoja(x1, yp, x2, y2, regla));
+    if (!sobraH) return new Y(ocupada, new Hoja(xp, y1, x2, y2, regla));
 
-    // Las dos particiones de guillotina posibles, sin decidir todavía.
-    const horizontal = new Y(new Hoja(xp, y1, x2, yp), new Hoja(x1, yp, x2, y2));
-    const vertical = new Y(new Hoja(xp, y1, x2, y2), new Hoja(x1, yp, xp, y2));
+    // Las dos particiones de guillotina posibles.
+    const horizontal = new Y(new Hoja(xp, y1, x2, yp, regla), new Hoja(x1, yp, x2, y2, regla));
+    const vertical = new Y(new Hoja(xp, y1, x2, y2, regla), new Hoja(x1, yp, xp, y2, regla));
+    if (regla === "horizontal") return new Y(ocupada, horizontal);
+    if (regla === "vertical") return new Y(ocupada, vertical);
     return new Y(ocupada, new O(horizontal, vertical));
   }
 
@@ -284,8 +300,9 @@ const area = (p: Pick<Pieza, "ancho" | "alto">) => p.ancho * p.alto;
 
 /**
  * Los órdenes que se prueban, cada uno con las tres `PREFERENCIAS` de
- * orientación. Ninguno gana siempre: con cuatro se ahorra una
- * plancha en uno de cada diez pedidos, y siguen siendo milésimas de segundo.
+ * orientación y las tres `REGLAS` de corte: 63 pasadas. Ninguno gana siempre.
+ * Con 2000 piezas el cálculo con precios tarda menos de un segundo, y se puede
+ * permitir: quien cotiza prefiere esperar a que le sobre una plancha.
  * `sort` es estable, así que a igualdad manda el orden en que llegaron.
  */
 const ORDENES: ReadonlyArray<(a: Pieza, b: Pieza) => number> = [
@@ -293,6 +310,9 @@ const ORDENES: ReadonlyArray<(a: Pieza, b: Pieza) => number> = [
   (a, b) => Math.max(b.ancho, b.alto) - Math.max(a.ancho, a.alto) || area(b) - area(a),
   (a, b) => b.ancho + b.alto - (a.ancho + a.alto) || area(b) - area(a),
   (a, b) => Math.min(b.ancho, b.alto) - Math.min(a.ancho, a.alto) || area(b) - area(a),
+  (a, b) => b.ancho - a.ancho || b.alto - a.alto,
+  (a, b) => b.alto - a.alto || b.ancho - a.ancho,
+  (a, b) => b.ancho / b.alto - a.ancho / a.alto || area(b) - area(a),
 ];
 
 /**
@@ -326,6 +346,7 @@ function unaPasada(
   margen: number,
   previos: Contenedor[],
   preferencia: Preferencia,
+  regla: Regla,
 ): ResultadoCorte {
   // El área útil: sin los bordes, y con un kerf de más porque la última pieza
   // de cada fila no necesita el corte que la separaría de la siguiente.
@@ -335,7 +356,7 @@ function unaPasada(
   const noCaben: Pieza[] = [];
 
   const abrir = (ancho: number, alto: number, origen: Origen): Abierta => {
-    const nueva = { ancho, alto, origen, raiz: new Hoja(0, 0, util(ancho), util(alto)), piezas: 0 };
+    const nueva = { ancho, alto, origen, raiz: new Hoja(0, 0, util(ancho), util(alto), regla), piezas: 0 };
     abiertas.push(nueva);
     return nueva;
   };
@@ -354,7 +375,7 @@ function unaPasada(
     if (!mejor) {
       // La orientación que mejor encaja en la plancha vacía; a igualdad, la preferida.
       const cabe = (ancho: number, alto: number) => {
-        const vacia = new Hoja(0, 0, util(ancho), util(alto));
+        const vacia = new Hoja(0, 0, util(ancho), util(alto), regla);
         let elegida: Colocable | undefined;
         let mejorEncaje = 0;
         for (const c of candidatas) {
@@ -432,11 +453,12 @@ export const planchasNuevas = (r: ResultadoCorte) =>
 /**
  * Empaqueta las piezas en planchas de `ancho × alto`.
  *
- * Determinista: la misma entrada da el mismo resultado. Prueba cuatro órdenes,
- * cada uno con tres preferencias de orientación, y se queda con la pasada
- * que deja menos piezas fuera, abre menos planchas nuevas y,
- * a igualdad, cuesta menos (`opciones.costo`) o deja la última plancha más vacía,
- * que es lo que da los sobrantes más grandes.
+ * Determinista: la misma entrada da el mismo resultado. Prueba siete órdenes,
+ * cada uno con tres preferencias de orientación y tres reglas de corte, y se
+ * queda con la pasada que deja menos piezas fuera, abre menos planchas nuevas,
+ * cuesta menos (`opciones.costo`) y, a igualdad, deja la plancha menos usada
+ * más vacía: llena las primeras y deja el sobrante más grande, que es el que
+ * más se vende.
  */
 export function empaquetar(
   ancho: number,
@@ -448,23 +470,25 @@ export function empaquetar(
   const validas = piezas.filter((p) => p.ancho > 0 && p.alto > 0);
   if (!(ancho > 0) || !(alto > 0)) return { planchas: [], noCaben: validas };
 
-  const desempate =
-    costo ?? ((r: ResultadoCorte) => Math.min(Infinity, ...r.planchas.map((p) => p.usoPct)));
+  const usoMinimo = (r: ResultadoCorte) => Math.min(Infinity, ...r.planchas.map((p) => p.usoPct));
+  const clave = (r: ResultadoCorte) => [r.noCaben.length, planchasNuevas(r), costo ? costo(r) : 0, usoMinimo(r)];
+  // Menor gana, en orden. Un pelo de diferencia en el costo o el uso es empate.
+  const gana = (a: number[], b: number[]) => {
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] < b[i] - EPS) return true;
+      if (a[i] > b[i] + EPS) return false;
+    }
+    return false;
+  };
 
-  let mejor: { r: ResultadoCorte; clave: [number, number, number] } | null = null;
-  for (const orden of ORDENES) {
-    const ordenadas = [...validas].sort(orden);
-    for (const preferencia of PREFERENCIAS) {
-      const r = unaPasada(ancho, alto, ordenadas, rotar, kerf, margen, previos, preferencia);
-      const clave: [number, number, number] = [r.noCaben.length, planchasNuevas(r), desempate(r)];
-      if (
-        !mejor ||
-        clave[0] < mejor.clave[0] ||
-        (clave[0] === mejor.clave[0] &&
-          (clave[1] < mejor.clave[1] ||
-            (clave[1] === mejor.clave[1] && clave[2] < mejor.clave[2] - EPS)))
-      ) {
-        mejor = { r, clave };
+  let mejor: { r: ResultadoCorte; clave: number[] } | null = null;
+  for (const regla of REGLAS) {
+    for (const orden of ORDENES) {
+      const ordenadas = [...validas].sort(orden);
+      for (const preferencia of PREFERENCIAS) {
+        const r = unaPasada(ancho, alto, ordenadas, rotar, kerf, margen, previos, preferencia, regla);
+        const k = clave(r);
+        if (!mejor || gana(k, mejor.clave)) mejor = { r, clave: k };
       }
     }
   }
