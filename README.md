@@ -207,6 +207,15 @@ E2E_URL=https://<dominio>.vercel.app npm run e2e
   primer corte cuando se cobra una fracción y lo que vuelve al almacén. Tiene casillas para ir
   marcando y un hueco para las planchas usadas. No muestra precios a nadie. Al imprimir se esconde el
   menú de la app y el tema oscuro no aplica: `globals.css` solo lo activa en pantalla.
+- **DXF para RDWorks** (`lib/cortes/dxf.ts`, botón en cada corte láser de la hoja de corte): descarga
+  las planchas del corte en un solo DXF R12 en milímetros, solo con `LINE`, una al lado de la otra y
+  separadas 50 mm. Se abre en RDWorks con *Archivo → Importar*. Cada capa tiene su color, que en
+  RDWorks es su capa: **rojo** `CORTE` (los contornos; un borde que comparten dos piezas sale una
+  sola vez y lo que cae sobre el canto no se corta), **verde** `GRABADO` (el número de la pieza con
+  trazos, para marcar con poca potencia), **azul** `PRIMER_CORTE` (separa lo que se cobra del
+  sobrante; va al final) y **gris** `PLANCHA` (el contorno de referencia, con la salida apagada). Los
+  contornos se corren medio *grosor del corte láser* de Configuración hacia afuera, para que la pieza
+  salga a su medida, sin pisar nunca a una vecina.
 - **Sobrantes** (`/sobrantes`, los tres roles): los pedazos de plancha que vuelven al almacén. En Odoo
   cada uno es un lote del producto *Sobrante* de su material (`SOB-<código de la plancha más chica del
   grupo>`, almacenable y con lotes), con una unidad en stock y su medida en `x_largo` / `x_ancho`. La

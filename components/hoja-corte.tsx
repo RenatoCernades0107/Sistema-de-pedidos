@@ -12,6 +12,7 @@ import { materialDeTerminado, tituloTerminado } from "@/lib/terminados/guardado"
 import { indicacionesDe, origenDePlancha, piezasDePlancha } from "@/lib/hoja-corte";
 import { planchasCalculadas, type LineaDePedido } from "@/lib/pedido-lineas";
 import { LeyendaPlano, PlanoCorte } from "@/components/cortes/plano-corte";
+import { DescargarDxf } from "@/components/cortes/descargar-dxf";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -34,7 +35,16 @@ const Casilla = ({ className }: { className?: string }) => (
  * Se imprime sin el cromo de la app (`print:hidden` en `AppShell`) y siempre en
  * claro: el tema oscuro solo existe en pantalla (`globals.css`).
  */
-export function HojaCorte({ codigo, lineas }: { codigo: string; lineas: LineaDePedido[] }) {
+export function HojaCorte({
+  codigo,
+  lineas,
+  kerfLaserCm = 0,
+}: {
+  codigo: string;
+  lineas: LineaDePedido[];
+  /** El grosor del corte láser de la configuración: el DXF lo compensa. */
+  kerfLaserCm?: number;
+}) {
   const { pedido } = useStore();
   const p = pedido(codigo);
 
@@ -112,7 +122,16 @@ export function HojaCorte({ codigo, lineas }: { codigo: string; lineas: LineaDeP
         {cortes.length === 0 ? (
           <p className="text-muted-foreground py-8 text-center text-sm">Este pedido no tiene cortes.</p>
         ) : (
-          cortes.map((l, i) => <Corte key={l.posicion} linea={l} numero={i + 1} de={cortes.length} />)
+          cortes.map((l, i) => (
+            <Corte
+              key={l.posicion}
+              linea={l}
+              numero={i + 1}
+              de={cortes.length}
+              codigo={p.codigo}
+              kerfLaserCm={kerfLaserCm}
+            />
+          ))
         )}
 
         {otros.length > 0 && (
@@ -157,6 +176,8 @@ function vistaDe(l: LineaDePedido) {
     const c = l.corte;
     return {
       titulo: `${MODALIDADES[c.modalidad]} · ${materialDeCorte(c)}`,
+      nombreArchivo: [materialDeCorte(c)],
+      laser: c.modalidad === "laser",
       unidades: null as string | null,
       piezas: c.piezas.map((p) => ({ ...p, nombre: null as string | null })),
       formato: c.formato,
@@ -169,6 +190,9 @@ function vistaDe(l: LineaDePedido) {
   const c = t.corte!;
   return {
     titulo: `Producto terminado · ${tituloTerminado(t)}${t.material ? ` · ${materialDeTerminado(t.material)}` : ""}`,
+    nombreArchivo: [tituloTerminado(t)],
+    // Las piezas de un producto terminado se calculan siempre para láser.
+    laser: true,
     unidades: `${n(l.cantidad)} ${l.cantidad === 1 ? "unidad" : "unidades"}`,
     piezas: c.piezas.map((p) => ({ ...p, nombre: p.nombre as string | null })),
     formato: c.formato,
@@ -178,7 +202,19 @@ function vistaDe(l: LineaDePedido) {
   };
 }
 
-function Corte({ linea: l, numero, de }: { linea: LineaDePedido; numero: number; de: number }) {
+function Corte({
+  linea: l,
+  numero,
+  de,
+  codigo,
+  kerfLaserCm,
+}: {
+  linea: LineaDePedido;
+  numero: number;
+  de: number;
+  codigo: string;
+  kerfLaserCm: number;
+}) {
   const c = vistaDe(l);
   const piezas = totalPiezas(c.piezas);
   const hayFraccion = c.planchas.some((p) => p.cobro.factor < 1);
@@ -187,10 +223,19 @@ function Corte({ linea: l, numero, de }: { linea: LineaDePedido; numero: number;
   return (
     <section className="mt-6 flex flex-col gap-4" aria-labelledby={`hoja-corte-${l.posicion}`}>
       <div className="break-inside-avoid">
-        <h2 id={`hoja-corte-${l.posicion}`} className="text-base font-semibold">
-          {de > 1 && <span className="text-muted-foreground font-normal">Corte {numero} de {de} · </span>}
-          {c.titulo}
-        </h2>
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <h2 id={`hoja-corte-${l.posicion}`} className="text-base font-semibold">
+            {de > 1 && <span className="text-muted-foreground font-normal">Corte {numero} de {de} · </span>}
+            {c.titulo}
+          </h2>
+          {c.laser && (
+            <DescargarDxf
+              planchas={c.planchas}
+              kerfCm={kerfLaserCm}
+              nombre={[codigo, de > 1 ? `corte ${numero}` : null, ...c.nombreArchivo]}
+            />
+          )}
+        </div>
         <p className="text-muted-foreground mt-0.5 text-sm">
           {c.unidades && `${c.unidades}: `}
           {piezas} {piezas === 1 ? "pieza" : "piezas"} en {c.planchas.length}{" "}
