@@ -49,6 +49,8 @@ export function LineasPedido({
   const puedeAnotar = cortes.length > 0 && !odoo?.stockDescontado && !esTerminal(p.estado);
   const terminados = lineas.filter((l) => l.terminado);
   const puedeAnotarMateriales = terminados.length > 0 && !odoo?.stockDescontado && !esTerminal(p.estado);
+  // Los productos terminados con piezas calculadas también van en la hoja de corte.
+  const conHojaDeCorte = lineas.some((l) => l.corte || l.terminado?.corte);
 
   const anotarMateriales = (materiales: MaterialesAnotados) =>
     new Promise<acciones.Resultado>((resolver) =>
@@ -87,7 +89,7 @@ export function LineasPedido({
               Materiales usados
             </Button>
           )}
-          {cortes.length > 0 && (
+          {conHojaDeCorte && (
             <Button
               render={<Link href={`/pedidos/${encodeURIComponent(p.codigo)}/hoja-de-corte`} />}
               nativeButton={false}
