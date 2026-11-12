@@ -83,8 +83,8 @@ test("Administración registra un pedido con un producto y un corte, y Odoo lo r
   await page.getByRole("button", { name: "Registrar pedido" }).click();
   await expect(page.getByText("Elige si el pedido va para el taller o para la tienda")).toBeVisible();
 
-  await page.getByRole("group", { name: "¿Para dónde va el pedido?" }).getByRole("button", { name: /Taller/ }).click();
-  await page.getByLabel("Notas generales").fill("Bordes pulidos");
+  await page.getByRole("group", { name: "Área que lo atiende" }).getByRole("button", { name: /Taller/ }).click();
+  await page.getByLabel("Notas para el taller").fill("Bordes pulidos");
   await page.getByLabel("Abono inicial").fill("100");
   await page.getByRole("button", { name: "Registrar pedido" }).click();
 
@@ -125,7 +125,7 @@ test("Administración registra un pedido con un producto y un corte, y Odoo lo r
 test("sin cliente ni productos no se registra, y dice qué falta", async ({ page }) => {
   await entrar(page, "administracion");
   await page.goto("/pedidos/nuevo");
-  await page.getByRole("group", { name: "¿Para dónde va el pedido?" }).getByRole("button", { name: /Tienda/ }).click();
+  await page.getByRole("group", { name: "Área que lo atiende" }).getByRole("button", { name: /Tienda/ }).click();
   await page.getByLabel("Fecha prometida").fill(manana());
 
   await page.getByRole("button", { name: "Registrar pedido" }).click();

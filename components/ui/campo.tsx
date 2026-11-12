@@ -140,8 +140,8 @@ export function Opciones({
               "rounded-lg border px-3 py-1.5 text-sm transition-colors",
               "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
               activo
-                ? "border-primary/40 bg-primary/8 text-foreground font-medium"
-                : "text-muted-foreground hover:text-foreground hover:border-foreground/20",
+                ? "border-primary bg-primary text-primary-foreground font-medium shadow-raised"
+                : "bg-card text-foreground/80 hover:text-foreground hover:border-primary/40 hover:bg-primary/[0.04]",
             )}
           >
             {o.label}

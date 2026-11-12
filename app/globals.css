@@ -33,8 +33,12 @@
   --text-2xl: 1.75rem;        /* 28 */
   --text-2xl--line-height: 2.125rem;
 
-  /* Elevación — solo dos niveles reales */
+  /* Elevación: lo que se levanta un poco, la tarjeta y lo que flota encima */
   --shadow-raised: 0 1px 2px 0 oklch(0 0 0 / 0.06);
+  /* Tarjeta que flota sobre el fondo velado: sombra corta + halo azul muy tenue. */
+  --shadow-card:
+    0 1px 2px 0 oklch(0.3 0.05 253 / 0.06),
+    0 8px 24px -12px oklch(0.3 0.09 253 / 0.18);
   --shadow-overlay:
     0 12px 32px -12px oklch(0 0 0 / 0.3),
     0 2px 8px -2px oklch(0 0 0 / 0.1);
@@ -108,13 +112,16 @@
      blanco   #ffffff
      azul     #004c8f  → oklch(0.417 0.128 253)
      amarillo #ffc200  → oklch(0.846 0.173 86)
-   El cromo es blanco y gris neutro puro (croma 0). El color lo aportan
-   solo el azul (acción, enlaces, foco) y el amarillo (marca, estado Listo). */
+   El fondo lleva un velo del azul de marca (croma bajo) para que las
+   tarjetas, blancas, se despeguen de él en vez de fundirse en un solo
+   blanco. Grises, bordes y superficies secundarias comparten ese matiz.
+   El color fuerte lo siguen aportando el azul (acción, enlaces, foco) y el
+   amarillo (marca, estado Listo). */
 :root {
   --radius: 0.5rem;
 
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.19 0 0);
+  --background: oklch(0.968 0.011 250);
+  --foreground: oklch(0.19 0.01 253);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.19 0 0);
   --popover: oklch(1 0 0);
@@ -124,16 +131,16 @@
   --primary: oklch(0.417 0.128 253);
   --primary-foreground: oklch(1 0 0);
 
-  --secondary: oklch(0.966 0 0);
-  --secondary-foreground: oklch(0.26 0 0);
-  --muted: oklch(0.972 0 0);
-  --muted-foreground: oklch(0.505 0 0);
-  --accent: oklch(0.958 0 0);
+  --secondary: oklch(0.955 0.014 250);
+  --secondary-foreground: oklch(0.26 0.02 253);
+  --muted: oklch(0.962 0.012 250);
+  --muted-foreground: oklch(0.5 0.022 255);
+  --accent: oklch(0.945 0.02 250);
   --accent-foreground: oklch(0.26 0 0);
   --destructive: oklch(0.55 0.213 27);
 
-  --border: oklch(0.912 0 0);
-  --input: oklch(0.912 0 0);
+  --border: oklch(0.9 0.016 252);
+  --input: oklch(0.885 0.018 252);
   --ring: oklch(0.417 0.128 253);
 
   /* Amarillo del logotipo */
@@ -169,13 +176,13 @@
   --chart-4: oklch(0.58 0.13 66);
   --chart-5: oklch(0.55 0.213 27);
 
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.19 0 0);
+  --sidebar: oklch(0.99 0.004 250);
+  --sidebar-foreground: oklch(0.19 0.01 253);
   --sidebar-primary: oklch(0.417 0.128 253);
   --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.952 0 0);
-  --sidebar-accent-foreground: oklch(0.26 0 0);
-  --sidebar-border: oklch(0.912 0 0);
+  --sidebar-accent: oklch(0.94 0.028 252);
+  --sidebar-accent-foreground: oklch(0.3 0.09 253);
+  --sidebar-border: oklch(0.9 0.016 252);
   --sidebar-ring: oklch(0.417 0.128 253);
 }
 

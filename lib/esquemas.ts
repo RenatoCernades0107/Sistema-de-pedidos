@@ -19,6 +19,7 @@ import { z } from "zod";
 import { admiteDecimales, type TipoPedido } from "./dominio";
 import { rucValido, soloDigitos, tipoDeDocumento } from "./busqueda-inteligente";
 import { PLANCHAS_MAXIMAS, hastaDosDecimales } from "./pedido-lineas";
+import { hoy } from "./fecha";
 
 /* ── Piezas sueltas ─────────────────────────────────────────────────────────── */
 
@@ -184,6 +185,10 @@ export const esquemaFormNuevoPedido = z
     reglaDelDocumento(v, ctx);
     if (v.tipoPago === "credito" && !v.plazoCredito) {
       ctx.addIssue({ code: "custom", path: ["plazoCredito"], message: "Elige el plazo del crédito" });
+    }
+    // Una promesa para ayer no ordena nada en el taller. ISO corto: se comparan como texto.
+    if (v.fechaPrometida && v.fechaPrometida < hoy()) {
+      ctx.addIssue({ code: "custom", path: ["fechaPrometida"], message: "La fecha prometida no puede ser anterior a hoy" });
     }
   });
 
