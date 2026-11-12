@@ -21,24 +21,176 @@ const VISTA_INICIAL = { giro: -35, inclinacion: -22 };
 function colocacion(cara: Cara, W: number, D: number, H: number) {
   switch (cara) {
     case "base":
-      return { w: W, h: D, hasta: `translateY(${H / 2}px) rotateX(90deg)`, desde: `translateY(${H / 2 + LLEGADA}px) rotateX(90deg)` };
+      return {
+        w: W,
+        h: D,
+        hasta: `translateY(${H / 2}px) rotateX(90deg)`,
+        desde: `translateY(${H / 2 + LLEGADA}px) rotateX(90deg)`,
+      };
     case "tapa":
-      return { w: W, h: D, hasta: `translateY(${-H / 2}px) rotateX(90deg)`, desde: `translateY(${-H / 2 - LLEGADA}px) rotateX(90deg)` };
+      return {
+        w: W,
+        h: D,
+        hasta: `translateY(${-H / 2}px) rotateX(90deg)`,
+        desde: `translateY(${-H / 2 - LLEGADA}px) rotateX(90deg)`,
+      };
     case "frente":
       return { w: W, h: H, hasta: `translateZ(${D / 2}px)`, desde: `translateZ(${D / 2 + LLEGADA}px)` };
     case "fondo":
       return { w: W, h: H, hasta: `translateZ(${-D / 2}px)`, desde: `translateZ(${-D / 2 - LLEGADA}px)` };
     case "izquierda":
-      return { w: D, h: H, hasta: `translateX(${-W / 2}px) rotateY(90deg)`, desde: `translateX(${-W / 2 - LLEGADA}px) rotateY(90deg)` };
+      return {
+        w: D,
+        h: H,
+        hasta: `translateX(${-W / 2}px) rotateY(90deg)`,
+        desde: `translateX(${-W / 2 - LLEGADA}px) rotateY(90deg)`,
+      };
     case "derecha":
-      return { w: D, h: H, hasta: `translateX(${W / 2}px) rotateY(90deg)`, desde: `translateX(${W / 2 + LLEGADA}px) rotateY(90deg)` };
+      return {
+        w: D,
+        h: H,
+        hasta: `translateX(${W / 2}px) rotateY(90deg)`,
+        desde: `translateX(${W / 2 + LLEGADA}px) rotateY(90deg)`,
+      };
   }
 }
 
+/** Las caras a dibujar: `nueva` es la que se agrega en el paso que se mira. */
+type CaraVisible = { cara: Cara; nueva: boolean };
+
 /**
- * Cómo se arma una caja, en 3D y paso a paso: cada paso agrega sus caras (en el
- * color de marca, llegando a su lugar) sobre lo ya armado (en gris). Se gira
- * arrastrando. Sin medidas completas no se dibuja nada.
+ * El escenario 3D: las caras dadas, una vista que se gira arrastrando y un botón
+ * para volver a la vista inicial. Lo comparten la vista armada y los pasos.
+ */
+function Escena({
+  medidas,
+  caras,
+  clave,
+  lado,
+  etiqueta,
+  className,
+}: {
+  medidas: { largo: number; ancho: number; alto: number };
+  caras: CaraVisible[];
+  /** Cambia con el paso: así las caras nuevas vuelven a animarse. */
+  clave: number;
+  lado: number;
+  etiqueta: string;
+  className?: string;
+}) {
+  const [vista, setVista] = useState(VISTA_INICIAL);
+  const arrastre = useRef<{ x: number; y: number; giro: number; inclinacion: number } | null>(null);
+
+  const escala = lado / Math.max(medidas.largo, medidas.ancho, medidas.alto);
+  const [W, D, H] = [medidas.largo * escala, medidas.ancho * escala, medidas.alto * escala];
+
+  return (
+    <div
+      role="img"
+      aria-label={etiqueta}
+      className={cn(
+        "bg-muted/30 relative cursor-grab touch-none overflow-hidden rounded-lg border select-none active:cursor-grabbing",
+        className,
+      )}
+      style={{ perspective: `${lado * 6}px` }}
+      onPointerDown={(e) => {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        arrastre.current = { x: e.clientX, y: e.clientY, ...vista };
+      }}
+      onPointerMove={(e) => {
+        const a = arrastre.current;
+        if (!a) return;
+        setVista({
+          giro: a.giro + (e.clientX - a.x) * 0.5,
+          inclinacion: Math.max(-80, Math.min(10, a.inclinacion - (e.clientY - a.y) * 0.4)),
+        });
+      }}
+      onPointerUp={() => (arrastre.current = null)}
+      onPointerCancel={() => (arrastre.current = null)}
+    >
+      <style>{`
+        @keyframes armado-llega { from { transform: var(--desde); opacity: 0 } to { transform: var(--hasta); opacity: 1 } }
+        .armado-nueva { animation: armado-llega 700ms cubic-bezier(.2,.7,.2,1) both }
+        @media (prefers-reduced-motion: reduce) { .armado-nueva { animation: none } }
+      `}</style>
+      <div
+        className="absolute top-1/2 left-1/2"
+        style={{
+          transformStyle: "preserve-3d",
+          transform: `rotateX(${vista.inclinacion}deg) rotateY(${vista.giro}deg)`,
+        }}
+      >
+        {caras.map(({ cara, nueva }) => {
+          const c = colocacion(cara, W, D, H);
+          return (
+            <div
+              key={nueva ? `${cara}-${clave}` : cara}
+              className={cn(
+                "absolute rounded-[2px] border-[1.5px]",
+                nueva ? "armado-nueva bg-primary/30 border-primary" : "bg-primary/10 border-primary/60",
+              )}
+              style={
+                {
+                  width: c.w,
+                  height: c.h,
+                  marginLeft: -c.w / 2,
+                  marginTop: -c.h / 2,
+                  transform: c.hasta,
+                  "--desde": c.desde,
+                  "--hasta": c.hasta,
+                } as CSSProperties
+              }
+            />
+          );
+        })}
+      </div>
+      <p className="text-muted-foreground pointer-events-none absolute bottom-1.5 left-2.5 text-[11px]">
+        Arrastra para girar
+      </p>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        className="absolute top-1 right-1"
+        aria-label="Volver a la vista inicial"
+        onClick={() => setVista(VISTA_INICIAL)}
+      >
+        <RotateCcw />
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * La caja armada, entera, para verla de un vistazo junto a la ficha. Sin medidas
+ * completas, o si no es una caja, no se dibuja nada.
+ */
+export function Caja3D({
+  geometria,
+  medidas,
+  className,
+}: {
+  geometria: Geometria;
+  medidas: Medidas;
+  className?: string;
+}) {
+  const armado = armadoDeCaja(geometria, medidas);
+  if (!armado) return null;
+  return (
+    <Escena
+      medidas={armado}
+      caras={armado.pasos.flatMap((p) => p.caras.map((cara) => ({ cara, nueva: false })))}
+      clave={0}
+      lado={95}
+      etiqueta={`La caja armada: ${armado.largo} × ${armado.ancho} × ${armado.alto} cm`}
+      className={cn("h-44", className)}
+    />
+  );
+}
+
+/**
+ * Cómo se arma una caja, en 3D y paso a paso: cada paso agrega sus caras (más
+ * marcadas, llegando a su lugar) sobre lo ya armado. Se gira arrastrando.
  */
 export function ArmadoCaja({
   geometria,
@@ -51,90 +203,23 @@ export function ArmadoCaja({
 }) {
   const armado = armadoDeCaja(geometria, medidas);
   const [paso, setPaso] = useState(0);
-  const [vista, setVista] = useState(VISTA_INICIAL);
-  const arrastre = useRef<{ x: number; y: number; giro: number; inclinacion: number } | null>(null);
-
   if (!armado) return null;
   const actual = Math.min(paso, armado.pasos.length - 1);
   const p = armado.pasos[actual];
-
-  const escala = LADO / Math.max(armado.largo, armado.ancho, armado.alto);
-  const [W, D, H] = [armado.largo * escala, armado.ancho * escala, armado.alto * escala];
-
-  const visibles = armado.pasos.slice(0, actual + 1).flatMap((x, i) => x.caras.map((cara) => ({ cara, nueva: i === actual })));
+  const visibles = armado.pasos
+    .slice(0, actual + 1)
+    .flatMap((x, i) => x.caras.map((cara) => ({ cara, nueva: i === actual })));
 
   return (
     <div className={cn("flex flex-col gap-3", className)} data-testid="armado-caja">
-      <style>{`
-        @keyframes armado-llega { from { transform: var(--desde); opacity: 0 } to { transform: var(--hasta); opacity: 1 } }
-        .armado-nueva { animation: armado-llega 700ms cubic-bezier(.2,.7,.2,1) both }
-        @media (prefers-reduced-motion: reduce) { .armado-nueva { animation: none } }
-      `}</style>
-
-      <div
-        role="img"
-        aria-label={`Paso ${actual + 1} de ${armado.pasos.length}: ${p.titulo}, ${p.cantidad} × ${p.medida}`}
-        className="bg-muted/30 relative h-72 cursor-grab touch-none overflow-hidden rounded-lg border select-none active:cursor-grabbing"
-        style={{ perspective: "900px" }}
-        onPointerDown={(e) => {
-          e.currentTarget.setPointerCapture(e.pointerId);
-          arrastre.current = { x: e.clientX, y: e.clientY, ...vista };
-        }}
-        onPointerMove={(e) => {
-          const a = arrastre.current;
-          if (!a) return;
-          setVista({
-            giro: a.giro + (e.clientX - a.x) * 0.5,
-            inclinacion: Math.max(-80, Math.min(10, a.inclinacion - (e.clientY - a.y) * 0.4)),
-          });
-        }}
-        onPointerUp={() => (arrastre.current = null)}
-        onPointerCancel={() => (arrastre.current = null)}
-      >
-        <div
-          className="absolute top-1/2 left-1/2"
-          style={{
-            transformStyle: "preserve-3d",
-            transform: `rotateX(${vista.inclinacion}deg) rotateY(${vista.giro}deg)`,
-          }}
-        >
-          {visibles.map(({ cara, nueva }) => {
-            const c = colocacion(cara, W, D, H);
-            return (
-              <div
-                // La clave cambia con el paso: así la animación vuelve a correr al llegar a él.
-                key={nueva ? `${cara}-${actual}` : cara}
-                className={cn(
-                  "absolute rounded-[2px] border-[1.5px]",
-                  nueva ? "armado-nueva bg-primary/30 border-primary" : "bg-foreground/5 border-foreground/40",
-                )}
-                style={
-                  {
-                    width: c.w,
-                    height: c.h,
-                    marginLeft: -c.w / 2,
-                    marginTop: -c.h / 2,
-                    transform: c.hasta,
-                    "--desde": c.desde,
-                    "--hasta": c.hasta,
-                  } as CSSProperties
-                }
-              />
-            );
-          })}
-        </div>
-        <p className="text-muted-foreground pointer-events-none absolute bottom-2 left-3 text-xs">Arrastra para girar</p>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="absolute top-2 right-2"
-          aria-label="Volver a la vista inicial"
-          onClick={() => setVista(VISTA_INICIAL)}
-        >
-          <RotateCcw />
-        </Button>
-      </div>
+      <Escena
+        medidas={armado}
+        caras={visibles}
+        clave={actual}
+        lado={LADO}
+        etiqueta={`Paso ${actual + 1} de ${armado.pasos.length}: ${p.titulo}, ${p.cantidad} × ${p.medida}`}
+        className="h-72"
+      />
 
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1" aria-live="polite">
