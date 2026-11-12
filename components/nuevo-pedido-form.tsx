@@ -1180,6 +1180,7 @@ export function NuevoPedidoForm({
         <EditorTerminado
           catalogo={terminados}
           planchas={catalogo}
+          configCortes={config}
           inicial={lineas.filter(esTerminado).find((l) => l.clave === terminado.clave) ?? null}
           alCerrar={() => setTerminado(null)}
           alGuardar={(nuevo) => {

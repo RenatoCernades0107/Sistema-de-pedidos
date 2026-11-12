@@ -160,6 +160,18 @@ begin
      or public.terminado_sin_precios(ficha) ->> 'nombre' <> 'Caja con tapa removible' then
     raise exception 'FALLO: terminado_sin_precios no deja la ficha como debe';
   end if;
+  -- Los cortes de la ficha tampoco llevan dinero; una ficha sin cortes queda sin cortes.
+  if public.terminado_sin_precios(ficha || '{"corte": {"formato": {"codigo": "F7E024", "ancho": 122, "alto": 183,
+       "precio": 223.26}, "planchas": [{"ancho": 122, "alto": 183, "cobro": {"nombre": "1/4", "monto": 55.82}}],
+       "piezas": [{"nombre": "Lámina", "ancho": 20, "alto": 30, "cantidad": 2}]}}'::jsonb) #>> '{corte,formato,precio}' <> '0'
+     or public.terminado_sin_precios(ficha || '{"corte": {"formato": {"precio": 1}, "planchas": [{"cobro": {"nombre": "1/4",
+       "monto": 55.82}}]}}'::jsonb) #>> '{corte,planchas,0,cobro,monto}' <> '0'
+     or public.terminado_sin_precios(ficha || '{"corte": {"formato": {"precio": 1}, "planchas": [{"cobro": {"nombre": "1/4",
+       "monto": 55.82}}]}}'::jsonb) #>> '{corte,planchas,0,cobro,nombre}' <> '1/4'
+     or public.terminado_sin_precios(ficha) ? 'corte'
+     or public.terminado_sin_precios(ficha || '{"corte": null}'::jsonb) -> 'corte' <> 'null'::jsonb then
+    raise exception 'FALLO: terminado_sin_precios no deja los cortes sin dinero';
+  end if;
 
   -- 2.5 El pedido: Administración ve la ficha con sus precios.
   v_codigo := public.crear_pedido(

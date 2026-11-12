@@ -6,6 +6,7 @@ import {
   type MaterialUsado,
   type TerminadoGuardado,
 } from "@/lib/terminados/guardado";
+import { CortesTerminado } from "./cortes-terminado";
 
 const n = (x: number) => String(+x.toFixed(3));
 
@@ -91,6 +92,18 @@ export function TerminadoGuardadoVista({
             </p>
           )}
         </div>
+      )}
+
+      {t.corte && (
+        <details className="ml-7 rounded-lg border px-3 py-2">
+          <summary className="cursor-pointer text-xs font-medium">Cortes y acomodo en la plancha</summary>
+          <CortesTerminado
+            piezas={t.corte.piezas}
+            formato={t.corte.formato}
+            planchas={t.corte.planchas}
+            className="mt-2"
+          />
+        </details>
       )}
     </div>
   );

@@ -10,7 +10,9 @@
  */
 
 import { z } from "zod";
-import type { MaterialEstimado } from "./calcular";
+import { esquemaPlancha, guardarPlanchas, type PlanchaGuardada } from "../cortes/guardado";
+import type { CalculoTerminado, MaterialEstimado } from "./calcular";
+import type { PiezaDeTerminado } from "./piezas";
 import type { ClaseOpcion } from "./catalogo";
 import { textoDeMedidas, type Geometria, type Medidas } from "./geometria";
 
@@ -28,6 +30,17 @@ export interface MaterialDeTerminado {
   material: string;
   color: string;
   espesorMm: number;
+}
+
+/** Los cortes de un producto terminado: sus piezas y cómo se acomodan en la plancha. */
+export interface CorteDeTerminado {
+  /** Las piezas de toda la línea, una fila por medida. */
+  piezas: PiezaDeTerminado[];
+  /** El formato elegido, con su precio de Odoo en ese momento. */
+  formato: { codigo: string; ancho: number; alto: number; precio: number };
+  rotable: boolean;
+  planchas: PlanchaGuardada[];
+  desperdicioPct: number;
 }
 
 export interface TerminadoGuardado {
@@ -65,6 +78,21 @@ export interface TerminadoGuardado {
   precioUnitario: number;
   /** Si lo estimado se reserva en Odoo al confirmar el pedido. */
   reservar: boolean;
+  /** Las piezas y su acomodo. `null`: el material se estimó por área (o la ficha es de antes). */
+  corte: CorteDeTerminado | null;
+}
+
+/** Los cortes del cálculo como se guardan, o `null` si el material salió del área. */
+export function guardarCorteDeTerminado(c: Pick<CalculoTerminado, "corte" | "piezas">): CorteDeTerminado | null {
+  if (!c.corte || !c.piezas) return null;
+  const { codigo, ancho, alto, precio } = c.corte.formato;
+  return {
+    piezas: c.piezas.map((p) => ({ nombre: p.nombre, ancho: p.ancho, alto: p.alto, cantidad: p.cantidad })),
+    formato: { codigo, ancho, alto, precio },
+    rotable: true,
+    planchas: guardarPlanchas(c.corte.planchas),
+    desperdicioPct: Math.round(c.corte.desperdicioPct * 10) / 10,
+  };
 }
 
 /** Lo que logística dice que se usó de verdad en un producto terminado. */
@@ -118,6 +146,17 @@ const esquema = z.object({
   precioSugerido: numero,
   precioUnitario: numero,
   reservar: z.boolean().catch(false),
+  corte: z
+    .object({
+      piezas: z.array(z.object({ nombre: z.string().catch(""), ancho: numero, alto: numero, cantidad: numero })),
+      formato: z.object({ codigo: z.string(), ancho: numero, alto: numero, precio: numero }),
+      rotable: z.boolean().catch(true),
+      planchas: z.array(esquemaPlancha),
+      desperdicioPct: numero.catch(0),
+    })
+    .nullable()
+    .catch(null)
+    .default(null),
 }) satisfies z.ZodType<TerminadoGuardado>;
 
 /** La ficha de una línea, o `null` si la línea no es un producto terminado o el JSON no se entiende. */

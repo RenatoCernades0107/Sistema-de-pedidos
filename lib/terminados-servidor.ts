@@ -7,13 +7,19 @@
  */
 
 import { cache } from "react";
-import { cargarGrupoPlancha, preciosDeGrupo } from "./cortes-servidor";
+import { cargarConfigCortes, cargarGrupoPlancha, preciosDeGrupo } from "./cortes-servidor";
 import { colorDe, pideColor } from "./cortes/catalogo";
 import type { NuevaLineaTerminado } from "./esquemas";
 import { productosPorCodigo, productosPorId } from "./odoo/catalogos";
 import { CODIGO_PERSONALIZADO, NOMBRE_PERSONALIZADO, productoTerminado } from "./odoo/produccion";
 import { clienteServidor } from "./supabase-servidor";
-import { calcularTerminado, planchaDeReferencia, redondear2, type Accesorio } from "./terminados/calcular";
+import {
+  calcularTerminado,
+  formatosConPrecio,
+  planchaDeReferencia,
+  redondear2,
+  type Accesorio,
+} from "./terminados/calcular";
 import type {
   CatalogoTerminados,
   ClaseOpcion,
@@ -23,7 +29,7 @@ import type {
 } from "./terminados/catalogo";
 import { leerConfigTerminados, type ConfigTerminados } from "./terminados/config";
 import { limpiarMedidas, type Geometria } from "./terminados/geometria";
-import { descripcionDeTerminado, type TerminadoGuardado } from "./terminados/guardado";
+import { descripcionDeTerminado, guardarCorteDeTerminado, type TerminadoGuardado } from "./terminados/guardado";
 
 export const CLAVE_CONFIG_TERMINADOS = "terminados";
 
@@ -234,11 +240,12 @@ export async function prepararTerminado(
 ): Promise<{ ok: true; fila: FilaDeTerminado } | { ok: false; error: string }> {
   const fallo = (error: string) => ({ ok: false as const, error });
 
-  const [producto, tipos, opcionesCatalogo, config, grupo] = await Promise.all([
+  const [producto, tipos, opcionesCatalogo, config, configCortes, grupo] = await Promise.all([
     linea.productoCodigo ? cargarProducto(linea.productoCodigo) : Promise.resolve(null),
     leerTipos(),
     leerOpciones(),
     cargarConfigTerminados(),
+    cargarConfigCortes(),
     linea.grupoId ? cargarGrupoPlancha(linea.grupoId) : Promise.resolve(null),
   ]);
 
@@ -256,7 +263,9 @@ export async function prepararTerminado(
   const opciones = opcionesCatalogo.filter((o) => linea.opciones.includes(o.id) && (!admitidas || admitidas.has(o.id)));
 
   // La plancha con que se estima y los accesorios, con el precio de Odoo.
-  const precios = grupo ? await preciosDeGrupo(grupo) : new Map<string, { productoId: number; precio: number }>();
+  const precios = grupo
+    ? await preciosDeGrupo(grupo)
+    : new Map<string, { productoId: number; precio: number; nombre: string }>();
   let plancha = grupo ? planchaDeReferencia(grupo.formatos, precios) : null;
   if (grupo && !plancha) {
     return fallo("Ninguna plancha de ese material tiene precio en Odoo. Revisa sus códigos en Configuración.");
@@ -287,6 +296,10 @@ export async function prepararTerminado(
     extras: opciones.map((o) => o.extra),
     mermaPct: config.mermaPct,
     anchoDeLetra: config.anchoDeLetra,
+    // Solo un estándar se despieza: un personalizado es "manual".
+    formatos: grupo ? formatosConPrecio(grupo.formatos, precios) : [],
+    configCortes,
+    espesorMm: grupo?.espesorMm,
   });
 
   const terminado: TerminadoGuardado = {
@@ -313,13 +326,14 @@ export async function prepararTerminado(
     notas: linea.notas || null,
     areaUnidadM2: calculo.areaUnidadM2,
     areaManual: calculo.areaManual,
-    mermaPct: config.mermaPct,
+    mermaPct: calculo.mermaPct,
     materiales: calculo.materiales,
     costoMaterial: calculo.costoMaterial,
     factor,
     precioSugerido: calculo.precioSugerido,
     precioUnitario: linea.precioUnitario,
     reservar: linea.reservar && calculo.materiales.length > 0,
+    corte: guardarCorteDeTerminado(calculo),
   };
 
   // El producto de Odoo con el que se vende: el del catálogo o el genérico.

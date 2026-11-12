@@ -8,6 +8,7 @@ import { fechaCompleta } from "@/lib/formato";
 import { hoy } from "@/lib/fecha";
 import { MODALIDADES } from "@/lib/cortes/calcular";
 import { fraccionEnPalabras, materialDeCorte, totalPiezas } from "@/lib/cortes/guardado";
+import { materialDeTerminado, tituloTerminado } from "@/lib/terminados/guardado";
 import { indicacionesDe, origenDePlancha, piezasDePlancha } from "@/lib/hoja-corte";
 import { planchasCalculadas, type LineaDePedido } from "@/lib/pedido-lineas";
 import { LeyendaPlano, PlanoCorte } from "@/components/cortes/plano-corte";
@@ -50,8 +51,10 @@ export function HojaCorte({ codigo, lineas }: { codigo: string; lineas: LineaDeP
     );
   }
 
-  const cortes = lineas.filter((l) => l.corte);
-  const otros = lineas.filter((l) => !l.corte);
+  // Un producto terminado con sus piezas calculadas también se corta aquí.
+  const seCorta = (l: LineaDePedido) => !!(l.corte || l.terminado?.corte);
+  const cortes = lineas.filter(seCorta);
+  const otros = lineas.filter((l) => !seCorta(l));
   const indicaciones = indicacionesDe(p.detalle, lineas);
 
   return (
@@ -148,19 +151,48 @@ export function HojaCorte({ codigo, lineas }: { codigo: string; lineas: LineaDeP
   );
 }
 
+/** Lo que la hoja necesita de un corte, venga de una línea de corte o de un producto terminado. */
+function vistaDe(l: LineaDePedido) {
+  if (l.corte) {
+    const c = l.corte;
+    return {
+      titulo: `${MODALIDADES[c.modalidad]} · ${materialDeCorte(c)}`,
+      unidades: null as string | null,
+      piezas: c.piezas.map((p) => ({ ...p, nombre: null as string | null })),
+      formato: c.formato,
+      planchas: c.planchas,
+      rotable: c.rotable,
+      esCorte: true,
+    };
+  }
+  const t = l.terminado!;
+  const c = t.corte!;
+  return {
+    titulo: `Producto terminado · ${tituloTerminado(t)}${t.material ? ` · ${materialDeTerminado(t.material)}` : ""}`,
+    unidades: `${n(l.cantidad)} ${l.cantidad === 1 ? "unidad" : "unidades"}`,
+    piezas: c.piezas.map((p) => ({ ...p, nombre: p.nombre as string | null })),
+    formato: c.formato,
+    planchas: c.planchas,
+    rotable: c.rotable,
+    esCorte: false,
+  };
+}
+
 function Corte({ linea: l, numero, de }: { linea: LineaDePedido; numero: number; de: number }) {
-  const c = l.corte!;
+  const c = vistaDe(l);
   const piezas = totalPiezas(c.piezas);
   const hayFraccion = c.planchas.some((p) => p.cobro.factor < 1);
+  const conNombre = c.piezas.some((p) => p.nombre);
 
   return (
     <section className="mt-6 flex flex-col gap-4" aria-labelledby={`hoja-corte-${l.posicion}`}>
       <div className="break-inside-avoid">
         <h2 id={`hoja-corte-${l.posicion}`} className="text-base font-semibold">
           {de > 1 && <span className="text-muted-foreground font-normal">Corte {numero} de {de} · </span>}
-          {MODALIDADES[c.modalidad]} · {materialDeCorte(c)}
+          {c.titulo}
         </h2>
         <p className="text-muted-foreground mt-0.5 text-sm">
+          {c.unidades && `${c.unidades}: `}
           {piezas} {piezas === 1 ? "pieza" : "piezas"} en {c.planchas.length}{" "}
           {c.planchas.length === 1 ? "plancha" : "planchas"} de {n(c.formato.ancho)}×{n(c.formato.alto)} cm{" "}
           <span className="font-mono">{c.formato.codigo}</span>
@@ -178,6 +210,7 @@ function Corte({ linea: l, numero, de }: { linea: LineaDePedido; numero: number;
           <thead>
             <tr className="border-b">
               <th className="eyebrow py-1.5 pr-3 text-left">N.º</th>
+              {conNombre && <th className="eyebrow py-1.5 pr-3 text-left">Pieza</th>}
               <th className="eyebrow py-1.5 pr-3 text-left">Medida</th>
               <th className="eyebrow py-1.5 pr-3 text-right">Cantidad</th>
               <th className="eyebrow py-1.5 text-center">Hecho</th>
@@ -191,6 +224,7 @@ function Corte({ linea: l, numero, de }: { linea: LineaDePedido; numero: number;
                     {i + 1}
                   </span>
                 </td>
+                {conNombre && <td className="py-1.5 pr-3">{p.nombre}</td>}
                 <td className="tnum py-1.5 pr-3">
                   {n(p.ancho)} × {n(p.alto)} cm
                 </td>
@@ -237,17 +271,19 @@ function Corte({ linea: l, numero, de }: { linea: LineaDePedido; numero: number;
 
       <div className="flex break-inside-avoid flex-wrap items-end justify-between gap-x-6 gap-y-3">
         <LeyendaPlano conSobrante={hayFraccion} />
-        <p className="text-sm">
-          Planchas usadas:{" "}
-          {l.planchasUsadas !== null ? (
-            <span className="tnum font-semibold">{n(l.planchasUsadas)}</span>
-          ) : (
-            <span className="border-foreground/60 inline-block w-16 border-b" aria-hidden>
-              &nbsp;
-            </span>
-          )}{" "}
-          <span className="text-muted-foreground">(calculadas: {n(planchasCalculadas(l))})</span>
-        </p>
+        {c.esCorte && (
+          <p className="text-sm">
+            Planchas usadas:{" "}
+            {l.planchasUsadas !== null ? (
+              <span className="tnum font-semibold">{n(l.planchasUsadas)}</span>
+            ) : (
+              <span className="border-foreground/60 inline-block w-16 border-b" aria-hidden>
+                &nbsp;
+              </span>
+            )}{" "}
+            <span className="text-muted-foreground">(calculadas: {n(planchasCalculadas(l))})</span>
+          </p>
+        )}
       </div>
     </section>
   );

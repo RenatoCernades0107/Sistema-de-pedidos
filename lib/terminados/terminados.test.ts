@@ -3,17 +3,26 @@ import { esquemaLineaTerminado } from "../esquemas";
 import { importeDe, ponerTerminado, problemaDeLineas, type LineaTerminado } from "../lineas-cotizacion";
 import { detalleDesdeLineas, type LineaGuardada } from "../cotizaciones";
 import { cantidadesParaDescontar, type LineaDePedido } from "../pedido-lineas";
-import { calcularTerminado, planchaDeReferencia, type EntradaTerminado } from "./calcular";
+import { CONFIG_CORTES_DEFECTO } from "../cortes/config";
+import {
+  calcularTerminado,
+  formatosConPrecio,
+  planchaDeReferencia,
+  type EntradaTerminado,
+  type FormatoTerminado,
+} from "./calcular";
 import { etiquetaDeTipo, textoDeMedidaEstandar, type MedidaEstandar } from "./catalogo";
 import { leerConfigTerminados } from "./config";
 import { areaM2, limpiarMedidas, textoDeMedidas } from "./geometria";
 import {
   descripcionDeTerminado,
   leerMaterialesUsados,
+  guardarCorteDeTerminado,
   leerTerminado,
   materialesADescontar,
   type TerminadoGuardado,
 } from "./guardado";
+import { piezasDeTerminado } from "./piezas";
 
 describe("areaM2", () => {
   it("suma las seis caras de una caja cerrada", () => {
@@ -149,6 +158,142 @@ describe("calcularTerminado", () => {
   });
 });
 
+describe("piezasDeTerminado", () => {
+  it("una caja cerrada son seis caras, por pares", () => {
+    expect(piezasDeTerminado("caja_cerrada", { m1: 30, m2: 20, m3: 10 })).toEqual([
+      { nombre: "Base y tapa", ancho: 30, alto: 20, cantidad: 2 },
+      { nombre: "Frente y fondo", ancho: 30, alto: 10, cantidad: 2 },
+      { nombre: "Laterales", ancho: 20, alto: 10, cantidad: 2 },
+    ]);
+  });
+
+  it("a la abierta le falta la tapa", () => {
+    expect(piezasDeTerminado("caja_abierta", { m1: 30, m2: 20, m3: 10 })?.[0]).toEqual({
+      nombre: "Base",
+      ancho: 30,
+      alto: 20,
+      cantidad: 1,
+    });
+  });
+
+  it("junta las caras de la misma medida, aunque estén giradas", () => {
+    expect(piezasDeTerminado("caja_cerrada", { m1: 20, m2: 20, m3: 20 })).toEqual([
+      { nombre: "Base y tapa, frente y fondo, laterales", ancho: 20, alto: 20, cantidad: 6 },
+    ]);
+    // 30×20 (base) y 20×30 (frente, girado) son la misma pieza.
+    expect(piezasDeTerminado("caja_cerrada", { m1: 30, m2: 20, m3: 30 })?.map((p) => p.cantidad)).toEqual([4, 2]);
+  });
+
+  it("el cilindro: la pared desarrollada, al milímetro hacia arriba, y dos tapas", () => {
+    expect(piezasDeTerminado("cilindro", { diametro: 20, altura: 25 })).toEqual([
+      { nombre: "Pared (se curva)", ancho: 62.9, alto: 25, cantidad: 1 },
+      { nombre: "Tapas", ancho: 20, alto: 20, cantidad: 2 },
+    ]);
+    expect(piezasDeTerminado("cilindro", { diametro: 20, m1: 25 })).toEqual(
+      piezasDeTerminado("cilindro", { diametro: 20, altura: 25 }),
+    );
+  });
+
+  it("láminas y letras", () => {
+    expect(piezasDeTerminado("lamina", { m1: 21, m2: 29.7 })).toEqual([{ nombre: "Lámina", ancho: 21, alto: 29.7, cantidad: 1 }]);
+    expect(piezasDeTerminado("lamina_plegada", { m1: 10, m2: 15, m3: 5 })?.[0]).toMatchObject({ ancho: 10, alto: 20 });
+    expect(piezasDeTerminado("letras", { altura: 20, letras: 5 }, 0.7)).toEqual([
+      { nombre: "Letras", ancho: 14, alto: 20, cantidad: 5 },
+    ]);
+  });
+
+  it("sin medidas, o la forma manual, no se despieza", () => {
+    expect(piezasDeTerminado("caja_cerrada", { m1: 30, m2: 20 })).toBeNull();
+    expect(piezasDeTerminado("letras", { altura: 20 })).toBeNull();
+    expect(piezasDeTerminado("manual", { m1: 30, m2: 20, m3: 20 })).toBeNull();
+  });
+});
+
+const FORMATOS: FormatoTerminado[] = [
+  { codigo: "F7E024", ancho: 122, alto: 183, precio: 223.26, productoId: 20, nombre: "ACRILICO ECO CRISTAL 3MM 122X183" },
+  { codigo: "F7E025", ancho: 122, alto: 244, precio: 320, productoId: 21, nombre: "ACRILICO ECO CRISTAL 3MM 122X244" },
+];
+
+const conCortes = (e: Partial<EntradaTerminado> = {}) =>
+  entrada({ formatos: FORMATOS, configCortes: CONFIG_CORTES_DEFECTO, espesorMm: 3, ...e });
+
+describe("calcularTerminado con cortes", () => {
+  it("acomoda las piezas de toda la línea y cuenta planchas enteras y fracciones", () => {
+    const c = calcularTerminado(conCortes({ medidas: { m1: 20, m2: 20, m3: 20 }, cantidad: 10 }));
+    expect(c.piezas).toEqual([{ nombre: "Base y tapa, frente y fondo, laterales", ancho: 20, alto: 20, cantidad: 60 }]);
+    expect(c.corte).not.toBeNull();
+    expect(c.corte!.noCaben).toEqual([]);
+    expect(c.corte!.planchas.reduce((s, p) => s + p.piezas, 0)).toBe(60);
+    expect(c.aviso).toBeNull();
+    expect(c.mermaPct).toBe(0);
+
+    const factores = c.corte!.planchas.reduce((s, p) => s + p.cobro.factor, 0);
+    expect(c.planchas).toBe(Math.round(factores * 100) / 100);
+    // Solo enteras o las fracciones del taller.
+    expect(c.corte!.planchas.every((p) => [0.25, 0.5, 1].includes(p.cobro.factor))).toBe(true);
+
+    const plancha = c.materiales[0];
+    expect(plancha).toMatchObject({ esPlancha: true, codigo: c.formato!.codigo, cantidad: c.planchas, unidad: "plancha" });
+    expect(c.costoMaterial).toBe(Math.round(c.planchas * plancha.precio * 100) / 100);
+  });
+
+  it("una sola caja chica sale de una fracción de plancha", () => {
+    const c = calcularTerminado(conCortes({ cantidad: 1 }));
+    expect(c.planchas).toBeLessThan(1);
+    expect(c.materiales[0].cantidad).toBe(c.planchas);
+  });
+
+  it("si una pieza no entra en ninguna plancha, vuelve al cálculo por área y lo dice", () => {
+    // La pared de un cilindro de 80 cm de diámetro mide 251.4 cm.
+    const c = calcularTerminado(conCortes({ geometria: "cilindro", medidas: { diametro: 80, altura: 30 }, cantidad: 1 }));
+    expect(c.corte).toBeNull();
+    expect(c.aviso).toMatch(/Pared \(se curva\) \(251\.4 × 30 cm\) no entra/);
+    expect(c.mermaPct).toBe(15);
+    expect(c.materiales[0].codigo).toBe(PLANCHA.codigo);
+  });
+
+  it("el área a mano y la forma manual se estiman por área", () => {
+    const manual = calcularTerminado(conCortes({ areaManualM2: 0.5 }));
+    expect(manual.corte).toBeNull();
+    expect(manual.aviso).toMatch(/área escrita a mano/);
+    const sinForma = calcularTerminado(conCortes({ geometria: "manual" }));
+    expect(sinForma.corte).toBeNull();
+    expect(sinForma.aviso).toBeNull();
+  });
+
+  it("sin formatos con precio no hay cortes", () => {
+    expect(calcularTerminado(conCortes({ formatos: [] })).corte).toBeNull();
+    expect(calcularTerminado(entrada()).corte).toBeNull();
+  });
+
+  it("la ficha guarda las piezas y el acomodo", () => {
+    const c = calcularTerminado(conCortes({ medidas: { m1: 20, m2: 20, m3: 20 }, cantidad: 2 }));
+    const g = guardarCorteDeTerminado(c)!;
+    expect(g.piezas).toEqual(c.piezas);
+    expect(g.formato.codigo).toBe(c.formato!.codigo);
+    expect(g.planchas).toHaveLength(c.corte!.planchas.length);
+    expect(guardarCorteDeTerminado(calcularTerminado(entrada()))).toBeNull();
+  });
+});
+
+describe("formatosConPrecio", () => {
+  it("solo los activos con precio, una vez por código", () => {
+    const formatos = [
+      { codigo: "A", anchoCm: 122, largoCm: 183, activo: true },
+      { codigo: "A", anchoCm: 122, largoCm: 183, activo: true },
+      { codigo: "B", anchoCm: 122, largoCm: 244, activo: false },
+      { codigo: "C", anchoCm: 100, largoCm: 100, activo: true },
+    ];
+    const precios = new Map([
+      ["A", { productoId: 1, precio: 200, nombre: "PLANCHA A" }],
+      ["B", { productoId: 2, precio: 300 }],
+    ]);
+    expect(formatosConPrecio(formatos, precios)).toEqual([
+      { codigo: "A", ancho: 122, alto: 183, precio: 200, productoId: 1, nombre: "PLANCHA A" },
+    ]);
+  });
+});
+
 describe("planchaDeReferencia", () => {
   const formatos = [
     { codigo: "A", anchoCm: 122, largoCm: 183 },
@@ -201,11 +346,18 @@ const guardado: TerminadoGuardado = {
   precioSugerido: 130,
   precioUnitario: 120,
   reservar: true,
+  corte: null,
 };
 
 describe("la ficha guardada", () => {
   it("se lee tal como se guardó", () => {
     expect(leerTerminado(JSON.parse(JSON.stringify(guardado)))).toEqual(guardado);
+  });
+
+  it("una ficha de antes, sin cortes, se lee con corte null", () => {
+    const vieja: Record<string, unknown> = { ...guardado };
+    delete vieja.corte;
+    expect(leerTerminado(vieja)?.corte).toBeNull();
   });
 
   it("lo que no es una ficha es null", () => {
