@@ -280,6 +280,22 @@ begin
   end if;
 end $$;
 
+-- ── Los más cotizados: sin los productos terminados ─────────────────────────
+-- El buscador de productos sugiere lo que más se cotiza. El producto de Odoo de
+-- un terminado (CAJ-001) no es algo que se agregue suelto: se arma en su editor.
+
+create or replace view public.productos_mas_cotizados
+with (security_invoker = true) as
+select
+  cp.odoo_product_id,
+  (count(*))::integer as veces,
+  max(c.creado_en)    as ultima_vez
+from public.cotizacion_productos cp
+join public.cotizaciones c on c.id = cp.cotizacion_id
+where c.creado_en > now() - interval '90 days'
+  and cp.tipo <> 'terminado'
+group by cp.odoo_product_id;
+
 revoke execute on function public.terminado_sin_precios(jsonb) from public, anon;
 revoke execute on function public.lineas_de_pedido(text) from public, anon;
 revoke execute on function public.anotar_materiales_de_terminado(text, smallint, jsonb) from public, anon;
