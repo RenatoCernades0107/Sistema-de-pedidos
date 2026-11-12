@@ -42,7 +42,9 @@ import {
 } from "@/lib/terminados/geometria";
 import { cn } from "@/lib/utils";
 import { usePrecios } from "@/components/cortes/editor-corte";
+import { ArmadoCaja } from "@/components/terminados/armado-caja";
 import { CortesTerminado } from "@/components/terminados/cortes-terminado";
+import { armadoDeCaja } from "@/lib/terminados/armado";
 import { BuscadorProducto } from "@/components/cotizaciones/buscador-producto";
 import { ComboBusqueda, type Opcion } from "@/components/cotizaciones/combo-busqueda";
 import { Button } from "@/components/ui/button";
@@ -590,6 +592,13 @@ export function EditorTerminado({
                     compacto
                     className="bg-background rounded-md border p-3"
                   />
+                )}
+
+                {armadoDeCaja(geometria, aMedidas(medidas)) && (
+                  <details className="bg-background rounded-md border px-3 py-2">
+                    <summary className="cursor-pointer text-xs font-medium">Cómo se arma (3D)</summary>
+                    <ArmadoCaja geometria={geometria} medidas={aMedidas(medidas)} className="mt-2" />
+                  </details>
                 )}
 
                 {calculo.materiales.length > 0 && (

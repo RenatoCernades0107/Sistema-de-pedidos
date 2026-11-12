@@ -6,6 +6,8 @@ import {
   type MaterialUsado,
   type TerminadoGuardado,
 } from "@/lib/terminados/guardado";
+import { armadoDeCaja } from "@/lib/terminados/armado";
+import { ArmadoCaja } from "./armado-caja";
 import { CortesTerminado } from "./cortes-terminado";
 
 const n = (x: number) => String(+x.toFixed(3));
@@ -103,6 +105,13 @@ export function TerminadoGuardadoVista({
             planchas={t.corte.planchas}
             className="mt-2"
           />
+        </details>
+      )}
+
+      {armadoDeCaja(t.geometria, t.medidas) && (
+        <details className="ml-7 rounded-lg border px-3 py-2">
+          <summary className="cursor-pointer text-xs font-medium">Cómo se arma (3D)</summary>
+          <ArmadoCaja geometria={t.geometria} medidas={t.medidas} className="mt-2" />
         </details>
       )}
     </div>
