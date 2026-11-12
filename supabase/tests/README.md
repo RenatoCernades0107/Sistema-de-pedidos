@@ -15,6 +15,10 @@ Dos scripts, los dos pensados para correr contra el proyecto de Supabase en la n
   con nombre, el reparto por rol de las vistas, el trigger de auditoría y el formato
   probado en caliente. **No necesita las cuentas del seed**, así que es la que sirve
   en un proyecto con usuarios reales. También termina en `ROLLBACK`.
+- **`terminados.sql`** — verifica las migraciones `20261113000100`–`400`: el catálogo de
+  productos terminados y su RLS, la línea de tipo `terminado` con su ficha, que quien
+  no es Administración la ve sin precios, y el anotado de los materiales usados.
+  Tampoco necesita las cuentas del seed, y termina en `ROLLBACK`.
 - **`estado.sql`** — no verifica nada, solo reporta: cuántos pedidos, pagos y adjuntos
   hay, cómo se reparten los estados y si algún saldo quedó descuadrado.
 
