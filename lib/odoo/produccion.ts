@@ -462,3 +462,171 @@ export async function cancelarProduccion(id: number): Promise<void> {
   if (estado === "done") throw new ErrorOdoo("La orden de fabricación ya se cerró: deshacerla se hace en Odoo.");
   await ejecutar("mrp.production", "action_cancel", [[id]]);
 }
+
+/* ── Productos terminados ──────────────────────────────────────────────────── */
+
+/** El producto de Odoo de los personalizados: no tienen código de catálogo. */
+export const CODIGO_PERSONALIZADO = "PT-PERSONALIZADO";
+export const NOMBRE_PERSONALIZADO = "PRODUCTO TERMINADO PERSONALIZADO";
+
+const productosTerminados = new Map<string, Promise<number>>();
+registrarReinicio(() => productosTerminados.clear());
+
+/**
+ * El producto de Odoo con el que se vende un producto terminado: uno por
+ * producto del catálogo, con su mismo código (CAJ-001), y uno genérico para los
+ * personalizados. Almacenable y vendible, en unidades; si no existe, se crea.
+ */
+export function productoTerminado(codigo: string, nombre: string): Promise<number> {
+  let p = productosTerminados.get(codigo);
+  if (!p) {
+    p = recordar(
+      (async () => {
+        const buscar = () =>
+          ejecutar<number[]>("product.product", "search", [[["default_code", "=", codigo]]], { limit: 1 });
+        const [existente] = await buscar();
+        if (existente) return existente;
+        await ejecutar("product.template", "create", [
+          {
+            name: nombre.toUpperCase(),
+            default_code: codigo,
+            sale_ok: true,
+            purchase_ok: false,
+            ...(await valoresAlmacenable()),
+          },
+        ]);
+        const [creado] = await buscar();
+        if (!creado) throw new ErrorOdoo(`Odoo creó el producto ${codigo} pero no lo devolvió.`);
+        return creado;
+      })(),
+      () => productosTerminados.delete(codigo),
+    );
+    productosTerminados.set(codigo, p);
+  }
+  return p;
+}
+
+export interface Componente {
+  productoId: number;
+  cantidad: number;
+}
+
+export interface FabricacionNueva {
+  /** Lo que la identifica para no duplicarla: "App Plexiacril <cotización> #<posición>". */
+  origen: string;
+  /** El producto terminado (`product.product`) y cuántas unidades. */
+  productoId: number;
+  cantidad: number;
+  /** Lo que se prevé consumir: es lo que la orden reserva al confirmarse. */
+  componentes: Componente[];
+}
+
+async function movimientoCrudo(c: Componente, desde: number, hacia: number) {
+  return movimiento(
+    {
+      product_id: c.productoId,
+      product_uom_qty: c.cantidad,
+      product_uom: await uomDe(c.productoId),
+      location_id: desde,
+      location_dest_id: hacia,
+    },
+    "Material del producto terminado",
+  );
+}
+
+/**
+ * Crea y confirma la orden de fabricación de un producto terminado, con los
+ * materiales que se le pasen (sin lista de materiales: la arma la app). Se puede
+ * repetir: si ya hay una con ese origen, la devuelve.
+ */
+export function crearFabricacion(p: FabricacionNueva): Promise<ProduccionCreada> {
+  return alDia(async () => {
+    const previas = await ejecutar<Fila[]>("mrp.production", "search_read", [[["origin", "=", p.origen]]], {
+      fields: ["name", "state"],
+      limit: 1,
+    });
+    if (previas[0]) {
+      if (previas[0].state === "draft") await ejecutar("mrp.production", "action_confirm", [[previas[0].id]]);
+      return { id: previas[0].id as number, nombre: texto(previas[0].name) ?? `#${previas[0].id}` };
+    }
+
+    const [aProduccion, deStock, uom] = await Promise.all([produccion(), stock(), uomDe(p.productoId)]);
+    const crudos = [];
+    for (const c of p.componentes) {
+      if (c.cantidad > 0) crudos.push([0, 0, await movimientoCrudo(c, deStock, aProduccion)]);
+    }
+
+    const id = await ejecutar<number>("mrp.production", "create", [
+      {
+        product_id: p.productoId,
+        product_qty: p.cantidad,
+        product_uom_id: uom,
+        origin: p.origen,
+        location_src_id: deStock,
+        location_dest_id: deStock,
+        move_raw_ids: crudos,
+      },
+    ]);
+    await ejecutar("mrp.production", "action_confirm", [[id]]);
+    const [leida] = await ejecutar<Fila[]>("mrp.production", "read", [[id]], { fields: ["name"] });
+    return { id, nombre: texto(leida?.name) ?? `#${id}` };
+  });
+}
+
+/**
+ * Cierra la orden de un producto terminado con lo que de verdad se usó: cada
+ * material consume su cantidad real, lo previsto que no se usó consume cero, y
+ * lo que se usó sin estar previsto se agrega. Se puede repetir: una orden ya
+ * cerrada no se toca.
+ */
+export function cerrarFabricacion(id: number, usados: Componente[]): Promise<void> {
+  return alDia(async () => {
+    const leer = async () => {
+      const [mo] = await ejecutar<Fila[]>("mrp.production", "read", [[id]], {
+        fields: ["state", "product_qty", "move_raw_ids"],
+      });
+      return mo;
+    };
+    let mo = await leer();
+    if (!mo) throw new ErrorOdoo("La orden de fabricación ya no existe en Odoo.");
+    const estado = texto(mo.state);
+    if (estado === "done") return;
+    if (estado === "cancel") throw new ErrorOdoo("La orden de fabricación está cancelada en Odoo.");
+
+    const leerCrudos = async (ids: number[]) =>
+      ids.length ? await ejecutar<Fila[]>("stock.move", "read", [ids], { fields: ["product_id"] }) : [];
+    const productoDe = (m: Fila) => (Array.isArray(m.product_id) ? (m.product_id as [number])[0] : null);
+
+    let crudos = await leerCrudos((mo.move_raw_ids as number[]) ?? []);
+    const previstos = new Set(crudos.map(productoDe));
+    const nuevos = usados.filter((u) => u.cantidad > 0 && !previstos.has(u.productoId));
+    if (nuevos.length) {
+      const [aProduccion, deStock] = await Promise.all([produccion(), stock()]);
+      const agregar = [];
+      for (const c of nuevos) agregar.push([0, 0, await movimientoCrudo(c, deStock, aProduccion)]);
+      await ejecutar("mrp.production", "write", [[id], { move_raw_ids: agregar }]);
+      mo = await leer();
+      crudos = await leerCrudos((mo?.move_raw_ids as number[]) ?? []);
+    }
+
+    const picked = (await camposExistentes("stock.move", ["picked"])).length > 0;
+    const campoMov = picked ? "quantity" : "quantity_done";
+    const cuanto = new Map(usados.map((u) => [u.productoId, u.cantidad]));
+    const vistos = new Set<number>();
+    for (const m of crudos) {
+      const producto = productoDe(m);
+      // Dos movimientos del mismo material: el primero se lleva todo.
+      const cantidad = producto !== null && !vistos.has(producto) ? (cuanto.get(producto) ?? 0) : 0;
+      if (producto !== null) vistos.add(producto);
+      await ejecutar("stock.move", "write", [[m.id], { [campoMov]: cantidad, ...(picked ? { picked: cantidad > 0 } : {}) }]);
+    }
+
+    await ejecutar("mrp.production", "write", [[id], { qty_producing: mo!.product_qty }]);
+    const r = await ejecutar("mrp.production", "button_mark_done", [[id]], {
+      context: { skip_consumption: true, skip_backorder: true, mo_ids_to_backorder: [], skip_immediate: true },
+    });
+    if (typeof r === "object" && r !== null && "res_model" in r) {
+      throw new ErrorOdoo("Odoo pidió confirmar algo más para cerrar la orden de fabricación. Ciérrala desde Odoo.");
+    }
+  });
+}

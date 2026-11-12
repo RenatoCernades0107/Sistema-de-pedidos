@@ -11,6 +11,8 @@ const producto: LineaDePedido = {
   descripcion: null,
   cantidad: 2,
   corte: null,
+  terminado: null,
+  materialesUsados: null,
   planchasUsadas: null,
   importe: null,
   produccionId: null,

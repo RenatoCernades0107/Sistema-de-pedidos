@@ -34,11 +34,13 @@ import {
   olvidarPopularidad,
   sincronizarConOdoo,
 } from "@/lib/cotizaciones-servidor";
-import { registrarCotizacion } from "@/lib/cotizaciones-registro";
+import { mensajeOdoo, registrarCotizacion } from "@/lib/cotizaciones-registro";
+import { productosPorId } from "@/lib/odoo/catalogos";
 import { cancelarVentaDePedido, descontarStockDePedido, leerLineasDePedido } from "@/lib/pedido-odoo-servidor";
 import { guardarSobrantesDeCorte, reservarSobrantes } from "@/lib/produccion-servidor";
 import { detalleDesdeLineas, referenciaDe, sumaLineas } from "@/lib/cotizaciones";
 import { totalPiezas } from "@/lib/cortes/guardado";
+import { etiquetaDeTipo } from "@/lib/terminados/catalogo";
 import { ODOO_NO_CONFIGURADO, odooConfigurado } from "@/lib/odoo/rpc";
 import { exigirCrearPedido, exigirSesion, type Perfil } from "@/lib/sesion";
 import { ROLES, admiteDecimales, ofreceComprobante, requiereMotivo } from "@/lib/dominio";
@@ -48,6 +50,7 @@ import {
   esquemaCambioEstado,
   esquemaCodigo,
   esquemaPlanchasUsadas,
+  esquemaMaterialesUsados,
   esquemaDatosEditables,
   esquemaEnvio,
   esquemaRegistroPedido,
@@ -55,7 +58,7 @@ import {
   esquemaUbicacion,
 } from "@/lib/esquemas";
 import type { z } from "zod";
-import type { TablesUpdate } from "@/lib/supabase-tipos";
+import type { Json, TablesUpdate } from "@/lib/supabase-tipos";
 
 /** Las columnas de `pedidos` que se pueden mandar en un UPDATE. */
 type CambiosPedido = TablesUpdate<"pedidos">;
@@ -170,7 +173,14 @@ export async function registrarPedido(entrada: unknown): Promise<Resultado> {
   const total = c.montoTotal ?? sumaLineas(c.lineas);
   const unidades = c.lineas.reduce((s, l) => s + (l.corte ? totalPiezas(l.corte.piezas) : l.cantidad), 0);
   // Media plancha existe; media pieza no. Es la misma regla que el CHECK de `pedidos`.
-  const cantidad = admiteDecimales(v.tipos) ? redondear2(unidades) : Math.max(1, Math.ceil(unidades));
+  /* Una línea de producto terminado hace al pedido de productos terminados, lo
+     diga o no el formulario, y su tipo es el de la línea ("otro" si hay de varios
+     o es un personalizado sin tipo). */
+  const terminados = c.lineas.flatMap((l) => (l.terminado ? [l.terminado] : []));
+  const tipos = terminados.length && !v.tipos.includes("PT") ? [...v.tipos, "PT" as const] : v.tipos;
+  const etiquetas = new Set(terminados.map((t) => etiquetaDeTipo(t.tipoCodigo)));
+  const producto = terminados.length ? (etiquetas.size === 1 ? [...etiquetas][0] : "otro") : v.producto;
+  const cantidad = admiteDecimales(tipos) ? redondear2(unidades) : Math.max(1, Math.ceil(unidades));
   const detalle = [detalleDesdeLineas(c.lineas), v.indicaciones].filter(Boolean).join("\n\n");
 
   /* Al contado se cobra el total en el acto, a cuenta lo que se haya adelantado, y
@@ -189,8 +199,8 @@ export async function registrarPedido(entrada: unknown): Promise<Resultado> {
     p_es_provincia: v.esProvincia,
     p_nombre_cliente: c.cliente.nombre,
     p_telefono_cliente: sinValor(c.cliente.telefono),
-    p_tipos_pedido: v.tipos,
-    p_tipo_producto_terminado: sinValor(v.tipos.includes("PT") ? v.producto : null),
+    p_tipos_pedido: tipos,
+    p_tipo_producto_terminado: sinValor(tipos.includes("PT") ? producto : null),
     p_cantidad: cantidad,
     p_tipo_pago: v.tipoPago,
     p_plazo_credito_dias: sinValor(v.tipoPago === "credito" ? v.plazoCredito : null),
@@ -267,10 +277,15 @@ export async function cambiarEstado(entrada: unknown): Promise<Resultado> {
 
   const datos = esquemaCambioEstado.safeParse(entrada);
   if (!datos.success) return falloDeEsquema(datos.error);
-  const { codigo, estado, motivo, numeroComprobante, planchas, sobrantes } = datos.data;
+  const { codigo, estado, motivo, numeroComprobante, planchas, sobrantes, materiales } = datos.data;
 
   if (requiereMotivo(estado) && !motivo) {
     return fallo("Explica el motivo: queda en el historial del pedido.");
+  }
+
+  if (estado === "listo" && materiales?.length) {
+    const anotados = await anotarMateriales(codigo, materiales);
+    if (!anotados.ok) return anotados;
   }
 
   if (estado === "listo" && planchas?.length) {
@@ -335,6 +350,50 @@ async function anotarPlanchas(
     if (error) return fallo(mensajeDeError(error));
   }
   return { ok: true };
+}
+
+/**
+ * Lo que de verdad se usó en cada producto terminado. Del navegador llegan ids
+ * de Odoo y cantidades; el nombre, el código y la unidad se leen de Odoo aquí.
+ */
+async function anotarMateriales(
+  codigo: string,
+  materiales: { posicion: number; usados: { productoId: number; cantidad: number }[] }[],
+): Promise<Resultado> {
+  let productos: Awaited<ReturnType<typeof productosPorId>>;
+  try {
+    productos = await productosPorId(materiales.flatMap((m) => m.usados.map((u) => u.productoId)));
+  } catch (e) {
+    return fallo(mensajeOdoo(e));
+  }
+
+  const supabase = await clienteServidor();
+  for (const m of materiales) {
+    const usados = [];
+    for (const u of m.usados) {
+      const p = productos.get(u.productoId);
+      if (!p) return fallo("Uno de los materiales usados ya no existe en Odoo. Quítalo y vuelve a buscarlo.");
+      usados.push({ productoId: p.id, codigo: p.codigo, nombre: p.nombre, unidad: p.unidad, cantidad: u.cantidad });
+    }
+    const { error } = await supabase.rpc("anotar_materiales_de_terminado", {
+      p_codigo: codigo,
+      p_posicion: m.posicion,
+      p_materiales: usados as unknown as Json,
+    });
+    if (error) return fallo(mensajeDeError(error));
+  }
+  return { ok: true };
+}
+
+/** Los materiales usados de los productos terminados de un pedido, sin moverlo de estado. */
+export async function anotarMaterialesUsados(entrada: unknown): Promise<Resultado> {
+  await exigirSesion();
+  const datos = esquemaMaterialesUsados.safeParse(entrada);
+  if (!datos.success) return falloDeEsquema(datos.error);
+
+  const r = await anotarMateriales(datos.data.codigo, datos.data.materiales);
+  if (r.ok) refresh();
+  return r;
 }
 
 /** Las planchas usadas de los cortes de un pedido, sin moverlo de estado. */

@@ -8,11 +8,15 @@ export type Rol = "administracion" | "logistica" | "operaciones";
 export type TipoPedido = "CL" | "CM" | "SP" | "PT" | "AC";
 export type ProductoTerminado =
   | "cajas"
-  | "porta_afiches"
-  | "pivotante"
-  | "letreros"
-  | "letras"
+  | "anforas"
   | "displays"
+  | "porta_afiches"
+  | "letras"
+  | "letreros"
+  | "alzadores"
+  | "tarecos"
+  | "atriles"
+  | "pivotante"
   | "otro";
 export type Estado =
   | "registrado"
@@ -141,11 +145,15 @@ export const TIPOS: Record<TipoPedido, string> = {
 
 export const PRODUCTOS: Record<ProductoTerminado, string> = {
   cajas: "Cajas",
-  porta_afiches: "Porta afiches",
-  pivotante: "Pivotante",
-  letreros: "Letreros",
-  letras: "Letras",
+  anforas: "Ánforas",
   displays: "Displays",
+  porta_afiches: "Porta afiches",
+  letras: "Letras",
+  letreros: "Letreros",
+  alzadores: "Alzadores",
+  tarecos: "Tarecos",
+  atriles: "Atriles",
+  pivotante: "Pivotante",
   otro: "Otro",
 };
 

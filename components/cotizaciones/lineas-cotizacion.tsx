@@ -1,17 +1,20 @@
 "use client";
 
 import { useState, type KeyboardEvent } from "react";
-import { Minus, NotebookPen, Pencil, Plus, Scissors, Trash2 } from "lucide-react";
+import { Minus, NotebookPen, Package, Pencil, Plus, Scissors, Trash2 } from "lucide-react";
 import { MODALIDADES } from "@/lib/cortes/calcular";
 import { materialDeCorte, resumenPiezas } from "@/lib/cortes/guardado";
 import { money } from "@/lib/formato";
 import {
   esCorte,
+  esTerminado,
   subtotalDe,
   type Linea as LineaDelFormulario,
   type LineaCorte,
   type LineaCotizacion,
+  type LineaTerminado,
 } from "@/lib/lineas-cotizacion";
+import { textoDeMedidas } from "@/lib/terminados/geometria";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +35,7 @@ export function LineasCotizacion({
   alCambiarCantidad,
   alQuitar,
   alEditarCorte,
+  alEditarTerminado,
   alTerminar,
   refCantidad,
   resaltada,
@@ -42,6 +46,7 @@ export function LineasCotizacion({
   alQuitar: (clave: string) => void;
   /** Reabrir el editor de un corte ya agregado. */
   alEditarCorte: (clave: string) => void;
+  alEditarTerminado: (clave: string) => void;
   /** Enter en un número: volver al buscador. */
   alTerminar: () => void;
   /** Para que el formulario pueda llevar el foco a la cantidad de una línea nueva. */
@@ -67,6 +72,15 @@ export function LineasCotizacion({
             linea={l}
             resaltada={resaltada === l.clave}
             alEditar={() => alEditarCorte(l.clave)}
+            alQuitar={() => alQuitar(l.clave)}
+          />
+        ) : esTerminado(l) ? (
+          <LineaDeTerminado
+            key={l.clave}
+            n={i + 1}
+            linea={l}
+            resaltada={resaltada === l.clave}
+            alEditar={() => alEditarTerminado(l.clave)}
             alQuitar={() => alQuitar(l.clave)}
           />
         ) : (
@@ -159,6 +173,84 @@ function LineaDeCorte({
         <div className="ml-auto flex flex-col items-end gap-1">
           <span className="text-muted-foreground text-xs">Subtotal</span>
           <span className="tnum h-8 text-sm leading-8 font-semibold">{money(c.total)}</span>
+        </div>
+      </div>
+    </li>
+  );
+}
+
+/**
+ * Un producto terminado en la lista. Como el corte, no se edita aquí: se reabre
+ * su editor.
+ */
+function LineaDeTerminado({
+  n,
+  linea: l,
+  resaltada,
+  alEditar,
+  alQuitar,
+}: {
+  n: number;
+  linea: LineaTerminado;
+  resaltada: boolean;
+  alEditar: () => void;
+  alQuitar: () => void;
+}) {
+  const ficha = [textoDeMedidas(l.medidas), l.materialTexto, ...l.opcionesTexto].filter(Boolean).join(" · ");
+  const c = l.calculo;
+
+  return (
+    <li
+      className={cn(
+        "bg-card rounded-lg border p-3 transition-colors duration-500",
+        resaltada && "border-primary/50 bg-primary/[0.04]",
+      )}
+      aria-label={`Línea ${n}: ${l.nombre}`}
+    >
+      <div className="flex items-start gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="bg-brand-soft text-foreground inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium">
+            <Package className="size-3" />
+            {l.productoCodigo ? "Producto terminado" : "Personalizado"}
+          </span>
+          {l.productoCodigo && <CodigoProducto codigo={l.productoCodigo} />}
+          <span className="min-w-0 text-sm font-medium">{l.nombre}</span>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`Editar ${l.nombre}`}
+          onClick={alEditar}
+          className="text-muted-foreground -mt-1 shrink-0"
+        >
+          <Pencil />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`Quitar ${l.nombre}`}
+          onClick={alQuitar}
+          className="text-muted-foreground -mt-1 -mr-1 shrink-0"
+        >
+          <Trash2 />
+        </Button>
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-2">
+        <div className="min-w-0 flex-1 text-sm">
+          {ficha && <p>{ficha}</p>}
+          <p className="text-muted-foreground tnum mt-0.5 text-xs">
+            {l.cantidad} × {money(l.precioUnitario)}
+            {l.precioUnitario !== c.precioSugerido && ` (sugerido ${money(c.precioSugerido)})`} · material estimado{" "}
+            {money(c.costoMaterial)}
+            {l.reservar && " · se reserva"}
+          </p>
+        </div>
+        <div className="ml-auto flex flex-col items-end gap-1">
+          <span className="text-muted-foreground text-xs">Subtotal</span>
+          <span className="tnum h-8 text-sm leading-8 font-semibold">{money(subtotalDe(l))}</span>
         </div>
       </div>
     </li>

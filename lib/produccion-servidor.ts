@@ -15,7 +15,14 @@ import { pideColor } from "./cortes/catalogo";
 import { guardarCorte, planchasNuevas, sobrantesUsados, type CorteGuardado } from "./cortes/guardado";
 import type { Json } from "./supabase-tipos";
 import { mensajeDeError } from "./errores";
-import { cancelarProduccion, cerrarProduccion, crearProduccion } from "./odoo/produccion";
+import {
+  cancelarProduccion,
+  cerrarFabricacion,
+  cerrarProduccion,
+  crearFabricacion,
+  crearProduccion,
+} from "./odoo/produccion";
+import { materialesADescontar, type TerminadoGuardado } from "./terminados/guardado";
 import { origenDe } from "./odoo/pedidos-venta";
 import { ErrorOdoo } from "./odoo/rpc";
 import type { LineaDePedido } from "./pedido-lineas";
@@ -309,6 +316,94 @@ export async function cancelarCortesDePedido(lineas: LineaDePedido[]): Promise<R
       await cancelarProduccion(l.produccionId!);
     } catch (e) {
       return { ok: false, error: mensaje(e, "cancelar") };
+    }
+  }
+  return { ok: true };
+}
+
+/* ── Productos terminados ──────────────────────────────────────────────────── */
+
+type LineaTerminado = {
+  posicion: number;
+  productoId: number;
+  cantidad: number;
+  terminado: TerminadoGuardado | null;
+  produccionId?: number | null;
+};
+
+/**
+ * La orden de fabricación de un producto terminado, si todavía no la tiene. Nace
+ * con los materiales estimados: al confirmarse, Odoo los reserva.
+ */
+async function asegurarFabricacion(cotizacionId: string, l: LineaTerminado): Promise<number> {
+  if (l.produccionId) return l.produccionId;
+  const mo = await crearFabricacion({
+    origen: `${origenDe(cotizacionId)} #${l.posicion}`,
+    productoId: l.productoId,
+    cantidad: l.cantidad,
+    componentes: materialesADescontar(l.terminado!, null),
+  });
+
+  const supabase = await clienteServidor();
+  const { error } = await supabase.rpc("anotar_produccion", {
+    p_cotizacion: cotizacionId,
+    p_posicion: l.posicion,
+    p_id: mo.id,
+    p_nombre: mo.nombre,
+  });
+  if (error) throw new Error(`Se creó ${mo.nombre} en Odoo, pero no se pudo anotar aquí: ${mensajeDeError(error)}`);
+  return mo.id;
+}
+
+/**
+ * Las órdenes de los productos terminados que pidieron reservar su material.
+ * Corre después de confirmar la venta. Los que no lo pidieron no tienen orden
+ * hasta que el pedido se termina.
+ */
+export async function reservarTerminados(cotizacionId: string, lineas: LineaTerminado[]): Promise<Resultado> {
+  for (const l of lineas.filter((x) => x.terminado?.reservar)) {
+    try {
+      await asegurarFabricacion(cotizacionId, l);
+    } catch (e) {
+      return { ok: false, error: `No se reservó el material de ${l.terminado!.nombre}: ${mensaje(e, "reservar terminado")}` };
+    }
+  }
+  return { ok: true };
+}
+
+/**
+ * Cierra en Odoo las órdenes de los productos terminados de un pedido que pasó
+ * a Listo: consume lo que logística anotó que se usó (o, si no anotó, lo
+ * estimado) y deja el producto terminado en el almacén, de donde lo saca la
+ * entrega. Se puede repetir: lo ya cerrado no se toca.
+ */
+export async function cerrarTerminadosDePedido(cotizacionId: string, lineas: LineaDePedido[]): Promise<Resultado> {
+  for (const l of lineas.filter((x) => x.terminado && !x.produccionCerrada)) {
+    try {
+      const moId = await asegurarFabricacion(cotizacionId, l);
+      await cerrarFabricacion(moId, materialesADescontar(l.terminado!, l.materialesUsados));
+
+      const supabase = await clienteServidor();
+      const { error } = await supabase.rpc("anotar_produccion", {
+        p_cotizacion: cotizacionId,
+        p_posicion: l.posicion,
+        p_cerrada: true,
+      });
+      if (error) return { ok: false, error: `La orden se cerró en Odoo, pero no se pudo anotar aquí: ${mensajeDeError(error)}` };
+    } catch (e) {
+      return { ok: false, error: `No se fabricó ${l.terminado!.nombre} en Odoo: ${mensaje(e, "cerrar terminado")}` };
+    }
+  }
+  return { ok: true };
+}
+
+/** Cancela las órdenes abiertas de los productos terminados de un pedido anulado: suelta lo reservado. */
+export async function cancelarTerminadosDePedido(lineas: LineaDePedido[]): Promise<Resultado> {
+  for (const l of lineas.filter((x) => x.terminado && x.produccionId && !x.produccionCerrada)) {
+    try {
+      await cancelarProduccion(l.produccionId!);
+    } catch (e) {
+      return { ok: false, error: mensaje(e, "cancelar terminado") };
     }
   }
   return { ok: true };

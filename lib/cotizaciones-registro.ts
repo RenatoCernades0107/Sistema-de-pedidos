@@ -8,6 +8,7 @@
  */
 
 import { prepararCorte } from "./cortes-servidor";
+import { prepararTerminado } from "./terminados-servidor";
 import { mensajeDeError } from "./errores";
 import type { NuevaCotizacion } from "./esquemas";
 import { productosPorId } from "./odoo/catalogos";
@@ -32,7 +33,7 @@ export type CotizacionRegistrada =
 export async function registrarCotizacion(v: NuevaCotizacion): Promise<CotizacionRegistrada> {
   const fallo = (error: string) => ({ ok: false as const, error });
 
-  const deProducto = v.lineas.filter((l) => l.tipo !== "corte");
+  const deProducto = v.lineas.filter((l) => l.tipo !== "corte" && l.tipo !== "terminado");
   let cliente: ClienteOdoo | null;
   let productos: Awaited<ReturnType<typeof productosPorId>>;
   try {
@@ -57,6 +58,18 @@ export async function registrarCotizacion(v: NuevaCotizacion): Promise<Cotizacio
       }
       if (!corte.ok) return fallo(corte.error);
       lineas.push(corte.fila);
+      continue;
+    }
+    if (l.tipo === "terminado") {
+      // La ficha se arma aquí: nombres, extras, material estimado y precio sugerido.
+      let terminado: Awaited<ReturnType<typeof prepararTerminado>>;
+      try {
+        terminado = await prepararTerminado(l);
+      } catch (e) {
+        return fallo(mensajeOdoo(e));
+      }
+      if (!terminado.ok) return fallo(terminado.error);
+      lineas.push(terminado.fila);
       continue;
     }
     const p = productos.get(l.productoId);

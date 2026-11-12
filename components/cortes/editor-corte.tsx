@@ -73,7 +73,7 @@ type Sobrantes = RespuestaPrecios["sobrantes"];
 /** Los precios de un material no cambian mientras se arma un corte: se piden una vez. */
 const preciosVistos = new Map<string, { precios: Precios; sobrantes: Sobrantes }>();
 
-function usePrecios(grupoId: string | null) {
+export function usePrecios(grupoId: string | null) {
   const [estado, setEstado] = useState<{
     grupoId: string;
     precios: Precios | null;

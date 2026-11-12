@@ -86,6 +86,15 @@ eso `e2e/cotizaciones.spec.ts` comprueba primero que la app habla con el falso y
 sin crear nada. Ciérralo y vuelve a correr. Con `E2E_URL` (contra un despliegue) esas pruebas se
 saltan.
 
+Para correrlos contra un Supabase **local** sin tocar el `next dev` que tengas abierto —o desde un
+worktree, donde el del puerto 3000 sirve otro código— está `playwright.local.config.ts`: levanta la
+app en el 3100 y el Odoo falso en el 8169.
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:<api> NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<local> \
+  npx playwright test -c playwright.local.config.ts
+```
+
 Los tests de punta a punta corren **contra la base real**, que es la única que hay. Cada prueba crea
 sus propias filas con el cliente prefijado `E2E` y las borra al terminar; ninguna toca los 23 pedidos
 del seed. Las pruebas del esquema son SQL y van aparte: `supabase/tests/README.md`.

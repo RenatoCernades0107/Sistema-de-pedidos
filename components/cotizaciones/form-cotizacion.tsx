@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useRef, useState, useTransition } from "react";
 import { flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Loader2, Scissors } from "lucide-react";
+import { ArrowLeft, Loader2, Package, Scissors } from "lucide-react";
 import { toast } from "sonner";
 import { crearCotizacion } from "@/app/(app)/cotizaciones/acciones";
 import { CANALES, type Canal } from "@/lib/cotizaciones";
@@ -14,7 +14,9 @@ import {
   agregarProducto,
   cambiarCantidad,
   esCorte,
+  esTerminado,
   ponerCorte,
+  ponerTerminado,
   problemaDeLineas,
   quitarLinea,
   totalReferencial,
@@ -23,6 +25,8 @@ import {
 import type { GrupoPlancha } from "@/lib/cortes/catalogo";
 import type { ConfigCortes } from "@/lib/cortes/config";
 import { EditorCorte } from "@/components/cortes/editor-corte";
+import { EditorTerminado } from "@/components/terminados/editor-terminado";
+import type { CatalogoTerminados } from "@/lib/terminados/catalogo";
 import type { ClienteOdoo, ProductoOdoo } from "@/lib/odoo/tipos";
 import { Button } from "@/components/ui/button";
 import { Campo, Opciones } from "@/components/ui/campo";
@@ -41,13 +45,24 @@ import { LineasCotizacion } from "./lineas-cotizacion";
  * Al crear, se guarda en la base y se crea en Odoo en el mismo paso. Si Odoo
  * falla, lo cotizado queda guardado y el detalle ofrece reintentar.
  */
-export function FormCotizacion({ catalogo, config }: { catalogo: GrupoPlancha[]; config: ConfigCortes }) {
+export function FormCotizacion({
+  catalogo,
+  config,
+  terminados,
+}: {
+  catalogo: GrupoPlancha[];
+  config: ConfigCortes;
+  /** El catálogo de productos terminados. */
+  terminados: CatalogoTerminados;
+}) {
   const router = useRouter();
   const [canal, setCanal] = useState<Canal>("tienda");
   const [cliente, setCliente] = useState<ClienteOdoo | null>(null);
   const [lineas, setLineas] = useState<Linea[]>([]);
   /** El editor de corte: cerrado, abierto para uno nuevo, o editando el de esa clave. */
   const [corte, setCorte] = useState<{ clave: string | null } | null>(null);
+  /** Lo mismo, para el editor de producto terminado. */
+  const [terminado, setTerminado] = useState<{ clave: string | null } | null>(null);
   const [notas, setNotas] = useState("");
   const [resaltada, setResaltada] = useState<string | null>(null);
   const [pendiente, iniciar] = useTransition();
@@ -196,6 +211,16 @@ export function FormCotizacion({ catalogo, config }: { catalogo: GrupoPlancha[];
               <Scissors />
               Corte<span className="hidden sm:inline"> a medida</span>
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 shrink-0 gap-1.5"
+              aria-label="Producto terminado"
+              onClick={() => setTerminado({ clave: null })}
+            >
+              <Package />
+              <span className="hidden sm:inline">Producto </span>terminado
+            </Button>
           </div>
           <LineasCotizacion
             lineas={lineas}
@@ -208,6 +233,7 @@ export function FormCotizacion({ catalogo, config }: { catalogo: GrupoPlancha[];
               buscadorProducto.current?.focus();
             }}
             alEditarCorte={(clave) => setCorte({ clave })}
+            alEditarTerminado={(clave) => setTerminado({ clave })}
             alTerminar={() => buscadorProducto.current?.focus()}
           />
         </Seccion>
@@ -237,6 +263,22 @@ export function FormCotizacion({ catalogo, config }: { catalogo: GrupoPlancha[];
             setCorte(null);
             marcar(clave);
             // De vuelta al buscador: lo siguiente es otro producto o crear.
+            requestAnimationFrame(() => buscadorProducto.current?.focus());
+          }}
+        />
+      )}
+
+      {terminado && (
+        <EditorTerminado
+          catalogo={terminados}
+          planchas={catalogo}
+          inicial={lineas.filter(esTerminado).find((l) => l.clave === terminado.clave) ?? null}
+          alCerrar={() => setTerminado(null)}
+          alGuardar={(nuevo) => {
+            const { lineas: siguientes, clave } = ponerTerminado(lineas, nuevo);
+            setLineas(siguientes);
+            setTerminado(null);
+            marcar(clave);
             requestAnimationFrame(() => buscadorProducto.current?.focus());
           }}
         />
@@ -292,6 +334,33 @@ export function lineaParaEnviar(l: Linea) {
       piezas: l.piezas,
       formatoCodigo: l.calculo.formato.codigo,
       totalMostrado: l.calculo.total,
+    };
+  }
+  if (esTerminado(l)) {
+    const m = l.medidas;
+    return {
+      tipo: "terminado" as const,
+      productoCodigo: l.productoCodigo,
+      nombre: l.productoCodigo ? null : l.nombre.trim() || null,
+      tipoCodigo: l.tipoCodigo,
+      medidas: {
+        m1: m.m1 || null,
+        m2: m.m2 || null,
+        m3: m.m3 || null,
+        diametro: m.diametro || null,
+        altura: m.altura || null,
+        letras: m.letras || null,
+      },
+      grupoId: l.grupoId,
+      color: l.color?.trim() || null,
+      opciones: l.opciones,
+      texto: l.texto.trim() || null,
+      notas: l.notas.trim() || null,
+      areaM2: l.areaManualM2,
+      accesorios: l.accesorios.map((a) => ({ productoId: a.productoId, cantidad: Number(a.cantidad) })),
+      cantidad: Number(l.cantidad),
+      precioUnitario: Number(l.precioUnitario),
+      reservar: l.reservar,
     };
   }
   return {

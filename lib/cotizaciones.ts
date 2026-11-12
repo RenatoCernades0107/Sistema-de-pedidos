@@ -13,6 +13,7 @@ import {
   totalPiezas,
   type CorteGuardado,
 } from "./cortes/guardado";
+import { descripcionDeTerminado, tituloTerminado, type TerminadoGuardado } from "./terminados/guardado";
 
 export type Canal = "tienda" | "whatsapp";
 export type Sincronizacion = "pendiente" | "sincronizada" | "error";
@@ -41,6 +42,13 @@ export interface LineaGuardada {
    * plancha de la que sale y la cantidad, cuántas planchas se abren.
    */
   corte: CorteGuardado | null;
+  /**
+   * Si la línea es un producto terminado, su ficha. Entonces el producto es el
+   * de Odoo con que se vende y la cantidad, cuántas unidades.
+   */
+  terminado: TerminadoGuardado | null;
+  /** La orden de fabricación de la línea en Odoo, si ya tiene una. */
+  produccionId?: number | null;
   /** Lo que se cobra por la línea. En un producto, cantidad × precio. */
   importe: number;
 }
@@ -102,6 +110,10 @@ export const detalleDesdeLineas = (lineas: LineaGuardada[]) =>
         );
       }
       const cantidad = String(+l.cantidad.toFixed(3));
+      if (l.terminado) {
+        const ficha = descripcionDeTerminado(l.terminado);
+        return `${cantidad} × ${tituloTerminado(l.terminado)}${ficha ? ` — ${ficha}` : ""}`;
+      }
       const producto = l.codigo ? `[${l.codigo}] ${l.nombre}` : l.nombre;
       const medidas = l.descripcion?.replace(/\s+/g, " ").trim();
       return `${cantidad} × ${producto}${medidas ? ` — ${medidas}` : ""}`;
@@ -118,7 +130,15 @@ export const textoBuscable = (c: Cotizacion) =>
     CANALES[c.canal],
     c.notas,
     c.pedido?.codigo,
-    ...c.lineas.flatMap((l) => [l.nombre, l.codigo, l.descripcion, l.corte?.material, l.corte?.color]),
+    ...c.lineas.flatMap((l) => [
+      l.nombre,
+      l.codigo,
+      l.descripcion,
+      l.corte?.material,
+      l.corte?.color,
+      l.terminado?.productoCodigo,
+      l.terminado?.tipoNombre,
+    ]),
   ]
     .filter(Boolean)
     .join(" ");

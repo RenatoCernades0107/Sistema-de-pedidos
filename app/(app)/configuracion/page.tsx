@@ -1,6 +1,8 @@
 import { exigirAdmin } from "@/lib/sesion";
 import { cargarCatalogoPlanchas, cargarConfigCortes } from "@/lib/cortes-servidor";
 import { odooConfigurado } from "@/lib/odoo/rpc";
+import { cargarCatalogoTerminados } from "@/lib/terminados-servidor";
+import { CatalogoTerminados } from "@/components/configuracion/catalogo-terminados";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CatalogoPlanchas } from "@/components/configuracion/catalogo-planchas";
 import { FormConfigCortes } from "@/components/configuracion/config-cortes";
@@ -14,7 +16,11 @@ import { FormConfigCortes } from "@/components/configuracion/config-cortes";
  */
 export default async function Page() {
   await exigirAdmin();
-  const [config, grupos] = await Promise.all([cargarConfigCortes(), cargarCatalogoPlanchas()]);
+  const [config, grupos, terminados] = await Promise.all([
+    cargarConfigCortes(),
+    cargarCatalogoPlanchas(),
+    cargarCatalogoTerminados(),
+  ]);
   const formatos = grupos.reduce((n, g) => n + g.formatos.length, 0);
 
   return (
@@ -22,7 +28,7 @@ export default async function Page() {
       <header className="mb-5">
         <h1 className="text-xl font-semibold tracking-tight">Configuración</h1>
         <p className="text-muted-foreground mt-0.5 text-sm">
-          Cómo se calcula un corte y con qué planchas. Lo que cambies vale para las cotizaciones y
+          Cómo se calcula un corte, con qué planchas, y qué productos terminados se fabrican. Lo que cambies vale para las cotizaciones y
           pedidos que se hagan desde ahora; los ya registrados conservan su cálculo.
         </p>
       </header>
@@ -36,9 +42,16 @@ export default async function Page() {
             Planchas
             <span className="text-muted-foreground tnum text-xs">{formatos}</span>
           </TabsTrigger>
+          <TabsTrigger value="terminados" className="px-3">
+            Productos terminados
+            <span className="text-muted-foreground tnum text-xs">{terminados.productos.length}</span>
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="cortes">
           <FormConfigCortes config={config} />
+        </TabsContent>
+        <TabsContent value="terminados">
+          <CatalogoTerminados catalogo={terminados} />
         </TabsContent>
         <TabsContent value="planchas">
           <CatalogoPlanchas grupos={grupos} odooConectado={odooConfigurado()} />

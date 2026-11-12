@@ -148,6 +148,7 @@ export type Database = {
           descripcion: string | null
           id: string
           importe: number | null
+          materiales_usados: Json | null
           odoo_produccion_id: number | null
           odoo_produccion_nombre: string | null
           odoo_product_id: number
@@ -157,6 +158,7 @@ export type Database = {
           produccion_cerrada: boolean
           producto_codigo: string | null
           producto_nombre: string
+          terminado: Json | null
           tipo: Database["public"]["Enums"]["tipo_linea"]
         }
         Insert: {
@@ -166,6 +168,7 @@ export type Database = {
           descripcion?: string | null
           id?: string
           importe?: number | null
+          materiales_usados?: Json | null
           odoo_produccion_id?: number | null
           odoo_produccion_nombre?: string | null
           odoo_product_id: number
@@ -175,6 +178,7 @@ export type Database = {
           produccion_cerrada?: boolean
           producto_codigo?: string | null
           producto_nombre: string
+          terminado?: Json | null
           tipo?: Database["public"]["Enums"]["tipo_linea"]
         }
         Update: {
@@ -184,6 +188,7 @@ export type Database = {
           descripcion?: string | null
           id?: string
           importe?: number | null
+          materiales_usados?: Json | null
           odoo_produccion_id?: number | null
           odoo_produccion_nombre?: string | null
           odoo_product_id?: number
@@ -193,6 +198,7 @@ export type Database = {
           produccion_cerrada?: boolean
           producto_codigo?: string | null
           producto_nombre?: string
+          terminado?: Json | null
           tipo?: Database["public"]["Enums"]["tipo_linea"]
         }
         Relationships: [
@@ -921,6 +927,387 @@ export type Database = {
           },
         ]
       }
+      pt_colores: {
+        Row: {
+          id: number
+          nombre: string
+        }
+        Insert: {
+          id?: number
+          nombre: string
+        }
+        Update: {
+          id?: number
+          nombre?: string
+        }
+        Relationships: []
+      }
+      pt_espesores: {
+        Row: {
+          aplicacion: string | null
+          espesor_max_mm: number
+          espesor_min_mm: number
+          estimado: boolean
+          id: string
+          material: string | null
+          nota: string | null
+          orden: number
+          producto: string
+        }
+        Insert: {
+          aplicacion?: string | null
+          espesor_max_mm: number
+          espesor_min_mm: number
+          estimado?: boolean
+          id?: string
+          material?: string | null
+          nota?: string | null
+          orden?: number
+          producto: string
+        }
+        Update: {
+          aplicacion?: string | null
+          espesor_max_mm?: number
+          espesor_min_mm?: number
+          estimado?: boolean
+          id?: string
+          material?: string | null
+          nota?: string | null
+          orden?: number
+          producto?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pt_espesores_producto_fkey"
+            columns: ["producto"]
+            isOneToOne: false
+            referencedRelation: "pt_productos"
+            referencedColumns: ["codigo"]
+          },
+        ]
+      }
+      pt_materiales: {
+        Row: {
+          categoria: string | null
+          id: number
+          nombre: string
+        }
+        Insert: {
+          categoria?: string | null
+          id?: number
+          nombre: string
+        }
+        Update: {
+          categoria?: string | null
+          id?: number
+          nombre?: string
+        }
+        Relationships: []
+      }
+      pt_medidas: {
+        Row: {
+          altura_cm: number | null
+          altura_max_cm: number | null
+          diametro_cm: number | null
+          estimado: boolean
+          formato: string | null
+          id: string
+          medida_1_cm: number | null
+          medida_2_cm: number | null
+          medida_3_cm: number | null
+          nota: string | null
+          orden: number
+          producto: string
+        }
+        Insert: {
+          altura_cm?: number | null
+          altura_max_cm?: number | null
+          diametro_cm?: number | null
+          estimado?: boolean
+          formato?: string | null
+          id?: string
+          medida_1_cm?: number | null
+          medida_2_cm?: number | null
+          medida_3_cm?: number | null
+          nota?: string | null
+          orden?: number
+          producto: string
+        }
+        Update: {
+          altura_cm?: number | null
+          altura_max_cm?: number | null
+          diametro_cm?: number | null
+          estimado?: boolean
+          formato?: string | null
+          id?: string
+          medida_1_cm?: number | null
+          medida_2_cm?: number | null
+          medida_3_cm?: number | null
+          nota?: string | null
+          orden?: number
+          producto?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pt_medidas_producto_fkey"
+            columns: ["producto"]
+            isOneToOne: false
+            referencedRelation: "pt_productos"
+            referencedColumns: ["codigo"]
+          },
+        ]
+      }
+      pt_opciones: {
+        Row: {
+          clase: Database["public"]["Enums"]["pt_clase_opcion"]
+          extra: number
+          id: number
+          nombre: string
+        }
+        Insert: {
+          clase: Database["public"]["Enums"]["pt_clase_opcion"]
+          extra?: number
+          id?: number
+          nombre: string
+        }
+        Update: {
+          clase?: Database["public"]["Enums"]["pt_clase_opcion"]
+          extra?: number
+          id?: number
+          nombre?: string
+        }
+        Relationships: []
+      }
+      pt_producto_color: {
+        Row: {
+          color_id: number
+          producto: string
+        }
+        Insert: {
+          color_id: number
+          producto: string
+        }
+        Update: {
+          color_id?: number
+          producto?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pt_producto_color_color_id_fkey"
+            columns: ["color_id"]
+            isOneToOne: false
+            referencedRelation: "pt_colores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pt_producto_color_producto_fkey"
+            columns: ["producto"]
+            isOneToOne: false
+            referencedRelation: "pt_productos"
+            referencedColumns: ["codigo"]
+          },
+        ]
+      }
+      pt_producto_material: {
+        Row: {
+          componente: string | null
+          especificacion: string | null
+          id: string
+          material_id: number
+          opcional: boolean
+          producto: string
+        }
+        Insert: {
+          componente?: string | null
+          especificacion?: string | null
+          id?: string
+          material_id: number
+          opcional?: boolean
+          producto: string
+        }
+        Update: {
+          componente?: string | null
+          especificacion?: string | null
+          id?: string
+          material_id?: number
+          opcional?: boolean
+          producto?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pt_producto_material_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "pt_materiales"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pt_producto_material_producto_fkey"
+            columns: ["producto"]
+            isOneToOne: false
+            referencedRelation: "pt_productos"
+            referencedColumns: ["codigo"]
+          },
+        ]
+      }
+      pt_producto_opcion: {
+        Row: {
+          detalle: string | null
+          opcion_id: number
+          opcional: boolean
+          producto: string
+        }
+        Insert: {
+          detalle?: string | null
+          opcion_id: number
+          opcional?: boolean
+          producto: string
+        }
+        Update: {
+          detalle?: string | null
+          opcion_id?: number
+          opcional?: boolean
+          producto?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pt_producto_opcion_opcion_id_fkey"
+            columns: ["opcion_id"]
+            isOneToOne: false
+            referencedRelation: "pt_opciones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pt_producto_opcion_producto_fkey"
+            columns: ["producto"]
+            isOneToOne: false
+            referencedRelation: "pt_productos"
+            referencedColumns: ["codigo"]
+          },
+        ]
+      }
+      pt_producto_segmento: {
+        Row: {
+          producto: string
+          segmento_id: number
+        }
+        Insert: {
+          producto: string
+          segmento_id: number
+        }
+        Update: {
+          producto?: string
+          segmento_id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pt_producto_segmento_producto_fkey"
+            columns: ["producto"]
+            isOneToOne: false
+            referencedRelation: "pt_productos"
+            referencedColumns: ["codigo"]
+          },
+          {
+            foreignKeyName: "pt_producto_segmento_segmento_id_fkey"
+            columns: ["segmento_id"]
+            isOneToOne: false
+            referencedRelation: "pt_segmentos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pt_productos: {
+        Row: {
+          a_medida: boolean
+          activo: boolean
+          actualizado_en: string
+          codigo: string
+          codigo_original: string | null
+          contacto_alimentario: string | null
+          geometria: Database["public"]["Enums"]["pt_geometria"]
+          imagen_url: string | null
+          nombre: string
+          notas: string | null
+          tipo: string
+          usos: string | null
+        }
+        Insert: {
+          a_medida?: boolean
+          activo?: boolean
+          actualizado_en?: string
+          codigo: string
+          codigo_original?: string | null
+          contacto_alimentario?: string | null
+          geometria?: Database["public"]["Enums"]["pt_geometria"]
+          imagen_url?: string | null
+          nombre: string
+          notas?: string | null
+          tipo: string
+          usos?: string | null
+        }
+        Update: {
+          a_medida?: boolean
+          activo?: boolean
+          actualizado_en?: string
+          codigo?: string
+          codigo_original?: string | null
+          contacto_alimentario?: string | null
+          geometria?: Database["public"]["Enums"]["pt_geometria"]
+          imagen_url?: string | null
+          nombre?: string
+          notas?: string | null
+          tipo?: string
+          usos?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pt_productos_tipo_fkey"
+            columns: ["tipo"]
+            isOneToOne: false
+            referencedRelation: "pt_tipos"
+            referencedColumns: ["codigo"]
+          },
+        ]
+      }
+      pt_segmentos: {
+        Row: {
+          id: number
+          nombre: string
+          sector: string | null
+        }
+        Insert: {
+          id?: number
+          nombre: string
+          sector?: string | null
+        }
+        Update: {
+          id?: number
+          nombre?: string
+          sector?: string | null
+        }
+        Relationships: []
+      }
+      pt_tipos: {
+        Row: {
+          codigo: string
+          factor_fabricacion: number
+          nombre: string
+          orden: number
+        }
+        Insert: {
+          codigo: string
+          factor_fabricacion?: number
+          nombre: string
+          orden?: number
+        }
+        Update: {
+          codigo?: string
+          factor_fabricacion?: number
+          nombre?: string
+          orden?: number
+        }
+        Relationships: []
+      }
       sobrantes: {
         Row: {
           actualizado_en: string
@@ -1502,6 +1889,10 @@ export type Database = {
         Args: { p_anulada: boolean; p_codigo: string; p_error?: string }
         Returns: undefined
       }
+      anotar_materiales_de_terminado: {
+        Args: { p_codigo: string; p_materiales: Json; p_posicion: number }
+        Returns: undefined
+      }
       anotar_planchas_usadas: {
         Args: { p_codigo: string; p_planchas: number; p_posicion: number }
         Returns: undefined
@@ -1596,6 +1987,7 @@ export type Database = {
           corte: Json
           descripcion: string
           importe: number
+          materiales_usados: Json
           odoo_produccion_id: number
           odoo_produccion_nombre: string
           odoo_product_id: number
@@ -1605,6 +1997,7 @@ export type Database = {
           produccion_cerrada: boolean
           producto_codigo: string
           producto_nombre: string
+          terminado: Json
           tipo: Database["public"]["Enums"]["tipo_linea"]
         }[]
       }
@@ -1647,6 +2040,7 @@ export type Database = {
         Returns: number
       }
       sufijo_codigo: { Args: never; Returns: string }
+      terminado_sin_precios: { Args: { t: Json }; Returns: Json }
       texto_notificacion: {
         Args: {
           p_codigo: string
@@ -1718,11 +2112,24 @@ export type Database = {
         | "letras"
         | "displays"
         | "otro"
+        | "anforas"
+        | "alzadores"
+        | "tarecos"
+        | "atriles"
+      pt_clase_opcion: "personalizacion" | "acabado" | "complemento"
+      pt_geometria:
+        | "caja_cerrada"
+        | "caja_abierta"
+        | "cilindro"
+        | "lamina"
+        | "lamina_plegada"
+        | "letras"
+        | "manual"
       rol: "administracion" | "logistica" | "operaciones"
       sincronizacion_odoo: "pendiente" | "sincronizada" | "error"
       tipo_adjunto: "diseno" | "factura" | "guia" | "foto_entrega"
       tipo_documento: "DNI" | "CE"
-      tipo_linea: "producto" | "corte"
+      tipo_linea: "producto" | "corte" | "terminado"
       tipo_notificacion: "pedido_creado" | "responsable_asignado"
       tipo_pago: "contado" | "a_cuenta" | "credito"
       tipo_pedido: "CL" | "CM" | "SP" | "PT" | "AC"
@@ -1884,12 +2291,26 @@ export const Constants = {
         "letras",
         "displays",
         "otro",
+        "anforas",
+        "alzadores",
+        "tarecos",
+        "atriles",
+      ],
+      pt_clase_opcion: ["personalizacion", "acabado", "complemento"],
+      pt_geometria: [
+        "caja_cerrada",
+        "caja_abierta",
+        "cilindro",
+        "lamina",
+        "lamina_plegada",
+        "letras",
+        "manual",
       ],
       rol: ["administracion", "logistica", "operaciones"],
       sincronizacion_odoo: ["pendiente", "sincronizada", "error"],
       tipo_adjunto: ["diseno", "factura", "guia", "foto_entrega"],
       tipo_documento: ["DNI", "CE"],
-      tipo_linea: ["producto", "corte"],
+      tipo_linea: ["producto", "corte", "terminado"],
       tipo_notificacion: ["pedido_creado", "responsable_asignado"],
       tipo_pago: ["contado", "a_cuenta", "credito"],
       tipo_pedido: ["CL", "CM", "SP", "PT", "AC"],

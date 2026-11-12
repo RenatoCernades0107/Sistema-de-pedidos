@@ -35,7 +35,8 @@ import {
 import { ErrorOdoo, odooConfigurado } from "./odoo/rpc";
 import { PREFIJO_CORTE, productoCorte } from "./odoo/produccion";
 import { cargarGrupoPlancha } from "./cortes-servidor";
-import { producirCortes } from "./produccion-servidor";
+import { producirCortes, reservarTerminados } from "./produccion-servidor";
+import { leerTerminado } from "./terminados/guardado";
 import { areaPiezasM2, lineasCorteAMedida, materialOdoo } from "./sobrantes";
 import type { ClienteOdoo } from "./odoo/tipos";
 
@@ -47,7 +48,8 @@ const COLUMNAS = `
   creador:usuarios!cotizaciones_creado_por_fkey ( nombre ),
   pedido:pedidos!cotizaciones_pedido_id_fkey ( codigo ),
   cotizacion_productos ( posicion, odoo_product_id, producto_nombre, producto_codigo,
-                         descripcion, cantidad, precio_unitario, tipo, corte, importe )
+                         descripcion, cantidad, precio_unitario, tipo, corte, terminado, importe,
+                         odoo_produccion_id )
 `;
 
 interface Fila {
@@ -79,9 +81,11 @@ interface Fila {
     descripcion: string | null;
     cantidad: number;
     precio_unitario: number;
-    tipo: "producto" | "corte";
+    tipo: "producto" | "corte" | "terminado";
     corte: unknown;
+    terminado: unknown;
     importe: number | null;
+    odoo_produccion_id: number | null;
   }[];
 }
 
@@ -125,6 +129,8 @@ function deFila(f: Fila): Cotizacion {
         cantidad: Number(l.cantidad),
         precioUnitario: Number(l.precio_unitario),
         corte: l.tipo === "corte" ? leerCorte(l.corte) : null,
+        terminado: l.tipo === "terminado" ? leerTerminado(l.terminado) : null,
+        produccionId: l.odoo_produccion_id,
         importe: num(l.importe) ?? importeDeProducto(Number(l.cantidad), Number(l.precio_unitario)),
       })),
   };
@@ -260,7 +266,10 @@ export function lineasParaOdoo(
         codigo: l.codigo,
         cantidad: l.cantidad,
         precioUnitario: l.precioUnitario,
-        descripcion: l.descripcion,
+        // Un producto terminado se vende con su producto de Odoo y la ficha en la descripción.
+        descripcion: l.terminado
+          ? [l.terminado.estandar ? null : l.terminado.nombre, l.descripcion].filter(Boolean).join(". ")
+          : l.descripcion,
       },
     ];
   }
@@ -448,7 +457,11 @@ export async function confirmarEnOdoo(id: string): Promise<{ ok: true } | { ok: 
      son las que reservan sus planchas. Si fallan, se vuelven a intentar al
      pasar a Listo. */
   const cotizacion = await leerCotizacion(id);
-  return cotizacion ? producirCortes(id, cotizacion.lineas) : resultado;
+  if (!cotizacion) return resultado;
+  const cortes = await producirCortes(id, cotizacion.lineas);
+  if (!cortes.ok) return cortes;
+  // Y las de los productos terminados que pidieron reservar su material estimado.
+  return reservarTerminados(id, cotizacion.lineas);
 }
 
 /**

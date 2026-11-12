@@ -8,7 +8,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowLeft, Factory, FileText, Scissors, Store, Upload, X } from "lucide-react";
+import { ArrowLeft, Factory, FileText, Package, Scissors, Store, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { useStore } from "@/lib/store";
 import { subirAdjuntos } from "@/lib/adjuntos-navegador";
@@ -36,7 +36,9 @@ import {
   agregarProducto,
   cambiarCantidad,
   esCorte,
+  esTerminado,
   ponerCorte,
+  ponerTerminado,
   problemaDeLineas,
   quitarLinea,
   totalReferencial,
@@ -62,6 +64,8 @@ import { lineaParaEnviar } from "@/components/cotizaciones/form-cotizacion";
 import { LineasCotizacion } from "@/components/cotizaciones/lineas-cotizacion";
 import { CorteGuardadoVista } from "@/components/cortes/corte-guardado";
 import { EditorCorte } from "@/components/cortes/editor-corte";
+import { EditorTerminado } from "@/components/terminados/editor-terminado";
+import { etiquetaDeTipo, type CatalogoTerminados } from "@/lib/terminados/catalogo";
 
 const esquema = esquemaFormNuevoPedido;
 
@@ -90,17 +94,30 @@ const DESTINOS = [
  * CM, y una plancha vendida entera SP. Lo demás (productos terminados,
  * accesorios) no se adivina por el nombre: lo marca quien registra.
  */
-function tiposDeLineas(lineas: { corte?: { modalidad: string } | null; esCorte?: boolean }[]): TipoPedido[] {
+type LineaConTipo = { corte?: { modalidad: string } | null; terminado?: { tipoCodigo: string | null } | null };
+
+function tiposDeLineas(lineas: LineaConTipo[]): TipoPedido[] {
   const tipos = new Set<TipoPedido>();
   for (const l of lineas) {
     if (l.corte?.modalidad === "laser") tipos.add("CL");
     else if (l.corte?.modalidad === "manual") tipos.add("CM");
+    else if (l.terminado) tipos.add("PT");
   }
   return [...tipos];
 }
 
-const comoGuardadas = (lineas: Linea[]) =>
-  lineas.map((l) => ({ corte: esCorte(l) ? { modalidad: l.modalidad } : null }));
+/** El tipo de producto terminado que dicen las líneas: el suyo si coinciden, "otro" si hay de varios. */
+function productoDeLineas(lineas: LineaConTipo[]) {
+  const etiquetas = new Set(lineas.flatMap((l) => (l.terminado ? [etiquetaDeTipo(l.terminado.tipoCodigo)] : [])));
+  if (etiquetas.size === 0) return undefined;
+  return etiquetas.size === 1 ? [...etiquetas][0] : ("otro" as const);
+}
+
+const comoGuardadas = (lineas: Linea[]): LineaConTipo[] =>
+  lineas.map((l) => ({
+    corte: esCorte(l) ? { modalidad: l.modalidad } : null,
+    terminado: esTerminado(l) ? { tipoCodigo: l.tipoCodigo } : null,
+  }));
 
 /**
  * Registrar un pedido. Se arma como una cotización —cliente y productos de
@@ -111,10 +128,13 @@ const comoGuardadas = (lineas: Linea[]) =>
 export function NuevoPedidoForm({
   catalogo,
   config,
+  terminados,
   desdeCotizacion,
 }: {
   catalogo: GrupoPlancha[];
   config: ConfigCortes;
+  /** El catálogo de productos terminados. */
+  terminados: CatalogoTerminados;
   desdeCotizacion?: DesdeCotizacion;
 }) {
   const router = useRouter();
@@ -124,6 +144,7 @@ export function NuevoPedidoForm({
   const [cliente, setCliente] = useState<ClienteOdoo | null>(null);
   const [lineas, setLineas] = useState<Linea[]>([]);
   const [corte, setCorte] = useState<{ clave: string | null } | null>(null);
+  const [terminado, setTerminado] = useState<{ clave: string | null } | null>(null);
   const [resaltada, setResaltada] = useState<string | null>(null);
   const [errorLineas, setErrorLineas] = useState<string | null>(null);
 
@@ -160,6 +181,7 @@ export function NuevoPedidoForm({
     mode: "onTouched",
     defaultValues: {
       tipos: desdeCotizacion ? tiposDeLineas(desdeCotizacion.lineas) : [],
+      producto: desdeCotizacion ? productoDeLineas(desdeCotizacion.lineas) : undefined,
       destino: "local",
       entrega: "tienda",
       // No se presupone: hay que elegir taller o tienda.
@@ -215,6 +237,9 @@ export function NuevoPedidoForm({
     const actuales = (form.getValues("tipos") ?? []) as TipoPedido[];
     const faltan = sugeridos.filter((t) => !actuales.includes(t));
     if (faltan.length) form.setValue("tipos", [...actuales, ...faltan], { shouldValidate: form.formState.isSubmitted });
+    // El tipo de producto terminado lo dicen las líneas: no hace falta elegirlo.
+    const producto = productoDeLineas(comoGuardadas(siguientes));
+    if (producto) form.setValue("producto", producto, { shouldValidate: form.formState.isSubmitted });
   };
 
   const marcar = (clave: string) => {
@@ -455,6 +480,16 @@ export function NuevoPedidoForm({
                   <Scissors />
                   Corte<span className="hidden sm:inline"> a medida</span>
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10 shrink-0 gap-1.5"
+                  aria-label="Producto terminado"
+                  onClick={() => setTerminado({ clave: null })}
+                >
+                  <Package />
+                  <span className="hidden sm:inline">Producto </span>terminado
+                </Button>
               </div>
               <LineasCotizacion
                 lineas={lineas}
@@ -467,6 +502,7 @@ export function NuevoPedidoForm({
                   buscadorProducto.current?.focus();
                 }}
                 alEditarCorte={(clave) => setCorte({ clave })}
+                alEditarTerminado={(clave) => setTerminado({ clave })}
                 alTerminar={() => buscadorProducto.current?.focus()}
               />
             </>
@@ -963,6 +999,22 @@ export function NuevoPedidoForm({
             const { lineas: siguientes, clave } = ponerCorte(lineas, nuevo);
             ponerLineas(siguientes);
             setCorte(null);
+            marcar(clave);
+            requestAnimationFrame(() => buscadorProducto.current?.focus());
+          }}
+        />
+      )}
+
+      {terminado && (
+        <EditorTerminado
+          catalogo={terminados}
+          planchas={catalogo}
+          inicial={lineas.filter(esTerminado).find((l) => l.clave === terminado.clave) ?? null}
+          alCerrar={() => setTerminado(null)}
+          alGuardar={(nuevo) => {
+            const { lineas: siguientes, clave } = ponerTerminado(lineas, nuevo);
+            ponerLineas(siguientes);
+            setTerminado(null);
             marcar(clave);
             requestAnimationFrame(() => buscadorProducto.current?.focus());
           }}

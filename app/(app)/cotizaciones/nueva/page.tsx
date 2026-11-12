@@ -1,6 +1,7 @@
 import { after } from "next/server";
 import { exigirCotizaciones } from "@/lib/sesion";
 import { cargarCatalogoPlanchas, cargarConfigCortes } from "@/lib/cortes-servidor";
+import { cargarCatalogoTerminados } from "@/lib/terminados-servidor";
 import { calentarCatalogos } from "@/lib/odoo/catalogos";
 import { odooConfigurado } from "@/lib/odoo/rpc";
 import { FormCotizacion } from "@/components/cotizaciones/form-cotizacion";
@@ -24,7 +25,11 @@ export default async function Page() {
 
   // Para los cortes a medida: qué planchas hay y cómo se cobra. El cálculo corre
   // en el navegador mientras se escribe; al guardar lo rehace el servidor.
-  const [catalogo, config] = await Promise.all([cargarCatalogoPlanchas(true), cargarConfigCortes()]);
+  const [catalogo, config, terminados] = await Promise.all([
+    cargarCatalogoPlanchas(true),
+    cargarConfigCortes(),
+    cargarCatalogoTerminados(true),
+  ]);
 
-  return <FormCotizacion catalogo={catalogo} config={config} />;
+  return <FormCotizacion catalogo={catalogo} config={config} terminados={terminados} />;
 }

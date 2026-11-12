@@ -34,6 +34,7 @@ export function indicacionesDe(detalle: string, lineas: LineaDePedido[]): string
       cantidad: l.cantidad,
       precioUnitario: 0,
       corte: l.corte,
+      terminado: l.terminado,
       importe: 0,
     })),
   );

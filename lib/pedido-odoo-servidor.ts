@@ -15,7 +15,13 @@ import { mensajeDeError } from "./errores";
 import { cancelarPedidoDeVenta, validarEntrega } from "./odoo/entregas";
 import { ErrorOdoo, ODOO_NO_CONFIGURADO, odooConfigurado } from "./odoo/rpc";
 import { cantidadesParaDescontar, type LineaDePedido, type OdooDePedido } from "./pedido-lineas";
-import { cancelarCortesDePedido, cerrarCortesDePedido } from "./produccion-servidor";
+import {
+  cancelarCortesDePedido,
+  cancelarTerminadosDePedido,
+  cerrarCortesDePedido,
+  cerrarTerminadosDePedido,
+} from "./produccion-servidor";
+import { leerMaterialesUsados, leerTerminado } from "./terminados/guardado";
 import { clienteServidor } from "./supabase-servidor";
 
 const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
@@ -33,6 +39,8 @@ export async function leerLineasDePedido(codigo: string): Promise<LineaDePedido[
     cantidad: Number(f.cantidad),
     corte: f.tipo === "corte" ? leerCorte(f.corte) : null,
     planchasUsadas: num(f.planchas_usadas),
+    terminado: f.tipo === "terminado" ? leerTerminado(f.terminado) : null,
+    materialesUsados: f.tipo === "terminado" ? leerMaterialesUsados(f.materiales_usados) : null,
     importe: num(f.importe),
     produccionId: f.odoo_produccion_id,
     produccionNombre: f.odoo_produccion_nombre,
@@ -99,7 +107,11 @@ export async function descontarStockDePedido(codigo: string): Promise<ResultadoO
          planchas y devuelve los sobrantes al almacén) y después la entrega saca
          el corte terminado. */
       const cortes = await cerrarCortesDePedido(codigo, odoo.cotizacionId, lineas);
+      /* Un producto terminado también se fabrica: su orden consume lo que de
+         verdad se usó y deja el producto en el almacén, listo para la entrega. */
+      const terminados = cortes.ok ? await cerrarTerminadosDePedido(odoo.cotizacionId, lineas) : cortes;
       if (!cortes.ok) resultado = cortes;
+      else if (!terminados.ok) resultado = terminados;
       else {
         await validarEntrega(odoo.orderId, cantidadesParaDescontar(lineas));
         resultado = { ok: true };
@@ -140,8 +152,11 @@ export async function cancelarVentaDePedido(codigo: string): Promise<ResultadoOd
     resultado = { ok: false, error: ODOO_NO_CONFIGURADO };
   } else {
     try {
-      const cortes = await cancelarCortesDePedido(await leerLineasDePedido(codigo));
+      const lineas = await leerLineasDePedido(codigo);
+      const cortes = await cancelarCortesDePedido(lineas);
       if (!cortes.ok) throw new ErrorOdoo(`No se canceló la orden de fabricación: ${cortes.error}`);
+      const terminados = await cancelarTerminadosDePedido(lineas);
+      if (!terminados.ok) throw new ErrorOdoo(`No se canceló la orden de fabricación: ${terminados.error}`);
       await cancelarPedidoDeVenta(odoo.orderId);
       resultado = { ok: true };
     } catch (e) {
