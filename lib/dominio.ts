@@ -86,6 +86,8 @@ export interface Adjunto {
   tipo: TipoAdjunto;
   nombre: string;
   peso: string;
+  /** La línea del pedido a la que se refiere un diseño. `null`: es del pedido entero. */
+  lineaPosicion?: number | null;
 }
 
 export interface Pedido {
@@ -398,11 +400,22 @@ const ETIQUETA_COMPROBANTE: Record<ReturnType<typeof tipoComprobante>, string> =
 export const etiquetaComprobante = (n: string) => `${ETIQUETA_COMPROBANTE[tipoComprobante(n)]} ${n}`;
 
 /**
- * Sigla que lleva el código del pedido. Un pedido que combina trabajos es "MX":
- * el código tiene que caber en una boleta y dictarse por teléfono, así que no
- * concatena siglas. El desglose real vive en `tipos`.
+ * Los tipos de un pedido, deducidos de sus líneas: un corte láser es CL, uno
+ * manual CM, un producto terminado PT y un producto de Odoo tal cual SP. Nadie
+ * los elige: el pedido es lo que dicen sus líneas. (AC solo existe en pedidos
+ * anteriores, cuando se marcaba a mano.)
  */
-export const siglaDe = (tipos: TipoPedido[]) => (tipos.length > 1 ? "MX" : (tipos[0] ?? "CL"));
+export function tiposDeLineas(
+  lineas: { corte?: { modalidad: string } | null; terminado?: unknown | null }[],
+): TipoPedido[] {
+  const tipos = new Set<TipoPedido>();
+  for (const l of lineas) {
+    if (l.corte) tipos.add(l.corte.modalidad === "manual" ? "CM" : "CL");
+    else if (l.terminado) tipos.add("PT");
+    else tipos.add("SP");
+  }
+  return (Object.keys(TIPOS) as TipoPedido[]).filter((t) => tipos.has(t));
+}
 
 export const etiquetaTipos = (tipos: TipoPedido[]) => tipos.map((t) => TIPOS[t]).join(" · ");
 

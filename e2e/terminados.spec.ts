@@ -93,7 +93,7 @@ async function registrar(page: Page) {
   await page.getByLabel("Fecha prometida").fill(manana());
   await page.getByRole("group", { name: "¿Para dónde va el pedido?" }).getByRole("button", { name: /Taller/ }).click();
   await page.getByRole("button", { name: "Registrar pedido" }).click();
-  await page.waitForURL(/\/pedidos\/[A-Z0-9_]+$/);
+  await page.waitForURL(/\/pedidos\/P\d{4}-\d{3}$/);
   return page.url().split("/").pop()!;
 }
 

@@ -43,7 +43,7 @@ import { totalPiezas } from "@/lib/cortes/guardado";
 import { etiquetaDeTipo } from "@/lib/terminados/catalogo";
 import { ODOO_NO_CONFIGURADO, odooConfigurado } from "@/lib/odoo/rpc";
 import { exigirCrearPedido, exigirSesion, type Perfil } from "@/lib/sesion";
-import { ROLES, admiteDecimales, ofreceComprobante, requiereMotivo } from "@/lib/dominio";
+import { ROLES, admiteDecimales, ofreceComprobante, requiereMotivo, tiposDeLineas } from "@/lib/dominio";
 import { ERROR_SIN_FILAS, mensajeDeError } from "@/lib/errores";
 import {
   esquemaAbono,
@@ -169,19 +169,29 @@ export async function registrarPedido(entrada: unknown): Promise<Resultado> {
   if (!c) return fallo("Esa cotización ya no existe.");
   if (c.pedido) return fallo(`Esa cotización ya tiene el pedido ${c.pedido.codigo}.`);
 
+  /* Las indicaciones de cada línea. Quien las escribe las ve por su posición; se
+     ligan a las líneas de la cotización antes de armar el detalle, y viajan a
+     `crear_pedido`, que las guarda en la misma transacción del alta. */
+  const indicacionesLineas = v.indicacionesLineas.filter(
+    (i) => i.texto && c.lineas.some((l) => l.posicion === i.posicion),
+  );
+  const lineasConIndicaciones = c.lineas.map((l) => ({
+    ...l,
+    indicaciones: indicacionesLineas.find((i) => i.posicion === l.posicion)?.texto ?? null,
+  }));
+
   // Lo que el pedido dice de sí mismo sale de las líneas, no del formulario.
   const total = c.montoTotal ?? sumaLineas(c.lineas);
   const unidades = c.lineas.reduce((s, l) => s + (l.corte ? totalPiezas(l.corte.piezas) : l.cantidad), 0);
-  // Media plancha existe; media pieza no. Es la misma regla que el CHECK de `pedidos`.
-  /* Una línea de producto terminado hace al pedido de productos terminados, lo
-     diga o no el formulario, y su tipo es el de la línea ("otro" si hay de varios
-     o es un personalizado sin tipo). */
+  /* El tipo del pedido lo dicen las líneas. Su producto terminado es el de la
+     línea ("otro" si hay de varios o es un personalizado sin tipo). */
+  const tipos = tiposDeLineas(c.lineas);
   const terminados = c.lineas.flatMap((l) => (l.terminado ? [l.terminado] : []));
-  const tipos = terminados.length && !v.tipos.includes("PT") ? [...v.tipos, "PT" as const] : v.tipos;
   const etiquetas = new Set(terminados.map((t) => etiquetaDeTipo(t.tipoCodigo)));
-  const producto = terminados.length ? (etiquetas.size === 1 ? [...etiquetas][0] : "otro") : v.producto;
+  const producto = terminados.length ? (etiquetas.size === 1 ? [...etiquetas][0] : "otro") : null;
+  // Media plancha existe; media pieza no. Es la misma regla que el CHECK de `pedidos`.
   const cantidad = admiteDecimales(tipos) ? redondear2(unidades) : Math.max(1, Math.ceil(unidades));
-  const detalle = [detalleDesdeLineas(c.lineas), v.indicaciones].filter(Boolean).join("\n\n");
+  const detalle = [detalleDesdeLineas(lineasConIndicaciones), v.notas].filter(Boolean).join("\n\n");
 
   /* Al contado se cobra el total en el acto, a cuenta lo que se haya adelantado, y
      al crédito no entra nada todavía. Lo decide el servidor: el importe cobrado no
@@ -227,6 +237,7 @@ export async function registrarPedido(entrada: unknown): Promise<Resultado> {
     p_metodo_pago: v.metodoPago,
     // `crear_pedido` la vincula en la misma transacción, o falla entera.
     p_cotizacion_id: cotizacionId,
+    p_indicaciones_lineas: indicacionesLineas,
   });
 
   if (error) {

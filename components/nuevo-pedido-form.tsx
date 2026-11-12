@@ -15,18 +15,7 @@ import { subirAdjuntos } from "@/lib/adjuntos-navegador";
 import { ACEPTA, validarArchivo } from "@/lib/adjuntos";
 import { esquemaFormNuevoPedido, FORMATO_DOCUMENTO } from "@/lib/esquemas";
 import { hoy } from "@/lib/fecha";
-import {
-  DOCUMENTOS,
-  METODOS,
-  PAGOS,
-  PLAZOS,
-  PRODUCTOS,
-  TIPOS,
-  siglaDe,
-  sumarDias,
-  type PlazoCredito,
-  type TipoPedido,
-} from "@/lib/dominio";
+import { DOCUMENTOS, METODOS, PAGOS, PLAZOS, sumarDias, type PlazoCredito } from "@/lib/dominio";
 import { fechaCompleta, money, numero } from "@/lib/formato";
 import type { LineaGuardada } from "@/lib/cotizaciones";
 import type { GrupoPlancha } from "@/lib/cortes/catalogo";
@@ -61,11 +50,13 @@ import {
 import { BuscadorCliente } from "@/components/cotizaciones/buscador-cliente";
 import { BuscadorProducto, CodigoProducto } from "@/components/cotizaciones/buscador-producto";
 import { lineaParaEnviar } from "@/components/cotizaciones/form-cotizacion";
-import { LineasCotizacion } from "@/components/cotizaciones/lineas-cotizacion";
+import { IndicacionesDeLinea, LineasCotizacion } from "@/components/cotizaciones/lineas-cotizacion";
+import { tituloCorte } from "@/lib/cortes/guardado";
+import { tituloTerminado } from "@/lib/terminados/guardado";
 import { CorteGuardadoVista } from "@/components/cortes/corte-guardado";
 import { EditorCorte } from "@/components/cortes/editor-corte";
 import { EditorTerminado } from "@/components/terminados/editor-terminado";
-import { etiquetaDeTipo, type CatalogoTerminados } from "@/lib/terminados/catalogo";
+import type { CatalogoTerminados } from "@/lib/terminados/catalogo";
 
 const esquema = esquemaFormNuevoPedido;
 
@@ -89,35 +80,22 @@ const DESTINOS = [
   { valor: "tienda", label: "Tienda", icono: Store, ayuda: "Se atiende y despacha desde tienda" },
 ] as const;
 
-/**
- * Los tipos de pedido que sugieren las líneas: un corte láser es CL, uno manual
- * CM, y una plancha vendida entera SP. Lo demás (productos terminados,
- * accesorios) no se adivina por el nombre: lo marca quien registra.
- */
-type LineaConTipo = { corte?: { modalidad: string } | null; terminado?: { tipoCodigo: string | null } | null };
-
-function tiposDeLineas(lineas: LineaConTipo[]): TipoPedido[] {
-  const tipos = new Set<TipoPedido>();
-  for (const l of lineas) {
-    if (l.corte?.modalidad === "laser") tipos.add("CL");
-    else if (l.corte?.modalidad === "manual") tipos.add("CM");
-    else if (l.terminado) tipos.add("PT");
-  }
-  return [...tipos];
+/** El ítem de un pedido al que se puede ligar un archivo o escribir indicaciones. */
+interface Item {
+  /** Lo que identifica al ítem en pantalla: la clave de la línea o su posición. */
+  clave: string;
+  /** Su posición en el pedido (1 = la primera): lo que se guarda en la base. */
+  posicion: number;
+  nombre: string;
 }
 
-/** El tipo de producto terminado que dicen las líneas: el suyo si coinciden, "otro" si hay de varios. */
-function productoDeLineas(lineas: LineaConTipo[]) {
-  const etiquetas = new Set(lineas.flatMap((l) => (l.terminado ? [etiquetaDeTipo(l.terminado.tipoCodigo)] : [])));
-  if (etiquetas.size === 0) return undefined;
-  return etiquetas.size === 1 ? [...etiquetas][0] : ("otro" as const);
+/** Un archivo de diseño por subir y el ítem al que se refiere (`null`: es del pedido entero). */
+interface ArchivoElegido {
+  archivo: File;
+  itemClave: string | null;
 }
 
-const comoGuardadas = (lineas: Linea[]): LineaConTipo[] =>
-  lineas.map((l) => ({
-    corte: esCorte(l) ? { modalidad: l.modalidad } : null,
-    terminado: esTerminado(l) ? { tipoCodigo: l.tipoCodigo } : null,
-  }));
+const GENERAL = "general";
 
 /**
  * Registrar un pedido. Se arma como una cotización —cliente y productos de
@@ -156,7 +134,9 @@ export function NuevoPedidoForm({
 
   /* Los planos se quedan en memoria hasta que el pedido exista: la carpeta del
      bucket cuelga de su uuid, y el uuid lo pone Postgres al registrarlo. */
-  const [archivos, setArchivos] = useState<File[]>([]);
+  const [archivos, setArchivos] = useState<ArchivoElegido[]>([]);
+  /* Las indicaciones de cada ítem para el taller, por su clave. */
+  const [indicaciones, setIndicaciones] = useState<Record<string, string>>({});
   const entradaArchivos = useRef<HTMLInputElement>(null);
   /* "¿Para dónde va?" es una botonera, no un campo registrado: react-hook-form no
      sabe enfocarla cuando falta, y el error quedaría arriba, fuera de la vista. */
@@ -172,7 +152,9 @@ export function NuevoPedidoForm({
     // Por nombre y tamaño: elegir dos veces la misma carpeta es lo normal.
     setArchivos((previos) => [
       ...previos,
-      ...buenos.filter((b) => !previos.some((p) => p.name === b.name && p.size === b.size)),
+      ...buenos
+        .filter((b) => !previos.some((p) => p.archivo.name === b.name && p.archivo.size === b.size))
+        .map((archivo) => ({ archivo, itemClave: null })),
     ]);
   };
 
@@ -180,8 +162,6 @@ export function NuevoPedidoForm({
     resolver: zodResolver(esquema),
     mode: "onTouched",
     defaultValues: {
-      tipos: desdeCotizacion ? tiposDeLineas(desdeCotizacion.lineas) : [],
-      producto: desdeCotizacion ? productoDeLineas(desdeCotizacion.lineas) : undefined,
       destino: "local",
       entrega: "tienda",
       // No se presupone: hay que elegir taller o tienda.
@@ -191,12 +171,25 @@ export function NuevoPedidoForm({
       fechaPrometida: "",
       tipoPago: "a_cuenta",
       metodoPago: "efectivo",
-      indicaciones: "",
+      notas: "",
       observaciones: "",
     },
   });
 
-  const tipos = (form.watch("tipos") ?? []) as TipoPedido[];
+  /* Los ítems del pedido, tal como se numeran al guardarlo: la posición de cada
+     línea es su lugar en la lista más uno. */
+  const items: Item[] = desdeCotizacion
+    ? desdeCotizacion.lineas.map((l) => ({
+        clave: String(l.posicion),
+        posicion: l.posicion,
+        nombre: l.corte ? tituloCorte(l.corte) : l.terminado ? tituloTerminado(l.terminado) : l.nombre,
+      }))
+    : lineas.map((l, i) => ({
+        clave: l.clave,
+        posicion: i + 1,
+        nombre: esCorte(l) ? tituloCorte(l) : l.nombre,
+      }));
+
   const destino = form.watch("destino");
   const entrega = form.watch("entrega");
   const ubicacion = form.watch("ubicacion");
@@ -211,35 +204,21 @@ export function NuevoPedidoForm({
   const abono = Number(form.watch("abono")) || 0;
   const total = desdeCotizacion ? desdeCotizacion.total : totalReferencial(lineas);
 
-  // Un pedido que combina trabajos lleva "MX": el código se dicta por teléfono.
-  const codigoPreview = `${destino === "provincia" ? "P" : "L"}${
-    tipos.length ? siglaDe(tipos) : "··"
-  }_${hoy().slice(0, 4)}_····`;
+  // P, año y mes: el correlativo lo pone Postgres al registrar.
+  const codigoPreview = `P${hoy().slice(2, 4)}${hoy().slice(5, 7)}-···`;
 
   const documento = FORMATO_DOCUMENTO[tipoDocumento];
 
   /** Hay dinero de entrada, así que hay que decir por dónde entró. */
   const cobraAhora = tipoPago === "contado" || (tipoPago === "a_cuenta" && abono > 0);
 
-  const alternarTipo = (t: string) => {
-    const actuales = (form.getValues("tipos") ?? []) as TipoPedido[];
-    const siguientes = actuales.includes(t as TipoPedido)
-      ? actuales.filter((x) => x !== t)
-      : [...actuales, t as TipoPedido];
-    form.setValue("tipos", siguientes, { shouldValidate: form.formState.isSubmitted });
-  };
-
-  /** Las líneas cambiaron: los tipos que sugieren se suman a los marcados. */
   const ponerLineas = (siguientes: Linea[]) => {
     setLineas(siguientes);
     setErrorLineas(null);
-    const sugeridos = tiposDeLineas(comoGuardadas(siguientes));
-    const actuales = (form.getValues("tipos") ?? []) as TipoPedido[];
-    const faltan = sugeridos.filter((t) => !actuales.includes(t));
-    if (faltan.length) form.setValue("tipos", [...actuales, ...faltan], { shouldValidate: form.formState.isSubmitted });
-    // El tipo de producto terminado lo dicen las líneas: no hace falta elegirlo.
-    const producto = productoDeLineas(comoGuardadas(siguientes));
-    if (producto) form.setValue("producto", producto, { shouldValidate: form.formState.isSubmitted });
+    // Un archivo ligado a un ítem que ya no está pasa a ser del pedido entero.
+    setArchivos((previos) =>
+      previos.map((a) => (a.itemClave && !siguientes.some((l) => l.clave === a.itemClave) ? { ...a, itemClave: null } : a)),
+    );
   };
 
   const marcar = (clave: string) => {
@@ -308,8 +287,6 @@ export function NuevoPedidoForm({
           cotizacionId: desdeCotizacion?.id ?? null,
           clienteId: desdeCotizacion ? null : cliente!.id,
           lineas: desdeCotizacion ? null : lineas.map(lineaParaEnviar),
-          tipos: v.tipos as TipoPedido[],
-          producto: v.tipos.includes("PT") ? (v.producto ?? null) : null,
           esProvincia,
           entrega: esProvincia ? "agencia" : v.entrega,
           ubicacion: v.ubicacion,
@@ -337,7 +314,11 @@ export function NuevoPedidoForm({
           abonoInicial: v.tipoPago === "credito" ? 0 : Number(v.abono ?? 0),
           metodoPago: v.metodoPago,
           responsableId: v.responsableId || null,
-          indicaciones: v.indicaciones || null,
+          notas: v.notas || null,
+          indicacionesLineas: items.flatMap((i) => {
+            const texto = (indicaciones[i.clave] ?? "").trim();
+            return texto ? [{ posicion: i.posicion, texto }] : [];
+          }),
           observaciones: v.observaciones || null,
         },
         desdeCotizacion?.cliente.nombre ?? cliente?.nombre ?? "",
@@ -349,7 +330,14 @@ export function NuevoPedidoForm({
          que colgarlos. Si alguno falla, el pedido ya está registrado y se dice
          cuál faltó; perder el alta por un archivo sería mucho peor. */
       if (archivos.length > 0) {
-        const { errores } = await subirAdjuntos(resultado.codigo, "diseno", archivos);
+        const { errores } = await subirAdjuntos(
+          resultado.codigo,
+          "diseno",
+          archivos.map((a) => ({
+            archivo: a.archivo,
+            lineaPosicion: items.find((i) => i.clave === a.itemClave)?.posicion ?? null,
+          })),
+        );
         for (const error of errores) {
           toast.error("El pedido se registró, pero un archivo no subió", { description: error });
         }
@@ -458,7 +446,11 @@ export function NuevoPedidoForm({
 
         <Seccion n={1} titulo="Cliente y productos" refSeccion={bloqueTrabajo}>
           {desdeCotizacion ? (
-            <DeLaCotizacion d={desdeCotizacion} />
+            <DeLaCotizacion
+              d={desdeCotizacion}
+              indicaciones={indicaciones}
+              alCambiarIndicaciones={(clave, texto) => setIndicaciones((previas) => ({ ...previas, [clave]: texto }))}
+            />
           ) : (
             <>
               <BuscadorCliente cliente={cliente} alElegir={elegirCliente} inputRef={buscadorCliente} />
@@ -504,6 +496,8 @@ export function NuevoPedidoForm({
                 alEditarCorte={(clave) => setCorte({ clave })}
                 alEditarTerminado={(clave) => setTerminado({ clave })}
                 alTerminar={() => buscadorProducto.current?.focus()}
+                indicaciones={indicaciones}
+                alCambiarIndicaciones={(clave, texto) => setIndicaciones((previas) => ({ ...previas, [clave]: texto }))}
               />
             </>
           )}
@@ -517,132 +511,108 @@ export function NuevoPedidoForm({
         <Seccion n={2} titulo="Trabajo">
           <Campo
             grupo
-            label="Tipo de pedido"
-            requerido
-            ayuda="Los cortes ya marcan el suyo. Agrega lo que falte: un pedido puede combinar varios trabajos."
-            error={form.formState.errors.tipos?.message}
+            label="Archivos"
+            ayuda="Planos, PDF o imágenes. Hasta 10 MB cada uno. Cada archivo puede ser de un ítem o de todo el pedido."
           >
-            <Opciones
-              valores={tipos}
-              onToggle={alternarTipo}
-              opciones={Object.entries(TIPOS).map(([valor, label]) => ({ valor, label }))}
-            />
-          </Campo>
-
-          <AnimatePresence initial={false}>
-            {tipos.includes("PT") && (
-              <Condicional titulo="Porque incluye producto terminado">
-                <Campo label="Tipo de producto" requerido error={form.formState.errors.producto?.message}>
-                  <Select
-                    value={form.watch("producto") ?? ""}
-                    onValueChange={(v) => v && form.setValue("producto", v as Campos["producto"])}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue>
-                        {form.watch("producto") ? PRODUCTOS[form.watch("producto")!] : "Selecciona…"}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(PRODUCTOS).map(([v, l]) => (
-                        <SelectItem key={v} value={v}>
-                          {l}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Campo>
-              </Condicional>
-            )}
-          </AnimatePresence>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Campo
-              label="Indicaciones para el taller"
-              ayuda="Lo que no dicen los productos: acabados, pegado, cómo se entrega. Se suma al detalle."
-              error={form.formState.errors.indicaciones?.message}
+            <div
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                anadir(Array.from(e.dataTransfer.files));
+              }}
+              className="text-muted-foreground flex flex-col items-center justify-center rounded-lg border border-dashed p-4 text-center text-sm"
             >
-              <Textarea
-                rows={3}
-                placeholder="Ej. bordes pulidos; entregar con film"
-                {...form.register("indicaciones")}
-              />
-            </Campo>
-
-            <Campo
-              grupo
-              label="Archivos de diseño"
-              ayuda="Planos, PDF o imágenes del trabajo. Hasta 10 MB cada uno."
-            >
-              <div
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  anadir(Array.from(e.dataTransfer.files));
+              <Upload className="mb-2 size-4 opacity-50" />
+              Arrastra planos, PDF o imágenes
+              <input
+                ref={entradaArchivos}
+                type="file"
+                multiple
+                accept={ACEPTA}
+                className="sr-only"
+                aria-label="Elegir archivos"
+                onChange={(e) => {
+                  anadir(Array.from(e.target.files ?? []));
+                  e.target.value = "";
                 }}
-                className="text-muted-foreground flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed p-4 text-center text-sm"
-              >
-                <Upload className="mb-2 size-4 opacity-50" />
-                Arrastra planos, PDF o imágenes
-                <input
-                  ref={entradaArchivos}
-                  type="file"
-                  multiple
-                  accept={ACEPTA}
-                  className="sr-only"
-                  aria-label="Elegir archivos de diseño"
-                  onChange={(e) => {
-                    anadir(Array.from(e.target.files ?? []));
-                    e.target.value = "";
-                  }}
-                />
-                <div className="mt-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => entradaArchivos.current?.click()}
-                  >
-                    Elegir archivos
-                  </Button>
-                </div>
-
-                {archivos.length > 0 && (
-                  <ul className="mt-3 flex w-full flex-col gap-1">
-                    {archivos.map((archivo) => (
-                      <li
-                        key={`${archivo.name}-${archivo.size}`}
-                        className="bg-muted/40 flex items-center gap-2 rounded-md py-1 pr-1 pl-2 text-left"
-                      >
-                        <span className="min-w-0 flex-1 truncate text-xs">{archivo.name}</span>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="size-6 shrink-0"
-                          aria-label={`Quitar ${archivo.name}`}
-                          onClick={() =>
-                            setArchivos((previos) => previos.filter((p) => p !== archivo))
-                          }
-                        >
-                          <X className="size-3" />
-                        </Button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+              />
+              <div className="mt-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => entradaArchivos.current?.click()}>
+                  Elegir archivos
+                </Button>
               </div>
-            </Campo>
-          </div>
+            </div>
+
+            {archivos.length > 0 && (
+              <ul className="mt-2 flex flex-col gap-1.5" aria-label="Archivos por subir">
+                {archivos.map((elegido) => (
+                  <li
+                    key={`${elegido.archivo.name}-${elegido.archivo.size}`}
+                    className="bg-muted/40 flex flex-wrap items-center gap-2 rounded-md py-1 pr-1 pl-2"
+                  >
+                    <span className="min-w-0 flex-1 truncate text-xs">{elegido.archivo.name}</span>
+                    <Select
+                      value={elegido.itemClave ?? GENERAL}
+                      onValueChange={(v) =>
+                        v &&
+                        setArchivos((previos) =>
+                          previos.map((p) => (p === elegido ? { ...p, itemClave: v === GENERAL ? null : v } : p)),
+                        )
+                      }
+                    >
+                      <SelectTrigger
+                        size="sm"
+                        className="w-52 max-w-full"
+                        aria-label={`¿De qué es ${elegido.archivo.name}?`}
+                      >
+                        <SelectValue>
+                          {elegido.itemClave
+                            ? `Ítem ${items.find((i) => i.clave === elegido.itemClave)?.posicion ?? "?"}`
+                            : "Todo el pedido"}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={GENERAL}>Todo el pedido</SelectItem>
+                        {items.map((i) => (
+                          <SelectItem key={i.clave} value={i.clave}>
+                            Ítem {i.posicion} · {i.nombre}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-6 shrink-0"
+                      aria-label={`Quitar ${elegido.archivo.name}`}
+                      onClick={() => setArchivos((previos) => previos.filter((p) => p !== elegido))}
+                    >
+                      <X className="size-3" />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Campo>
 
           <Campo
             label="Observaciones"
-            ayuda="Notas e incidencias del pedido. Lo que se produce va en las líneas y las indicaciones."
+            ayuda="Notas e incidencias del pedido. Lo que se produce va en los ítems y en las notas generales."
           >
             <Textarea
               rows={2}
               placeholder="Ej. el cliente pasa a revisar la muestra el lunes"
               {...form.register("observaciones")}
             />
+          </Campo>
+
+          <Campo
+            label="Notas generales"
+            ayuda="Lo que el taller tiene que saber de todo el pedido: acabados, pegado, cómo se entrega. Se suma al detalle."
+            error={form.formState.errors.notas?.message}
+          >
+            <Textarea rows={3} placeholder="Ej. bordes pulidos; entregar con film" {...form.register("notas")} />
           </Campo>
         </Seccion>
 
@@ -1025,7 +995,15 @@ export function NuevoPedidoForm({
 }
 
 /** Lo que viene de la cotización: no se edita aquí; para cambiarlo, otra cotización. */
-function DeLaCotizacion({ d }: { d: DesdeCotizacion }) {
+function DeLaCotizacion({
+  d,
+  indicaciones,
+  alCambiarIndicaciones,
+}: {
+  d: DesdeCotizacion;
+  indicaciones: Record<string, string>;
+  alCambiarIndicaciones: (clave: string, texto: string) => void;
+}) {
   return (
     <div className="flex flex-col gap-3">
       <div className="bg-muted/40 rounded-lg border px-3 py-2.5">
@@ -1041,6 +1019,11 @@ function DeLaCotizacion({ d }: { d: DesdeCotizacion }) {
             <li key={l.posicion} className="px-3 py-3">
               <CorteGuardadoVista corte={l.corte} conPrecios={false} />
               <p className="tnum mt-2 text-right text-sm font-medium">{money(l.importe)}</p>
+              <IndicacionesDeLinea
+                nombre={tituloCorte(l.corte)}
+                valor={indicaciones[String(l.posicion)] ?? ""}
+                alCambiar={(texto) => alCambiarIndicaciones(String(l.posicion), texto)}
+              />
             </li>
           ) : (
             <li key={l.posicion} className="flex flex-wrap items-start gap-x-4 gap-y-1 px-3 py-2.5">
@@ -1055,6 +1038,13 @@ function DeLaCotizacion({ d }: { d: DesdeCotizacion }) {
                 {numero(l.cantidad)} × {money(l.precioUnitario)}
               </p>
               <p className="tnum w-24 text-right text-sm font-medium">{money(l.importe)}</p>
+              <div className="basis-full">
+                <IndicacionesDeLinea
+                  nombre={l.nombre}
+                  valor={indicaciones[String(l.posicion)] ?? ""}
+                  alCambiar={(texto) => alCambiarIndicaciones(String(l.posicion), texto)}
+                />
+              </div>
             </li>
           ),
         )}

@@ -338,7 +338,7 @@ export function DetallePedido({
           )}
 
           <Panel titulo="Archivos">
-            <AdjuntosPedido pedido={p} />
+            <AdjuntosPedido pedido={p} lineas={lineas ?? []} />
           </Panel>
 
           <Panel titulo="Historial de estados">

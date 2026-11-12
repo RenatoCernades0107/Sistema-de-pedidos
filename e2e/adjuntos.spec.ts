@@ -153,17 +153,16 @@ test.describe("Los archivos al registrar el pedido", () => {
     );
     await producto.press("Enter");
     await page.getByRole("group", { name: "¿Para dónde va el pedido?" }).getByRole("button", { name: /Taller/ }).click();
-    await page.getByRole("group", { name: "Tipo de pedido" }).getByRole("button", { name: "Solo planchas" }).click();
     await page
       .getByLabel("Fecha prometida")
       .fill(new Date(Date.now() + 86_400_000).toISOString().slice(0, 10));
 
-    await page.getByLabel("Elegir archivos de diseño").setInputFiles(PLANO);
+    await page.getByLabel("Elegir archivos").setInputFiles(PLANO);
     await expect(page.getByText("plano-e2e.pdf")).toBeVisible();
 
     await page.getByRole("button", { name: "Registrar pedido" }).click();
 
-    await page.waitForURL(/\/pedidos\/[A-Z0-9_]+$/);
+    await page.waitForURL(/\/pedidos\/P\d{4}-\d{3}$/);
     codigo = page.url().split("/").pop()!;
 
     await expect(page.getByRole("button", { name: "Abrir plano-e2e.pdf" })).toBeVisible();

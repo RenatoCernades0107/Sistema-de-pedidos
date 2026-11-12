@@ -283,8 +283,6 @@ test("una cotización pasa a pedido: se elige taller o tienda y se confirma en O
   await expect(page.getByRole("list", { name: "Productos de la cotización" })).toContainText("ACRILICO F8 CRISTAL 3MM");
   await expect(page.getByTestId("total-pedido")).toHaveText("S/ 283.20"); // 2 × 120 + 18 %
   await expect(page.getByLabel("Buscar producto")).toHaveCount(0);
-  // Una plancha entera no marca su tipo sola: se marca a mano.
-  await page.getByRole("group", { name: "Tipo de pedido" }).getByRole("button", { name: "Solo planchas" }).click();
 
   // Taller o tienda no viene elegido: sin elegirlo no se registra.
   const destino = page.getByRole("group", { name: "¿Para dónde va el pedido?" });
@@ -299,7 +297,7 @@ test("una cotización pasa a pedido: se elige taller o tienda y se confirma en O
   await destino.getByRole("button", { name: /Tienda/ }).click();
   await page.getByRole("button", { name: "Registrar pedido" }).click();
 
-  await page.waitForURL(/\/pedidos\/[A-Z0-9_]+$/);
+  await page.waitForURL(/\/pedidos\/P\d{4}-\d{3}$/);
   const codigo = page.url().split("/").pop()!;
   await expect(page.getByRole("heading", { name: "E2E José Pérez Quispe" })).toBeVisible();
   await expect(page.getByRole("combobox", { name: "Ubicación actual" })).toContainText("En tienda");
@@ -328,12 +326,11 @@ test("si Odoo no confirma, el pedido se registra igual y se confirma después", 
     .getByRole("group", { name: "¿Para dónde va el pedido?" })
     .getByRole("button", { name: /Taller/ })
     .click();
-  await page.getByRole("group", { name: "Tipo de pedido" }).getByRole("button", { name: "Solo planchas" }).click();
   await page.getByLabel("Fecha prometida").fill(manana());
 
   await modo("caido");
   await page.getByRole("button", { name: "Registrar pedido" }).click();
-  await page.waitForURL(/\/pedidos\/[A-Z0-9_]+$/);
+  await page.waitForURL(/\/pedidos\/P\d{4}-\d{3}$/);
   await expect(page.getByText("El pedido quedó registrado, pero falta Odoo")).toBeVisible();
   await expect(page.getByRole("combobox", { name: "Ubicación actual" })).toContainText("En taller");
   await modo(null);

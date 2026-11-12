@@ -29,10 +29,16 @@ export interface ResultadoSubida {
   errores: string[];
 }
 
+/** Un archivo y, si es un diseño de un ítem, la posición de la línea a la que se refiere. */
+export interface ArchivoASubir {
+  archivo: File;
+  lineaPosicion?: number | null;
+}
+
 export async function subirAdjuntos(
   codigo: string,
   tipo: TipoAdjunto,
-  archivos: File[],
+  archivos: (File | ArchivoASubir)[],
 ): Promise<ResultadoSubida> {
   const supabase = clienteNavegador();
   const errores: string[] = [];
@@ -56,7 +62,8 @@ export async function subirAdjuntos(
   if (!pedido) return { subidos: 0, errores: ["Ese pedido ya no está disponible."] };
   const pedidoId = pedido.id;
 
-  for (const archivo of archivos) {
+  for (const elegido of archivos) {
+    const { archivo, lineaPosicion = null } = elegido instanceof File ? { archivo: elegido } : elegido;
     const problema = validarArchivo(archivo);
     if (problema) {
       errores.push(problema);
@@ -81,6 +88,7 @@ export async function subirAdjuntos(
       nombre: archivo.name,
       mime: archivo.type,
       tamano: archivo.size,
+      lineaPosicion,
     });
 
     if (anotado.ok) subidos += 1;

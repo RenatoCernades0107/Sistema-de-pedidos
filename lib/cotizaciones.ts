@@ -49,6 +49,8 @@ export interface LineaGuardada {
   terminado: TerminadoGuardado | null;
   /** La orden de fabricación de la línea en Odoo, si ya tiene una. */
   produccionId?: number | null;
+  /** Lo que el taller tiene que saber de esta línea. Solo del pedido: no viaja a Odoo. */
+  indicaciones?: string | null;
   /** Lo que se cobra por la línea. En un producto, cantidad × precio. */
   importe: number;
 }
@@ -102,21 +104,23 @@ export const importeDeProducto = (cantidad: number, precioUnitario: number) =>
 export const detalleDesdeLineas = (lineas: LineaGuardada[]) =>
   lineas
     .map((l) => {
+      const indicaciones = l.indicaciones?.replace(/\s+/g, " ").trim();
+      const nota = indicaciones ? `\n  ↳ ${indicaciones}` : "";
       if (l.corte) {
         const piezas = totalPiezas(l.corte.piezas);
         return (
           `${tituloCorte(l.corte)}: ${piezas} ${piezas === 1 ? "pieza" : "piezas"} ` +
-          `(${resumenPiezas(l.corte.piezas)}) — ${planchasTexto(l.corte)}`
+          `(${resumenPiezas(l.corte.piezas)}) — ${planchasTexto(l.corte)}${nota}`
         );
       }
       const cantidad = String(+l.cantidad.toFixed(3));
       if (l.terminado) {
         const ficha = descripcionDeTerminado(l.terminado);
-        return `${cantidad} × ${tituloTerminado(l.terminado)}${ficha ? ` — ${ficha}` : ""}`;
+        return `${cantidad} × ${tituloTerminado(l.terminado)}${ficha ? ` — ${ficha}` : ""}${nota}`;
       }
       const producto = l.codigo ? `[${l.codigo}] ${l.nombre}` : l.nombre;
       const medidas = l.descripcion?.replace(/\s+/g, " ").trim();
-      return `${cantidad} × ${producto}${medidas ? ` — ${medidas}` : ""}`;
+      return `${cantidad} × ${producto}${medidas ? ` — ${medidas}` : ""}${nota}`;
     })
     .join("\n");
 

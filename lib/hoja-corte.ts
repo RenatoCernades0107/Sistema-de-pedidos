@@ -31,6 +31,7 @@ export function indicacionesDe(detalle: string, lineas: LineaDePedido[]): string
       nombre: l.nombre,
       codigo: l.codigo,
       descripcion: l.descripcion,
+      indicaciones: l.indicaciones,
       cantidad: l.cantidad,
       precioUnitario: 0,
       corte: l.corte,

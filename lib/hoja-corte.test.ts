@@ -29,6 +29,12 @@ describe("indicacionesDe", () => {
     );
   });
 
+  it("las indicaciones de cada línea no se cuentan como notas generales", () => {
+    const conNota = { ...producto, indicaciones: "bordes pulidos" };
+    const detalle = detalleDesdeLineas([{ ...conNota, precioUnitario: 0, importe: 0 }]);
+    expect(indicacionesDe(`${detalle}\n\nEntregar en caja`, [conNota])).toBe("Entregar en caja");
+  });
+
   it("sin indicaciones no queda nada", () => {
     expect(indicacionesDe(base, [producto])).toBe("");
   });

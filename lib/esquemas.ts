@@ -40,8 +40,12 @@ export const FORMATO_COMPROBANTE = {
     "Formato esperado: F001-004512 (factura), B001-004512 (boleta), P001-004512 (proforma) o NV001-004512 (nota de venta)",
 } as const;
 
-/** `LCL_2026_H4TP`. El mismo regex que `pedidos_codigo_formato`. */
-export const FORMATO_CODIGO = /^[LP](CL|CM|SP|PT|AC|MX)_\d{4}_[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}$/;
+/**
+ * `P2611-001` (pedido, año 26, mes 11, correlativo) o, en los pedidos anteriores,
+ * `LCL_2026_H4TP`. El mismo regex que `pedidos_codigo_formato`.
+ */
+export const FORMATO_CODIGO =
+  /^(?:P\d{4}-\d{3}|[LP](?:CL|CM|SP|PT|AC|MX)_\d{4}_[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4})$/;
 
 /** Cuántos decimales trae un número tal como lo escribió quien lo tecleó. */
 export const decimalesDe = (n: number) => (String(n).split(".")[1] ?? "").length;
@@ -145,8 +149,6 @@ function reglaDelDocumento(
  */
 export const esquemaFormNuevoPedido = z
   .object({
-    tipos: z.array(tipoPedido).min(1, "Elige al menos un tipo de pedido"),
-    producto: productoTerminado.optional(),
     destino: z.enum(["local", "provincia"]),
     entrega: lugarEntrega,
     // Llega sin valor a propósito: quien registra tiene que decir si va para el
@@ -169,13 +171,10 @@ export const esquemaFormNuevoPedido = z
     metodoPago,
     abono: z.coerce.number().min(0, "No puede ser negativo").optional(),
     responsableId: z.string().optional(),
-    indicaciones: z.string().trim().max(1000, "Las indicaciones son demasiado largas").optional(),
+    notas: z.string().trim().max(1000, "Las notas son demasiado largas").optional(),
     observaciones: z.string().trim().optional(),
   })
   .superRefine((v, ctx) => {
-    if (v.tipos.includes("PT") && !v.producto) {
-      ctx.addIssue({ code: "custom", path: ["producto"], message: "Un producto terminado necesita su tipo" });
-    }
     if (v.destino === "local" && v.entrega === "domicilio" && !v.direccion) {
       ctx.addIssue({ code: "custom", path: ["direccion"], message: "Falta la dirección" });
     }
@@ -657,11 +656,6 @@ export const esquemaRegistroPedido = z
     cotizacionId: z.uuid().nullable(),
     clienteId: z.number().int().positive().nullable(),
     lineas: lineasDePedido.nullable(),
-    tipos: z
-      .array(tipoPedido)
-      .min(1, "Elige al menos un tipo de pedido")
-      .refine((t) => new Set(t).size === t.length, "Hay un tipo repetido"),
-    producto: productoTerminado.nullable(),
     esProvincia: z.boolean(),
     entrega: lugarEntrega,
     direccion: z.string().trim().nullable(),
@@ -674,8 +668,17 @@ export const esquemaRegistroPedido = z
     responsableId: z.uuid().nullable(),
     // Para dónde va: lo que lo pone en la vista del taller o en la de la tienda.
     ubicacion,
-    /** Lo que el taller tiene que saber y no sale de las líneas. */
-    indicaciones: z.string().trim().max(1000, "Las indicaciones son demasiado largas").nullable(),
+    /** Las notas generales: lo que el taller tiene que saber y no sale de las líneas. */
+    notas: z.string().trim().max(1000, "Las notas son demasiado largas").nullable(),
+    /** Lo que el taller tiene que saber de cada línea, por su posición (1 = la primera). */
+    indicacionesLineas: z
+      .array(
+        z.object({
+          posicion: z.number().int().min(1).max(100),
+          texto: z.string().trim().max(500, "Las indicaciones de un ítem son demasiado largas"),
+        }),
+      )
+      .max(100),
     observaciones: z.string().trim().nullable(),
   })
   .superRefine((v, ctx) => {
@@ -684,9 +687,6 @@ export const esquemaRegistroPedido = z
       if (!v.lineas) {
         ctx.addIssue({ code: "custom", path: ["lineas"], message: "Agrega al menos un producto o un corte" });
       }
-    }
-    if (v.tipos.includes("PT") && !v.producto) {
-      ctx.addIssue({ code: "custom", path: ["producto"], message: "Un producto terminado necesita su tipo" });
     }
     // Los mismos CHECK de `pedidos`, para no gastar un viaje a Postgres.
     if ((v.entrega === "agencia") !== v.esProvincia) {

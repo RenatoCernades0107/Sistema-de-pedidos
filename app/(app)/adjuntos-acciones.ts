@@ -23,6 +23,7 @@ import { exigirSesion } from "@/lib/sesion";
 import { ROLES, type TipoAdjunto } from "@/lib/dominio";
 import { ERROR_SIN_FILAS, mensajeDeError } from "@/lib/errores";
 import { MAX_BYTES, MIME_ADJUNTOS } from "@/lib/adjuntos";
+import { leerLineasDePedido } from "@/lib/pedido-odoo-servidor";
 import type { Resultado } from "./acciones";
 
 const BUCKET = "adjuntos";
@@ -62,6 +63,8 @@ export async function registrarAdjunto(entrada: {
   nombre: string;
   mime: string;
   tamano: number;
+  /** La línea del pedido a la que se refiere un diseño. `null`: es del pedido entero. */
+  lineaPosicion?: number | null;
 }): Promise<Resultado> {
   const perfil = await exigirEscrituraDeAdjuntos();
   const supabase = await clienteServidor();
@@ -99,8 +102,20 @@ export async function registrarAdjunto(entrada: {
     return fallo("La ruta del archivo no corresponde a este pedido.");
   }
 
+  /* Solo un diseño se refiere a un ítem, y el ítem tiene que ser de este pedido:
+     la posición llega del navegador, así que se comprueba contra sus líneas. */
+  const lineaPosicion = entrada.lineaPosicion ?? null;
+  if (lineaPosicion !== null) {
+    const lineas = entrada.tipo === "diseno" ? await leerLineasDePedido(entrada.codigo) : [];
+    if (!lineas.some((l) => l.posicion === lineaPosicion)) {
+      await limpiar();
+      return fallo("Ese ítem no es de este pedido, o el archivo no es un diseño.");
+    }
+  }
+
   const { error } = await supabase.from("adjuntos").insert({
     pedido_id: pedido.id,
+    linea_posicion: lineaPosicion,
     tipo: entrada.tipo,
     storage_path: entrada.ruta,
     nombre_archivo: entrada.nombre,

@@ -25,6 +25,15 @@ describe("detalleDesdeLineas", () => {
     ).toBe("2 × [AC-003] ACRILICO F8 CRISTAL 3MM — corte 30x50 cm\n0.5 × SERVICIO CORTE LASER");
   });
 
+  it("las indicaciones de una línea van debajo de ella", () => {
+    expect(
+      detalleDesdeLineas([
+        linea({ cantidad: 2, indicaciones: "bordes  pulidos\nentregar con film" }),
+        linea({ posicion: 2, nombre: "SERVICIO CORTE LASER", codigo: null }),
+      ]),
+    ).toBe("2 × [AC-003] ACRILICO F8 CRISTAL 3MM\n  ↳ bordes pulidos entregar con film\n1 × SERVICIO CORTE LASER");
+  });
+
   it("no arrastra decimales de más", () => {
     expect(detalleDesdeLineas([linea({ cantidad: 2.5 })])).toBe("2.5 × [AC-003] ACRILICO F8 CRISTAL 3MM");
   });

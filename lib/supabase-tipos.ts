@@ -43,6 +43,7 @@ export type Database = {
         Row: {
           creado_en: string
           id: string
+          linea_posicion: number | null
           mime_type: string | null
           nombre_archivo: string
           pedido_id: string
@@ -54,6 +55,7 @@ export type Database = {
         Insert: {
           creado_en?: string
           id?: string
+          linea_posicion?: number | null
           mime_type?: string | null
           nombre_archivo: string
           pedido_id: string
@@ -65,6 +67,7 @@ export type Database = {
         Update: {
           creado_en?: string
           id?: string
+          linea_posicion?: number | null
           mime_type?: string | null
           nombre_archivo?: string
           pedido_id?: string
@@ -148,6 +151,7 @@ export type Database = {
           descripcion: string | null
           id: string
           importe: number | null
+          indicaciones: string | null
           materiales_usados: Json | null
           odoo_produccion_id: number | null
           odoo_produccion_nombre: string | null
@@ -168,6 +172,7 @@ export type Database = {
           descripcion?: string | null
           id?: string
           importe?: number | null
+          indicaciones?: string | null
           materiales_usados?: Json | null
           odoo_produccion_id?: number | null
           odoo_produccion_nombre?: string | null
@@ -188,6 +193,7 @@ export type Database = {
           descripcion?: string | null
           id?: string
           importe?: number | null
+          indicaciones?: string | null
           materiales_usados?: Json | null
           odoo_produccion_id?: number | null
           odoo_produccion_nombre?: string | null
@@ -1944,6 +1950,7 @@ export type Database = {
           p_es_provincia: boolean
           p_fecha_prometida: string
           p_flete_pagado?: boolean
+          p_indicaciones_lineas?: Json
           p_lugar_entrega: Database["public"]["Enums"]["lugar_entrega"]
           p_metodo_pago?: Database["public"]["Enums"]["metodo_pago"]
           p_monto_flete?: number
@@ -1972,14 +1979,7 @@ export type Database = {
       es_admin: { Args: never; Returns: boolean }
       escritura_del_sistema: { Args: never; Returns: boolean }
       etiqueta: { Args: { valor: string }; Returns: string }
-      generar_codigo_pedido: {
-        Args: {
-          anio?: number
-          es_provincia: boolean
-          tipos: Database["public"]["Enums"]["tipo_pedido"][]
-        }
-        Returns: string
-      }
+      generar_codigo_pedido: { Args: { p_fecha?: string }; Returns: string }
       lineas_de_pedido: {
         Args: { p_codigo: string }
         Returns: {
@@ -1987,6 +1987,7 @@ export type Database = {
           corte: Json
           descripcion: string
           importe: number
+          indicaciones: string
           materiales_usados: Json
           odoo_produccion_id: number
           odoo_produccion_nombre: string
@@ -2031,15 +2032,10 @@ export type Database = {
         Returns: undefined
       }
       retazo_minimo: { Args: never; Returns: number }
-      sigla_de: {
-        Args: { tipos: Database["public"]["Enums"]["tipo_pedido"][] }
-        Returns: string
-      }
       soltar_sobrantes_de_pedido: {
         Args: { p_codigo: string; p_consumir: boolean; p_posicion?: number }
         Returns: number
       }
-      sufijo_codigo: { Args: never; Returns: string }
       terminado_sin_precios: { Args: { t: Json }; Returns: Json }
       texto_notificacion: {
         Args: {

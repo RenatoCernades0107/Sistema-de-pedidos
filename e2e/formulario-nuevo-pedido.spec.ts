@@ -72,10 +72,8 @@ test("Administración registra un pedido con un producto y un corte, y Odoo lo r
   await expect(page.getByText("Elegida la más barata con stock.")).toBeVisible();
   await page.getByRole("button", { name: "Agregar corte" }).click();
 
-  // El corte láser marca su tipo solo; la plancha entera se marca a mano.
-  const tipos = page.getByRole("group", { name: "Tipo de pedido" });
-  await expect(tipos.getByRole("button", { name: "Corte láser" })).toHaveAttribute("aria-pressed", "true");
-  await tipos.getByRole("button", { name: "Solo planchas" }).click();
+  // Ya no se elige el tipo de pedido: lo dicen las líneas.
+  await expect(page.getByRole("group", { name: "Tipo de pedido" })).toHaveCount(0);
 
   // 120 + 545, sin impuestos: el total con IGV lo pone Odoo al registrar.
   await expect(page.getByTestId("total-pedido")).toHaveText("S/ 665.00");
@@ -86,12 +84,14 @@ test("Administración registra un pedido con un producto y un corte, y Odoo lo r
   await expect(page.getByText("Elige si el pedido va para el taller o para la tienda")).toBeVisible();
 
   await page.getByRole("group", { name: "¿Para dónde va el pedido?" }).getByRole("button", { name: /Taller/ }).click();
-  await page.getByLabel("Indicaciones para el taller").fill("Bordes pulidos");
+  await page.getByLabel("Notas generales").fill("Bordes pulidos");
   await page.getByLabel("Abono inicial").fill("100");
   await page.getByRole("button", { name: "Registrar pedido" }).click();
 
-  await page.waitForURL(/\/pedidos\/[A-Z0-9_]+$/);
+  await page.waitForURL(/\/pedidos\/P\d{4}-\d{3}$/);
   const codigo = page.url().split("/").pop()!;
+  // P, año, mes y correlativo del mes: P2611-001.
+  expect(codigo).toMatch(/^P\d{4}-\d{3}$/);
   await expect(page.getByRole("heading", { name: "E2E José Pérez Quispe" })).toBeVisible();
   await expect(page.getByRole("combobox", { name: "Ubicación actual" })).toContainText("En taller");
   // 665 × 1.18 = 784.70, menos el abono.
@@ -126,7 +126,6 @@ test("sin cliente ni productos no se registra, y dice qué falta", async ({ page
   await entrar(page, "administracion");
   await page.goto("/pedidos/nuevo");
   await page.getByRole("group", { name: "¿Para dónde va el pedido?" }).getByRole("button", { name: /Tienda/ }).click();
-  await page.getByRole("group", { name: "Tipo de pedido" }).getByRole("button", { name: "Accesorio" }).click();
   await page.getByLabel("Fecha prometida").fill(manana());
 
   await page.getByRole("button", { name: "Registrar pedido" }).click();
