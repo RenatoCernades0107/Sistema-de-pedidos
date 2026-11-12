@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, type KeyboardEvent } from "react";
-import { Minus, NotebookPen, Package, Pencil, Plus, Scissors, Trash2 } from "lucide-react";
+import { useState, type KeyboardEvent, type ReactNode } from "react";
+import { Hammer, Minus, NotebookPen, Package, Pencil, Plus, Scissors, Trash2 } from "lucide-react";
 import { MODALIDADES } from "@/lib/cortes/calcular";
 import { materialDeCorte, resumenPiezas } from "@/lib/cortes/guardado";
 import { money } from "@/lib/formato";
@@ -39,6 +39,8 @@ export function LineasCotizacion({
   alTerminar,
   refCantidad,
   resaltada,
+  indicaciones,
+  alCambiarIndicaciones,
 }: {
   lineas: LineaDelFormulario[];
   alCambiar: (clave: string, cambios: Partial<Pick<LineaCotizacion, "cantidad" | "precioUnitario" | "descripcion">>) => void;
@@ -53,7 +55,22 @@ export function LineasCotizacion({
   refCantidad: (clave: string, el: HTMLInputElement | null) => void;
   /** La línea que acaba de cambiar, para marcarla un instante. */
   resaltada: string | null;
+  /**
+   * Las indicaciones para el taller de cada línea, por su clave. Solo las pide el
+   * formulario de pedido: una cotización no las tiene.
+   */
+  indicaciones?: Record<string, string>;
+  alCambiarIndicaciones?: (clave: string, texto: string) => void;
 }) {
+  const pieDe = (l: LineaDelFormulario, nombre: string) =>
+    alCambiarIndicaciones ? (
+      <IndicacionesDeLinea
+        nombre={nombre}
+        valor={indicaciones?.[l.clave] ?? ""}
+        alCambiar={(texto) => alCambiarIndicaciones(l.clave, texto)}
+      />
+    ) : null;
+
   if (lineas.length === 0) {
     return (
       <p className="text-muted-foreground rounded-lg border border-dashed px-4 py-6 text-center text-sm">
@@ -73,6 +90,7 @@ export function LineasCotizacion({
             resaltada={resaltada === l.clave}
             alEditar={() => alEditarCorte(l.clave)}
             alQuitar={() => alQuitar(l.clave)}
+            pie={pieDe(l, `el corte de ${materialDeCorte(l)}`)}
           />
         ) : esTerminado(l) ? (
           <LineaDeTerminado
@@ -82,6 +100,7 @@ export function LineasCotizacion({
             resaltada={resaltada === l.clave}
             alEditar={() => alEditarTerminado(l.clave)}
             alQuitar={() => alQuitar(l.clave)}
+            pie={pieDe(l, l.nombre)}
           />
         ) : (
         <Linea
@@ -94,6 +113,7 @@ export function LineasCotizacion({
           alQuitar={() => alQuitar(l.clave)}
           alTerminar={alTerminar}
           refCantidad={(el) => refCantidad(l.clave, el)}
+          pie={pieDe(l, l.nombre)}
         />
         ),
       )}
@@ -111,12 +131,14 @@ function LineaDeCorte({
   resaltada,
   alEditar,
   alQuitar,
+  pie,
 }: {
   n: number;
   linea: LineaCorte;
   resaltada: boolean;
   alEditar: () => void;
   alQuitar: () => void;
+  pie?: ReactNode;
 }) {
   const c = l.calculo;
   const nombre = `${MODALIDADES[l.modalidad]} en ${materialDeCorte(l)}`;
@@ -175,6 +197,7 @@ function LineaDeCorte({
           <span className="tnum h-8 text-sm leading-8 font-semibold">{money(c.total)}</span>
         </div>
       </div>
+      {pie}
     </li>
   );
 }
@@ -189,12 +212,14 @@ function LineaDeTerminado({
   resaltada,
   alEditar,
   alQuitar,
+  pie,
 }: {
   n: number;
   linea: LineaTerminado;
   resaltada: boolean;
   alEditar: () => void;
   alQuitar: () => void;
+  pie?: ReactNode;
 }) {
   const ficha = [textoDeMedidas(l.medidas), l.materialTexto, ...l.opcionesTexto].filter(Boolean).join(" · ");
   const c = l.calculo;
@@ -253,6 +278,7 @@ function LineaDeTerminado({
           <span className="tnum h-8 text-sm leading-8 font-semibold">{money(subtotalDe(l))}</span>
         </div>
       </div>
+      {pie}
     </li>
   );
 }
@@ -266,6 +292,7 @@ function Linea({
   alQuitar,
   alTerminar,
   refCantidad,
+  pie,
 }: {
   n: number;
   linea: LineaCotizacion;
@@ -275,6 +302,7 @@ function Linea({
   alQuitar: () => void;
   alTerminar: () => void;
   refCantidad: (el: HTMLInputElement | null) => void;
+  pie?: ReactNode;
 }) {
   const [conDetalle, setConDetalle] = useState(!!l.descripcion);
   const enter = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -390,7 +418,52 @@ function Linea({
           Agregar detalle (medidas, acabado)
         </Button>
       )}
+      {pie}
     </li>
+  );
+}
+
+/**
+ * Lo que el taller tiene que saber de una línea. Solo es del pedido: no sale en
+ * la línea de Odoo (para eso está el detalle de las medidas).
+ */
+export function IndicacionesDeLinea({
+  nombre,
+  valor,
+  alCambiar,
+}: {
+  nombre: string;
+  valor: string;
+  alCambiar: (texto: string) => void;
+}) {
+  const [abierto, setAbierto] = useState(valor !== "");
+
+  if (!abierto) {
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        size="xs"
+        className="text-muted-foreground mt-1 -ml-2 gap-1"
+        onClick={() => setAbierto(true)}
+      >
+        <Hammer />
+        Indicaciones para el taller
+      </Button>
+    );
+  }
+
+  return (
+    <Textarea
+      rows={2}
+      autoFocus={valor === ""}
+      value={valor}
+      onChange={(e) => alCambiar(e.target.value)}
+      placeholder="Ej. bordes pulidos; entregar con film (solo lo ve el taller)"
+      aria-label={`Indicaciones para el taller de ${nombre}`}
+      className="mt-2"
+      maxLength={500}
+    />
   );
 }
 

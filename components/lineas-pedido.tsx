@@ -154,6 +154,13 @@ export function LineasPedido({
                 )}
               </div>
             )}
+            {l.indicaciones && (
+              <p className="bg-muted/40 rounded-md border px-3 py-2 text-sm whitespace-pre-line">
+                <span className="text-muted-foreground text-xs font-medium">Indicaciones del ítem {l.posicion}</span>
+                <br />
+                {l.indicaciones}
+              </p>
+            )}
           </li>
         ))}
       </ul>

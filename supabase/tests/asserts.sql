@@ -35,27 +35,76 @@ end $$;
 
 do $$
 declare
-  local_cl text;
-  provincia_mx text;
+  primero text;
+  segundo text;
+  mes     text := to_char(now() at time zone 'America/Lima', 'YYMM');
+  viejo   text;
 begin
   insert into public.pedidos (es_provincia, nombre_cliente, tipos_pedido, cantidad, tipo_pago,
                               monto_total, lugar_entrega, fecha_prometida)
   values (false, 'Prueba local', array['CL']::public.tipo_pedido[], 3, 'contado', 100, 'tienda', current_date + 3)
-  returning codigo into local_cl;
+  returning codigo into primero;
 
-  if local_cl !~ '^LCL_[0-9]{4}_[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}$' then
-    raise exception 'Código local mal formado: %', local_cl;
+  -- P, año, mes y correlativo del mes: P2611-001.
+  if primero !~ '^P[0-9]{4}-[0-9]{3}$' or substr(primero, 2, 4) <> mes then
+    raise exception 'Código mal formado: % (el mes de Lima es %)', primero, mes;
   end if;
 
   insert into public.pedidos (es_provincia, nombre_cliente, tipos_pedido, cantidad, tipo_pago,
                               monto_total, lugar_entrega, fecha_prometida)
   values (true, 'Prueba provincia', array['CL', 'AC']::public.tipo_pedido[], 2, 'contado', 100, 'agencia', current_date + 3)
-  returning codigo into provincia_mx;
+  returning codigo into segundo;
 
-  -- Varios tipos en un pedido se dictan como MX; el desglose vive en la columna.
-  if provincia_mx !~ '^PMX_' then
-    raise exception 'Un pedido de varios tipos a provincia debería empezar en PMX_, y es %', provincia_mx;
+  -- Ni el destino ni los tipos entran en el código: solo el correlativo sube.
+  if segundo !~ '^P[0-9]{4}-[0-9]{3}$'
+     or substr(segundo, 8, 3)::int <> substr(primero, 8, 3)::int + 1 then
+    raise exception 'El correlativo debería subir de % a el siguiente, y es %', primero, segundo;
   end if;
+
+  -- Los pedidos de antes siguen con su código y el CHECK lo acepta.
+  insert into public.pedidos (codigo, es_provincia, nombre_cliente, tipos_pedido, cantidad, tipo_pago,
+                              monto_total, lugar_entrega, fecha_prometida)
+  values ('LCL_2026_ZZZZ', false, 'Prueba formato viejo', array['CL']::public.tipo_pedido[], 1, 'contado', 10, 'tienda', current_date + 3)
+  returning codigo into viejo;
+
+  -- Con el mes lleno no se genera un código repetido ni uno de cuatro dígitos.
+  update public.pedido_contadores set ultimo = 999 where pedido_contadores.periodo = substr(primero, 2, 4);
+  begin
+    insert into public.pedidos (es_provincia, nombre_cliente, tipos_pedido, cantidad, tipo_pago,
+                                monto_total, lugar_entrega, fecha_prometida)
+    values (false, 'Prueba mes lleno', array['CL']::public.tipo_pedido[], 1, 'contado', 10, 'tienda', current_date + 3);
+    raise exception 'FALLO: se pudo registrar el pedido 1000 del mes';
+  exception when others then
+    if sqlerrm like 'FALLO:%' then raise; end if;
+  end;
+  update public.pedido_contadores set ultimo = substr(segundo, 8, 3)::smallint where pedido_contadores.periodo = substr(primero, 2, 4);
+
+  -- Ni quien registra pedidos puede tocar el contador.
+  if has_table_privilege('authenticated', 'public.pedido_contadores', 'select')
+     or has_table_privilege('authenticated', 'public.pedido_contadores', 'update') then
+    raise exception 'FALLO: los roles de la app alcanzan el contador de pedidos';
+  end if;
+  if has_function_privilege('authenticated', 'public.generar_codigo_pedido(timestamptz)', 'execute') then
+    raise exception 'FALLO: los roles de la app pueden gastar correlativos';
+  end if;
+end $$;
+
+-- Un diseño puede colgar de un ítem; la factura y la guía son del pedido entero.
+do $$
+declare
+  pedido uuid := (select id from public.pedidos where nombre_cliente = 'Prueba local');
+begin
+  insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, linea_posicion)
+  values (pedido, 'diseno', 'pedidos/prueba/diseno/a.pdf', 'a.pdf', 2),
+         (pedido, 'diseno', 'pedidos/prueba/diseno/b.pdf', 'b.pdf', null);
+
+  begin
+    insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, linea_posicion)
+    values (pedido, 'factura', 'pedidos/prueba/factura/c.pdf', 'c.pdf', 1);
+    raise exception 'FALLO: una factura se pudo ligar a un ítem';
+  exception when others then
+    if sqlerrm like 'FALLO:%' then raise; end if;
+  end;
 end $$;
 
 -- ── 2. Inmutabilidad ────────────────────────────────────────────────────────
@@ -63,7 +112,7 @@ end $$;
 do $$
 begin
   begin
-    update public.pedidos set codigo = 'LCL_2026_AAAA' where nombre_cliente = 'Prueba local';
+    update public.pedidos set codigo = 'P2601-999' where nombre_cliente = 'Prueba local';
     raise exception 'FALLO: se pudo cambiar el código del pedido';
   exception when others then
     if sqlerrm like 'FALLO:%' then raise; end if;
@@ -469,9 +518,9 @@ begin
   );
   perform set_config('plexi.test_alta', nuevo, true);
 
-  -- Dos tipos y destino provincia: el código tiene que abrir por PMX.
-  if nuevo !~ '^PMX_[0-9]{4}_' then
-    raise exception 'FALLO: el código del pedido combinado a provincia no es PMX: %', nuevo;
+  -- Tipos y destino ya no entran en el código: P, año, mes y correlativo.
+  if nuevo !~ '^P[0-9]{4}-[0-9]{3}$' then
+    raise exception 'FALLO: el código del pedido a provincia no es P{AAMM}-{NNN}: %', nuevo;
   end if;
 
   select id into pedido from public.pedidos where codigo = nuevo;

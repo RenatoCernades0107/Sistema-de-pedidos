@@ -36,6 +36,7 @@ export async function leerLineasDePedido(codigo: string): Promise<LineaDePedido[
     nombre: f.producto_nombre,
     codigo: f.producto_codigo,
     descripcion: f.descripcion,
+    indicaciones: f.indicaciones,
     cantidad: Number(f.cantidad),
     corte: f.tipo === "corte" ? leerCorte(f.corte) : null,
     planchasUsadas: num(f.planchas_usadas),

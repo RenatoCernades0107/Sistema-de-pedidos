@@ -127,6 +127,12 @@ export function HojaCorte({ codigo, lineas }: { codigo: string; lineas: LineaDeP
                     {l.descripcion && (
                       <span className="text-muted-foreground block text-xs whitespace-pre-line">{l.descripcion}</span>
                     )}
+                    {l.indicaciones && (
+                      <span className="block text-xs whitespace-pre-line">
+                        <span className="font-medium">Indicaciones: </span>
+                        {l.indicaciones}
+                      </span>
+                    )}
                   </span>
                 </li>
               ))}
@@ -160,6 +166,12 @@ function Corte({ linea: l, numero, de }: { linea: LineaDePedido; numero: number;
           <span className="font-mono">{c.formato.codigo}</span>
           {!c.rotable && " · no girar las piezas: el material tiene veta o dibujo"}
         </p>
+        {l.indicaciones && (
+          <p className="mt-1.5 text-sm whitespace-pre-line">
+            <span className="font-medium">Indicaciones: </span>
+            {l.indicaciones}
+          </p>
+        )}
 
         <table className="mt-3 w-full max-w-md text-sm">
           <caption className="sr-only">Piezas del corte</caption>

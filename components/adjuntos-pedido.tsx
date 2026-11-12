@@ -28,6 +28,9 @@ import { subirAdjuntos } from "@/lib/adjuntos-navegador";
 import { ACEPTA } from "@/lib/adjuntos";
 import { eliminarAdjunto, urlAdjunto } from "@/app/(app)/adjuntos-acciones";
 import { ADJUNTOS, type Adjunto, type Pedido, type TipoAdjunto } from "@/lib/dominio";
+import type { LineaDePedido } from "@/lib/pedido-lineas";
+import { tituloCorte } from "@/lib/cortes/guardado";
+import { tituloTerminado } from "@/lib/terminados/guardado";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -54,10 +57,20 @@ const ICONO_ADJUNTO = {
   foto_entrega: ImageIcon,
 } as const;
 
-export function AdjuntosPedido({ pedido: p }: { pedido: Pedido }) {
+/** Cómo se nombra un ítem del pedido: "Ítem 2 · Corte láser · Acrílico…". */
+const nombreDeItem = (l: LineaDePedido) =>
+  `Ítem ${l.posicion} · ${l.corte ? tituloCorte(l.corte) : l.terminado ? tituloTerminado(l.terminado) : l.nombre}`;
+
+const GENERAL = "general";
+
+export function AdjuntosPedido({ pedido: p, lineas = [] }: { pedido: Pedido; lineas?: LineaDePedido[] }) {
   const { permisos } = useStore();
   const entrada = useRef<HTMLInputElement>(null);
   const [tipo, setTipo] = useState<TipoAdjunto>("diseno");
+  /* A qué ítem se refieren los diseños que se suban. Solo los diseños se ligan a un
+     ítem: la factura, la guía y la foto de entrega son del pedido entero. */
+  const [item, setItem] = useState<string>(GENERAL);
+  const itemElegido = tipo === "diseno" && item !== GENERAL ? Number(item) : null;
   const [porBorrar, setPorBorrar] = useState<Adjunto | null>(null);
   const [trabajando, iniciar] = useTransition();
 
@@ -73,7 +86,11 @@ export function AdjuntosPedido({ pedido: p }: { pedido: Pedido }) {
     if (archivos.length === 0) return;
 
     iniciar(async () => {
-      const { subidos, errores } = await subirAdjuntos(p.codigo, tipo, archivos);
+      const { subidos, errores } = await subirAdjuntos(
+        p.codigo,
+        tipo,
+        archivos.map((archivo) => ({ archivo, lineaPosicion: itemElegido })),
+      );
 
       if (subidos > 0) {
         toast.success(subidos === 1 ? "Archivo subido" : `${subidos} archivos subidos`, {
@@ -134,6 +151,11 @@ export function AdjuntosPedido({ pedido: p }: { pedido: Pedido }) {
                       <span className="text-muted-foreground block text-2xs">
                         {ADJUNTOS[a.tipo]} · {a.peso}
                       </span>
+                      {a.lineaPosicion != null && (
+                        <span className="text-primary block max-w-[16ch] truncate text-2xs">
+                          Ítem {a.lineaPosicion}
+                        </span>
+                      )}
                     </span>
                   </button>
 
@@ -169,6 +191,26 @@ export function AdjuntosPedido({ pedido: p }: { pedido: Pedido }) {
               ))}
             </SelectContent>
           </Select>
+
+          {tipo === "diseno" && lineas.length > 0 && (
+            <Select value={item} onValueChange={(v) => v && setItem(v)}>
+              <SelectTrigger size="sm" className="w-56 max-w-full" aria-label="¿De qué es el archivo?">
+                <SelectValue>
+                  {item === GENERAL
+                    ? "Todo el pedido"
+                    : `Ítem ${item}`}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={GENERAL}>Todo el pedido</SelectItem>
+                {lineas.map((l) => (
+                  <SelectItem key={l.posicion} value={String(l.posicion)}>
+                    {nombreDeItem(l)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
 
           <input
             ref={entrada}

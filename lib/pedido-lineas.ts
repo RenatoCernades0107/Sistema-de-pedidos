@@ -16,6 +16,8 @@ export interface LineaDePedido {
   nombre: string;
   codigo: string | null;
   descripcion: string | null;
+  /** Lo que el taller tiene que saber de esta línea (acabados, pegado…). */
+  indicaciones?: string | null;
   /** En un corte, cuántas planchas se calcularon. */
   cantidad: number;
   corte: CorteGuardado | null;

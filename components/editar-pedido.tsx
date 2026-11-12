@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Info, Pencil } from "lucide-react";
+import { Pencil } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { esquemaFormDatos, esquemaFormEnvio, FORMATO_DOCUMENTO } from "@/lib/esquemas";
 import { fechaCompleta } from "@/lib/formato";
@@ -12,10 +12,7 @@ import {
   DOCUMENTOS,
   LUGARES,
   PLAZOS,
-  PRODUCTOS,
-  TIPOS,
   admiteDecimales,
-  siglaDe,
   unidadDe,
   venceCreditoEl,
   type LugarEntrega,
@@ -69,17 +66,8 @@ export function EditarDatos({ pedido: p }: { pedido: Pedido }) {
   const tipos = (form.watch("tipos") ?? []) as TipoPedido[];
   const entrega = form.watch("entrega");
   const plazoCredito = Number(form.watch("plazoCredito")) || null;
-  // El código guarda la sigla con la que se registró y no se reescribe.
-  const cambioDeSigla = tipos.length > 0 && siglaDe(tipos) !== p.codigo.slice(1, 3);
+  // El tipo del pedido sale de sus líneas y no se edita: solo decide si la cantidad admite decimales.
   const decimales = admiteDecimales(tipos);
-
-  const alternarTipo = (t: string) => {
-    const actuales = (form.getValues("tipos") ?? []) as TipoPedido[];
-    const siguientes = actuales.includes(t as TipoPedido)
-      ? actuales.filter((x) => x !== t)
-      : [...actuales, t as TipoPedido];
-    form.setValue("tipos", siguientes, { shouldValidate: form.formState.isSubmitted });
-  };
 
   const abrir = (v: boolean) => {
     if (v) form.reset(valoresDe(p));
@@ -142,57 +130,6 @@ export function EditarDatos({ pedido: p }: { pedido: Pedido }) {
               />
             </Campo>
           </div>
-
-          <Campo
-            grupo
-            label="Tipo de pedido"
-            requerido
-            error={form.formState.errors.tipos?.message}
-          >
-            <Opciones
-              valores={tipos}
-              onToggle={alternarTipo}
-              opciones={Object.entries(TIPOS).map(([valor, label]) => ({ valor, label }))}
-            />
-          </Campo>
-
-          {cambioDeSigla && (
-            <Aviso>
-              El código <span className="font-medium">{p.codigo}</span> no cambia: lleva las
-              siglas del tipo con el que se registró y ya está en papeles y conversaciones.
-              Seguirá diciendo <span className="font-medium">{p.codigo.slice(1, 3)}</span>,
-              aunque ahora el pedido sea{" "}
-              <span className="font-medium">{siglaDe(tipos)}</span>.
-            </Aviso>
-          )}
-
-          {tipos.includes("PT") && (
-            <Campo
-              label="Tipo de producto"
-              requerido
-              error={form.formState.errors.producto?.message}
-            >
-              <Select
-                value={form.watch("producto") ?? ""}
-                onValueChange={(v) => v && form.setValue("producto", v as ProductoTerminado)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {form.watch("producto")
-                      ? PRODUCTOS[form.watch("producto") as ProductoTerminado]
-                      : "Selecciona…"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(PRODUCTOS).map(([v, l]) => (
-                    <SelectItem key={v} value={v}>
-                      {l}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Campo>
-          )}
 
           <Campo
             label={`Cantidad (${unidadDe(tipos)})`}
@@ -547,13 +484,4 @@ const envioDe = (p: Pedido): CamposEnvio => ({
   observacionesEnvio: p.envio?.observacionesEnvio ?? "",
 });
 
-/* ── Piezas compartidas ── */
 
-function Aviso({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="bg-muted/60 text-muted-foreground flex gap-2 rounded-lg border p-2.5 text-xs">
-      <Info className="mt-px size-3.5 shrink-0" />
-      <span>{children}</span>
-    </p>
-  );
-}

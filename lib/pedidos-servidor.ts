@@ -53,7 +53,7 @@ export async function cargarPedidos(rol: Rol, usuarioId: string): Promise<Pedido
   const [adjuntos, historial, abonos, auditoria] = await Promise.all([
     supabase
       .from("adjuntos")
-      .select("id, pedido_id, tipo, nombre_archivo, tamano_bytes")
+      .select("id, pedido_id, tipo, nombre_archivo, tamano_bytes, linea_posicion")
       .in("pedido_id", ids),
     supabase
       .from("historial_pedido")
@@ -152,6 +152,7 @@ export async function cargarPedidos(rol: Rol, usuarioId: string): Promise<Pedido
         tipo: a.tipo,
         nombre: a.nombre_archivo,
         peso: pesoTexto(a.tamano_bytes),
+        lineaPosicion: a.linea_posicion,
       })),
       abonos: (porPedido.abonos.get(id) ?? []).map((a) => ({
         fecha: diaEnLima(a.fecha),
