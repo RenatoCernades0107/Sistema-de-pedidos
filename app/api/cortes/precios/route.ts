@@ -15,7 +15,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface RespuestaPrecios {
   /** Por código de Odoo. Un formato que no esté aquí no existe en Odoo. */
-  precios: Record<string, { productoId: number; precio: number }>;
+  precios: Record<string, { productoId: number; precio: number; nombre: string }>;
   /** Con el piloto de sobrantes: los del almacén que se pueden usar, en orden de uso. */
   sobrantes: SobranteDisponible[];
 }

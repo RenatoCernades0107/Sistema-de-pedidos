@@ -13,7 +13,13 @@ import {
 import { money } from "@/lib/formato";
 import type { LineaTerminado } from "@/lib/lineas-cotizacion";
 import type { ProductoOdoo } from "@/lib/odoo/tipos";
-import { calcularTerminado, planchaDeReferencia, type Accesorio } from "@/lib/terminados/calcular";
+import type { ConfigCortes } from "@/lib/cortes/config";
+import {
+  calcularTerminado,
+  formatosConPrecio,
+  planchaDeReferencia,
+  type Accesorio,
+} from "@/lib/terminados/calcular";
 import {
   CLASES_OPCION,
   buscarProductos,
@@ -36,6 +42,7 @@ import {
 } from "@/lib/terminados/geometria";
 import { cn } from "@/lib/utils";
 import { usePrecios } from "@/components/cortes/editor-corte";
+import { CortesTerminado } from "@/components/terminados/cortes-terminado";
 import { BuscadorProducto } from "@/components/cotizaciones/buscador-producto";
 import { ComboBusqueda, type Opcion } from "@/components/cotizaciones/combo-busqueda";
 import { Button } from "@/components/ui/button";
@@ -117,12 +124,15 @@ function camposDe(geometria: Geometria, producto: ProductoEstandar | null): Camp
 export function EditorTerminado({
   catalogo,
   planchas,
+  configCortes,
   inicial,
   alGuardar,
   alCerrar,
 }: {
   catalogo: CatalogoTerminados;
   planchas: GrupoPlancha[];
+  /** Con esto se acomodan las piezas en la plancha, como en un corte. */
+  configCortes: ConfigCortes;
   /** El que se está editando; `null` para uno nuevo. */
   inicial: LineaTerminado | null;
   alGuardar: (terminado: TerminadoNuevo) => void;
@@ -161,6 +171,10 @@ export function EditorTerminado({
     () => (grupo && precios ? planchaDeReferencia(grupo.formatos, new Map(Object.entries(precios))) : null),
     [grupo, precios],
   );
+  const formatos = useMemo(
+    () => (grupo && precios ? formatosConPrecio(grupo.formatos, new Map(Object.entries(precios))) : []),
+    [grupo, precios],
+  );
 
   const delProducto = useMemo(
     () => (producto ? opcionesDeProducto(catalogo, producto) : null),
@@ -196,8 +210,11 @@ export function EditorTerminado({
         extras: catalogo.opciones.filter((o) => opciones.includes(o.id)).map((o) => o.extra),
         mermaPct: catalogo.config.mermaPct,
         anchoDeLetra: catalogo.config.anchoDeLetra,
+        formatos,
+        configCortes,
+        espesorMm: grupo?.espesorMm,
       }),
-    [geometria, medidas, areaManual, unidades, plancha, accesorios, tipo, catalogo, opciones],
+    [geometria, medidas, areaManual, unidades, plancha, accesorios, tipo, catalogo, opciones, formatos, configCortes, grupo],
   );
 
   const precioFinal = precio.trim() === "" ? calculo.precioSugerido : Number(precio.replace(",", "."));
@@ -540,9 +557,11 @@ export function EditorTerminado({
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-medium">Material estimado</p>
                     <p className="text-muted-foreground mt-0.5 text-xs">
-                      {calculo.areaUnidadM2
-                        ? `${calculo.areaUnidadM2} m² por unidad${calculo.areaManual ? " (a mano)" : ` · ${GEOMETRIAS[geometria].nombre.toLowerCase()}`}; con ${catalogo.config.mermaPct}% de merma, ${calculo.areaTotalM2} m² en total.`
-                        : "Sin área: escribe las medidas o el área de una unidad."}
+                      {calculo.corte
+                        ? `${calculo.areaUnidadM2} m² por unidad · ${GEOMETRIAS[geometria].nombre.toLowerCase()}; las piezas, acomodadas en la plancha más conveniente.`
+                        : calculo.areaUnidadM2
+                          ? `${calculo.areaUnidadM2} m² por unidad${calculo.areaManual ? " (a mano)" : ` · ${GEOMETRIAS[geometria].nombre.toLowerCase()}`}; con ${calculo.mermaPct}% de merma, ${calculo.areaTotalM2} m² en total.`
+                          : "Sin área: escribe las medidas o el área de una unidad."}
                     </p>
                   </div>
                   <Campo label="Área por unidad (m²)" className="w-40">
@@ -556,6 +575,23 @@ export function EditorTerminado({
                   </Campo>
                 </div>
 
+                {calculo.aviso && (
+                  <p className="text-muted-foreground flex items-start gap-1.5 text-xs" role="status">
+                    <CircleAlert className="mt-px size-3.5 shrink-0" aria-hidden />
+                    {calculo.aviso}
+                  </p>
+                )}
+
+                {calculo.corte && calculo.piezas && (
+                  <CortesTerminado
+                    piezas={calculo.piezas}
+                    formato={calculo.corte.formato}
+                    planchas={calculo.corte.planchas}
+                    compacto
+                    className="bg-background rounded-md border p-3"
+                  />
+                )}
+
                 {calculo.materiales.length > 0 && (
                   <ul className="flex flex-col gap-1.5 text-sm">
                     {calculo.materiales.map((m) => (
@@ -566,7 +602,11 @@ export function EditorTerminado({
                           </span>
                         )}
                         <span className="min-w-0 flex-1 truncate">
-                          {m.esPlancha && plancha ? `Plancha de ${plancha.anchoCm}×${plancha.largoCm}` : m.nombre}
+                          {m.esPlancha && calculo.formato
+                            ? `Plancha de ${calculo.formato.ancho}×${calculo.formato.alto}`
+                            : m.esPlancha && plancha
+                              ? `Plancha de ${plancha.anchoCm}×${plancha.largoCm}`
+                              : m.nombre}
                         </span>
                         {m.esPlancha ? (
                           <span className="tnum w-20 text-right">{m.cantidad}</span>

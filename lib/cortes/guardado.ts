@@ -73,21 +73,26 @@ const redondear = (n: number, decimales: number) => {
 /** Medidas al milímetro: de sobra para dibujar, y el JSON no arrastra 0.30000000000000004. */
 const cm = (n: number) => redondear(n, 3);
 
+/** Las planchas del cálculo como se guardan: redondeadas al milímetro. */
+export function guardarPlanchas(planchas: CalculoCorte["planchas"]): PlanchaGuardada[] {
+  return planchas.map((p) => ({
+    origen: p.origen,
+    ancho: p.ancho,
+    alto: p.alto,
+    usoPct: redondear(p.usoPct, 1),
+    piezas: p.piezas,
+    cobro: { ...p.cobro, ancho: cm(p.cobro.ancho), alto: cm(p.cobro.alto) },
+    paneles: p.paneles.map((x) => ({ ...x, x1: cm(x.x1), y1: cm(x.y1), x2: cm(x.x2), y2: cm(x.y2) })),
+  }));
+}
+
 export function guardarCorte(datos: DatosCorte, calculo: CalculoCorte): CorteGuardado {
   return {
     version: 1,
     ...datos,
     piezas: datos.piezas.map((p) => ({ ancho: p.ancho, alto: p.alto, cantidad: Math.floor(p.cantidad) })),
     formato: calculo.formato,
-    planchas: calculo.planchas.map((p) => ({
-      origen: p.origen,
-      ancho: p.ancho,
-      alto: p.alto,
-      usoPct: redondear(p.usoPct, 1),
-      piezas: p.piezas,
-      cobro: { ...p.cobro, ancho: cm(p.cobro.ancho), alto: cm(p.cobro.alto) },
-      paneles: p.paneles.map((x) => ({ ...x, x1: cm(x.x1), y1: cm(x.y1), x2: cm(x.x2), y2: cm(x.y2) })),
-    })),
+    planchas: guardarPlanchas(calculo.planchas),
     montoMaterial: calculo.material,
     montoServicio: calculo.servicio,
     total: calculo.total,
@@ -118,6 +123,24 @@ const origen = z.union([
   z.object({ tipo: z.literal("sobrante"), id: z.string() }),
 ]);
 
+/** Una plancha guardada, para leerla también desde la ficha de un producto terminado. */
+export const esquemaPlancha = z.object({
+  origen: origen.catch({ tipo: "plancha" }),
+  ancho: numero,
+  alto: numero,
+  usoPct: numero,
+  piezas: numero,
+  cobro: z.object({
+    nombre: z.string(),
+    factor: numero,
+    ancho: numero,
+    alto: numero,
+    monto: numero,
+    nota: z.string().nullable(),
+  }),
+  paneles: z.array(panel),
+}) satisfies z.ZodType<PlanchaGuardada>;
+
 const esquema = z.object({
   version: z.literal(1),
   grupoId: z.string(),
@@ -128,24 +151,7 @@ const esquema = z.object({
   rotable: z.boolean(),
   piezas: z.array(z.object({ ancho: numero, alto: numero, cantidad: numero })),
   formato: z.object({ codigo: z.string(), ancho: numero, alto: numero, precio: numero }),
-  planchas: z.array(
-    z.object({
-      origen: origen.catch({ tipo: "plancha" }),
-      ancho: numero,
-      alto: numero,
-      usoPct: numero,
-      piezas: numero,
-      cobro: z.object({
-        nombre: z.string(),
-        factor: numero,
-        ancho: numero,
-        alto: numero,
-        monto: numero,
-        nota: z.string().nullable(),
-      }),
-      paneles: z.array(panel),
-    }),
-  ),
+  planchas: z.array(esquemaPlancha),
   montoMaterial: numero,
   montoServicio: numero,
   total: numero,

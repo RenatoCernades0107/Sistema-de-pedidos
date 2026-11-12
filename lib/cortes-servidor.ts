@@ -134,7 +134,10 @@ export async function preciosDeGrupo(grupo: GrupoPlancha) {
   return new Map(
     grupo.formatos
       .filter((f) => productos.has(f.codigo))
-      .map((f) => [f.codigo, { productoId: productos.get(f.codigo)!.id, precio: productos.get(f.codigo)!.precio }]),
+      .map((f) => {
+        const p = productos.get(f.codigo)!;
+        return [f.codigo, { productoId: p.id, precio: p.precio, nombre: p.nombre }];
+      }),
   );
 }
 

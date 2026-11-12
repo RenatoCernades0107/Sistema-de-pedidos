@@ -23,6 +23,11 @@ const ODOO = process.env.E2E_ODOO_FALSO ?? "http://127.0.0.1:8069";
  * el más barato por metro cuadrado (150×300, 4.5 m²).
  */
 const CODIGO_PLANCHA = "F15E004";
+/**
+ * Dos cajas de 30×20×20 son 12 piezas: no caben en ¼ de 122×183 y sí en ¼ de
+ * 122×244, que sale más barato que media de la chica.
+ */
+const CODIGO_PLANCHA_CORTE = "F9.5E015";
 
 interface Movimiento {
   product_id: [number, string];
@@ -119,10 +124,14 @@ test("un estándar se arma del catálogo, reserva lo estimado y descuenta lo que
   await editor.getByRole("group", { name: "Personalizaciones" }).getByRole("button", { name: "Grabado láser" }).click();
 
   await editor.getByRole("textbox", { name: /^Cantidad \(obligatorio\)$/ }).fill("2");
-  // 2 × (30×20 + 30×20 + 20×20) = 0.32 m² por caja; dos, con 15% de merma, 0.736 m²: 0.16 planchas de 4.5 m².
+  // Seis caras por caja, acomodadas en la plancha: 12 piezas en un cuarto de 122×244.
   const estimado = editor.getByRole("region", { name: "Material estimado" });
   await expect(estimado.getByText(/0\.32 m² por unidad/)).toBeVisible();
-  await expect(estimado.getByText("0.16", { exact: true })).toBeVisible();
+  const cortes = estimado.getByTestId("cortes-terminado");
+  await expect(cortes.getByText("12 piezas", { exact: true })).toBeVisible();
+  await expect(cortes.getByText(/^en un cuarto de plancha de 122×244/)).toBeVisible();
+  await expect(cortes.getByText("Base y tapa, frente y fondo", { exact: true })).toBeVisible();
+  await expect(estimado.getByText("0.25", { exact: true })).toBeVisible();
   await expect(editor.getByTestId("precio-sugerido")).not.toHaveText(/S\/\s*0\.00/);
 
   await editor.getByLabel("Reservar este material en Odoo al confirmar el pedido").check();
@@ -134,13 +143,11 @@ test("un estándar se arma del catálogo, reserva lo estimado y descuenta lo que
   const linea = admin.getByRole("listitem", { name: /Línea 1: Caja con tapa removible/ });
   await expect(linea.getByText(/30 × 20 × 20 cm · Acrílico ECO · Cristal · 3 mm/)).toBeVisible();
   await expect(linea.getByText(/se reserva/)).toBeVisible();
-  // El pedido se marca solo como de productos terminados.
-  await expect(admin.getByRole("button", { name: "Productos terminados" })).toHaveAttribute("aria-pressed", "true");
 
-  const PLANCHA = await idDe(CODIGO_PLANCHA);
+  const PLANCHA = await idDe(CODIGO_PLANCHA_CORTE);
   const antes = await stockDe(PLANCHA);
   const codigo = await registrar(admin);
-  expect(codigo).toMatch(/^LPT_/);
+  expect(codigo).toMatch(/^P\d{4}-\d{3}$/);
 
   // En Odoo: la venta lleva el producto del catálogo, y la orden de fabricación reserva lo estimado.
   let odoo = await estado();
@@ -154,7 +161,7 @@ test("un estándar se arma del catálogo, reserva lo estimado y descuenta lo que
   expect([orden.state, orden.product_id[0], orden.product_qty]).toEqual(["confirmed", caja!.id, 2]);
   expect(
     orden.movimientos.filter((m) => m.raw_material_production_id).map((m) => [m.product_id[0], m.product_uom_qty]),
-  ).toEqual([[PLANCHA, 0.16]]);
+  ).toEqual([[PLANCHA, 0.25]]);
 
   // El taller ve la ficha, sin dinero.
   const page = await comoTaller(browser, codigo);
@@ -162,7 +169,14 @@ test("un estándar se arma del catálogo, reserva lo estimado y descuenta lo que
   await expect(lineas.getByText("Caja con tapa removible")).toBeVisible();
   await expect(lineas.getByText("Grabado láser")).toBeVisible();
   await expect(lineas.getByText("Material estimado")).toBeVisible();
+  await expect(lineas.getByText("Cortes y acomodo en la plancha")).toBeVisible();
   await expect(lineas.getByText(/S\/\s/)).toHaveCount(0);
+
+  // Y sus piezas entran a la hoja de corte.
+  await page.goto(`/pedidos/${encodeURIComponent(codigo)}/hoja-de-corte`);
+  await expect(page.getByRole("heading", { name: /Producto terminado · \[CAJ-001\] Caja con tapa removible/ })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "Laterales" })).toBeVisible();
+  await page.goBack();
 
   await page.getByRole("button", { name: "En proceso", exact: true }).click();
   await expect(page.getByText(`${codigo} → En proceso`)).toBeVisible();
@@ -171,7 +185,7 @@ test("un estándar se arma del catálogo, reserva lo estimado y descuenta lo que
   await page.getByRole("button", { name: "Listo", exact: true }).click();
   const dialogo = page.getByRole("dialog", { name: "Pasar a Listo: materiales usados" });
   const plancha = dialogo.getByLabel(/^Cantidad usada de /);
-  await expect(plancha).toHaveValue("0.16");
+  await expect(plancha).toHaveValue("0.25");
   await plancha.fill("1");
 
   const buscador = dialogo.getByLabel(/Agregar material usado/);
@@ -324,7 +338,7 @@ test("Administración pone el factor y los extras, y el precio sugerido los usa"
     // Sus medidas y opciones siguen ahí: guardar no las borra.
     await expect(page.getByRole("listitem").filter({ hasText: "CAJ-002" }).getByText(/3 medidas/)).toBeVisible();
 
-    // Al cotizar: 0.32 m² × 1.15 = 0.368 m² → 0.08 planchas de S/ 400 = S/ 32; × 2 + 10 = S/ 74.
+    // Al cotizar: las piezas de una caja caben en ¼ de 122×183 (S/ 200) = S/ 50; × 2 + 10 = S/ 110.
     await page.goto("/cotizaciones/nueva");
     await page.getByRole("button", { name: "Producto terminado" }).click();
     const terminado = page.getByRole("dialog", { name: "Producto terminado" });
