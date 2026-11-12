@@ -7,7 +7,7 @@ import {
   type TerminadoGuardado,
 } from "@/lib/terminados/guardado";
 import { armadoDeCaja } from "@/lib/terminados/armado";
-import { ArmadoCaja } from "./armado-caja";
+import { ArmadoCaja, Caja3D } from "./armado-caja";
 import { CortesTerminado } from "./cortes-terminado";
 
 const n = (x: number) => String(+x.toFixed(3));
@@ -61,40 +61,52 @@ export function TerminadoGuardadoVista({
         )}
       </div>
 
-      {renglones.length > 0 && (
-        <dl className="grid gap-x-4 gap-y-1 pl-7 text-sm sm:grid-cols-[auto_1fr]">
-          {renglones.map((r) => (
-            <div key={r.etiqueta} className="contents">
-              <dt className="text-muted-foreground">{r.etiqueta}</dt>
-              <dd className="whitespace-pre-line">{r.valor}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
+      {/* La ficha a la izquierda y, si es una caja, cómo se ve armada a la derecha. */}
+      <div className="flex flex-col gap-3 pl-7 sm:flex-row sm:items-start">
+        <div className="flex min-w-0 flex-1 flex-col gap-2.5">
+          {renglones.length > 0 && (
+            <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
+              {renglones.map((r) => (
+                <div key={r.etiqueta} className="contents">
+                  <dt className="text-muted-foreground">{r.etiqueta}</dt>
+                  <dd className="whitespace-pre-line">{r.valor}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
 
-      {(t.materiales.length > 0 || usados) && (
-        <div className="bg-muted/30 ml-7 rounded-lg border px-3 py-2 text-sm">
-          <p className="text-xs font-medium">
-            {usados ? "Material usado" : "Material estimado"}
-            {!usados && t.reservar && <span className="text-muted-foreground font-normal"> · se reserva al confirmar</span>}
-          </p>
-          <ul className="mt-1 flex flex-col gap-0.5">
-            {(usados ?? t.materiales).map((m) => (
-              <li key={m.productoId} className="flex flex-wrap items-baseline gap-x-2">
-                {m.codigo && <span className="font-mono text-xs">{m.codigo}</span>}
-                <span className="min-w-0 flex-1">{m.nombre}</span>
-                <span className="tnum">{cantidadDeMaterial(m)}</span>
-              </li>
-            ))}
-            {usados?.length === 0 && <li className="text-muted-foreground">Nada del almacén.</li>}
-          </ul>
-          {usados && t.materiales.length > 0 && (
-            <p className="text-muted-foreground mt-1 text-xs">
-              Estimado: {t.materiales.map((m) => `${cantidadDeMaterial(m)} de ${m.codigo ?? m.nombre}`).join(", ")}
-            </p>
+          {(t.materiales.length > 0 || usados) && (
+            <div className="bg-muted/30 rounded-lg border px-3 py-2 text-sm">
+              <p className="text-xs font-medium">
+                {usados ? "Material usado" : "Material estimado"}
+                {!usados && t.reservar && (
+                  <span className="text-muted-foreground font-normal"> · se reserva al confirmar</span>
+                )}
+              </p>
+              <ul className="mt-1 flex flex-col gap-0.5">
+                {(usados ?? t.materiales).map((m) => (
+                  <li key={m.productoId} className="flex flex-wrap items-baseline gap-x-2">
+                    {m.codigo && <span className="font-mono text-xs">{m.codigo}</span>}
+                    <span className="min-w-0 flex-1">{m.nombre}</span>
+                    <span className="tnum">{cantidadDeMaterial(m)}</span>
+                  </li>
+                ))}
+                {usados?.length === 0 && <li className="text-muted-foreground">Nada del almacén.</li>}
+              </ul>
+              {usados && t.materiales.length > 0 && (
+                <p className="text-muted-foreground mt-1 text-xs">
+                  Estimado: {t.materiales.map((m) => `${cantidadDeMaterial(m)} de ${m.codigo ?? m.nombre}`).join(", ")}
+                </p>
+              )}
+            </div>
           )}
         </div>
-      )}
+        <Caja3D
+          geometria={t.geometria}
+          medidas={t.medidas}
+          className="order-first w-full shrink-0 sm:order-none sm:w-52"
+        />
+      </div>
 
       {t.corte && (
         <details className="ml-7 rounded-lg border px-3 py-2">
