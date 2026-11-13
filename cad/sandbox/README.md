@@ -18,6 +18,10 @@ uv run pytest tests/test_sandbox_*.py
 En Next.js: `CAD_SANDBOX_BASE_URL=http://localhost:8002`, `CAD_DISENO_LIBRE=1`
 (y `CAD_SANDBOX_API_KEY` si el servicio la exige).
 
+Los logs funcionan igual que en el motor (ver «Logs» en `cad/README.md`): un 422 de
+`/ejecutar` dice si fue el cuerpo (`parametros_invalidos`) o el código (`codigo_invalido`,
+con tipo, línea y traza).
+
 ## Contrato del código
 
 ```python

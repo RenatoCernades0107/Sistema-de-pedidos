@@ -34,6 +34,29 @@ uv run pytest tests/test_api.py -q
 | --- | --- | --- |
 | `CAD_API_KEY` | Clave que se exige en la cabecera `X-API-Key`. Sin definir, no se exige (solo local). | sin definir |
 | `CAD_PLANCHA_MAX_MM` | Plancha más grande, `ANCHOxALTO`. Una pieza mayor da el error `excede_plancha`; también es el ancho máximo de una fila del DXF. | `2440x1220` |
+| `CAD_LOG_NIVEL` | `DEBUG`, `INFO`, `WARNING` o `ERROR`. | `INFO` |
+| `CAD_LOG_FORMATO` | `json` o `consola`. | consola en una terminal, JSON si no |
+
+## Logs
+
+El motor y el sandbox registran con structlog (`motor/bitacora.py`). Cada petición deja
+una línea `peticion` con `metodo`, `ruta`, `estado`, `duracion_ms` e `id_peticion`; si
+falló, añade lo que se devolvió al cliente: `codigo` (`parametros_invalidos`,
+`codigo_invalido`, `geometria`…), `mensaje`, `errores` por campo o `error` con tipo, línea
+y traza del código del usuario. El código completo no se registra (solo `codigo_lineas` y
+`codigo_sha`), salvo con `CAD_LOG_NIVEL=DEBUG`. Los 4xx salen como `warning`, los 5xx como
+`error` con su traza, y `/salud` en `debug`. El access log de uvicorn se apaga.
+
+Si la petición trae `X-Request-ID` se usa ese id; si no, se genera. Siempre vuelve en la
+respuesta.
+
+En Lambda salen en JSON, una línea por evento. En CloudWatch Logs Insights:
+
+```
+fields @timestamp, ruta, estado, codigo, mensaje
+| filter event = "peticion" and estado >= 400
+| sort @timestamp desc
+```
 
 ## Estructura
 
