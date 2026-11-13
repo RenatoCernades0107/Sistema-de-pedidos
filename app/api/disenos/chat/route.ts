@@ -33,6 +33,7 @@ import {
   obtenerDiseno,
   obtenerMaterialDiseno,
   obtenerVersionActual,
+  renombrarSiPorDefecto,
   type HerramientaUsada,
 } from "@/lib/cad/disenos-servidor";
 import {
@@ -54,6 +55,7 @@ import {
 } from "@/lib/cad/sandbox";
 import { PLANTILLA_LIBRE } from "@/lib/cad/tipos";
 import { promptDeTurno } from "@/lib/cad/prompt";
+import { NOMBRE_POR_DEFECTO, generarTitulo } from "@/lib/cad/titulo";
 import { esquemaReferencias, mensajeConReferencias } from "@/lib/cad/caras";
 import {
   ErrorLlm,
@@ -199,8 +201,11 @@ export async function POST(request: Request) {
 
   let sistema: string;
   let mensajes: MensajeLlm[];
+  /** Si este es el primer turno de un diseño que aún no tiene nombre. */
+  let ponerTitulo = false;
   try {
-    if (!(await obtenerDiseno(disenoId))) {
+    const diseno = await obtenerDiseno(disenoId);
+    if (!diseno) {
       return error("El diseño ya no está disponible. Recarga la página.", 404);
     }
     // El diseño tal como está AHORA va en las instrucciones de cada turno: así
@@ -211,6 +216,7 @@ export async function POST(request: Request) {
       disenoActual(disenoId),
       listarMensajes(disenoId, MAX_HISTORIAL),
     ]);
+    ponerTitulo = historial.length === 0 && diseno.nombre === NOMBRE_POR_DEFECTO;
     sistema = promptDeTurno(actual, { disenoLibre: libreActivo });
     mensajes = [
       ...historial
@@ -225,6 +231,10 @@ export async function POST(request: Request) {
 
   const deps = dependencias(disenoId, libreActivo, perfil.rol === "administracion");
   const inicio = new Date();
+
+  // El título se pide a la vez que la respuesta, para no hacer esperar al
+  // final del turno. Nunca falla: si el modelo no contesta, sale del mensaje.
+  const titulo = ponerTitulo ? generarTitulo(mensaje) : null;
 
   // Dos formas de que quien escucha se vaya: la petición se aborta, o el
   // navegador cancela la lectura. Las dos cortan la llamada al modelo.
@@ -346,7 +356,8 @@ export async function POST(request: Request) {
       }
 
       // Se guarda solo si el turno dejó algo: texto o herramientas usadas.
-      if (texto.trim() || usadas.length > 0) {
+      const guardar = texto.trim() || usadas.length > 0;
+      if (guardar) {
         try {
           await agregarMensaje({
             disenoId,
@@ -369,6 +380,17 @@ export async function POST(request: Request) {
             tipo: "error",
             mensaje: "La respuesta no se pudo guardar: al recargar no estará en la conversación.",
           });
+        }
+      }
+
+      // El nombre, como el título de un chat de Claude: solo si el turno quedó
+      // guardado (si no, el diseño sigue siendo un borrador sin tocar).
+      if (titulo && guardar) {
+        try {
+          const nombre = await titulo;
+          if (await renombrarSiPorDefecto(disenoId, nombre)) emitir({ tipo: "nombre", nombre });
+        } catch (e) {
+          console.error("[cad] chat: poner el nombre", e);
         }
       }
 

@@ -15,6 +15,7 @@ import { mensajeDeError } from "@/lib/errores";
 import type { Json } from "@/lib/supabase-tipos";
 import { esquemaReferenciaCara, type ReferenciaCara } from "./caras";
 import type { DisenoCad, MaterialDiseno, ParametrosCad } from "./tipos";
+import { NOMBRE_POR_DEFECTO } from "./titulo";
 
 export type OrigenVersion = "formulario" | "chat";
 
@@ -115,15 +116,87 @@ const deDiseno = (d: FilaDiseno, v: FilaVersion | undefined): DisenoCad => ({
   actualizado_en: d.actualizado_en,
 });
 
+/** De estos diseños, los que tienen al menos un mensaje en su conversación. */
+async function idsConMensajes(ids: string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const supabase = await clienteServidor();
+  const { data, error } = await supabase.from("cad_mensajes").select("diseno_id").in("diseno_id", ids);
+  if (error) throw new Error(`No se pudieron leer los diseños: ${error.message}`);
+  return new Set((data ?? []).map((m) => m.diseno_id));
+}
+
+/** Pasado este tiempo, un borrador sin tocar se borra al crear otro. */
+const VIDA_BORRADOR_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Un diseño nuevo para `usuarioId`. Si ya tiene un borrador sin tocar (sin
+ * versión ni conversación) se reutiliza ese en vez de crear otro, así entrar y
+ * salir de "Nuevo diseño" no va dejando diseños vacíos. De paso se borran sus
+ * borradores viejos; si eso falla, no importa.
+ */
+export async function crearOReusarBorrador(usuarioId: string): Promise<{ id: string }> {
+  const supabase = await clienteServidor();
+  const { data: candidatos, error } = await supabase
+    .from("cad_disenos")
+    .select("id, nombre, creado_en")
+    .eq("creado_por", usuarioId)
+    .eq("version_actual", 0)
+    .order("creado_en", { ascending: false });
+  if (error) throw new Error(mensajeDeError(error));
+
+  const conMensajes = await idsConMensajes((candidatos ?? []).map((d) => d.id));
+  const vacios = (candidatos ?? []).filter((d) => !conMensajes.has(d.id));
+
+  const limite = Date.now() - VIDA_BORRADOR_MS;
+  const [reciente, ...resto] = vacios;
+  const viejos = resto.filter((d) => new Date(d.creado_en).getTime() < limite).map((d) => d.id);
+  if (viejos.length > 0) {
+    const { error: errorBorrar } = await supabase.from("cad_disenos").delete().in("id", viejos);
+    if (errorBorrar) console.error("[cad] borrar borradores vacíos", errorBorrar.message);
+  }
+
+  if (reciente) return { id: reciente.id };
+
+  const { data, error: errorCrear } = await supabase.from("cad_disenos").insert({}).select("id").single();
+  if (errorCrear) throw new Error(mensajeDeError(errorCrear));
+  return { id: data.id };
+}
+
+/**
+ * Pone `nombre` solo si el diseño sigue con el nombre por defecto: así no se
+ * pisa uno que la persona ya cambió a mano. Devuelve si lo cambió.
+ */
+export async function renombrarSiPorDefecto(disenoId: string, nombre: string): Promise<boolean> {
+  const limpio = nombre.trim().slice(0, 120);
+  if (!limpio || limpio === NOMBRE_POR_DEFECTO) return false;
+  const supabase = await clienteServidor();
+  const { data, error } = await supabase
+    .from("cad_disenos")
+    .update({ nombre: limpio })
+    .eq("id", disenoId)
+    .eq("nombre", NOMBRE_POR_DEFECTO)
+    .select("id");
+  if (error) throw new Error(mensajeDeError(error));
+  return (data?.length ?? 0) > 0;
+}
+
 /** Todos los diseños, el tocado más recientemente primero. */
 export async function listarDisenos(): Promise<DisenoCad[]> {
   const supabase = await clienteServidor();
-  const { data: disenos, error } = await supabase
+  const { data, error } = await supabase
     .from("cad_disenos")
     .select(COLUMNAS_DISENO)
     .order("actualizado_en", { ascending: false });
   if (error) throw new Error(`No se pudieron leer los diseños: ${error.message}`);
+  let disenos = data;
   if (!disenos || disenos.length === 0) return [];
+
+  // Los que no tienen versión ni conversación son borradores sin tocar: no se
+  // listan, como un chat de Claude que todavía no tiene mensajes.
+  const sinVersion = disenos.filter((d) => d.version_actual === 0).map((d) => d.id);
+  const conMensajes = await idsConMensajes(sinVersion);
+  disenos = disenos.filter((d) => d.version_actual > 0 || conMensajes.has(d.id));
+  if (disenos.length === 0) return [];
 
   // Las versiones vigentes en una sola consulta. Se filtra por los números que
   // están en uso y se casa después: PostgREST no compara dos columnas entre sí.
