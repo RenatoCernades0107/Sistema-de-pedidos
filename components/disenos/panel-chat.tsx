@@ -25,7 +25,7 @@ import { leerEventos } from "./chat-sse";
 const SUGERENCIAS = [
   "Una caja de 20 × 15 × 10 cm en acrílico de 3 mm con tapa",
   "Un porta afiche A4 vertical para mostrador",
-  "Un ánfora de 30 × 30 × 40 cm con ranura arriba",
+  "Un alzador de 30 × 20 × 15 cm en acrílico de 5 mm",
   "¿Qué productos puedes diseñar?",
 ];
 

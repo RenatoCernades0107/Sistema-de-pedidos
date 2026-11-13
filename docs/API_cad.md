@@ -4,7 +4,7 @@ Servicio Python (FastAPI + build123d) en `cad/`. No tiene base de datos ni
 usuarios: recibe una plantilla y sus parámetros y devuelve geometría. Solo lo
 llama el servidor de Next.js (`lib/cad/motor.ts`), nunca el navegador.
 
-- Base: `CAD_API_BASE_URL` (en local `http://localhost:8000`).
+- Base: `CAD_API_BASE_URL` (en local `http://localhost:8001`).
 - Autenticación: cabecera `X-API-Key: $CAD_API_KEY`. Sin ella, 401. Si el
   servicio arranca sin `CAD_API_KEY` definida, no exige cabecera (solo local).
 - **Todas las medidas van en milímetros.** La app guarda centímetros en el
