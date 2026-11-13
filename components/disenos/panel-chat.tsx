@@ -35,7 +35,11 @@ type Fase = "cargando" | "lista" | "sin_historial";
 
 export function PanelChat(props: { disenoId: string }) {
   const { disenoId } = props;
-  const { aplicar } = useDiseno();
+  const { aplicar, mostrarMaterial } = useDiseno();
+  const mostrarMaterialRef = useRef(mostrarMaterial);
+  useEffect(() => {
+    mostrarMaterialRef.current = mostrarMaterial;
+  }, [mostrarMaterial]);
 
   const [mensajes, setMensajes] = useState<MensajeChat[]>([]);
   const [fase, setFase] = useState<Fase>("cargando");
@@ -156,6 +160,8 @@ export function PanelChat(props: { disenoId: string }) {
                 break;
               case "diseno":
                 // La ruta ya guardó la versión: aquí solo se muestra.
+                // Si la herramienta eligió material, las pestañas Planchas y Costo lo muestran ya.
+                if (evento.material) mostrarMaterialRef.current(evento.material);
                 void aplicarRef.current(evento.plantilla, evento.parametros, { guardar: false });
                 break;
               case "error":

@@ -125,7 +125,8 @@ export type ResultadoHerramienta = {
   /** Una línea para la ficha del chat. */
   resumen: string;
   /** Solo tras un `generar_diseno` que salió bien: lo que el visor tiene que mostrar. */
-  diseno?: { plantilla: string; parametros: ParametrosCad };
+  /** Lo que el visor tiene que mostrar. Con `material`, también las pestañas Planchas y Costo. */
+  diseno?: { plantilla: string; parametros: ParametrosCad; material?: MaterialDiseno };
   /** Imágenes (`data:` URL) para que el modelo las mire: el render de `ver_render`. */
   imagenes?: string[];
 };
@@ -748,7 +749,7 @@ async function elegirMaterial(args: unknown, deps: DependenciasCad): Promise<Res
       ...(datos.piezas_que_no_entran.length > 0 ? { aviso: AVISO_PIEZAS_FUERA } : {}),
     },
     `${resumen} · versión ${version}`,
-    { diseno: { plantilla: generado.plantilla, parametros: generado.parametros } },
+    { diseno: { plantilla: generado.plantilla, parametros: generado.parametros, material } },
   );
 }
 
@@ -803,7 +804,7 @@ async function elegirMaterialLibre(
       nota: "En un diseño personalizado el espesor lo fija el código: si no coincide con la plancha, corrige el código.",
     },
     `${resumen} · versión ${version}${estado === "borrador" ? " · borrador" : ""}`,
-    { diseno: { plantilla: PLANTILLA_LIBRE, parametros: {} } },
+    { diseno: { plantilla: PLANTILLA_LIBRE, parametros: {}, material } },
   );
 }
 

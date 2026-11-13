@@ -7,7 +7,7 @@
  * servidor ni de React: los tipos los comparte el route handler.
  */
 
-import type { ParametrosCad } from "@/lib/cad/tipos";
+import type { MaterialDiseno, ParametrosCad } from "@/lib/cad/tipos";
 
 export type EventoChat =
   /** Un trozo más del texto de la respuesta. */
@@ -16,7 +16,7 @@ export type EventoChat =
   | { tipo: "herramienta"; nombre: string; estado: "inicio" }
   | { tipo: "herramienta"; nombre: string; estado: "fin"; ok: boolean; resumen?: string }
   /** `generar_diseno` salió bien y ya está guardado: el visor tiene que mostrarlo. */
-  | { tipo: "diseno"; plantilla: string; parametros: ParametrosCad }
+  | { tipo: "diseno"; plantilla: string; parametros: ParametrosCad; material?: MaterialDiseno }
   | { tipo: "error"; mensaje: string }
   | { tipo: "fin" };
 

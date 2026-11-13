@@ -78,6 +78,8 @@ export interface EstadoDiseno {
    * código con el material y el acomodo de sus piezas.
    */
   elegirMaterial: (material: MaterialDiseno) => Promise<void>;
+  /** Muestra un material que otro (el chat) ya guardó con la versión. No guarda nada. */
+  mostrarMaterial: (material: MaterialDiseno) => void;
   /** Las piezas acomodadas en el mejor formato del grupo. `null` sin material o sin diseño. */
   acomodo: ResultadoAcomodo | null;
   /** Lo que impide cortar el diseño en el material elegido. Vacío: todo bien. */
@@ -350,6 +352,7 @@ export function DisenoProvider({
       material,
       grupo,
       elegirMaterial,
+      mostrarMaterial: setMaterial,
       acomodo: planchas.acomodo,
       problemasMaterial: planchas.problemas,
       tinte,

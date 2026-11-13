@@ -490,7 +490,7 @@ describe("elegir_material", () => {
     expect(datos.piezas_que_no_entran).toEqual([]);
     expect(datos.problemas).toEqual([]);
     expect(datos.version_guardada).toBe(4);
-    expect(r.diseno).toEqual({ plantilla: "caja", parametros: guardado.parametros });
+    expect(r.diseno).toEqual({ plantilla: "caja", parametros: guardado.parametros, material: { grupoPlanchaId: "eco-cristal-3", color: null } });
     expect(r.resumen).toContain("1 plancha");
   });
 
@@ -594,7 +594,7 @@ describe("elegir_material", () => {
     expect(codigo).toBe(CODIGO);
     expect(material).toEqual({ grupoPlanchaId: "mdf-3", color: null });
     expect(acomodo.planchas).toHaveLength(1);
-    expect(r.diseno).toEqual({ plantilla: "libre", parametros: {} });
+    expect(r.diseno).toEqual({ plantilla: "libre", parametros: {}, material: { grupoPlanchaId: "mdf-3", color: null } });
     expect(deps.generarDiseno).not.toHaveBeenCalled();
   });
 });
