@@ -22,6 +22,8 @@ from typing import Any
 
 from .verificador import revisar
 
+ES_WINDOWS = os.name == "nt"
+
 TRABAJADOR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "trabajador.py")
 MAX_RESULTADO = 48 * 1024 * 1024
 MAX_SALIDA_BIN = 48 * 1024 * 1024
@@ -69,14 +71,22 @@ def _preparar_hijo(limites: Limites):
     return preparar
 
 
+def _entorno_hijo() -> dict[str, str]:
+    """Entorno mínimo. En Windows Python no arranca sin SYSTEMROOT; no es una credencial."""
+    if ES_WINDOWS:
+        return {k: os.environ[k] for k in ("SYSTEMROOT", "SYSTEMDRIVE") if k in os.environ}
+    return {}
+
+
 def _matar_grupo(proceso: subprocess.Popen) -> None:
-    try:
-        os.killpg(proceso.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        pass
+    if not ES_WINDOWS:
+        try:
+            os.killpg(proceso.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
     try:
         proceso.kill()
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError, OSError):
         pass
 
 
@@ -109,16 +119,22 @@ def ejecutar(
             json.dump({"codigo": codigo, "modo": modo, "opciones": opciones or {}}, f)
         ruta_salida = os.path.join(dir_trabajo, "consola.txt")
         with open(ruta_salida, "wb") as consola:
+            # En Linux (Lambda/Docker) el hijo lleva límites de CPU/memoria/archivo (rlimit).
+            # Windows no tiene rlimit: solo se aplica el tiempo de reloj. Es para desarrollo local.
+            opciones_so: dict[str, Any] = (
+                {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+                if ES_WINDOWS
+                else {"start_new_session": True, "preexec_fn": _preparar_hijo(limites)}
+            )
             proceso = subprocess.Popen(
                 [sys.executable, "-I", "-B", TRABAJADOR],
                 cwd=dir_trabajo,
-                env={},  # entorno vacío: ni credenciales ni rutas heredadas
+                env=_entorno_hijo(),  # sin credenciales ni rutas heredadas
                 stdin=subprocess.DEVNULL,
                 stdout=consola,
                 stderr=subprocess.STDOUT,
-                start_new_session=True,  # grupo propio para poder matarlo entero
-                preexec_fn=_preparar_hijo(limites),
                 close_fds=True,
+                **opciones_so,
             )
             try:
                 codigo_salida = proceso.wait(timeout=limites.tiempo_s)
@@ -165,11 +181,13 @@ def ejecutar(
 
 def _error_sin_resultado(codigo_salida: int, ruta_consola: str) -> dict[str, Any]:
     cola = _leer_cola(ruta_consola)
-    if codigo_salida in (-signal.SIGXCPU, -signal.SIGKILL):
+    sigxcpu = getattr(signal, "SIGXCPU", None)
+    sigxfsz = getattr(signal, "SIGXFSZ", None)
+    if codigo_salida in tuple(x for x in (-sigxcpu if sigxcpu else None, -signal.SIGKILL) if x):
         return {"tipo": "tiempo", "mensaje": "El diseño agotó el tiempo de CPU y se detuvo."}
     if "MemoryError" in cola or codigo_salida in (-signal.SIGSEGV, -signal.SIGABRT) or "bad_alloc" in cola:
         return {"tipo": "memoria", "mensaje": "El diseño superó el límite de memoria."}
-    if codigo_salida == -signal.SIGXFSZ:
+    if sigxfsz and codigo_salida == -sigxfsz:
         return {"tipo": "salida", "mensaje": "El diseño intentó escribir demasiados datos."}
     return {
         "tipo": "ejecucion",
