@@ -1,0 +1,96 @@
+# Despliegue del motor CAD y del sandbox de diseño libre en AWS Lambda
+# (imágenes de contenedor + Lambda Web Adapter + Function URLs).
+#
+#   serverless deploy --stage prod --region us-east-1 \
+#     --param="sandboxSubnetIdA=subnet-aaa" --param="sandboxSubnetIdB=subnet-bbb" \
+#      --param="sandboxSecurityGroupId=sg-ccc"
+#
+# Ver la sección «Despliegue en AWS» de cad/README.md.
+service: plexiacril-cad
+frameworkVersion: ">=3"
+
+provider:
+  name: aws
+  stage: ${opt:stage, 'dev'}
+  region: ${opt:region, param:region, 'us-east-1'}
+  architecture: x86_64
+  logRetentionInDays: 30
+  ecr:
+    images:
+      motor:
+        path: ./
+        file: Dockerfile
+        platform: linux/amd64
+      sandbox:
+        path: ./
+        file: sandbox/Dockerfile
+        platform: linux/amd64
+
+params:
+  default:
+    region: us-east-1
+    # Parámetros SSM (SecureString) con las claves. Créelos antes de desplegar.
+    motorApiKeyParam: /plexiacril/${sls:stage}/CAD_API_KEY
+    sandboxApiKeyParam: /plexiacril/${sls:stage}/CAD_SANDBOX_API_KEY
+    # Subredes PRIVADAS sin ruta a NAT/IGW y un security group sin reglas de
+    # salida (o solo hacia la propia VPC). Obligatorios: sin ellos el despliegue falla.
+    sandboxSubnetIdA: ""
+    sandboxSubnetIdB: ""
+    sandboxSecurityGroupId: ""
+    sandboxConcurrency: 5
+
+functions:
+  motor:
+    image:
+      name: motor
+    memorySize: 2048
+    timeout: 60
+    ephemeralStorageSize: 1024
+    url: true # authType NONE; la app exige X-API-Key
+    environment:
+      # SecureString de SSM, resuelto al desplegar (queda en la config cifrada de la función).
+      CAD_API_KEY: ${ssm:${param:motorApiKeyParam}}
+      AWS_LWA_PORT: "8080"
+      AWS_LWA_READINESS_CHECK_PATH: /salud
+
+  sandbox:
+    image:
+      name: sandbox
+    memorySize: 2048
+    timeout: 30
+    ephemeralStorageSize: 1024
+    reservedConcurrency: ${param:sandboxConcurrency}
+    url: true
+    # Rol propio: solo puede escribir sus logs. El rol compartido del provider
+    # NO se usa aquí.
+    role: SandboxRole
+    vpc:
+      subnetIds:
+        - ${param:sandboxSubnetIdA}
+        - ${param:sandboxSubnetIdB}
+      securityGroupIds:
+        - ${param:sandboxSecurityGroupId}
+    environment:
+      CAD_SANDBOX_API_KEY: ${ssm:${param:sandboxApiKeyParam}}
+      AWS_LWA_PORT: "8080"
+      AWS_LWA_READINESS_CHECK_PATH: /salud
+
+resources:
+  Resources:
+    SandboxRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal: { Service: lambda.amazonaws.com }
+              Action: sts:AssumeRole
+        ManagedPolicyArns:
+          # Lo mínimo para una Lambda en VPC: crear/borrar sus ENI y escribir logs.
+          - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+  Outputs:
+    MotorUrl:
+      Value: !GetAtt MotorLambdaFunctionUrl.FunctionUrl
+    SandboxUrl:
+      Value: !GetAtt SandboxLambdaFunctionUrl.FunctionUrl

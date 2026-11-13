@@ -101,3 +101,59 @@ y como contenedor normal:
 docker build -t motor-cad .
 docker run -p 8000:8080 -e CAD_API_KEY=secreta motor-cad
 ```
+
+## Despliegue en AWS (Serverless Framework)
+
+`serverless.yml` crea dos funciones Lambda de imagen de contenedor, cada una con
+su Function URL (`authType: NONE`; la propia app exige `X-API-Key`):
+
+| Función | Imagen | Memoria / timeout | Notas |
+| --- | --- | --- | --- |
+| `motor` | `Dockerfile` (`motor.api`) | 2048 MB / 60 s | rol por defecto (solo logs) |
+| `sandbox` | `sandbox/Dockerfile` (`sandbox.api`) | 2048 MB / 30 s | concurrencia reservada (5), rol propio solo con logs + ENI de VPC, en VPC sin NAT |
+
+**Requisitos:** Serverless Framework (v3 o v4) con credenciales de AWS, Docker
+(construye y sube las imágenes a ECR), y en la región:
+
+1. Parámetros SSM `SecureString`:
+   ```bash
+   aws ssm put-parameter --type SecureString --name /plexiacril/prod/CAD_API_KEY --value "$(openssl rand -hex 32)"
+   aws ssm put-parameter --type SecureString --name /plexiacril/prod/CAD_SANDBOX_API_KEY --value "$(openssl rand -hex 32)"
+   ```
+2. Para el sandbox: dos subredes **privadas sin ruta a NAT ni a Internet
+   Gateway** y un security group **sin reglas de salida**. Así el código que
+   ejecuta el sandbox no tiene salida a internet.
+
+**Desplegar:**
+
+```bash
+cd cad
+serverless deploy --stage prod --region us-east-1 \
+  --param="sandboxSubnetIdA=subnet-..." --param="sandboxSubnetIdB=subnet-..." \
+  --param="sandboxSecurityGroupId=sg-..."
+serverless info --stage prod   # muestra MotorUrl y SandboxUrl
+curl https://<MotorUrl>/salud
+```
+
+**Variables del host de Next.js** (Vercel u otro):
+
+| Variable | Valor |
+| --- | --- |
+| `CAD_API_BASE_URL` | `MotorUrl` sin la `/` final |
+| `CAD_API_KEY` | el valor de `/plexiacril/<stage>/CAD_API_KEY` |
+| `CAD_SANDBOX_BASE_URL` | `SandboxUrl` sin la `/` final |
+| `CAD_SANDBOX_API_KEY` | el valor de `/plexiacril/<stage>/CAD_SANDBOX_API_KEY` |
+| `CAD_DISENO_LIBRE` | `1` para activar el diseño libre (sin definir, apagado) |
+
+**Compromisos:**
+
+- Function URL pública + clave en cabecera: simple y sin API Gateway, pero no
+  hay límite de tasa ni WAF; la concurrencia reservada del sandbox acota el
+  gasto. Para más control, poner CloudFront/API Gateway delante.
+- Las claves se leen de SSM **al desplegar** y quedan como variables de
+  entorno (cifradas en reposo, visibles para quien lea la configuración de la
+  función). Rotar = actualizar SSM y volver a desplegar.
+- Sandbox en VPC sin NAT: sin salida a internet ni a servicios de AWS (no hay
+  endpoints de VPC). Los logs siguen funcionando porque los envía el servicio
+  Lambda, no la función. Cuesta algo de arranque en frío extra por la ENI.
+- Imágenes de ~1 GB: el primer arranque en frío tarda varios segundos.
