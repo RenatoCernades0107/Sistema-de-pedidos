@@ -71,11 +71,18 @@ def _preparar_hijo(limites: Limites):
     return preparar
 
 
-def _entorno_hijo() -> dict[str, str]:
-    """Entorno mínimo. En Windows Python no arranca sin SYSTEMROOT; no es una credencial."""
+def _entorno_hijo(dir_trabajo: str) -> dict[str, str]:
+    """Entorno mínimo: nada heredado del padre salvo lo que Windows exige.
+
+    La carpeta de usuario y la temporal apuntan al directorio de esta ejecución:
+    algunas librerías (ezdxf, fuentes) llaman a `Path.home()` al importarse, y en
+    Windows eso falla sin USERPROFILE ("Could not determine home directory").
+    """
+    entorno = {k: dir_trabajo for k in ("HOME", "USERPROFILE", "TMP", "TEMP", "TMPDIR")}
     if ES_WINDOWS:
-        return {k: os.environ[k] for k in ("SYSTEMROOT", "SYSTEMDRIVE") if k in os.environ}
-    return {}
+        # Python no arranca sin SYSTEMROOT; no es una credencial.
+        entorno |= {k: os.environ[k] for k in ("SYSTEMROOT", "SYSTEMDRIVE") if k in os.environ}
+    return entorno
 
 
 def _matar_grupo(proceso: subprocess.Popen) -> None:
@@ -129,7 +136,7 @@ def ejecutar(
             proceso = subprocess.Popen(
                 [sys.executable, "-I", "-B", TRABAJADOR],
                 cwd=dir_trabajo,
-                env=_entorno_hijo(),  # sin credenciales ni rutas heredadas
+                env=_entorno_hijo(dir_trabajo),  # sin credenciales ni rutas heredadas
                 stdin=subprocess.DEVNULL,
                 stdout=consola,
                 stderr=subprocess.STDOUT,

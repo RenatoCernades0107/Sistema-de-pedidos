@@ -69,4 +69,16 @@ end $$;
 
 select 'terminados_cad: todo en orden' as resultado;
 
+-- CAJ-005 y CAJ-006 llevan tapa con ranura.
+do $$
+begin
+  if (select count(*) from public.pt_productos
+      where codigo in ('CAJ-005', 'CAJ-006')
+        and parametros_cad ->> 'ranura' = 'tapa'
+        and (parametros_cad ->> 'con_tapa')::boolean) <> 2 then
+    raise exception 'FALLO: CAJ-005 y CAJ-006 deberían tener ranura en la tapa';
+  end if;
+end $$;
+
 rollback;
+

@@ -35,6 +35,11 @@ Tapa (opcional): una plancha `largo × ancho` apoyada sobre las paredes. Con
 `tipo_tapa = "con_pestana"` lleva pegada por debajo una segunda plancha que
 entra en la boca de la caja con `holgura_tapa` de juego por lado y evita que
 la tapa se corra.
+
+Ranura (opcional, `ranura`): de puntas redondas (dos arcos reales en el DXF) y
+centrada. En la «tapa» exige `con_tapa` y atraviesa también la pestaña. En el
+«frente» va centrada en la cara que queda a la vista sobre la base; el fondo
+sigue liso. Alcancías, cajas de sugerencias y de sorteo (CAJ-005, CAJ-006).
 """
 
 from __future__ import annotations
@@ -43,8 +48,9 @@ from typing import Literal
 
 from pydantic import Field
 
-from .base import Parametros, Pieza, Plantilla, cara_rectangulo, ubicar
+from .base import Parametros, Pieza, Plantilla, cara_rectangulo, con_agujeros, ubicar
 from .dentado import contorno_dentado, numero_dedos, tramos_alternos
+from .formas import ranura as forma_ranura
 from .registro import registrar
 
 
@@ -84,6 +90,27 @@ class ParametrosCaja(Parametros):
         ge=0,
         le=2,
     )
+    ranura: Literal["ninguna", "tapa", "frente"] = Field(
+        "ninguna",
+        title="Ranura",
+        description="«tapa»: ranura centrada en la tapa (necesita tapa). «frente»: centrada en el frente.",
+    )
+    largo_ranura: float = Field(
+        100, title="Largo de la ranura", description="Largo total de la ranura, en mm (eje X).", ge=10, le=1000
+    )
+    ancho_ranura: float = Field(
+        10, title="Ancho de la ranura", description="Ancho de la ranura, en mm.", ge=3, le=100
+    )
+
+    @property
+    def margen_pestana(self) -> float:
+        """Cuánto entra la pestaña de la tapa desde el borde exterior."""
+        return self.espesor + self.holgura_tapa
+
+    @property
+    def alto_frente(self) -> float:
+        """Alto de la parte del frente que queda a la vista sobre la base."""
+        return self.cota_paredes - self.espesor
 
     @property
     def cota_paredes(self) -> float:
@@ -99,6 +126,30 @@ class ParametrosCaja(Parametros):
         minimo = (4 if self.con_tapa else 3) * e
         if self.alto < minimo:
             errores.append(("alto", f"Con este espesor el alto mínimo es {minimo:g} mm."))
+        if self.ranura != "ninguna":
+            errores += self._comprobar_ranura()
+        return errores
+
+    def _comprobar_ranura(self) -> list[tuple[str, str]]:
+        """La ranura deja al menos 2e de material hasta lo que tenga alrededor."""
+        e = self.espesor
+        if self.ranura == "tapa" and not self.con_tapa:
+            return [("ranura", "La ranura en la tapa necesita una caja con tapa.")]
+        if self.ranura == "tapa":
+            # Bajo la tapa están las paredes (o la pestaña, que entra más).
+            borde = self.margen_pestana if self.tipo_tapa == "con_pestana" else e
+            largo_libre = self.largo - 2 * (borde + 2 * e)
+            ancho_libre = self.ancho - 2 * (borde + 2 * e)
+        else:
+            largo_libre = self.largo - 2 * (e + 2 * e)
+            ancho_libre = self.alto_frente - 2 * 2 * e
+        errores = []
+        if self.largo_ranura > largo_libre:
+            errores.append(("largo_ranura", f"La ranura es demasiado larga: como mucho {max(largo_libre, 0):g} mm."))
+        if self.ancho_ranura > ancho_libre:
+            errores.append(("ancho_ranura", f"La ranura es demasiado ancha: como mucho {max(ancho_libre, 0):g} mm."))
+        if self.ancho_ranura > self.largo_ranura:
+            errores.append(("ancho_ranura", "El ancho de la ranura no puede pasar de su largo."))
         return errores
 
 
@@ -178,15 +229,21 @@ def _piezas_encastre(p: ParametrosCaja) -> list[Pieza]:
 def _piezas_tapa(p: ParametrosCaja) -> list[Pieza]:
     L, W, e, hp = p.largo, p.ancho, p.espesor, p.cota_paredes
     piezas = [
-        Pieza("tapa", "Tapa", cara_rectangulo(L, W), e, [ubicar(_centro(p, 0, 0, hp), (1, 0, 0), (0, 0, 1))])
+        Pieza(
+            "tapa",
+            "Tapa con ranura" if p.ranura == "tapa" else "Tapa",
+            _con_ranura(p, cara_rectangulo(L, W), L / 2, W / 2, "tapa"),
+            e,
+            [ubicar(_centro(p, 0, 0, hp), (1, 0, 0), (0, 0, 1))],
+        )
     ]
     if p.tipo_tapa == "con_pestana":
-        margen = e + p.holgura_tapa
+        margen = p.margen_pestana
         piezas.append(
             Pieza(
                 "pestana_tapa",
                 "Pestaña de la tapa",
-                cara_rectangulo(L - 2 * margen, W - 2 * margen),
+                _con_ranura(p, cara_rectangulo(L - 2 * margen, W - 2 * margen), L / 2 - margen, W / 2 - margen, "tapa"),
                 e,
                 [ubicar(_centro(p, margen, margen, hp - e), (1, 0, 0), (0, 0, 1))],
             )
@@ -194,8 +251,32 @@ def _piezas_tapa(p: ParametrosCaja) -> list[Pieza]:
     return piezas
 
 
+def _con_ranura(p: ParametrosCaja, cara, cx: float, cy: float, donde: str):
+    if p.ranura != donde:
+        return cara
+    return con_agujeros(cara, [forma_ranura(cx, cy, p.largo_ranura, p.ancho_ranura)])
+
+
+def _ranura_en_frente(p: ParametrosCaja, piezas: list[Pieza]) -> list[Pieza]:
+    """Separa frente y fondo: solo el frente (la primera ubicación) lleva la ranura."""
+    salida = []
+    for pieza in piezas:
+        if pieza.id != "frente":
+            salida.append(pieza)
+            continue
+        # En el encastre la cara empieza en z=0 (dedos dentro de la base); a tope, sobre ella.
+        z0 = p.espesor if p.tipo_union == "encastre" else 0
+        cy = z0 + p.alto_frente / 2
+        frente = _con_ranura(p, pieza.contorno, p.largo / 2, cy, "frente")
+        salida.append(Pieza("frente", "Frente con ranura", frente, pieza.espesor_mm, pieza.ubicaciones[:1]))
+        salida.append(Pieza("fondo", "Fondo", pieza.contorno, pieza.espesor_mm, pieza.ubicaciones[1:]))
+    return salida
+
+
 def construir(p: ParametrosCaja) -> list[Pieza]:
     piezas = _piezas_encastre(p) if p.tipo_union == "encastre" else _piezas_a_tope(p)
+    if p.ranura == "frente":
+        piezas = _ranura_en_frente(p, piezas)
     if p.con_tapa:
         piezas += _piezas_tapa(p)
     return piezas

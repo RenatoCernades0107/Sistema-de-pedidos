@@ -111,6 +111,9 @@ def test_valores_por_defecto():
         "con_tapa": False,
         "tipo_tapa": "simple",
         "holgura_tapa": 0.2,
+        "ranura": "ninguna",
+        "largo_ranura": 100,
+        "ancho_ranura": 10,
     }
     assert diseno.dimensiones() == {"x": 200, "y": 150, "z": 100}
 

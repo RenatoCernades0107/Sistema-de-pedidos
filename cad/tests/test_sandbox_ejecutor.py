@@ -197,3 +197,21 @@ def test_gancho_permite_escribir_en_el_temporal():
     r = _con_gancho("open('x.txt', 'w').write('ok')\nprint(open('x.txt').read())\n")
     assert r.returncode == 0, r.stderr
     assert r.stdout.strip() == "ok"
+
+
+def test_entorno_hijo_con_carpeta_de_usuario(tmp_path):
+    """Sin HOME/USERPROFILE, `Path.home()` falla en Windows al importar ezdxf."""
+    from sandbox.ejecutor import _entorno_hijo
+
+    entorno = _entorno_hijo(str(tmp_path))
+    for clave in ("HOME", "USERPROFILE", "TMP", "TEMP"):
+        assert entorno[clave] == str(tmp_path)
+    assert not {"PATH", "CAD_API_KEY", "CAD_SANDBOX_API_KEY"} & entorno.keys()
+    salida = subprocess.run(
+        [sys.executable, "-c", "from pathlib import Path; print(Path.home())"],
+        env=entorno,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert salida.stdout.strip() == str(tmp_path)
