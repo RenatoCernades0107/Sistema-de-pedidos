@@ -43,6 +43,7 @@ export function ModeloCadTerminado({
   color,
   alDisponible,
   className,
+  claseVisor = "h-72",
 }: {
   plantilla: string;
   parametros: ParametrosCad;
@@ -51,6 +52,8 @@ export function ModeloCadTerminado({
   color?: string | null;
   alDisponible?: (si: boolean) => void;
   className?: string;
+  /** El alto del visor 3D. */
+  claseVisor?: string;
 }) {
   const [estado, setEstado] = useState<Estado>({ tipo: "cargando" });
   const [piezaActiva, setPiezaActiva] = useState<string | null>(null);
@@ -131,7 +134,14 @@ export function ModeloCadTerminado({
             </span>
           )}
         </p>
-        <Button type="button" variant="outline" size="sm" onClick={abrirEnDisenos} disabled={abriendo}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={abrirEnDisenos}
+          disabled={abriendo}
+          className="hover:border-primary/50 hover:bg-primary/10 hover:text-primary cursor-pointer"
+        >
           {abriendo ? <LoaderCircle className="animate-spin" aria-hidden /> : <ExternalLink aria-hidden />}
           Abrir en Diseños
         </Button>
@@ -143,7 +153,7 @@ export function ModeloCadTerminado({
         </p>
       ) : (
         <>
-          <div className="bg-muted/30 relative h-72 overflow-hidden rounded-md border">
+          <div className={cn("bg-muted/30 relative overflow-hidden rounded-md border", claseVisor)}>
             {resultado ? (
               <Visor3D
                 glbBase64={resultado.glb_base64}

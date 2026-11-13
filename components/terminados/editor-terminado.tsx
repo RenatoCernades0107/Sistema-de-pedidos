@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { CircleAlert, Trash2 } from "lucide-react";
+import { CircleAlert, Info, Plus, Trash2 } from "lucide-react";
 import {
   buscarGrupos,
   colorDe,
@@ -163,6 +163,7 @@ export function EditorTerminado({
     inicial && inicial.precioUnitario !== inicial.calculo.precioSugerido ? String(inicial.precioUnitario) : "",
   );
   const [reservar, setReservar] = useState(inicial?.reservar ?? false);
+  const [buscandoAccesorio, setBuscandoAccesorio] = useState(false);
 
   const producto = estandar ? (catalogo.productos.find((p) => p.codigo === productoCodigo) ?? null) : null;
   const tipo = catalogo.tipos.find((t) => t.codigo === (producto?.tipo ?? tipoCodigo)) ?? null;
@@ -233,6 +234,8 @@ export function EditorTerminado({
   const [cadListo, setCadListo] = useState(false);
   const alDisponibleCad = useCallback((si: boolean) => setCadListo(si), []);
   const conModeloCad = !!parametrosCad && cadListo;
+  /** Al abrir el buscador de accesorios, el cursor va directo a él. */
+  const enfocar = useCallback((el: HTMLInputElement | null) => el?.focus(), []);
 
   const precioFinal = precio.trim() === "" ? calculo.precioSugerido : Number(precio.replace(",", "."));
   const precioValido = Number.isFinite(precioFinal) && precioFinal >= 0;
@@ -559,37 +562,46 @@ export function EditorTerminado({
     </div>
   );
 
+  const forma = GEOMETRIAS[geometria].nombre.toLowerCase();
+  const resumenArea = !calculo.areaUnidadM2
+    ? "Sin área: escribe las medidas o el área a mano."
+    : calculo.corte
+      ? `${calculo.areaUnidadM2} m²/u · ${forma}`
+      : `${calculo.areaUnidadM2} m²/u${calculo.areaManual ? " (a mano)" : ` · ${forma}`} · ${calculo.areaTotalM2} m² con ${calculo.mermaPct}% de merma`;
+
   /** Columna derecha: el material que sale de lo elegido, con su vista previa. */
   const resultado = conDatos ? (
-    <section className="flex flex-col gap-3" aria-label="Material estimado">
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="min-w-0 flex-1 basis-40">
-          <p className="text-xs font-medium">Material estimado</p>
-          <p className="text-muted-foreground mt-0.5 text-xs">
-            {calculo.corte
-              ? `${calculo.areaUnidadM2} m² por unidad · ${GEOMETRIAS[geometria].nombre.toLowerCase()}; las piezas, acomodadas en la plancha más conveniente.`
-              : calculo.areaUnidadM2
-                ? `${calculo.areaUnidadM2} m² por unidad${calculo.areaManual ? " (a mano)" : ` · ${GEOMETRIAS[geometria].nombre.toLowerCase()}`}; con ${calculo.mermaPct}% de merma, ${calculo.areaTotalM2} m² en total.`
-                : "Sin área: escribe las medidas o el área de una unidad."}
-          </p>
+    <div className="flex flex-col gap-5">
+      {/* Cabecera: el área, en una línea, con la opción de escribirla a mano. */}
+      <section className="flex flex-col gap-1.5" aria-label="Material estimado">
+        <div className="flex items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">Material estimado</p>
+            <p className="text-muted-foreground tnum truncate text-xs" title={resumenArea}>
+              {resumenArea}
+            </p>
+          </div>
+          <div className="relative w-32 shrink-0" title="Escribe el área de una unidad para no usar la calculada.">
+            <Input
+              inputMode="decimal"
+              aria-label="Área por unidad (m²)"
+              value={areaManual}
+              onChange={(e) => setAreaManual(e.target.value)}
+              placeholder={calculo.areaManual ? "" : texto(calculo.areaUnidadM2) || "Área"}
+              className="tnum h-8 pr-11 text-right"
+            />
+            <span className="text-muted-foreground pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-xs">
+              m²/u
+            </span>
+          </div>
         </div>
-        <Campo label="Área por unidad (m²)" className="w-36">
-          <Input
-            inputMode="decimal"
-            value={areaManual}
-            onChange={(e) => setAreaManual(e.target.value)}
-            placeholder={calculo.areaManual ? "" : texto(calculo.areaUnidadM2) || "A mano"}
-            className="tnum"
-          />
-        </Campo>
-      </div>
-
-      {calculo.aviso && (
-        <p className="text-muted-foreground flex items-start gap-1.5 text-xs" role="status">
-          <CircleAlert className="mt-px size-3.5 shrink-0" aria-hidden />
-          {calculo.aviso}
-        </p>
-      )}
+        {calculo.aviso && (
+          <p className="text-muted-foreground flex items-start gap-1.5 text-xs" role="status">
+            <CircleAlert className="mt-px size-3.5 shrink-0" aria-hidden />
+            {calculo.aviso}
+          </p>
+        )}
+      </section>
 
       {producto?.plantillaCad && parametrosCad && (
         <ModeloCadTerminado
@@ -598,7 +610,8 @@ export function EditorTerminado({
           nombre={`${producto.codigo} ${producto.nombre}`}
           color={color || null}
           alDisponible={alDisponibleCad}
-          className="bg-background rounded-md border p-3"
+          claseVisor="h-[26rem]"
+          className="bg-background rounded-lg border p-3"
         />
       )}
 
@@ -608,80 +621,145 @@ export function EditorTerminado({
           formato={calculo.corte.formato}
           planchas={calculo.corte.planchas}
           compacto
-          className="bg-background rounded-md border p-3"
+          className="bg-background rounded-lg border p-3"
         />
       )}
 
       {!conModeloCad && armadoDeCaja(geometria, aMedidas(medidas)) && (
-        <details className="bg-background rounded-md border px-3 py-2">
+        <details className="bg-background rounded-lg border px-3 py-2">
           <summary className="cursor-pointer text-xs font-medium">Cómo se arma (3D)</summary>
           <ArmadoCaja geometria={geometria} medidas={aMedidas(medidas)} className="mt-2" />
         </details>
       )}
 
-      {calculo.materiales.length > 0 && (
-        <ul className="flex flex-col gap-1.5 text-sm">
-          {calculo.materiales.map((m) => (
-            <li key={m.productoId} className="flex items-center gap-2">
-              {m.codigo && (
-                <span className="bg-background shrink-0 rounded border px-1.5 py-px font-mono text-xs">{m.codigo}</span>
-              )}
-              <span className="min-w-0 flex-1 truncate">
-                {m.esPlancha && calculo.formato
-                  ? `Plancha de ${calculo.formato.ancho}×${calculo.formato.alto}`
-                  : m.esPlancha && plancha
-                    ? `Plancha de ${plancha.anchoCm}×${plancha.largoCm}`
-                    : m.nombre}
-              </span>
-              {m.esPlancha ? (
-                <span className="tnum w-16 text-right">{m.cantidad}</span>
-              ) : (
-                <Input
-                  inputMode="decimal"
-                  aria-label={`Cantidad de ${m.nombre}`}
-                  value={String(m.cantidad)}
-                  onChange={(e) => {
-                    const n = Number(e.target.value.replace(",", "."));
-                    if (!Number.isFinite(n) || n < 0) return;
-                    setAccesorios((as) => as.map((a) => (a.productoId === m.productoId ? { ...a, cantidad: n } : a)));
-                  }}
-                  className="tnum h-8 w-16 text-right"
-                />
-              )}
-              <span className="text-muted-foreground tnum w-20 text-right text-xs">{money(m.cantidad * m.precio)}</span>
-              {m.esPlancha ? (
-                <span className="size-7" />
-              ) : (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={`Quitar ${m.nombre}`}
-                  onClick={() => setAccesorios((as) => as.filter((a) => a.productoId !== m.productoId))}
-                >
-                  <Trash2 />
-                </Button>
-              )}
+      {/* Materiales: la plancha y los accesorios que se sacan de Odoo. */}
+      <section className="flex flex-col gap-2" aria-labelledby="titulo-materiales">
+        <div>
+          <p id="titulo-materiales" className="text-sm font-medium">
+            Materiales
+          </p>
+          <p className="text-muted-foreground text-xs">Lo que se usa de Odoo para fabricarlo. Suma al precio sugerido.</p>
+        </div>
+
+        {calculo.materiales.length > 0 ? (
+          <ul className="bg-background divide-y rounded-lg border text-sm">
+            {calculo.materiales.map((m) => (
+              <li key={m.productoId} className="flex items-center gap-3 px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                    {m.codigo && (
+                      <span className="bg-muted/60 shrink-0 rounded border px-1.5 py-px font-mono text-xs">{m.codigo}</span>
+                    )}
+                    <span className="font-medium">
+                      {m.esPlancha && calculo.formato
+                        ? `Plancha ${calculo.formato.ancho}×${calculo.formato.alto}`
+                        : m.esPlancha && plancha
+                          ? `Plancha ${plancha.anchoCm}×${plancha.largoCm}`
+                          : m.nombre}
+                    </span>
+                  </p>
+                  {m.esPlancha && (
+                    <p className="text-muted-foreground mt-0.5 text-xs break-words">
+                      {m.nombre}{" "}
+                      <button
+                        type="button"
+                        onClick={() => setGrupoId(null)}
+                        className="text-primary cursor-pointer font-medium hover:underline"
+                      >
+                        Cambiar
+                      </button>
+                    </p>
+                  )}
+                </div>
+                {m.esPlancha ? (
+                  <span className="tnum w-20 shrink-0 text-right">
+                    {m.cantidad} <span className="text-muted-foreground text-xs">{m.unidad ?? ""}</span>
+                  </span>
+                ) : (
+                  <Input
+                    inputMode="decimal"
+                    aria-label={`Cantidad de ${m.nombre}`}
+                    title={m.unidad ?? undefined}
+                    value={String(m.cantidad)}
+                    onChange={(e) => {
+                      const n = Number(e.target.value.replace(",", "."));
+                      if (!Number.isFinite(n) || n < 0) return;
+                      setAccesorios((as) => as.map((a) => (a.productoId === m.productoId ? { ...a, cantidad: n } : a)));
+                    }}
+                    className="tnum h-8 w-20 shrink-0 text-right"
+                  />
+                )}
+                <span className="tnum w-24 shrink-0 text-right">{money(m.cantidad * m.precio)}</span>
+                {m.esPlancha ? (
+                  <span className="size-7 shrink-0" />
+                ) : (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={`Quitar ${m.nombre}`}
+                    onClick={() => setAccesorios((as) => as.filter((a) => a.productoId !== m.productoId))}
+                  >
+                    <Trash2 />
+                  </Button>
+                )}
+              </li>
+            ))}
+            <li className="bg-muted/30 flex items-center gap-3 px-3 py-2 text-sm">
+              <span className="flex-1 font-medium">Total material</span>
+              <span className="tnum w-24 text-right font-medium">{money(calculo.costoMaterial)}</span>
+              <span className="size-7 shrink-0" />
             </li>
-          ))}
-        </ul>
-      )}
-      {accesorios.some((a) => !(a.cantidad > 0)) && (
-        <p className="text-muted-foreground text-xs">Un material con cantidad cero no se cuenta.</p>
-      )}
+          </ul>
+        ) : (
+          <p className="text-muted-foreground rounded-lg border border-dashed px-3 py-3 text-center text-xs">
+            {grupo ? "Escribe las medidas para estimar la plancha." : "Elige el material para estimar la plancha."}
+          </p>
+        )}
+        {accesorios.some((a) => !(a.cantidad > 0)) && (
+          <p className="text-muted-foreground text-xs">Un material con cantidad cero no se cuenta.</p>
+        )}
 
-      <BuscadorProducto alAgregar={agregarAccesorio} etiqueta="Agregar accesorio o material" />
+        {buscandoAccesorio ? (
+          <div className="flex flex-col gap-2 rounded-lg border p-2">
+            <BuscadorProducto
+              alAgregar={(p) => {
+                agregarAccesorio(p);
+                setBuscandoAccesorio(false);
+              }}
+              inputRef={enfocar}
+              etiqueta="Buscar accesorio"
+              enLinea
+            />
+            <Button type="button" variant="ghost" size="sm" className="self-end" onClick={() => setBuscandoAccesorio(false)}>
+              Listo
+            </Button>
+          </div>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-primary hover:bg-primary/10 hover:text-primary self-start"
+            onClick={() => setBuscandoAccesorio(true)}
+          >
+            <Plus aria-hidden />
+            Agregar accesorio
+            <span className="text-muted-foreground font-normal">· bisagras, imanes, tornillos…</span>
+          </Button>
+        )}
 
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={reservar}
-          onChange={(e) => setReservar(e.target.checked)}
-          className="accent-primary size-4"
-        />
-        Reservar este material en Odoo al confirmar el pedido
-      </label>
-    </section>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={reservar}
+            onChange={(e) => setReservar(e.target.checked)}
+            className="accent-primary size-4"
+          />
+          Reservar este material en Odoo al confirmar el pedido
+        </label>
+      </section>
+    </div>
   ) : (
     <p className="text-muted-foreground m-auto max-w-56 py-8 text-center text-sm">
       Elige un producto para ver el material estimado y el precio.
@@ -691,7 +769,7 @@ export function EditorTerminado({
   return (
     <Dialog open onOpenChange={(abierto) => !abierto && alCerrar()}>
       <DialogContent
-        className="flex max-h-[92dvh] flex-col gap-0 p-0 sm:max-w-3xl lg:max-w-6xl"
+        className="flex max-h-[94dvh] flex-col gap-0 p-0 sm:max-w-3xl lg:max-w-[min(96vw,1440px)]"
         onKeyDown={(e) => {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();
@@ -707,17 +785,17 @@ export function EditorTerminado({
           </DialogDescription>
         </DialogHeader>
 
-        {/* En pantalla ancha, dos columnas con scroll propio; en angosta, una sola que baja entera. */}
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:overflow-hidden">
+        {/* En pantalla ancha, dos mitades con scroll propio; en angosta, una sola columna. */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:grid lg:grid-cols-2 lg:overflow-hidden">
           <div className="px-5 py-4 lg:overflow-y-auto">{datos}</div>
           <div className="bg-muted/30 flex flex-col border-t px-5 py-4 lg:overflow-y-auto lg:border-t-0 lg:border-l">
             {resultado}
           </div>
         </div>
 
-        {/* Cantidad y precio: siempre a la vista. */}
-        <DialogFooter className="mx-0 mb-0 flex-col items-stretch gap-3 rounded-b-xl border-t px-5 py-3 sm:flex-col">
-          <div className="flex flex-wrap items-end gap-3">
+        {/* Cantidad y precio: siempre a la vista. Cada celda, etiqueta arriba y valor de h-9 abajo. */}
+        <DialogFooter className="mx-0 mb-0 flex-col items-stretch gap-3 rounded-b-xl border-t px-5 py-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+          <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
             <Campo label="Cantidad" requerido className="w-24">
               <Input
                 inputMode="numeric"
@@ -727,13 +805,23 @@ export function EditorTerminado({
                 disabled={!conDatos}
               />
             </Campo>
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-medium">Precio sugerido</span>
+            <div className="flex flex-col gap-1.5">
+              <span className="flex items-center gap-1 text-xs font-medium">
+                Precio sugerido
+                {tipo && (
+                  <Info
+                    className="text-muted-foreground size-3.5"
+                    aria-label={`Material × ${tipo.factor} + extras`}
+                  >
+                    <title>{`Material × ${tipo.factor} + extras`}</title>
+                  </Info>
+                )}
+              </span>
               <span className="tnum flex h-9 items-center text-sm" data-testid="precio-sugerido">
                 {money(calculo.precioSugerido)}
               </span>
             </div>
-            <Campo label="Precio unitario" className="w-36" ayuda={tipo ? `Material × ${tipo.factor} + extras` : undefined}>
+            <Campo label="Precio unitario" className="w-36">
               <Input
                 inputMode="decimal"
                 value={precio}
@@ -743,21 +831,21 @@ export function EditorTerminado({
                 disabled={!conDatos}
               />
             </Campo>
-            <div className="flex flex-col gap-1">
-              <span className="text-muted-foreground text-xs">Subtotal</span>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs font-medium">Subtotal</span>
               <span className="tnum flex h-9 items-center text-base font-semibold" data-testid="subtotal-terminado">
                 {money(precioValido ? Math.round(unidades * precioFinal * 100) / 100 : 0)}
               </span>
             </div>
-            <div className="ml-auto flex flex-wrap items-center justify-end gap-2 self-end">
-              {falta && <p className="text-muted-foreground text-xs">{falta}</p>}
-              <Button type="button" variant="outline" onClick={alCerrar}>
-                Cancelar
-              </Button>
-              <Button type="button" onClick={guardar} disabled={!!falta}>
-                {inicial ? "Guardar cambios" : "Agregar al pedido"}
-              </Button>
-            </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {falta && <p className="text-muted-foreground text-xs">{falta}</p>}
+            <Button type="button" variant="outline" onClick={alCerrar}>
+              Cancelar
+            </Button>
+            <Button type="button" onClick={guardar} disabled={!!falta}>
+              {inicial ? "Guardar cambios" : "Agregar al pedido"}
+            </Button>
           </div>
         </DialogFooter>
       </DialogContent>
