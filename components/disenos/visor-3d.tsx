@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "next-themes";
 import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Edges, Grid, OrbitControls } from "@react-three/drei";
@@ -183,40 +183,57 @@ type Tema = (typeof TEMAS)[keyof typeof TEMAS];
 
 const DIRECCION_INICIAL = new THREE.Vector3(1, 0.75, 1.25).normalize();
 
+interface Controles {
+  target: THREE.Vector3;
+  update: () => void;
+}
+
 /**
- * Encuadra el modelo cada vez que cambia. Conserva el ángulo desde el que se
- * está mirando: al mover un parámetro la pieza crece o encoge en su sitio, sin
- * que la cámara salte a la vista inicial.
+ * Coloca la cámara para que el conjunto entre entero. Con `conservar` mantiene
+ * el ángulo desde el que se está mirando y solo ajusta la distancia.
+ */
+function encuadrar(
+  camara: THREE.Camera,
+  controles: Controles,
+  alto: number,
+  radio: number,
+  conservar: boolean,
+) {
+  // El modelo se dibuja centrado en planta y apoyado en el piso (ver `Escena`).
+  const objetivo = new THREE.Vector3(0, alto / 2, 0);
+  const direccion = camara.position.clone().sub(controles.target);
+  if (!conservar || direccion.lengthSq() < 1e-6) direccion.copy(DIRECCION_INICIAL);
+  direccion.normalize();
+
+  const perspectiva = camara instanceof THREE.PerspectiveCamera ? camara : null;
+  const distancia = (radio / Math.sin(THREE.MathUtils.degToRad((perspectiva?.fov ?? 35) / 2))) * 1.15;
+  camara.position.copy(objetivo).addScaledVector(direccion, distancia);
+  if (perspectiva) {
+    perspectiva.near = distancia / 200;
+    perspectiva.far = distancia * 50;
+    perspectiva.updateProjectionMatrix();
+  }
+  controles.target.copy(objetivo);
+  controles.update();
+}
+
+/**
+ * Encuadra el modelo cada vez que cambia de tamaño. Conserva el ángulo desde el
+ * que se está mirando: al mover un parámetro la pieza crece o encoge en su
+ * sitio, sin que la cámara salte a la vista inicial.
  */
 function Encuadre({ modelo }: { modelo: Modelo }) {
   const camara = useThree((s) => s.camera);
-  const controles = useThree((s) => s.controls) as unknown as {
-    target: THREE.Vector3;
-    update: () => void;
-  } | null;
+  const controles = useThree((s) => s.controls) as unknown as Controles | null;
   const invalidar = useThree((s) => s.invalidate);
+  const yaEncuadrado = useRef(false);
   const alto = modelo.caja.max.y - modelo.caja.min.y;
   const radio = modelo.radio;
 
   useEffect(() => {
     if (!controles) return;
-    // El modelo se dibuja centrado en planta y apoyado en el piso (ver `Escena`).
-    const objetivo = new THREE.Vector3(0, alto / 2, 0);
-    const direccion = camara.position.clone().sub(controles.target);
-    if (direccion.lengthSq() < 1e-6 || camara.userData.encuadrada !== true) {
-      direccion.copy(DIRECCION_INICIAL);
-    }
-    direccion.normalize();
-
-    const fov = camara instanceof THREE.PerspectiveCamera ? camara.fov : 35;
-    const distancia = (radio / Math.sin(THREE.MathUtils.degToRad(fov / 2))) * 1.15;
-    camara.position.copy(objetivo).addScaledVector(direccion, distancia);
-    camara.near = distancia / 200;
-    camara.far = distancia * 50;
-    camara.updateProjectionMatrix();
-    camara.userData.encuadrada = true;
-    controles.target.copy(objetivo);
-    controles.update();
+    encuadrar(camara, controles, alto, radio, yaEncuadrado.current);
+    yaEncuadrado.current = true;
     invalidar();
   }, [camara, controles, invalidar, alto, radio]);
 

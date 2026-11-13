@@ -87,6 +87,12 @@ export function DisenoProvider({
   const turno = useRef(0);
   const enCurso = useRef<AbortController | null>(null);
 
+  /** Deja huérfana la llamada en curso: su respuesta, si llega, se descarta. */
+  const cancelar = useCallback(() => {
+    turno.current++;
+    enCurso.current?.abort();
+  }, []);
+
   const aplicar = useCallback<EstadoDiseno["aplicar"]>(
     async (nuevaPlantilla, nuevosParametros, opciones) => {
       const mio = ++turno.current;
@@ -157,12 +163,9 @@ export function DisenoProvider({
   useEffect(() => {
     const { plantilla: p, parametros: ps } = arranque.current;
     if (p !== null) void aplicar(p, ps, { guardar: false });
-    return () => {
-      // Al desmontar, la respuesta que llegue ya no es de nadie.
-      turno.current++;
-      enCurso.current?.abort();
-    };
-  }, [aplicar]);
+    // Al desmontar, la respuesta que llegue ya no es de nadie.
+    return cancelar;
+  }, [aplicar, cancelar]);
 
   const valor = useMemo<EstadoDiseno>(
     () => ({
