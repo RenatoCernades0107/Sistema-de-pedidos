@@ -14,7 +14,6 @@ import { planchasCalculadas, type LineaDePedido } from "@/lib/pedido-lineas";
 import { LeyendaPlano, PlanoCorte } from "@/components/cortes/plano-corte";
 import { DescargarDxf } from "@/components/cortes/descargar-dxf";
 import { DescargarDxfDiseno } from "@/components/disenos/descargar-dxf-diseno";
-import { leerReferenciaDiseno } from "@/lib/cad/referencia";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -226,7 +225,7 @@ function Corte({
 }) {
   const c = vistaDe(l);
   // Si la línea viene de un diseño CAD, el DXF bueno es el del motor (piezas reales), no el de rectángulos.
-  const referencia = puedeCad ? leerReferenciaDiseno(l.terminado?.notas) : null;
+  const referencia = puedeCad ? l.diseno : null;
   const piezas = totalPiezas(c.piezas);
   const hayFraccion = c.planchas.some((p) => p.cobro.factor < 1);
   const conNombre = c.piezas.some((p) => p.nombre);
@@ -359,7 +358,7 @@ function BotonDxfDiseno({
   nombre: string;
   bloque?: boolean;
 }) {
-  const referencia = leerReferenciaDiseno(linea.terminado?.notas);
+  const referencia = linea.diseno;
   if (!referencia) return null;
   return (
     <span className={cn("print:hidden", bloque && "my-1 block")}>

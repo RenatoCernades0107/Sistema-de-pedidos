@@ -118,6 +118,9 @@ export async function eliminarDiseno(disenoId: string): Promise<void> {
 
   const supabase = await clienteServidor();
   const { data, error } = await supabase.from("cad_disenos").delete().eq("id", id).select("id");
+  // La FK de `cotizacion_productos.diseno_version_id` lo impide si está cotizado.
+  if (error?.code === "23503")
+    throw new Error("Este diseño está en una cotización: no se puede borrar.");
   if (error) throw new Error(mensajeDeError(error));
   if (data.length === 0) throw new Error(ERROR_SIN_DISENO);
 }

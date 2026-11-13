@@ -296,6 +296,8 @@ export function EditorTerminado({
       precioUnitario: Math.round(precioFinal * 100) / 100,
       reservar,
       calculo,
+      // El enlace al diseño CAD se conserva mientras siga siendo un personalizado.
+      disenoVersionId: producto ? null : (inicial?.disenoVersionId ?? null),
     });
   };
 

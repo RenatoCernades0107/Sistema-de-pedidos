@@ -298,6 +298,7 @@ export type Database = {
           corte: Json | null
           cotizacion_id: string
           descripcion: string | null
+          diseno_version_id: string | null
           id: string
           importe: number | null
           indicaciones: string | null
@@ -319,6 +320,7 @@ export type Database = {
           corte?: Json | null
           cotizacion_id: string
           descripcion?: string | null
+          diseno_version_id?: string | null
           id?: string
           importe?: number | null
           indicaciones?: string | null
@@ -340,6 +342,7 @@ export type Database = {
           corte?: Json | null
           cotizacion_id?: string
           descripcion?: string | null
+          diseno_version_id?: string | null
           id?: string
           importe?: number | null
           indicaciones?: string | null
@@ -2162,6 +2165,9 @@ export type Database = {
           cantidad: number
           corte: Json
           descripcion: string
+          diseno_id: string
+          diseno_version: number
+          diseno_version_id: string
           importe: number
           indicaciones: string
           materiales_usados: Json

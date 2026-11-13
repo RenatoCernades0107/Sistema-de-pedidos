@@ -364,6 +364,7 @@ export function lineaParaEnviar(l: Linea) {
       cantidad: Number(l.cantidad),
       precioUnitario: Number(l.precioUnitario),
       reservar: l.reservar,
+      disenoVersionId: l.disenoVersionId ?? null,
     };
   }
   return {

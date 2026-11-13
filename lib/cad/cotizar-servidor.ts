@@ -28,7 +28,7 @@ export async function disenoParaCotizar(
 
   const { data: v, error } = await supabase
     .from("cad_diseno_versiones")
-    .select("version, plantilla, estado, grupo_plancha_id, color, acomodo")
+    .select("id, version, plantilla, estado, grupo_plancha_id, color, acomodo")
     .eq("diseno_id", disenoId)
     .eq("version", d.version_actual)
     .maybeSingle();
@@ -54,6 +54,7 @@ export async function disenoParaCotizar(
       disenoId: d.id,
       nombre: d.nombre,
       version: v.version,
+      versionId: v.id,
       areaPiezasMm2: area,
       grupo: catalogo.find((g) => g.id === v.grupo_plancha_id) ?? null,
       color: v.color,

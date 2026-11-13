@@ -1,7 +1,7 @@
 /**
  * De un diseño CAD a una línea de cotización: un producto terminado
  * personalizado, con el área de sus piezas y la referencia al diseño y su
- * versión en las notas (`lib/cad/referencia.ts`).
+ * versión enlazada por clave foránea (`cotizacion_productos.diseno_version_id`).
  *
  * El precio no se pone aquí: lo fija quien cotiza en el editor del producto
  * terminado, que recalcula todo al abrirse con el material real.
@@ -12,12 +12,13 @@
 import { nombreDeGrupo, type GrupoPlancha } from "@/lib/cortes/catalogo";
 import type { LineaTerminado } from "@/lib/lineas-cotizacion";
 import { calcularTerminado } from "@/lib/terminados/calcular";
-import { marcaDiseno } from "./referencia";
 
 export interface DisenoParaCotizar {
   disenoId: string;
   nombre: string;
   version: number;
+  /** `cad_diseno_versiones.id`: lo que guarda la línea. */
+  versionId: string;
   /** De la foto del acomodo guardada con la versión. `null` si no hay. */
   areaPiezasMm2: number | null;
   grupo: GrupoPlancha | null;
@@ -58,7 +59,8 @@ export function lineaDeDiseno(
     opciones: [],
     opcionesTexto: [],
     texto: "",
-    notas: marcaDiseno({ disenoId: d.disenoId, version: d.version }),
+    notas: "",
+    disenoVersionId: d.versionId,
     areaManualM2,
     accesorios: [],
     cantidad: 1,

@@ -214,6 +214,8 @@ export interface FilaDeTerminado {
   precio_unitario: number;
   importe: number;
   terminado: TerminadoGuardado;
+  /** La versión del diseño CAD de la que sale; FK en la base. */
+  diseno_version_id: string | null;
 }
 
 /** Si la medida pedida es una de las estándar del producto. */
@@ -358,6 +360,7 @@ export async function prepararTerminado(
       precio_unitario: linea.precioUnitario,
       importe: redondear2(linea.cantidad * linea.precioUnitario),
       terminado,
+      diseno_version_id: linea.disenoVersionId ?? null,
     },
   };
 }
