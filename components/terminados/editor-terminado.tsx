@@ -334,11 +334,364 @@ export function EditorTerminado({
   );
 
   const campos = camposDe(geometria, producto);
+  const conDatos = !!producto || !estandar;
+
+  /** Columna izquierda: lo que define el producto. */
+  const datos = (
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-wrap gap-x-6 gap-y-4">
+        <Campo grupo label="Clase">
+          <Opciones
+            valores={[estandar ? "estandar" : "personalizado"]}
+            onToggle={(v) => {
+              setEstandar(v === "estandar");
+              setOpciones([]);
+            }}
+            opciones={[
+              { valor: "estandar", label: "Estándar" },
+              { valor: "personalizado", label: "Personalizado" },
+            ]}
+          />
+        </Campo>
+
+        <Campo grupo label={estandar ? "Tipo" : "Tipo (opcional)"}>
+          <Opciones
+            valores={tipoCodigo ? [tipoCodigo] : []}
+            onToggle={(v) => {
+              setTipoCodigo(v === tipoCodigo && !estandar ? null : v);
+              if (estandar && producto && producto.tipo !== v) setProductoCodigo(null);
+            }}
+            opciones={catalogo.tipos.map((t) => ({ valor: t.codigo, label: t.nombre }))}
+          />
+        </Campo>
+      </div>
+
+      {/* El producto */}
+      {estandar ? (
+        producto ? (
+          <div>
+            <p className="text-xs font-medium">Producto</p>
+            <p
+              className="bg-muted/50 mt-1.5 flex min-h-9 items-center gap-2 rounded-lg border px-3 py-1.5 text-sm"
+              data-testid="producto-elegido"
+            >
+              <span className="bg-background shrink-0 rounded border px-1.5 py-px font-mono text-xs">
+                {producto.codigo}
+              </span>
+              <span className="min-w-0 flex-1 font-medium">{producto.nombre}</span>
+              <Button type="button" variant="ghost" size="xs" onClick={() => setProductoCodigo(null)}>
+                Cambiar
+              </Button>
+            </p>
+            {(producto.usos || producto.notas || producto.aMedida) && (
+              <p className="text-muted-foreground mt-1 text-xs">
+                {[
+                  producto.aMedida ? "Se fabrica a medida: las medidas son una referencia." : null,
+                  producto.usos ? `Usos: ${producto.usos}.` : null,
+                  producto.notas,
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            <p className="text-xs font-medium">Producto</p>
+            <Input
+              value={buscado}
+              onChange={(e) => setBuscado(e.target.value)}
+              placeholder="Buscar por nombre o código…"
+              aria-label="Buscar producto terminado"
+              autoFocus
+            />
+            <ul className="max-h-72 overflow-y-auto rounded-lg border" aria-label="Productos del catálogo">
+              {productosDelTipo.map((p) => (
+                <li key={p.codigo} className="border-b last:border-b-0">
+                  <button
+                    type="button"
+                    onClick={() => elegirProducto(p)}
+                    className="hover:bg-muted/60 flex w-full items-center gap-2 px-3 py-2 text-left text-sm"
+                  >
+                    <span className="bg-muted/60 shrink-0 rounded border px-1.5 py-px font-mono text-xs">
+                      {p.codigo}
+                    </span>
+                    <span className="min-w-0 flex-1">{p.nombre}</span>
+                  </button>
+                </li>
+              ))}
+              {productosDelTipo.length === 0 && (
+                <li className="text-muted-foreground px-3 py-4 text-center text-sm">
+                  Ningún producto coincide. Si tiene otra forma, es un personalizado.
+                </li>
+              )}
+            </ul>
+          </div>
+        )
+      ) : (
+        <Campo label="Nombre del producto" requerido>
+          <Input
+            value={nombre}
+            onChange={(e) => setNombre(e.target.value)}
+            maxLength={160}
+            placeholder="Ej. Exhibidor de tres cuerpos con puerta corrediza"
+            autoFocus
+          />
+        </Campo>
+      )}
+
+      {conDatos && (
+        <>
+          {/* Medidas */}
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-medium">
+              Medidas <span className="text-muted-foreground font-normal">(en centímetros)</span>
+            </p>
+            {producto && producto.medidas.length > 0 && (
+              <Opciones
+                valores={medidaId ? [medidaId] : []}
+                onToggle={elegirMedida}
+                opciones={[
+                  ...producto.medidas.map((m) => ({ valor: m.id, label: textoDeMedidaEstandar(m) })),
+                  { valor: OTRA_MEDIDA, label: "Otra medida" },
+                ]}
+              />
+            )}
+            <div className="flex flex-wrap gap-2">
+              {campos.map((k) => (
+                <Campo key={k} label={ETIQUETA_MEDIDA[k]} className="w-28">
+                  <Input
+                    inputMode="decimal"
+                    value={medidas[k]}
+                    onChange={(e) => {
+                      setMedidas((m) => ({ ...m, [k]: e.target.value }));
+                      if (k !== "letras") setMedidaId(OTRA_MEDIDA);
+                    }}
+                    className="tnum"
+                  />
+                </Campo>
+              ))}
+            </div>
+          </div>
+
+          {/* Material */}
+          {grupo ? (
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium">Material</p>
+                <p
+                  className="bg-muted/50 mt-1.5 flex min-h-9 items-center gap-2 rounded-lg border px-3 text-sm"
+                  data-testid="material-elegido"
+                >
+                  <span className="min-w-0 flex-1 font-medium">{nombreDeGrupo(grupo)}</span>
+                  <Button type="button" variant="ghost" size="xs" onClick={() => setGrupoId(null)}>
+                    Cambiar
+                  </Button>
+                </p>
+              </div>
+              {conColor && (
+                <Campo label="Color" requerido className="w-40">
+                  <Input value={color} onChange={(e) => setColor(e.target.value)} maxLength={60} />
+                </Campo>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              <p className="text-xs font-medium">
+                Material {!estandar && <span className="text-muted-foreground font-normal">(opcional)</span>}
+              </p>
+              <ComboBusqueda
+                etiqueta="Buscar material"
+                placeholder="Material, color y espesor: eco cristal 3…"
+                consulta={consulta}
+                alEscribir={setConsulta}
+                opciones={opcionesDeMaterial}
+                cargando={false}
+                error={null}
+                vacio="Ningún material coincide. Los materiales se administran en Configuración."
+                fresco
+                enLinea
+              />
+              {producto && (producto.espesores.length > 0 || producto.colores.length > 0) && (
+                <p className="text-muted-foreground text-xs">
+                  {producto.espesores.length > 0 &&
+                    `Espesores recomendados: ${producto.espesores.map(textoDeEspesor).join(", ")}. `}
+                  {producto.colores.length > 0 && `Se hace en: ${producto.colores.join(", ").toLowerCase()}.`}
+                </p>
+              )}
+            </div>
+          )}
+          {errorPrecios && (
+            <p className="text-destructive flex items-center gap-1.5 text-xs">
+              <CircleAlert className="size-3.5" />
+              {errorPrecios}
+            </p>
+          )}
+
+          {/* Opciones */}
+          {(Object.keys(CLASES_OPCION) as ClaseOpcion[]).map((clase) =>
+            porClase[clase].length ? (
+              <Campo key={clase} grupo label={CLASES_OPCION[clase]}>
+                <Opciones
+                  valores={opciones.map(String)}
+                  onToggle={(v) =>
+                    setOpciones((os) => (os.includes(Number(v)) ? os.filter((o) => o !== Number(v)) : [...os, Number(v)]))
+                  }
+                  opciones={porClase[clase].map((o) => ({
+                    valor: String(o.id),
+                    label: o.extra > 0 ? `${o.nombre} (+${money(o.extra)})` : o.nombre,
+                  }))}
+                />
+              </Campo>
+            ) : null,
+          )}
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Campo label="Texto" ayuda="Lo que dicen las letras o el letrero, tal cual va.">
+              <Input value={textoPedido} onChange={(e) => setTextoPedido(e.target.value)} maxLength={300} />
+            </Campo>
+            <Campo label="Notas para el taller">
+              <Textarea rows={2} value={notas} onChange={(e) => setNotas(e.target.value)} maxLength={1000} />
+            </Campo>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  /** Columna derecha: el material que sale de lo elegido, con su vista previa. */
+  const resultado = conDatos ? (
+    <section className="flex flex-col gap-3" aria-label="Material estimado">
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-0 flex-1 basis-40">
+          <p className="text-xs font-medium">Material estimado</p>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            {calculo.corte
+              ? `${calculo.areaUnidadM2} m² por unidad · ${GEOMETRIAS[geometria].nombre.toLowerCase()}; las piezas, acomodadas en la plancha más conveniente.`
+              : calculo.areaUnidadM2
+                ? `${calculo.areaUnidadM2} m² por unidad${calculo.areaManual ? " (a mano)" : ` · ${GEOMETRIAS[geometria].nombre.toLowerCase()}`}; con ${calculo.mermaPct}% de merma, ${calculo.areaTotalM2} m² en total.`
+                : "Sin área: escribe las medidas o el área de una unidad."}
+          </p>
+        </div>
+        <Campo label="Área por unidad (m²)" className="w-36">
+          <Input
+            inputMode="decimal"
+            value={areaManual}
+            onChange={(e) => setAreaManual(e.target.value)}
+            placeholder={calculo.areaManual ? "" : texto(calculo.areaUnidadM2) || "A mano"}
+            className="tnum"
+          />
+        </Campo>
+      </div>
+
+      {calculo.aviso && (
+        <p className="text-muted-foreground flex items-start gap-1.5 text-xs" role="status">
+          <CircleAlert className="mt-px size-3.5 shrink-0" aria-hidden />
+          {calculo.aviso}
+        </p>
+      )}
+
+      {producto?.plantillaCad && parametrosCad && (
+        <ModeloCadTerminado
+          plantilla={producto.plantillaCad}
+          parametros={parametrosCad}
+          nombre={`${producto.codigo} ${producto.nombre}`}
+          color={color || null}
+          alDisponible={alDisponibleCad}
+          className="bg-background rounded-md border p-3"
+        />
+      )}
+
+      {!conModeloCad && calculo.corte && calculo.piezas && (
+        <CortesTerminado
+          piezas={calculo.piezas}
+          formato={calculo.corte.formato}
+          planchas={calculo.corte.planchas}
+          compacto
+          className="bg-background rounded-md border p-3"
+        />
+      )}
+
+      {!conModeloCad && armadoDeCaja(geometria, aMedidas(medidas)) && (
+        <details className="bg-background rounded-md border px-3 py-2">
+          <summary className="cursor-pointer text-xs font-medium">Cómo se arma (3D)</summary>
+          <ArmadoCaja geometria={geometria} medidas={aMedidas(medidas)} className="mt-2" />
+        </details>
+      )}
+
+      {calculo.materiales.length > 0 && (
+        <ul className="flex flex-col gap-1.5 text-sm">
+          {calculo.materiales.map((m) => (
+            <li key={m.productoId} className="flex items-center gap-2">
+              {m.codigo && (
+                <span className="bg-background shrink-0 rounded border px-1.5 py-px font-mono text-xs">{m.codigo}</span>
+              )}
+              <span className="min-w-0 flex-1 truncate">
+                {m.esPlancha && calculo.formato
+                  ? `Plancha de ${calculo.formato.ancho}×${calculo.formato.alto}`
+                  : m.esPlancha && plancha
+                    ? `Plancha de ${plancha.anchoCm}×${plancha.largoCm}`
+                    : m.nombre}
+              </span>
+              {m.esPlancha ? (
+                <span className="tnum w-16 text-right">{m.cantidad}</span>
+              ) : (
+                <Input
+                  inputMode="decimal"
+                  aria-label={`Cantidad de ${m.nombre}`}
+                  value={String(m.cantidad)}
+                  onChange={(e) => {
+                    const n = Number(e.target.value.replace(",", "."));
+                    if (!Number.isFinite(n) || n < 0) return;
+                    setAccesorios((as) => as.map((a) => (a.productoId === m.productoId ? { ...a, cantidad: n } : a)));
+                  }}
+                  className="tnum h-8 w-16 text-right"
+                />
+              )}
+              <span className="text-muted-foreground tnum w-20 text-right text-xs">{money(m.cantidad * m.precio)}</span>
+              {m.esPlancha ? (
+                <span className="size-7" />
+              ) : (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Quitar ${m.nombre}`}
+                  onClick={() => setAccesorios((as) => as.filter((a) => a.productoId !== m.productoId))}
+                >
+                  <Trash2 />
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {accesorios.some((a) => !(a.cantidad > 0)) && (
+        <p className="text-muted-foreground text-xs">Un material con cantidad cero no se cuenta.</p>
+      )}
+
+      <BuscadorProducto alAgregar={agregarAccesorio} etiqueta="Agregar accesorio o material" />
+
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={reservar}
+          onChange={(e) => setReservar(e.target.checked)}
+          className="accent-primary size-4"
+        />
+        Reservar este material en Odoo al confirmar el pedido
+      </label>
+    </section>
+  ) : (
+    <p className="text-muted-foreground m-auto max-w-56 py-8 text-center text-sm">
+      Elige un producto para ver el material estimado y el precio.
+    </p>
+  );
 
   return (
     <Dialog open onOpenChange={(abierto) => !abierto && alCerrar()}>
       <DialogContent
-        className="flex max-h-[92dvh] flex-col gap-0 p-0 sm:max-w-3xl"
+        className="flex max-h-[92dvh] flex-col gap-0 p-0 sm:max-w-3xl lg:max-w-6xl"
         onKeyDown={(e) => {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();
@@ -354,400 +707,58 @@ export function EditorTerminado({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-5 overflow-y-auto px-5 py-4">
-          <Campo grupo label="Clase">
-            <Opciones
-              valores={[estandar ? "estandar" : "personalizado"]}
-              onToggle={(v) => {
-                setEstandar(v === "estandar");
-                setOpciones([]);
-              }}
-              opciones={[
-                { valor: "estandar", label: "Estándar" },
-                { valor: "personalizado", label: "Personalizado" },
-              ]}
-            />
-          </Campo>
-
-          <Campo grupo label={estandar ? "Tipo" : "Tipo (opcional)"}>
-            <Opciones
-              valores={tipoCodigo ? [tipoCodigo] : []}
-              onToggle={(v) => {
-                setTipoCodigo(v === tipoCodigo && !estandar ? null : v);
-                if (estandar && producto && producto.tipo !== v) setProductoCodigo(null);
-              }}
-              opciones={catalogo.tipos.map((t) => ({ valor: t.codigo, label: t.nombre }))}
-            />
-          </Campo>
-
-          {/* El producto */}
-          {estandar ? (
-            producto ? (
-              <div>
-                <p className="text-xs font-medium">Producto</p>
-                <p
-                  className="bg-muted/50 mt-1.5 flex min-h-9 items-center gap-2 rounded-lg border px-3 py-1.5 text-sm"
-                  data-testid="producto-elegido"
-                >
-                  <span className="bg-background shrink-0 rounded border px-1.5 py-px font-mono text-xs">
-                    {producto.codigo}
-                  </span>
-                  <span className="min-w-0 flex-1 font-medium">{producto.nombre}</span>
-                  <Button type="button" variant="ghost" size="xs" onClick={() => setProductoCodigo(null)}>
-                    Cambiar
-                  </Button>
-                </p>
-                {(producto.usos || producto.notas || producto.aMedida) && (
-                  <p className="text-muted-foreground mt-1 text-xs">
-                    {[
-                      producto.aMedida ? "Se fabrica a medida: las medidas son una referencia." : null,
-                      producto.usos ? `Usos: ${producto.usos}.` : null,
-                      producto.notas,
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                  </p>
-                )}
-              </div>
-            ) : (
-              <div className="flex flex-col gap-1.5">
-                <p className="text-xs font-medium">Producto</p>
-                <Input
-                  value={buscado}
-                  onChange={(e) => setBuscado(e.target.value)}
-                  placeholder="Buscar por nombre o código…"
-                  aria-label="Buscar producto terminado"
-                  autoFocus
-                />
-                <ul className="max-h-56 overflow-y-auto rounded-lg border" aria-label="Productos del catálogo">
-                  {productosDelTipo.map((p) => (
-                    <li key={p.codigo} className="border-b last:border-b-0">
-                      <button
-                        type="button"
-                        onClick={() => elegirProducto(p)}
-                        className="hover:bg-muted/60 flex w-full items-center gap-2 px-3 py-2 text-left text-sm"
-                      >
-                        <span className="bg-muted/60 shrink-0 rounded border px-1.5 py-px font-mono text-xs">
-                          {p.codigo}
-                        </span>
-                        <span className="min-w-0 flex-1">{p.nombre}</span>
-                      </button>
-                    </li>
-                  ))}
-                  {productosDelTipo.length === 0 && (
-                    <li className="text-muted-foreground px-3 py-4 text-center text-sm">
-                      Ningún producto coincide. Si tiene otra forma, es un personalizado.
-                    </li>
-                  )}
-                </ul>
-              </div>
-            )
-          ) : (
-            <Campo label="Nombre del producto" requerido>
-              <Input
-                value={nombre}
-                onChange={(e) => setNombre(e.target.value)}
-                maxLength={160}
-                placeholder="Ej. Exhibidor de tres cuerpos con puerta corrediza"
-                autoFocus
-              />
-            </Campo>
-          )}
-
-          {(producto || !estandar) && (
-            <>
-              {/* Medidas */}
-              <div className="flex flex-col gap-2">
-                <p className="text-xs font-medium">
-                  Medidas <span className="text-muted-foreground font-normal">(en centímetros)</span>
-                </p>
-                {producto && producto.medidas.length > 0 && (
-                  <Opciones
-                    valores={medidaId ? [medidaId] : []}
-                    onToggle={elegirMedida}
-                    opciones={[
-                      ...producto.medidas.map((m) => ({ valor: m.id, label: textoDeMedidaEstandar(m) })),
-                      { valor: OTRA_MEDIDA, label: "Otra medida" },
-                    ]}
-                  />
-                )}
-                <div className="flex flex-wrap gap-2">
-                  {campos.map((k) => (
-                    <Campo key={k} label={ETIQUETA_MEDIDA[k]} className="w-28">
-                      <Input
-                        inputMode="decimal"
-                        value={medidas[k]}
-                        onChange={(e) => {
-                          setMedidas((m) => ({ ...m, [k]: e.target.value }));
-                          if (k !== "letras") setMedidaId(OTRA_MEDIDA);
-                        }}
-                        className="tnum"
-                      />
-                    </Campo>
-                  ))}
-                </div>
-              </div>
-
-              {/* Material */}
-              {grupo ? (
-                <div className="flex flex-wrap items-end gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium">Material</p>
-                    <p
-                      className="bg-muted/50 mt-1.5 flex min-h-9 items-center gap-2 rounded-lg border px-3 text-sm"
-                      data-testid="material-elegido"
-                    >
-                      <span className="min-w-0 flex-1 font-medium">{nombreDeGrupo(grupo)}</span>
-                      <Button type="button" variant="ghost" size="xs" onClick={() => setGrupoId(null)}>
-                        Cambiar
-                      </Button>
-                    </p>
-                  </div>
-                  {conColor && (
-                    <Campo label="Color" requerido className="w-40">
-                      <Input value={color} onChange={(e) => setColor(e.target.value)} maxLength={60} />
-                    </Campo>
-                  )}
-                </div>
-              ) : (
-                <div className="flex flex-col gap-1.5">
-                  <p className="text-xs font-medium">
-                    Material{" "}
-                    {!estandar && <span className="text-muted-foreground font-normal">(opcional)</span>}
-                  </p>
-                  <ComboBusqueda
-                    etiqueta="Buscar material"
-                    placeholder="Material, color y espesor: eco cristal 3…"
-                    consulta={consulta}
-                    alEscribir={setConsulta}
-                    opciones={opcionesDeMaterial}
-                    cargando={false}
-                    error={null}
-                    vacio="Ningún material coincide. Los materiales se administran en Configuración."
-                    fresco
-                    enLinea
-                  />
-                  {producto && (producto.espesores.length > 0 || producto.colores.length > 0) && (
-                    <p className="text-muted-foreground text-xs">
-                      {producto.espesores.length > 0 &&
-                        `Espesores recomendados: ${producto.espesores.map(textoDeEspesor).join(", ")}. `}
-                      {producto.colores.length > 0 && `Se hace en: ${producto.colores.join(", ").toLowerCase()}.`}
-                    </p>
-                  )}
-                </div>
-              )}
-              {errorPrecios && (
-                <p className="text-destructive flex items-center gap-1.5 text-xs">
-                  <CircleAlert className="size-3.5" />
-                  {errorPrecios}
-                </p>
-              )}
-
-              {/* Opciones */}
-              {(Object.keys(CLASES_OPCION) as ClaseOpcion[]).map((clase) =>
-                porClase[clase].length ? (
-                  <Campo key={clase} grupo label={CLASES_OPCION[clase]}>
-                    <Opciones
-                      valores={opciones.map(String)}
-                      onToggle={(v) =>
-                        setOpciones((os) => (os.includes(Number(v)) ? os.filter((o) => o !== Number(v)) : [...os, Number(v)]))
-                      }
-                      opciones={porClase[clase].map((o) => ({
-                        valor: String(o.id),
-                        label: o.extra > 0 ? `${o.nombre} (+${money(o.extra)})` : o.nombre,
-                      }))}
-                    />
-                  </Campo>
-                ) : null,
-              )}
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Campo label="Texto" ayuda="Lo que dicen las letras o el letrero, tal cual va.">
-                  <Input value={textoPedido} onChange={(e) => setTextoPedido(e.target.value)} maxLength={300} />
-                </Campo>
-                <Campo label="Notas para el taller">
-                  <Textarea rows={2} value={notas} onChange={(e) => setNotas(e.target.value)} maxLength={1000} />
-                </Campo>
-              </div>
-
-              {/* Material estimado */}
-              <section className="bg-muted/30 flex flex-col gap-3 rounded-lg border p-3" aria-label="Material estimado">
-                <div className="flex flex-wrap items-end gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium">Material estimado</p>
-                    <p className="text-muted-foreground mt-0.5 text-xs">
-                      {calculo.corte
-                        ? `${calculo.areaUnidadM2} m² por unidad · ${GEOMETRIAS[geometria].nombre.toLowerCase()}; las piezas, acomodadas en la plancha más conveniente.`
-                        : calculo.areaUnidadM2
-                          ? `${calculo.areaUnidadM2} m² por unidad${calculo.areaManual ? " (a mano)" : ` · ${GEOMETRIAS[geometria].nombre.toLowerCase()}`}; con ${calculo.mermaPct}% de merma, ${calculo.areaTotalM2} m² en total.`
-                          : "Sin área: escribe las medidas o el área de una unidad."}
-                    </p>
-                  </div>
-                  <Campo label="Área por unidad (m²)" className="w-40">
-                    <Input
-                      inputMode="decimal"
-                      value={areaManual}
-                      onChange={(e) => setAreaManual(e.target.value)}
-                      placeholder={calculo.areaManual ? "" : texto(calculo.areaUnidadM2) || "A mano"}
-                      className="tnum"
-                    />
-                  </Campo>
-                </div>
-
-                {calculo.aviso && (
-                  <p className="text-muted-foreground flex items-start gap-1.5 text-xs" role="status">
-                    <CircleAlert className="mt-px size-3.5 shrink-0" aria-hidden />
-                    {calculo.aviso}
-                  </p>
-                )}
-
-                {producto?.plantillaCad && parametrosCad && (
-                  <ModeloCadTerminado
-                    plantilla={producto.plantillaCad}
-                    parametros={parametrosCad}
-                    nombre={`${producto.codigo} ${producto.nombre}`}
-                    color={color || null}
-                    alDisponible={alDisponibleCad}
-                    className="bg-background rounded-md border p-3"
-                  />
-                )}
-
-                {!conModeloCad && calculo.corte && calculo.piezas && (
-                  <CortesTerminado
-                    piezas={calculo.piezas}
-                    formato={calculo.corte.formato}
-                    planchas={calculo.corte.planchas}
-                    compacto
-                    className="bg-background rounded-md border p-3"
-                  />
-                )}
-
-                {!conModeloCad && armadoDeCaja(geometria, aMedidas(medidas)) && (
-                  <details className="bg-background rounded-md border px-3 py-2">
-                    <summary className="cursor-pointer text-xs font-medium">Cómo se arma (3D)</summary>
-                    <ArmadoCaja geometria={geometria} medidas={aMedidas(medidas)} className="mt-2" />
-                  </details>
-                )}
-
-                {calculo.materiales.length > 0 && (
-                  <ul className="flex flex-col gap-1.5 text-sm">
-                    {calculo.materiales.map((m) => (
-                      <li key={m.productoId} className="flex items-center gap-2">
-                        {m.codigo && (
-                          <span className="bg-background shrink-0 rounded border px-1.5 py-px font-mono text-xs">
-                            {m.codigo}
-                          </span>
-                        )}
-                        <span className="min-w-0 flex-1 truncate">
-                          {m.esPlancha && calculo.formato
-                            ? `Plancha de ${calculo.formato.ancho}×${calculo.formato.alto}`
-                            : m.esPlancha && plancha
-                              ? `Plancha de ${plancha.anchoCm}×${plancha.largoCm}`
-                              : m.nombre}
-                        </span>
-                        {m.esPlancha ? (
-                          <span className="tnum w-20 text-right">{m.cantidad}</span>
-                        ) : (
-                          <Input
-                            inputMode="decimal"
-                            aria-label={`Cantidad de ${m.nombre}`}
-                            value={String(m.cantidad)}
-                            onChange={(e) => {
-                              const n = Number(e.target.value.replace(",", "."));
-                              if (!Number.isFinite(n) || n < 0) return;
-                              setAccesorios((as) => as.map((a) => (a.productoId === m.productoId ? { ...a, cantidad: n } : a)));
-                            }}
-                            className="tnum h-8 w-20 text-right"
-                          />
-                        )}
-                        <span className="text-muted-foreground tnum w-24 text-right text-xs">
-                          {money(m.cantidad * m.precio)}
-                        </span>
-                        {m.esPlancha ? (
-                          <span className="size-7" />
-                        ) : (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label={`Quitar ${m.nombre}`}
-                            onClick={() => setAccesorios((as) => as.filter((a) => a.productoId !== m.productoId))}
-                          >
-                            <Trash2 />
-                          </Button>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {accesorios.some((a) => !(a.cantidad > 0)) && (
-                  <p className="text-muted-foreground text-xs">Un material con cantidad cero no se cuenta.</p>
-                )}
-
-                <BuscadorProducto
-                  alAgregar={agregarAccesorio}
-                  etiqueta="Agregar accesorio o material"
-                />
-
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={reservar}
-                    onChange={(e) => setReservar(e.target.checked)}
-                    className="accent-primary size-4"
-                  />
-                  Reservar este material en Odoo al confirmar el pedido
-                </label>
-              </section>
-
-              {/* Cantidad y precio */}
-              <div className="flex flex-wrap items-end gap-3">
-                <Campo label="Cantidad" requerido className="w-28">
-                  <Input
-                    inputMode="numeric"
-                    value={cantidad}
-                    onChange={(e) => setCantidad(e.target.value.replace(/\D/g, ""))}
-                    className="tnum"
-                  />
-                </Campo>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs font-medium">Precio sugerido</span>
-                  <span className="tnum flex h-9 items-center text-sm" data-testid="precio-sugerido">
-                    {money(calculo.precioSugerido)}
-                  </span>
-                </div>
-                <Campo
-                  label="Precio unitario"
-                  className="w-36"
-                  ayuda={tipo ? `Material × ${tipo.factor} + extras` : undefined}
-                >
-                  <Input
-                    inputMode="decimal"
-                    value={precio}
-                    onChange={(e) => setPrecio(e.target.value)}
-                    placeholder={String(calculo.precioSugerido)}
-                    className={cn("tnum", !precioValido && "border-destructive")}
-                  />
-                </Campo>
-                <div className="ml-auto flex flex-col items-end gap-1">
-                  <span className="text-muted-foreground text-xs">Subtotal</span>
-                  <span className="tnum flex h-9 items-center text-base font-semibold" data-testid="subtotal-terminado">
-                    {money(precioValido ? Math.round(unidades * precioFinal * 100) / 100 : 0)}
-                  </span>
-                </div>
-              </div>
-            </>
-          )}
+        {/* En pantalla ancha, dos columnas con scroll propio; en angosta, una sola que baja entera. */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:overflow-hidden">
+          <div className="px-5 py-4 lg:overflow-y-auto">{datos}</div>
+          <div className="bg-muted/30 flex flex-col border-t px-5 py-4 lg:overflow-y-auto lg:border-t-0 lg:border-l">
+            {resultado}
+          </div>
         </div>
 
-        <DialogFooter className="border-t px-5 py-3">
-          {falta && <p className="text-muted-foreground mr-auto self-center text-xs">{falta}</p>}
-          <Button type="button" variant="outline" onClick={alCerrar}>
-            Cancelar
-          </Button>
-          <Button type="button" onClick={guardar} disabled={!!falta}>
-            {inicial ? "Guardar cambios" : "Agregar al pedido"}
-          </Button>
+        {/* Cantidad y precio: siempre a la vista. */}
+        <DialogFooter className="mx-0 mb-0 flex-col items-stretch gap-3 rounded-b-xl border-t px-5 py-3 sm:flex-col">
+          <div className="flex flex-wrap items-end gap-3">
+            <Campo label="Cantidad" requerido className="w-24">
+              <Input
+                inputMode="numeric"
+                value={cantidad}
+                onChange={(e) => setCantidad(e.target.value.replace(/\D/g, ""))}
+                className="tnum"
+                disabled={!conDatos}
+              />
+            </Campo>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-medium">Precio sugerido</span>
+              <span className="tnum flex h-9 items-center text-sm" data-testid="precio-sugerido">
+                {money(calculo.precioSugerido)}
+              </span>
+            </div>
+            <Campo label="Precio unitario" className="w-36" ayuda={tipo ? `Material × ${tipo.factor} + extras` : undefined}>
+              <Input
+                inputMode="decimal"
+                value={precio}
+                onChange={(e) => setPrecio(e.target.value)}
+                placeholder={String(calculo.precioSugerido)}
+                className={cn("tnum", !precioValido && "border-destructive")}
+                disabled={!conDatos}
+              />
+            </Campo>
+            <div className="flex flex-col gap-1">
+              <span className="text-muted-foreground text-xs">Subtotal</span>
+              <span className="tnum flex h-9 items-center text-base font-semibold" data-testid="subtotal-terminado">
+                {money(precioValido ? Math.round(unidades * precioFinal * 100) / 100 : 0)}
+              </span>
+            </div>
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2 self-end">
+              {falta && <p className="text-muted-foreground text-xs">{falta}</p>}
+              <Button type="button" variant="outline" onClick={alCerrar}>
+                Cancelar
+              </Button>
+              <Button type="button" onClick={guardar} disabled={!!falta}>
+                {inicial ? "Guardar cambios" : "Agregar al pedido"}
+              </Button>
+            </div>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
