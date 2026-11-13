@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Descargas } from "./descargas";
+import { DescargasLibre, DisenoLibre, InsigniaLibre } from "./diseno-libre";
+import { PLANTILLA_LIBRE } from "@/lib/cad/tipos";
 import { useDiseno } from "./diseno-contexto";
 import { FormularioParametros } from "./formulario-parametros";
 import { ListaPiezas, ListaValidaciones } from "./lista-piezas";
@@ -127,6 +129,7 @@ export function PanelDiseno({ avisoMotor }: { avisoMotor?: string | null }) {
   const [pestana, setPestana] = useState("parametros");
 
   const actual = plantillas.find((p) => p.codigo === plantilla) ?? null;
+  const esLibre = plantilla === PLANTILLA_LIBRE;
   const idsPiezas = useMemo(() => resultado?.piezas.map((p) => p.id) ?? [], [resultado]);
 
   if (plantillas.length === 0) {
@@ -185,7 +188,7 @@ export function PanelDiseno({ avisoMotor }: { avisoMotor?: string | null }) {
 
       <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{actual?.nombre ?? plantilla}</p>
+          {esLibre ? <InsigniaLibre /> : <p className="truncate text-sm font-medium">{actual?.nombre ?? plantilla}</p>}
           {actual && <p className="text-muted-foreground truncate text-xs">{actual.descripcion}</p>}
         </div>
         <Button
@@ -197,7 +200,7 @@ export function PanelDiseno({ avisoMotor }: { avisoMotor?: string | null }) {
           <ArrowLeftRight />
           Cambiar plantilla
         </Button>
-        <Descargas />
+        {esLibre ? <DescargasLibre /> : <Descargas />}
       </div>
 
       <Tabs
@@ -254,7 +257,9 @@ export function PanelDiseno({ avisoMotor }: { avisoMotor?: string | null }) {
           )}
 
           <TabsContent value="parametros">
-            {actual ? (
+            {esLibre ? (
+              <DisenoLibre />
+            ) : actual ? (
               // Con `key`, cambiar de plantilla arranca un formulario limpio.
               <FormularioParametros key={actual.codigo} plantilla={actual} />
             ) : (

@@ -29,6 +29,7 @@ import type {
   PlantillaCad,
   ResultadoGeneracion,
 } from "@/lib/cad/tipos";
+import { PLANTILLA_LIBRE } from "@/lib/cad/tipos";
 
 /**
  * El diseño que se está trabajando: el punto de encuentro del chat (izquierda)
@@ -188,10 +189,13 @@ export function DisenoProvider({
 
       let generado: ResultadoGeneracion;
       try {
-        const res = await fetch("/api/cad/generar", {
+        // Un diseño libre (código) no se genera desde parámetros: el servidor
+        // ejecuta en el sandbox el código de la versión vigente.
+        const libre = nuevaPlantilla === PLANTILLA_LIBRE;
+        const res = await fetch(libre ? "/api/cad/libre" : "/api/cad/generar", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ plantilla: nuevaPlantilla, parametros: nuevosParametros }),
+          body: JSON.stringify(libre ? { disenoId } : { plantilla: nuevaPlantilla, parametros: nuevosParametros }),
           signal: control.signal,
         });
         if (!vigente()) return;
@@ -223,7 +227,8 @@ export function DisenoProvider({
       setPiezaActiva(null);
       setCargando(false);
 
-      if (opciones?.guardar === false) return;
+      // Las versiones libres las guarda el chat; aquí solo se muestran.
+      if (opciones?.guardar === false || generado.plantilla === PLANTILLA_LIBRE) return;
       try {
         // Se guarda lo que devolvió el motor, ya normalizado, no lo que se escribió.
         const elegido = materialRef.current;

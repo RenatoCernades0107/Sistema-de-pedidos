@@ -46,7 +46,9 @@ motor/
     base.py            Pieza, Plantilla, Diseno y ayudas para dibujar contornos
     registro.py        registro de plantillas y esquema JSON plano
     dentado.py         contornos con dedos de encastre
-    caja.py  alzador.py  porta_afiche.py
+    formas.py          esquinas redondeadas, agujeros, ranuras (ARC/CIRCLE reales) y texto
+    caja.py  alzador.py  porta_afiche.py  anfora.py  display.py
+    atril.py  tareco.py  letrero.py  letras.py
 tests/
 skills/vibecad/        material de terceros para el futuro diseño libre (ver PROCEDENCIA.md)
 ```
@@ -55,7 +57,8 @@ skills/vibecad/        material de terceros para el futuro diseño libre (ver PR
 
 1. Crear `motor/plantillas/<codigo>.py` con:
    - un modelo de parámetros que herede de `Parametros`. Solo campos planos
-     (`float`, `int`, `bool` o `Literal[...]` de textos), cada uno con `title`,
+     (`float`, `int`, `bool`, `Literal[...]` de textos o `str` con
+     `max_length` para un texto libre), cada uno con `title`,
      `description`, valor por defecto y `ge`/`le`. Las reglas que cruzan campos
      van en `comprobar()` y devuelven pares `(campo, mensaje)`;
    - una función `construir(p) -> list[Pieza]`. Cada `Pieza` lleva su contorno
@@ -69,6 +72,16 @@ skills/vibecad/        material de terceros para el futuro diseño libre (ver PR
    agregar pruebas: medidas exteriores, sin interferencias, cantidad de piezas.
 
 Al cambiar la geometría de una plantilla ya publicada, subir su `version`.
+
+## Fuente para texto
+
+`letras` y `letrero` dibujan texto con DejaVu Sans Bold
+(`/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf`, paquete Debian
+`fonts-dejavu-core`, ya instalado en el `Dockerfile`). Otra fuente: variable
+`CAD_FUENTE` con la ruta a un `.ttf`/`.otf`.
+
+Piezas que en la realidad se doblan en caliente (atril, tareco) se arman con
+su equivalente de piezas planas pegadas y la plantilla avisa con `sin_plegado`.
 
 ## DXF
 

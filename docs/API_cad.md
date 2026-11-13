@@ -30,7 +30,8 @@ Lista de `Plantilla`:
 
 `esquema` es JSON Schema (el que genera pydantic). Cada propiedad trae `title`,
 `description`, `default` y, si aplica, `minimum`, `maximum`, `enum`. Solo se usan
-tipos planos: `number`, `integer`, `boolean`, `string` con `enum`. Sin objetos
+tipos planos: `number`, `integer`, `boolean`, `string` con `enum`, o `string`
+de texto libre con `maxLength` (y `minLength` opcional). Sin objetos
 anidados ni `$ref`: el formulario de la app se genera a partir de aquí.
 
 Familias: `anforas`, `cajas`, `displays`, `porta_afiches`, `letras`,
@@ -125,3 +126,20 @@ Entrada: la de `/generar`. Devuelve `application/step` con el conjunto armado.
 - 422 parámetros inválidos:
   `{ "detail": { "codigo": "parametros_invalidos", "mensaje": "…", "errores": [ { "campo": "largo", "mensaje": "…" } ] } }`
 - 500 fallo de geometría: `{ "detail": { "codigo": "geometria", "mensaje": "…" } }`
+
+## Diseño libre (sandbox, servicio aparte)
+Servicio `cad/sandbox/` (local: `uv run uvicorn sandbox.api:app --port 8002`;
+seguridad y despliegue en `cad/sandbox/README.md`). Cabecera `X-API-Key` si
+`CAD_SANDBOX_API_KEY` está definida. Ejecuta código build123d del LLM que asigna
+`piezas = [pieza(...), ...]` (módulo `diseno`, sobre `motor/plantillas/base.py`).
+
+- `POST /ejecutar {codigo}` → lo de `/generar` sin `plantilla`/`parametros`:
+  `{ codigo, nombre, dimensiones, glb_base64, piezas, validaciones, salida }`.
+- `POST /dxf {codigo, opciones?: {kerf_mm, separacion_mm}}` → `application/dxf`.
+- `POST /step {codigo}` → `application/step`.
+- `POST /render {glb_base64 | codigo}` → `{ png_base64, vistas, ancho, alto }`
+  (PNG 960×960: isométrica, frente, planta, lateral).
+- `GET /referencias` → `[{nombre, bytes}]`; `GET /referencias/{nombre}` → texto
+  (solo nombres de esa lista; 404 si no).
+- Error del código: 422
+  `{ "detail": { "codigo": "codigo_invalido", "mensaje": "…", "error": { "tipo": "sintaxis|prohibido|ejecucion|tiempo|memoria|contrato|geometria|salida", "mensaje": "…", "linea": 3, "traza": "…" }, "codigo_fuente": "…" } }`.

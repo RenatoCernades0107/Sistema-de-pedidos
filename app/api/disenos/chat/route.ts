@@ -33,12 +33,23 @@ import {
   type HerramientaUsada,
 } from "@/lib/cad/disenos-servidor";
 import {
-  HERRAMIENTAS_CAD,
   ejecutarHerramienta,
+  herramientasDisponibles,
   type DependenciasCad,
+  type DependenciasLibre,
+  type DisenoActual,
   type ResultadoHerramienta,
 } from "@/lib/cad/herramientas";
 import { generarDiseno, listarPlantillas, obtenerPlantilla } from "@/lib/cad/motor";
+import { guardarVersionLibre, obtenerVersionLibre } from "@/lib/cad/libre-servidor";
+import {
+  disenoLibreActivo,
+  ejecutarCodigo,
+  leerReferencia,
+  listarReferencias,
+  renderizar,
+} from "@/lib/cad/sandbox";
+import { PLANTILLA_LIBRE } from "@/lib/cad/tipos";
 import { promptDeTurno } from "@/lib/cad/prompt";
 import {
   ErrorLlm,
@@ -58,6 +69,8 @@ export const maxDuration = 300;
 
 /** Cuántas veces puede el modelo pedir herramientas en un turno antes de cortarlo. */
 const MAX_VUELTAS = 8;
+/** Con diseño libre hace falta más margen: generar → mirar el render → corregir. */
+const MAX_VUELTAS_LIBRE = 16;
 
 /** Cuántos mensajes anteriores se le reenvían al modelo. */
 const MAX_HISTORIAL = 40;
@@ -71,19 +84,54 @@ function error(mensaje: string, status: number, codigo?: string) {
   return Response.json({ error: mensaje, ...(codigo ? { codigo } : {}) }, { status });
 }
 
+/** El diseño vigente, con el código si es libre. */
+async function disenoActual(disenoId: string): Promise<DisenoActual | null> {
+  const v = await obtenerVersionActual(disenoId);
+  if (!v) return null;
+  const base: DisenoActual = { plantilla: v.plantilla, parametros: v.parametros, version: v.version, origen: v.origen };
+  if (v.plantilla !== PLANTILLA_LIBRE) return base;
+  const libre = await obtenerVersionLibre(disenoId);
+  return libre ? { ...base, codigo: libre.codigo, estado: libre.estado } : base;
+}
+
+/** El sandbox y las versiones libres, atados al diseño de esta conversación. */
+function dependenciasLibre(disenoId: string): DependenciasLibre {
+  // El GLB de la última ejecución que salió bien en este turno: `ver_render`
+  // lo reutiliza en vez de volver a ejecutar el código.
+  let ultimoGlb: string | null = null;
+  return {
+    ejecutarCodigo: async (codigo) => {
+      const r = await ejecutarCodigo(codigo);
+      ultimoGlb = r.glb_base64;
+      return r;
+    },
+    guardarVersionLibre: (codigo) => guardarVersionLibre({ disenoId, codigo, origen: "chat" }),
+    renderizarActual: async () => {
+      const actual = await disenoActual(disenoId);
+      if (actual?.plantilla === PLANTILLA_LIBRE && actual.codigo) {
+        return ultimoGlb ? renderizar({ glb_base64: ultimoGlb }) : renderizar({ codigo: actual.codigo });
+      }
+      if (!actual) throw new Error("Sin diseño");
+      const generado = await generarDiseno(actual.plantilla, actual.parametros);
+      return renderizar({ glb_base64: generado.glb_base64 });
+    },
+    listarReferencias,
+    leerReferencia,
+    intentos: { n: 0 },
+  };
+}
+
 /** El motor, la base y el catálogo de verdad, atados al diseño de esta conversación. */
-function dependencias(disenoId: string): DependenciasCad {
+function dependencias(disenoId: string, libreActivo: boolean): DependenciasCad {
   return {
     listarPlantillas,
     obtenerPlantilla,
     generarDiseno,
     guardarVersion: ({ plantilla, parametros, versionPlantilla }) =>
       guardarVersionDiseno({ disenoId, plantilla, parametros, versionPlantilla, origen: "chat" }),
-    obtenerDisenoActual: async () => {
-      const v = await obtenerVersionActual(disenoId);
-      return v && { plantilla: v.plantilla, parametros: v.parametros, version: v.version, origen: v.origen };
-    },
+    obtenerDisenoActual: () => disenoActual(disenoId),
     cargarPlanchas: () => cargarCatalogoPlanchas(true),
+    ...(libreActivo ? { libre: dependenciasLibre(disenoId) } : {}),
   };
 }
 
@@ -108,6 +156,11 @@ export async function POST(request: Request) {
 
   if (!llmConfigurado()) return error(LLM_NO_CONFIGURADO, 503, "llm_no_configurado");
 
+  // El diseño libre (código en el sandbox) solo con la bandera y el sandbox configurado.
+  const libreActivo = disenoLibreActivo();
+  const herramientas = herramientasDisponibles(libreActivo);
+  const maxVueltas = libreActivo ? MAX_VUELTAS_LIBRE : MAX_VUELTAS;
+
   let sistema: string;
   let mensajes: MensajeLlm[];
   try {
@@ -118,10 +171,10 @@ export async function POST(request: Request) {
     // el asistente se entera de lo que se cambió en el formulario. Los turnos
     // anteriores se reenvían como texto, sin sus herramientas.
     const [actual, historial] = await Promise.all([
-      obtenerVersionActual(disenoId),
+      disenoActual(disenoId),
       listarMensajes(disenoId, MAX_HISTORIAL),
     ]);
-    sistema = promptDeTurno(actual);
+    sistema = promptDeTurno(actual, { disenoLibre: libreActivo });
     mensajes = [
       ...historial
         .filter((m) => m.contenido.trim())
@@ -133,7 +186,7 @@ export async function POST(request: Request) {
     return error("No se pudo abrir la conversación. Intenta de nuevo.", 500);
   }
 
-  const deps = dependencias(disenoId);
+  const deps = dependencias(disenoId, libreActivo);
   const inicio = new Date();
 
   // Dos formas de que quien escucha se vaya: la petición se aborta, o el
@@ -171,7 +224,7 @@ export async function POST(request: Request) {
           for await (const evento of transmitirChat({
             sistema,
             mensajes,
-            herramientas: HERRAMIENTAS_CAD,
+            herramientas,
             senal: corte.signal,
           })) {
             if (evento.tipo === "texto") {
@@ -191,7 +244,7 @@ export async function POST(request: Request) {
 
           if (llamadas.length === 0) break;
 
-          if (vuelta >= MAX_VUELTAS - 1) {
+          if (vuelta >= maxVueltas - 1) {
             if (texto && !texto.endsWith("\n")) escribir("\n\n");
             escribir("Me detuve porque este pedido me estaba tomando demasiados pasos. Dime cómo seguimos.");
             break;
@@ -221,7 +274,12 @@ export async function POST(request: Request) {
                 }
               : await ejecutarHerramienta(llamada.nombre, llamada.argumentos, deps);
 
-            mensajes.push({ rol: "herramienta", idLlamada: llamada.id, contenido: resultado.contenido });
+            mensajes.push({
+              rol: "herramienta",
+              idLlamada: llamada.id,
+              contenido: resultado.contenido,
+              ...(resultado.imagenes?.length ? { imagenes: resultado.imagenes } : {}),
+            });
             usadas.push({ nombre: llamada.nombre, ok: resultado.ok, resumen: resultado.resumen });
             emitir({
               tipo: "herramienta",

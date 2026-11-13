@@ -1,13 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   HERRAMIENTAS_CAD,
+  HERRAMIENTAS_LIBRE,
+  MAX_INTENTOS_LIBRE,
   MAX_PLANCHAS,
   NOMBRES_HERRAMIENTA,
+  NOMBRES_HERRAMIENTA_LIBRE,
   ejecutarHerramienta,
+  herramientasDisponibles,
   type DependenciasCad,
+  type DependenciasLibre,
   type PlanchaCatalogo,
 } from "./herramientas";
-import type { PlantillaCad, ResultadoGeneracion } from "./tipos";
+import type { ErrorCodigoLibre, PlantillaCad, ResultadoGeneracion, ResultadoLibre } from "./tipos";
 
 /* ── Apoyo ─────────────────────────────────────────────────────────────────── */
 
@@ -416,5 +421,137 @@ describe("ejecutarHerramienta", () => {
     expect(leer(r.contenido).error.codigo).toBe("interno");
     expect(r.contenido).not.toContain("ECONNRESET");
     expect(console.error).toHaveBeenCalled();
+  });
+});
+
+/* ── Diseño libre ──────────────────────────────────────────────────────────── */
+
+const CODIGO = 'from diseno import pieza, rectangulo\npiezas = [pieza("a", "A", rectangulo(10, 10), 3)]\n';
+
+function libre(): ResultadoLibre {
+  return {
+    codigo: CODIGO,
+    nombre: "Soporte",
+    dimensiones: { x: 80, y: 100, z: 110 },
+    glb_base64: GLB,
+    piezas: [
+      { id: "base", nombre: "Base", cantidad: 1, espesor_mm: 3, ancho_mm: 80, alto_mm: 100, area_mm2: 8000, perimetro_mm: 360 },
+    ],
+    validaciones: [{ nivel: "aviso", codigo: "pared_delgada", mensaje: "Fina" }],
+  };
+}
+
+/** Lo que lanza `lib/cad/sandbox.ts` cuando el código falla. */
+class ErrorSandboxFalso extends Error {
+  codigo = "codigo_invalido";
+  estado = 422;
+  constructor(public errorCodigo: ErrorCodigoLibre) {
+    super(errorCodigo.mensaje);
+  }
+}
+
+function depsLibre(parcial: Partial<DependenciasLibre> = {}) {
+  return {
+    ejecutarCodigo: vi.fn(async () => libre()),
+    guardarVersionLibre: vi.fn(async () => ({ version: 7 })),
+    renderizarActual: vi.fn(async () => "data:image/png;base64,iVBOR"),
+    listarReferencias: vi.fn(async () => [{ nombre: "plugins/build123d/skills/build123d/references/quick-reference.md", bytes: 10 }]),
+    leerReferencia: vi.fn(async (n: string) => (n === "quick-reference.md" ? "# build123d" : null)),
+    intentos: { n: 0 },
+    ...parcial,
+  } satisfies DependenciasLibre;
+}
+
+describe("diseño libre", () => {
+  it("sin diseño libre activo no se ofrecen sus herramientas y no se ejecutan", async () => {
+    expect(herramientasDisponibles(false)).toBe(HERRAMIENTAS_CAD);
+    expect(herramientasDisponibles(true).map((h) => h.nombre)).toEqual([
+      ...NOMBRES_HERRAMIENTA,
+      ...NOMBRES_HERRAMIENTA_LIBRE,
+    ]);
+    expect(HERRAMIENTAS_LIBRE.map((h) => h.nombre).sort()).toEqual([...NOMBRES_HERRAMIENTA_LIBRE].sort());
+    const r = await ejecutarHerramienta("ejecutar_build123d", { codigo: CODIGO }, dependencias());
+    expect(r.ok).toBe(false);
+    expect(leer(r.contenido).error.codigo).toBe("diseno_libre_no_disponible");
+  });
+
+  it("ejecuta, guarda en borrador y le pide al visor el diseño libre", async () => {
+    const l = depsLibre();
+    const r = await ejecutarHerramienta("ejecutar_build123d", { codigo: CODIGO }, dependencias({ libre: l }));
+    expect(r.ok).toBe(true);
+    expect(l.ejecutarCodigo).toHaveBeenCalledWith(CODIGO);
+    expect(l.guardarVersionLibre).toHaveBeenCalledWith(CODIGO);
+    expect(r.diseno).toEqual({ plantilla: "libre", parametros: {} });
+    const datos = leer(r.contenido);
+    expect(datos.estado).toBe("borrador");
+    expect(datos.version_guardada).toBe(7);
+    expect(datos.aviso).toMatch(/aprob/);
+    expect(r.contenido).not.toContain(GLB);
+    expect(r.resumen).toContain("borrador");
+  });
+
+  it("un error del código vuelve estructurado, con pista, y no se guarda", async () => {
+    const l = depsLibre({
+      ejecutarCodigo: vi.fn(async () => {
+        throw new ErrorSandboxFalso({ tipo: "ejecucion", mensaje: "NameError: x", linea: 4, traza: "diseno_libre.py, línea 4" });
+      }),
+    });
+    const r = await ejecutarHerramienta("ejecutar_build123d", { codigo: CODIGO }, dependencias({ libre: l }));
+    expect(r.ok).toBe(false);
+    const { error } = leer(r.contenido);
+    expect(error).toMatchObject({ codigo: "codigo_invalido", tipo: "ejecucion", linea: 4, mensaje: "NameError: x" });
+    expect(error.pista).toBeTruthy();
+    expect(error.intentos_restantes).toBe(MAX_INTENTOS_LIBRE - 1);
+    expect(l.guardarVersionLibre).not.toHaveBeenCalled();
+    expect(r.resumen).toBe("Error de ejecucion (línea 4)");
+  });
+
+  it("corta tras el máximo de intentos del turno", async () => {
+    const l = depsLibre({ intentos: { n: MAX_INTENTOS_LIBRE } });
+    const r = await ejecutarHerramienta("ejecutar_build123d", { codigo: CODIGO }, dependencias({ libre: l }));
+    expect(leer(r.contenido).error.codigo).toBe("demasiados_intentos");
+    expect(l.ejecutarCodigo).not.toHaveBeenCalled();
+  });
+
+  it("ver_render devuelve la imagen aparte del texto", async () => {
+    const l = depsLibre();
+    const deps = dependencias({
+      libre: l,
+      obtenerDisenoActual: vi.fn(async () => ({ plantilla: "libre", parametros: {}, version: 7, origen: "chat" as const, codigo: CODIGO })),
+    });
+    const r = await ejecutarHerramienta("ver_render", {}, deps);
+    expect(r.ok).toBe(true);
+    expect(r.imagenes).toEqual(["data:image/png;base64,iVBOR"]);
+    expect(r.contenido).not.toContain("iVBOR");
+  });
+
+  it("leer_referencia_cad lee una y, si no existe, lista las que hay", async () => {
+    const deps = dependencias({ libre: depsLibre() });
+    const r = await ejecutarHerramienta("leer_referencia_cad", { nombre: "quick-reference.md" }, deps);
+    expect(leer(r.contenido).contenido).toBe("# build123d");
+    const otra = await ejecutarHerramienta("leer_referencia_cad", { nombre: "../../etc/passwd" }, deps);
+    expect(otra.ok).toBe(true);
+    expect(leer(otra.contenido).referencias).toHaveLength(1);
+    expect(leer(otra.contenido).aviso).toContain("No existe");
+  });
+
+  it("ver_diseno_actual de un diseño libre lo vuelve a ejecutar, sin pasar por el motor", async () => {
+    const l = depsLibre();
+    const deps = dependencias({
+      libre: l,
+      obtenerDisenoActual: vi.fn(async () => ({
+        plantilla: "libre",
+        parametros: {},
+        version: 7,
+        origen: "chat" as const,
+        codigo: CODIGO,
+        estado: "borrador" as const,
+      })),
+    });
+    const r = await ejecutarHerramienta("ver_diseno_actual", {}, deps);
+    expect(deps.generarDiseno).not.toHaveBeenCalled();
+    expect(l.ejecutarCodigo).toHaveBeenCalledWith(CODIGO);
+    const datos = leer(r.contenido);
+    expect(datos).toMatchObject({ plantilla: "libre", estado: "borrador", codigo: CODIGO, dimensiones_mm: { x: 80, y: 100, z: 110 } });
   });
 });
