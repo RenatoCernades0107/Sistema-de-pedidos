@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Motor CAD en Python: su .venv trae JS de terceros.
+    "cad/**",
   ]),
   {
     // Los scripts de `scripts/` los corre Node a mano, fuera del bundle: son CJS
