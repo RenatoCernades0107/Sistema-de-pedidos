@@ -34,8 +34,16 @@ const ERROR_RED = "No se pudo hablar con el asistente. Revisa tu conexión e int
 
 type Fase = "cargando" | "lista" | "sin_historial";
 
-export function PanelChat(props: { disenoId: string }) {
+export function PanelChat(props: {
+  disenoId: string;
+  /** El servidor le puso nombre al diseño tras el primer mensaje. */
+  onNombre?: (nombre: string) => void;
+}) {
   const { disenoId } = props;
+  const onNombreRef = useRef(props.onNombre);
+  useEffect(() => {
+    onNombreRef.current = props.onNombre;
+  }, [props.onNombre]);
   const { aplicar, mostrarMaterial, carasReferidas, quitarCara, setCarasReferidas, setModoCaras } = useDiseno();
   const mostrarMaterialRef = useRef(mostrarMaterial);
   useEffect(() => {
@@ -165,6 +173,9 @@ export function PanelChat(props: { disenoId: string }) {
                 // Si la herramienta eligió material, las pestañas Planchas y Costo lo muestran ya.
                 if (evento.material) mostrarMaterialRef.current(evento.material);
                 void aplicarRef.current(evento.plantilla, evento.parametros, { guardar: false });
+                break;
+              case "nombre":
+                onNombreRef.current?.(evento.nombre);
                 break;
               case "error":
                 fallo = evento.mensaje;

@@ -28,6 +28,8 @@ export function VistaDiseno({
   avisoMotor?: string | null;
 }) {
   const [mitad, setMitad] = useState<Mitad>("chat");
+  // El nombre puede llegar por el chat (el automático del primer mensaje).
+  const [titulo, setTitulo] = useState(nombre);
 
   return (
     // El mismo alto fijo que el asistente de cotizaciones: la pantalla menos la
@@ -44,7 +46,7 @@ export function VistaDiseno({
           <ArrowLeft />
           Diseños
         </Button>
-        <h1 className="min-w-0 flex-1 truncate text-sm font-medium">{nombre}</h1>
+        <h1 className="min-w-0 flex-1 truncate text-sm font-medium">{titulo}</h1>
 
         <div role="tablist" aria-label="Qué se ve" className="bg-muted flex rounded-lg p-[3px] md:hidden">
           {(["chat", "diseno"] as const).map((m) => (
@@ -73,7 +75,7 @@ export function VistaDiseno({
             mitad === "chat" ? "flex" : "hidden",
           )}
         >
-          <PanelChat disenoId={disenoId} />
+          <PanelChat disenoId={disenoId} onNombre={setTitulo} />
         </section>
         <section
           aria-label="Diseño"

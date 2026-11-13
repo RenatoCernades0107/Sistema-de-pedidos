@@ -17,10 +17,12 @@ export type EventoChat =
   | { tipo: "herramienta"; nombre: string; estado: "fin"; ok: boolean; resumen?: string }
   /** `generar_diseno` salió bien y ya está guardado: el visor tiene que mostrarlo. */
   | { tipo: "diseno"; plantilla: string; parametros: ParametrosCad; material?: MaterialDiseno }
+  /** El diseño recibió su nombre automático (primer turno). */
+  | { tipo: "nombre"; nombre: string }
   | { tipo: "error"; mensaje: string }
   | { tipo: "fin" };
 
-const TIPOS: ReadonlySet<string> = new Set(["texto", "herramienta", "diseno", "error", "fin"]);
+const TIPOS: ReadonlySet<string> = new Set(["texto", "herramienta", "diseno", "nombre", "error", "fin"]);
 
 /** Un evento, como va por el cable. */
 export const serializarEvento = (evento: EventoChat): string => `data: ${JSON.stringify(evento)}\n\n`;
