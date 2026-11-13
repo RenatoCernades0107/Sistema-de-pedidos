@@ -235,6 +235,7 @@ export type Database = {
           diseno_id: string
           herramientas: Json | null
           id: string
+          referencias: Json | null
           rol: string
         }
         Insert: {
@@ -243,6 +244,7 @@ export type Database = {
           diseno_id: string
           herramientas?: Json | null
           id?: string
+          referencias?: Json | null
           rol: string
         }
         Update: {
@@ -251,6 +253,7 @@ export type Database = {
           diseno_id?: string
           herramientas?: Json | null
           id?: string
+          referencias?: Json | null
           rol?: string
         }
         Relationships: [

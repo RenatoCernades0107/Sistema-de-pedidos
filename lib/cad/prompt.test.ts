@@ -41,3 +41,15 @@ describe("prompt de material y costo", () => {
     expect(p).toMatch(/no des ni estimes precios/);
   });
 });
+
+describe("caras señaladas", () => {
+  it("explica el bloque que llega con el mensaje, con o sin diseño libre", () => {
+    for (const p of [promptDeTurno(null), promptDeTurno(null, { disenoLibre: true })]) {
+      expect(p).toContain("# Caras señaladas");
+      // El mismo encabezado que pone `referenciasATexto`.
+      expect(p).toContain("[Caras señaladas en el visor 3D");
+      expect(p).toContain("frente = −Y");
+    }
+    expect(promptDeTurno(null, { disenoLibre: true })).toContain("usa su centro y su normal");
+  });
+});

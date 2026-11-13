@@ -170,6 +170,14 @@ begin
     values (v_diseno.id, 'asistente', 'x', '{"a": 1}'::jsonb);
     raise exception 'FALLO: se aceptó un resumen de herramientas que no es una lista';
   exception when check_violation then null; end;
+  -- Las caras señaladas en el visor van como lista (20261123000100).
+  insert into public.cad_mensajes (diseno_id, rol, contenido, referencias)
+  values (v_diseno.id, 'usuario', 'Un agujero aquí', '[{"etiqueta": "Base · cara superior"}]'::jsonb);
+  begin
+    insert into public.cad_mensajes (diseno_id, rol, contenido, referencias)
+    values (v_diseno.id, 'usuario', 'x', '{"a": 1}'::jsonb);
+    raise exception 'FALLO: se aceptaron referencias que no son una lista';
+  exception when check_violation then null; end;
 
   -- 2.7 Renombrar, pero no a vacío.
   update public.cad_disenos set nombre = 'Caja de prueba' where id = v_diseno.id;

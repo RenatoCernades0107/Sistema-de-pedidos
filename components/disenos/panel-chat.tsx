@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Sparkles } from "lucide-react";
 import { cargarMensajes } from "@/app/(app)/disenos/acciones";
+import type { ReferenciaCara } from "@/lib/cad/caras";
 import { useDiseno } from "./diseno-contexto";
 import { ChatCompositor } from "./chat-compositor";
 import { ChatMensajes, type MensajeChat } from "./chat-mensajes";
@@ -35,7 +36,7 @@ type Fase = "cargando" | "lista" | "sin_historial";
 
 export function PanelChat(props: { disenoId: string }) {
   const { disenoId } = props;
-  const { aplicar, mostrarMaterial } = useDiseno();
+  const { aplicar, mostrarMaterial, carasReferidas, quitarCara, setCarasReferidas, setModoCaras } = useDiseno();
   const mostrarMaterialRef = useRef(mostrarMaterial);
   useEffect(() => {
     mostrarMaterialRef.current = mostrarMaterial;
@@ -47,7 +48,7 @@ export function PanelChat(props: { disenoId: string }) {
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** El mensaje del turno que falló sin dejar nada, para "Reintentar". */
-  const [pendiente, setPendiente] = useState<string | null>(null);
+  const [pendiente, setPendiente] = useState<{ mensaje: string; referencias: ReferenciaCara[] } | null>(null);
   /** Falta la clave del modelo: no es algo que se arregle reintentando. */
   const [sinConfigurar, setSinConfigurar] = useState<string | null>(null);
 
@@ -73,6 +74,7 @@ export function PanelChat(props: { disenoId: string }) {
               rol: m.rol,
               contenido: m.contenido,
               actividad: m.herramientas.map((h) => ({ ...h, estado: "fin" as const })),
+              referencias: m.referencias,
             }),
           ),
           ...actuales,
@@ -91,7 +93,7 @@ export function PanelChat(props: { disenoId: string }) {
   useEffect(() => () => enCurso.current?.abort(), []);
 
   const enviar = useCallback(
-    async (mensaje: string) => {
+    async (mensaje: string, referencias: ReferenciaCara[] = []) => {
       const limpio = mensaje.trim();
       if (!limpio || enCurso.current) return;
 
@@ -105,7 +107,7 @@ export function PanelChat(props: { disenoId: string }) {
       setEnviando(true);
       setMensajes((m) => [
         ...m,
-        { id: idUsuario, rol: "usuario", contenido: limpio, actividad: [] },
+        { id: idUsuario, rol: "usuario", contenido: limpio, actividad: [], referencias },
         { id: idRespuesta, rol: "asistente", contenido: "", actividad: [] },
       ]);
 
@@ -120,7 +122,7 @@ export function PanelChat(props: { disenoId: string }) {
         const res = await fetch("/api/disenos/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ disenoId, mensaje: limpio }),
+          body: JSON.stringify({ disenoId, mensaje: limpio, ...(referencias.length ? { referencias } : {}) }),
           signal: control.signal,
         });
 
@@ -190,22 +192,29 @@ export function PanelChat(props: { disenoId: string }) {
       } else {
         // El servidor no guardó nada de este turno: tampoco se queda aquí.
         setMensajes((todos) => todos.filter((m) => m.id !== idUsuario && m.id !== idRespuesta));
-        if (detenido) setTexto((actual) => actual || limpio);
-        else if (fallo) setPendiente(limpio);
+        if (detenido) {
+          setTexto((actual) => actual || limpio);
+          // Las caras vuelven al compositor, salvo que ya se hayan señalado otras.
+          if (referencias.length) setCarasReferidas(referencias);
+        } else if (fallo) setPendiente({ mensaje: limpio, referencias });
       }
 
       if (fallo && !detenido) setError(fallo);
       enCurso.current = null;
       setEnviando(false);
     },
-    [disenoId],
+    [disenoId, setCarasReferidas],
   );
 
   const enviarTexto = () => {
     if (!texto.trim() || enviando) return;
     const mensaje = texto;
+    const referencias = carasReferidas;
     setTexto("");
-    void enviar(mensaje);
+    // Lo señalado se va con este mensaje; el visor sale del modo selección.
+    setCarasReferidas([]);
+    if (referencias.length) setModoCaras(false);
+    void enviar(mensaje, referencias);
   };
 
   const detener = () => enCurso.current?.abort();
@@ -261,7 +270,7 @@ export function PanelChat(props: { disenoId: string }) {
           mensajes={mensajes}
           enviando={enviando}
           error={error}
-          onReintentar={pendiente && !enviando ? () => void enviar(pendiente) : null}
+          onReintentar={pendiente && !enviando ? () => void enviar(pendiente.mensaje, pendiente.referencias) : null}
         />
       )}
 
@@ -272,6 +281,8 @@ export function PanelChat(props: { disenoId: string }) {
         onDetener={detener}
         enviando={enviando}
         deshabilitado={sinConfigurar !== null}
+        caras={carasReferidas}
+        onQuitarCara={quitarCara}
       />
     </section>
   );

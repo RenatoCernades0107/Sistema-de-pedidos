@@ -1,7 +1,7 @@
 /**
  * Un turno de conversación con el asistente de diseños, en streaming.
  *
- * `POST { disenoId, mensaje }` → `text/event-stream`. Cada `data:` es un JSON con
+ * `POST { disenoId, mensaje, referencias? }` → `text/event-stream`. Cada `data:` es un JSON con
  * `tipo` (`components/disenos/chat-sse.ts`): el texto según llega, las
  * herramientas que usa, `diseno` cuando generó uno (para que el visor lo
  * muestre), `error` y `fin`.
@@ -54,6 +54,7 @@ import {
 } from "@/lib/cad/sandbox";
 import { PLANTILLA_LIBRE } from "@/lib/cad/tipos";
 import { promptDeTurno } from "@/lib/cad/prompt";
+import { esquemaReferencias, mensajeConReferencias } from "@/lib/cad/caras";
 import {
   ErrorLlm,
   LLM_NO_CONFIGURADO,
@@ -81,6 +82,8 @@ const MAX_HISTORIAL = 40;
 const esquemaCuerpo = z.object({
   disenoId: z.uuid(),
   mensaje: z.string().trim().min(1).max(4000),
+  /** Caras del visor 3D que la persona señaló con este mensaje. */
+  referencias: esquemaReferencias.optional(),
 });
 
 function error(mensaje: string, status: number, codigo?: string) {
@@ -177,8 +180,15 @@ export async function POST(request: Request) {
     return error("No se pudo leer el mensaje.", 400);
   }
   const cuerpo = esquemaCuerpo.safeParse(crudo);
-  if (!cuerpo.success) return error("Escribe un mensaje (hasta 4000 caracteres).", 400);
+  if (!cuerpo.success) {
+    const porCaras = cuerpo.error.issues.some((i) => i.path[0] === "referencias");
+    return error(
+      porCaras ? "Las caras señaladas no son válidas. Vuelve a señalarlas." : "Escribe un mensaje (hasta 4000 caracteres).",
+      400,
+    );
+  }
   const { disenoId, mensaje } = cuerpo.data;
+  const referencias = cuerpo.data.referencias ?? [];
 
   if (!llmConfigurado()) return error(LLM_NO_CONFIGURADO, 503, "llm_no_configurado");
 
@@ -195,7 +205,8 @@ export async function POST(request: Request) {
     }
     // El diseño tal como está AHORA va en las instrucciones de cada turno: así
     // el asistente se entera de lo que se cambió en el formulario. Los turnos
-    // anteriores se reenvían como texto, sin sus herramientas.
+    // anteriores se reenvían como texto, sin sus herramientas pero con las
+    // caras que se señalaron (el modelo las lee como un bloque de texto).
     const [actual, historial] = await Promise.all([
       disenoActual(disenoId),
       listarMensajes(disenoId, MAX_HISTORIAL),
@@ -204,8 +215,8 @@ export async function POST(request: Request) {
     mensajes = [
       ...historial
         .filter((m) => m.contenido.trim())
-        .map((m): MensajeLlm => ({ rol: m.rol, contenido: m.contenido })),
-      { rol: "usuario", contenido: mensaje },
+        .map((m): MensajeLlm => ({ rol: m.rol, contenido: mensajeConReferencias(m.contenido, m.referencias) })),
+      { rol: "usuario", contenido: mensajeConReferencias(mensaje, referencias) },
     ];
   } catch (e) {
     console.error("[cad] chat: preparar el turno", e);
@@ -337,7 +348,13 @@ export async function POST(request: Request) {
       // Se guarda solo si el turno dejó algo: texto o herramientas usadas.
       if (texto.trim() || usadas.length > 0) {
         try {
-          await agregarMensaje({ disenoId, rol: "usuario", contenido: mensaje, creadoEn: inicio.toISOString() });
+          await agregarMensaje({
+            disenoId,
+            rol: "usuario",
+            contenido: mensaje,
+            referencias,
+            creadoEn: inicio.toISOString(),
+          });
           await agregarMensaje({
             disenoId,
             rol: "asistente",

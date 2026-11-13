@@ -121,6 +121,10 @@ export function PanelDiseno({ avisoMotor }: { avisoMotor?: string | null }) {
     error,
     piezaActiva,
     setPiezaActiva,
+    modoCaras,
+    setModoCaras,
+    carasReferidas,
+    alternarCara,
     aplicar,
     acomodo,
     problemasMaterial,
@@ -132,6 +136,11 @@ export function PanelDiseno({ avisoMotor }: { avisoMotor?: string | null }) {
   const actual = plantillas.find((p) => p.codigo === plantilla) ?? null;
   const esLibre = plantilla === PLANTILLA_LIBRE;
   const idsPiezas = useMemo(() => resultado?.piezas.map((p) => p.id) ?? [], [resultado]);
+  const nombresPiezas = useMemo(
+    () => Object.fromEntries(resultado?.piezas.map((p) => [p.id, p.nombre]) ?? []),
+    [resultado],
+  );
+  const clavesCaras = useMemo(() => carasReferidas.map((c) => c.clave), [carasReferidas]);
 
   if (plantillas.length === 0) {
     return (
@@ -168,6 +177,11 @@ export function PanelDiseno({ avisoMotor }: { avisoMotor?: string | null }) {
             piezaActiva={piezaActiva}
             alCambiarPieza={setPiezaActiva}
             tinte={tinte}
+            nombresPiezas={nombresPiezas}
+            modoCaras={modoCaras}
+            alCambiarModoCaras={setModoCaras}
+            carasSeleccionadas={clavesCaras}
+            alAlternarCara={alternarCara}
           />
         ) : cargando ? (
           <Skeleton className="h-full w-full rounded-none" />
