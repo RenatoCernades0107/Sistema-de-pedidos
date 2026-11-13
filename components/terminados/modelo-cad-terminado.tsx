@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Box, ExternalLink, LoaderCircle } from "lucide-react";
+import { ExternalLink, LoaderCircle } from "lucide-react";
 import { toast } from "sonner";
 import { crearDiseno, guardarVersion } from "@/app/(app)/disenos/acciones";
 import { tinteDeColor } from "@/lib/cad/colores";
@@ -22,7 +22,9 @@ const Visor3D = dynamic(() => import("@/components/disenos/visor-3d"), {
 /** Cuánto se espera tras el último cambio de medida antes de pedir el modelo. */
 const ESPERA_MS = 400;
 
-type Estado =
+export type EstadoModeloCad =
+  /** El producto no tiene plantilla del motor CAD. */
+  | { tipo: "sin_plantilla" }
   | { tipo: "cargando" }
   | { tipo: "listo"; resultado: ResultadoGeneracion }
   | { tipo: "fallo"; mensaje: string }
@@ -30,41 +32,24 @@ type Estado =
   | { tipo: "sin_acceso" };
 
 /**
- * El modelo 3D y el despiece real de un producto terminado que una plantilla
- * del motor CAD cubre. Pide el modelo por `/api/cad/generar`, como /disenos.
- * Si no puede —sin permiso, motor caído, medida que la plantilla no admite—
- * avisa con `alDisponible(false)` para que el editor muestre la estimación de
- * `piezasDeTerminado()`.
+ * Pide al motor CAD el modelo 3D y el despiece real de un producto terminado,
+ * por `/api/cad/generar`, como /disenos. Sin plantilla, no pide nada.
+ *
+ * Va separado de las vistas para que el editor muestre el visor en una columna
+ * y las piezas en otra, compartiendo la pieza resaltada.
  */
-export function ModeloCadTerminado({
-  plantilla,
-  parametros,
-  nombre,
-  color,
-  alDisponible,
-  className,
-  claseVisor = "h-72",
-}: {
-  plantilla: string;
-  parametros: ParametrosCad;
-  /** Para el nombre del diseño al abrirlo en /disenos. */
-  nombre: string;
-  color?: string | null;
-  alDisponible?: (si: boolean) => void;
-  className?: string;
-  /** El alto del visor 3D. */
-  claseVisor?: string;
-}) {
-  const [estado, setEstado] = useState<Estado>({ tipo: "cargando" });
-  const [piezaActiva, setPiezaActiva] = useState<string | null>(null);
-  const [abriendo, iniciarApertura] = useTransition();
-  const router = useRouter();
-  const clave = JSON.stringify([plantilla, parametros]);
+export function useModeloCad(plantilla: string | null, parametros: ParametrosCad | null): EstadoModeloCad {
+  const clave = plantilla && parametros ? JSON.stringify([plantilla, parametros]) : null;
+  const [estado, setEstado] = useState<{ clave: string | null; valor: EstadoModeloCad }>({
+    clave: null,
+    valor: { tipo: "sin_plantilla" },
+  });
 
   useEffect(() => {
+    if (!clave) return;
     const control = new AbortController();
     const espera = setTimeout(async () => {
-      setEstado({ tipo: "cargando" });
+      const poner = (valor: EstadoModeloCad) => setEstado({ clave, valor });
       try {
         const [p, params] = JSON.parse(clave) as [string, ParametrosCad];
         const r = await fetch("/api/cad/generar", {
@@ -73,33 +58,52 @@ export function ModeloCadTerminado({
           body: JSON.stringify({ plantilla: p, parametros: params }),
           signal: control.signal,
         });
-        if (r.status === 401) {
-          setEstado({ tipo: "sin_acceso" });
-          alDisponible?.(false);
-          return;
-        }
+        if (r.status === 401) return poner({ tipo: "sin_acceso" });
         const cuerpo = await r.json().catch(() => null);
-        if (!r.ok) {
-          setEstado({ tipo: "fallo", mensaje: cuerpo?.error ?? "No se pudo generar el modelo." });
-          alDisponible?.(false);
-          return;
-        }
-        setEstado({ tipo: "listo", resultado: cuerpo as ResultadoGeneracion });
-        alDisponible?.(true);
+        if (!r.ok) return poner({ tipo: "fallo", mensaje: cuerpo?.error ?? "No se pudo generar el modelo." });
+        poner({ tipo: "listo", resultado: cuerpo as ResultadoGeneracion });
       } catch (e) {
         if (control.signal.aborted) return;
         console.error("[terminados] modelo CAD", e);
-        setEstado({ tipo: "fallo", mensaje: "No se pudo conectar con el motor de diseños." });
-        alDisponible?.(false);
+        poner({ tipo: "fallo", mensaje: "No se pudo conectar con el motor de diseños." });
       }
     }, ESPERA_MS);
     return () => {
       clearTimeout(espera);
       control.abort();
     };
-  }, [clave, alDisponible]);
+  }, [clave]);
 
-  if (estado.tipo === "sin_acceso") return null;
+  if (!clave) return { tipo: "sin_plantilla" };
+  // Mientras llega el modelo de las medidas nuevas, se sigue mostrando el anterior.
+  if (estado.clave !== clave) return estado.valor.tipo === "listo" ? estado.valor : { tipo: "cargando" };
+  return estado.valor;
+}
+
+/** El visor 3D, con sus medidas y el botón para seguir el diseño en /disenos. Llena el alto que le den. */
+export function VisorModeloCad({
+  plantilla,
+  parametros,
+  resultado,
+  nombre,
+  color,
+  piezaActiva,
+  alCambiarPieza,
+  className,
+}: {
+  plantilla: string;
+  parametros: ParametrosCad;
+  /** `null` mientras se genera. */
+  resultado: ResultadoGeneracion | null;
+  /** Para el nombre del diseño al abrirlo en /disenos. */
+  nombre: string;
+  color?: string | null;
+  piezaActiva: string | null;
+  alCambiarPieza: (id: string | null) => void;
+  className?: string;
+}) {
+  const [abriendo, iniciarApertura] = useTransition();
+  const router = useRouter();
 
   const abrirEnDisenos = () =>
     iniciarApertura(async () => {
@@ -118,14 +122,11 @@ export function ModeloCadTerminado({
       }
     });
 
-  const resultado = estado.tipo === "listo" ? estado.resultado : null;
-
   return (
-    <section className={cn("flex flex-col gap-3", className)} aria-label="Modelo 3D del producto">
+    <section className={cn("flex min-h-0 flex-col gap-3", className)} aria-label="Modelo 3D del producto">
       <div className="flex flex-wrap items-center gap-2">
-        <Box className="text-muted-foreground size-4" aria-hidden />
-        <p className="flex-1 text-xs font-medium">
-          Modelo y despiece del motor de diseños
+        <p className="min-w-0 flex-1 text-sm font-medium">
+          Modelo 3D
           {resultado && (
             <span className="text-muted-foreground tnum font-normal">
               {" "}
@@ -146,53 +147,56 @@ export function ModeloCadTerminado({
           Abrir en Diseños
         </Button>
       </div>
-
-      {estado.tipo === "fallo" ? (
-        <p className="text-muted-foreground text-xs" role="status">
-          {estado.mensaje} Se muestra la estimación por forma.
-        </p>
-      ) : (
-        <>
-          <div className={cn("bg-muted/30 relative overflow-hidden rounded-md border", claseVisor)}>
-            {resultado ? (
-              <Visor3D
-                glbBase64={resultado.glb_base64}
-                dimensiones={resultado.dimensiones}
-                idsPiezas={resultado.piezas.map((p) => p.id)}
-                piezaActiva={piezaActiva}
-                alCambiarPieza={setPiezaActiva}
-                tinte={tinteDeColor(color)}
-                className="h-full w-full"
-              />
-            ) : (
-              <Skeleton className="h-full w-full rounded-none" />
-            )}
-            {estado.tipo === "cargando" && resultado === null && (
-              <span className="sr-only" role="status">
-                Generando el modelo…
-              </span>
-            )}
-          </div>
-          {resultado && (
-            <>
-              {resultado.validaciones.length > 0 && (
-                <ListaValidaciones
-                  validaciones={resultado.validaciones}
-                  piezas={resultado.piezas}
-                  piezaActiva={piezaActiva}
-                  alCambiarPieza={setPiezaActiva}
-                />
-              )}
-              <ListaPiezas
-                piezas={resultado.piezas}
-                validaciones={resultado.validaciones}
-                piezaActiva={piezaActiva}
-                alCambiarPieza={setPiezaActiva}
-              />
-            </>
-          )}
-        </>
-      )}
+      <div className="bg-background relative min-h-72 flex-1 overflow-hidden rounded-lg border">
+        {resultado ? (
+          <Visor3D
+            glbBase64={resultado.glb_base64}
+            dimensiones={resultado.dimensiones}
+            idsPiezas={resultado.piezas.map((p) => p.id)}
+            piezaActiva={piezaActiva}
+            alCambiarPieza={alCambiarPieza}
+            tinte={tinteDeColor(color)}
+            className="h-full w-full"
+          />
+        ) : (
+          <>
+            <Skeleton className="h-full w-full rounded-none" />
+            <span className="sr-only" role="status">
+              Generando el modelo…
+            </span>
+          </>
+        )}
+      </div>
     </section>
+  );
+}
+
+/** El despiece del motor: avisos y tabla de piezas, enlazados con el visor por la pieza resaltada. */
+export function PiezasModeloCad({
+  resultado,
+  piezaActiva,
+  alCambiarPieza,
+}: {
+  resultado: ResultadoGeneracion;
+  piezaActiva: string | null;
+  alCambiarPieza: (id: string | null) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      {resultado.validaciones.length > 0 && (
+        <ListaValidaciones
+          validaciones={resultado.validaciones}
+          piezas={resultado.piezas}
+          piezaActiva={piezaActiva}
+          alCambiarPieza={alCambiarPieza}
+        />
+      )}
+      <ListaPiezas
+        piezas={resultado.piezas}
+        validaciones={resultado.validaciones}
+        piezaActiva={piezaActiva}
+        alCambiarPieza={alCambiarPieza}
+      />
+    </div>
   );
 }

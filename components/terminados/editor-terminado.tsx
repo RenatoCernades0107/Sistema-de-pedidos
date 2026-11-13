@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
-import { CircleAlert, Info, Plus, Trash2 } from "lucide-react";
+import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
+import { Box, CircleAlert, Info, Plus, Trash2 } from "lucide-react";
 import {
   buscarGrupos,
   colorDe,
@@ -44,7 +44,11 @@ import { cn } from "@/lib/utils";
 import { usePrecios } from "@/components/cortes/editor-corte";
 import { ArmadoCaja } from "@/components/terminados/armado-caja";
 import { CortesTerminado } from "@/components/terminados/cortes-terminado";
-import { ModeloCadTerminado } from "@/components/terminados/modelo-cad-terminado";
+import {
+  PiezasModeloCad,
+  VisorModeloCad,
+  useModeloCad,
+} from "@/components/terminados/modelo-cad-terminado";
 import { parametrosCadDe } from "@/lib/terminados/plantilla-cad";
 import { armadoDeCaja } from "@/lib/terminados/armado";
 import { BuscadorProducto } from "@/components/cotizaciones/buscador-producto";
@@ -60,6 +64,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
 type TerminadoNuevo = Omit<LineaTerminado, "tipo" | "clave"> & { clave?: string };
@@ -114,6 +119,45 @@ function camposDe(geometria: Geometria, producto: ProductoEstandar | null): Camp
     }
   }
   return CAMPOS.filter((k) => campos.has(k));
+}
+
+type Pestana = "producto" | "modelo" | "piezas" | "materiales";
+
+/** Si la pantalla es lo bastante ancha para las dos columnas (`lg` de Tailwind). */
+const ANCHO_LG = "(min-width: 64rem)";
+function useEsAncho() {
+  return useSyncExternalStore(
+    (avisar) => {
+      const mq = window.matchMedia(ANCHO_LG);
+      mq.addEventListener("change", avisar);
+      return () => mq.removeEventListener("change", avisar);
+    },
+    () => window.matchMedia(ANCHO_LG).matches,
+    () => true,
+  );
+}
+
+/** Marca, en la lista del catálogo, los productos que el motor de diseños todavía no dibuja. */
+function SinModelo() {
+  return (
+    <span
+      className="text-muted-foreground shrink-0 rounded-full border px-2 py-px text-[11px] font-normal"
+      title="Este producto todavía no cuenta con un modelo 3D estándar."
+    >
+      Sin 3D
+    </span>
+  );
+}
+
+/** Lo que ocupa el lugar del modelo 3D cuando no lo hay. */
+function SinVistaPrevia({ titulo, detalle }: { titulo: string; detalle?: string }) {
+  return (
+    <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-6 py-12 text-center">
+      <Box className="size-8 opacity-60" aria-hidden />
+      <p className="text-foreground/80 max-w-72 text-sm font-medium">{titulo}</p>
+      {detalle && <p className="max-w-72 text-xs">{detalle}</p>}
+    </div>
+  );
 }
 
 /**
@@ -230,10 +274,12 @@ export function EditorTerminado({
         : null,
     [producto, medidas, grupo, textoPedido],
   );
-  // Mientras el motor no conteste —o si no puede— se muestra la estimación por forma.
-  const [cadListo, setCadListo] = useState(false);
-  const alDisponibleCad = useCallback((si: boolean) => setCadListo(si), []);
-  const conModeloCad = !!parametrosCad && cadListo;
+  const modeloCad = useModeloCad(producto?.plantillaCad ?? null, parametrosCad);
+  // Mientras el motor no conteste —o si no puede— las piezas son la estimación por forma.
+  const conModeloCad = modeloCad.tipo === "listo";
+  const [piezaActiva, setPiezaActiva] = useState<string | null>(null);
+  const [pestana, setPestana] = useState<Pestana>("producto");
+  const esAncho = useEsAncho();
   /** Al abrir el buscador de accesorios, el cursor va directo a él. */
   const enfocar = useCallback((el: HTMLInputElement | null) => el?.focus(), []);
 
@@ -382,6 +428,7 @@ export function EditorTerminado({
                 {producto.codigo}
               </span>
               <span className="min-w-0 flex-1 font-medium">{producto.nombre}</span>
+              {!producto.plantillaCad && <SinModelo />}
               <Button type="button" variant="ghost" size="xs" onClick={() => setProductoCodigo(null)}>
                 Cambiar
               </Button>
@@ -420,6 +467,7 @@ export function EditorTerminado({
                       {p.codigo}
                     </span>
                     <span className="min-w-0 flex-1">{p.nombre}</span>
+                    {!p.plantillaCad && <SinModelo />}
                   </button>
                 </li>
               ))}
@@ -569,10 +617,59 @@ export function EditorTerminado({
       ? `${calculo.areaUnidadM2} m²/u · ${forma}`
       : `${calculo.areaUnidadM2} m²/u${calculo.areaManual ? " (a mano)" : ` · ${forma}`} · ${calculo.areaTotalM2} m² con ${calculo.mermaPct}% de merma`;
 
-  /** Columna derecha: el material que sale de lo elegido, con su vista previa. */
-  const resultado = conDatos ? (
-    <div className="flex flex-col gap-5">
-      {/* Cabecera: el área, en una línea, con la opción de escribirla a mano. */}
+  /** El material de una unidad: planchas y accesorios, sin los extras de las opciones. */
+  const costoUnidad = unidades > 0 ? Math.round((calculo.costoMaterial / unidades) * 100) / 100 : 0;
+  const margen = precioValido && precioFinal > 0 && costoUnidad > 0 ? (precioFinal - costoUnidad) / precioFinal : null;
+
+  const totalPiezas =
+    modeloCad.tipo === "listo"
+      ? modeloCad.resultado.piezas.reduce((n, p) => n + p.cantidad, 0)
+      : (calculo.piezas?.reduce((n, p) => n + p.cantidad, 0) ?? 0);
+
+  // En pantalla ancha el modelo ya está a la derecha: la pestaña "Modelo" no existe.
+  const pestanaVisible: Pestana = esAncho && pestana === "modelo" ? "producto" : pestana;
+
+  /** Pestaña Piezas: el despiece del motor o, sin él, la estimación por forma. */
+  const piezas = (
+    <div className="flex flex-col gap-4">
+      {conModeloCad ? (
+        <PiezasModeloCad resultado={modeloCad.resultado} piezaActiva={piezaActiva} alCambiarPieza={setPiezaActiva} />
+      ) : (
+        <>
+          {modeloCad.tipo === "cargando" && (
+            <p className="text-muted-foreground text-xs" role="status">
+              Generando el despiece del modelo…
+            </p>
+          )}
+          {calculo.corte && calculo.piezas ? (
+            <CortesTerminado
+              piezas={calculo.piezas}
+              formato={calculo.corte.formato}
+              planchas={calculo.corte.planchas}
+              compacto
+              className="bg-background rounded-lg border p-3"
+            />
+          ) : (
+            <p className="text-muted-foreground rounded-lg border border-dashed px-3 py-6 text-center text-sm">
+              {calculo.areaUnidadM2
+                ? `Esta forma no se despieza: el material se estima por área (${forma}).`
+                : "Escribe las medidas para ver las piezas."}
+            </p>
+          )}
+          {armadoDeCaja(geometria, aMedidas(medidas)) && (
+            <details className="bg-background rounded-lg border px-3 py-2">
+              <summary className="cursor-pointer text-xs font-medium">Cómo se arma (3D)</summary>
+              <ArmadoCaja geometria={geometria} medidas={aMedidas(medidas)} className="mt-2" />
+            </details>
+          )}
+        </>
+      )}
+    </div>
+  );
+
+  /** Pestaña Materiales: el área estimada, la plancha y los accesorios que se sacan de Odoo. */
+  const materiales = (
+    <div className="flex flex-col gap-4">
       <section className="flex flex-col gap-1.5" aria-label="Material estimado">
         <div className="flex items-center gap-3">
           <div className="min-w-0 flex-1">
@@ -603,36 +700,6 @@ export function EditorTerminado({
         )}
       </section>
 
-      {producto?.plantillaCad && parametrosCad && (
-        <ModeloCadTerminado
-          plantilla={producto.plantillaCad}
-          parametros={parametrosCad}
-          nombre={`${producto.codigo} ${producto.nombre}`}
-          color={color || null}
-          alDisponible={alDisponibleCad}
-          claseVisor="h-[26rem]"
-          className="bg-background rounded-lg border p-3"
-        />
-      )}
-
-      {!conModeloCad && calculo.corte && calculo.piezas && (
-        <CortesTerminado
-          piezas={calculo.piezas}
-          formato={calculo.corte.formato}
-          planchas={calculo.corte.planchas}
-          compacto
-          className="bg-background rounded-lg border p-3"
-        />
-      )}
-
-      {!conModeloCad && armadoDeCaja(geometria, aMedidas(medidas)) && (
-        <details className="bg-background rounded-lg border px-3 py-2">
-          <summary className="cursor-pointer text-xs font-medium">Cómo se arma (3D)</summary>
-          <ArmadoCaja geometria={geometria} medidas={aMedidas(medidas)} className="mt-2" />
-        </details>
-      )}
-
-      {/* Materiales: la plancha y los accesorios que se sacan de Odoo. */}
       <section className="flex flex-col gap-2" aria-labelledby="titulo-materiales">
         <div>
           <p id="titulo-materiales" className="text-sm font-medium">
@@ -663,7 +730,10 @@ export function EditorTerminado({
                       {m.nombre}{" "}
                       <button
                         type="button"
-                        onClick={() => setGrupoId(null)}
+                        onClick={() => {
+                          setGrupoId(null);
+                          setPestana("producto");
+                        }}
                         className="text-primary cursor-pointer font-medium hover:underline"
                       >
                         Cambiar
@@ -760,16 +830,37 @@ export function EditorTerminado({
         </label>
       </section>
     </div>
+  );
+
+  /** Columna derecha, fija: el modelo 3D o, si no lo hay, por qué. */
+  const sinModeloDetalle = "Las piezas y el material se estiman por la forma.";
+  const modelo = !conDatos ? (
+    <SinVistaPrevia titulo="Elige un producto para ver su modelo 3D." />
+  ) : !producto ? (
+    <SinVistaPrevia titulo="Los productos personalizados no tienen modelo 3D estándar." detalle={sinModeloDetalle} />
+  ) : !producto.plantillaCad || !parametrosCad ? (
+    <SinVistaPrevia titulo="Este producto todavía no cuenta con un modelo 3D estándar." detalle={sinModeloDetalle} />
+  ) : modeloCad.tipo === "sin_acceso" ? (
+    <SinVistaPrevia titulo="No tienes acceso al motor de diseños." detalle={sinModeloDetalle} />
+  ) : modeloCad.tipo === "fallo" ? (
+    <SinVistaPrevia titulo={modeloCad.mensaje} detalle={sinModeloDetalle} />
   ) : (
-    <p className="text-muted-foreground m-auto max-w-56 py-8 text-center text-sm">
-      Elige un producto para ver el material estimado y el precio.
-    </p>
+    <VisorModeloCad
+      plantilla={producto.plantillaCad}
+      parametros={parametrosCad}
+      resultado={modeloCad.tipo === "listo" ? modeloCad.resultado : null}
+      nombre={`${producto.codigo} ${producto.nombre}`}
+      color={color || null}
+      piezaActiva={piezaActiva}
+      alCambiarPieza={setPiezaActiva}
+      className="flex-1"
+    />
   );
 
   return (
     <Dialog open onOpenChange={(abierto) => !abierto && alCerrar()}>
       <DialogContent
-        className="flex max-h-[94dvh] flex-col gap-0 p-0 sm:max-w-3xl lg:max-w-[min(96vw,1440px)]"
+        className="flex h-[94dvh] flex-col gap-0 p-0 sm:max-w-3xl lg:max-w-[min(96vw,1440px)]"
         onKeyDown={(e) => {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();
@@ -778,25 +869,72 @@ export function EditorTerminado({
           }
         }}
       >
-        <DialogHeader className="border-b px-5 py-4">
+        <DialogHeader className="border-b px-5 py-3">
           <DialogTitle>{inicial ? "Editar producto terminado" : "Producto terminado"}</DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="sr-only">
             Uno estándar del catálogo, con su medida, material y opciones; o uno personalizado, llenado a mano.
           </DialogDescription>
         </DialogHeader>
 
-        {/* En pantalla ancha, dos mitades con scroll propio; en angosta, una sola columna. */}
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:grid lg:grid-cols-2 lg:overflow-hidden">
-          <div className="px-5 py-4 lg:overflow-y-auto">{datos}</div>
-          <div className="bg-muted/30 flex flex-col border-t px-5 py-4 lg:overflow-y-auto lg:border-t-0 lg:border-l">
-            {resultado}
+        <Tabs
+          value={pestanaVisible}
+          onValueChange={(v) => setPestana(v as Pestana)}
+          className="min-h-0 flex-1 gap-0 lg:grid lg:grid-cols-2"
+        >
+          {/* Izquierda: el formulario, las piezas y los materiales, cada uno en su pestaña. */}
+          <div className={cn("min-h-0 flex-1 flex-col", pestanaVisible === "modelo" ? "hidden" : "flex")}>
+            <div className="border-b px-5 pt-2">
+              <TabsList variant="line" className="h-9">
+                <TabsTrigger value="producto">Producto</TabsTrigger>
+                <TabsTrigger value="modelo" className="lg:hidden">
+                  Modelo
+                </TabsTrigger>
+                <TabsTrigger value="piezas" disabled={!conDatos}>
+                  Piezas
+                  {conDatos && totalPiezas > 0 && (
+                    <span className="text-muted-foreground tnum font-normal">{totalPiezas}</span>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="materiales" disabled={!conDatos}>
+                  Materiales
+                </TabsTrigger>
+              </TabsList>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              <TabsContent value="producto" keepMounted className="data-[hidden]:hidden">
+                {datos}
+              </TabsContent>
+              <TabsContent value="piezas" keepMounted className="data-[hidden]:hidden">
+                {piezas}
+              </TabsContent>
+              <TabsContent value="materiales" keepMounted className="data-[hidden]:hidden">
+                {materiales}
+              </TabsContent>
+            </div>
           </div>
-        </div>
 
-        {/* Cantidad y precio: siempre a la vista. Cada celda, etiqueta arriba y valor de h-9 abajo. */}
+          {/* Derecha: el modelo, fijo. En pantalla angosta, solo con la pestaña Modelo. */}
+          <div
+            className={cn(
+              "bg-muted/30 min-h-0 flex-1 flex-col p-4 lg:flex lg:border-l",
+              pestanaVisible === "modelo" ? "flex" : "hidden",
+            )}
+          >
+            {pestanaVisible === "modelo" && (
+              <div className="mb-3 lg:hidden">
+                <Button type="button" variant="ghost" size="sm" onClick={() => setPestana("producto")}>
+                  ← Volver al producto
+                </Button>
+              </div>
+            )}
+            {modelo}
+          </div>
+        </Tabs>
+
+        {/* Cantidad, costo y precio: siempre a la vista. Cada celda, etiqueta arriba y valor de h-9 abajo. */}
         <DialogFooter className="mx-0 mb-0 flex-col items-stretch gap-3 rounded-b-xl border-t px-5 py-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
           <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
-            <Campo label="Cantidad" requerido className="w-24">
+            <Campo label="Cantidad" requerido className="w-20">
               <Input
                 inputMode="numeric"
                 value={cantidad}
@@ -805,14 +943,17 @@ export function EditorTerminado({
                 disabled={!conDatos}
               />
             </Campo>
+            <div className="flex flex-col gap-1.5" title="Material de una unidad: planchas y accesorios.">
+              <span className="text-xs font-medium">Costo/u</span>
+              <span className="tnum text-muted-foreground flex h-9 items-center text-sm" data-testid="costo-unidad">
+                {money(costoUnidad)}
+              </span>
+            </div>
             <div className="flex flex-col gap-1.5">
               <span className="flex items-center gap-1 text-xs font-medium">
-                Precio sugerido
+                Sugerido
                 {tipo && (
-                  <Info
-                    className="text-muted-foreground size-3.5"
-                    aria-label={`Material × ${tipo.factor} + extras`}
-                  >
+                  <Info className="text-muted-foreground size-3.5" aria-label={`Material × ${tipo.factor} + extras`}>
                     <title>{`Material × ${tipo.factor} + extras`}</title>
                   </Info>
                 )}
@@ -821,7 +962,7 @@ export function EditorTerminado({
                 {money(calculo.precioSugerido)}
               </span>
             </div>
-            <Campo label="Precio unitario" className="w-36">
+            <Campo label="Precio unitario" className="w-32">
               <Input
                 inputMode="decimal"
                 value={precio}
@@ -831,6 +972,18 @@ export function EditorTerminado({
                 disabled={!conDatos}
               />
             </Campo>
+            <div className="flex flex-col gap-1.5" title="Lo que queda del precio unitario después del costo del material.">
+              <span className="text-xs font-medium">Margen</span>
+              <span
+                className={cn(
+                  "tnum flex h-9 items-center text-sm",
+                  margen === null ? "text-muted-foreground" : margen < 0 ? "text-destructive font-medium" : "",
+                )}
+                data-testid="margen-terminado"
+              >
+                {margen === null ? "—" : `${Math.round(margen * 100)}%`}
+              </span>
+            </div>
             <div className="flex flex-col gap-1.5">
               <span className="text-xs font-medium">Subtotal</span>
               <span className="tnum flex h-9 items-center text-base font-semibold" data-testid="subtotal-terminado">
