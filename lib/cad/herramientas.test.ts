@@ -12,12 +12,7 @@ import {
   type DependenciasLibre,
   type PlanchaCatalogo,
 } from "./herramientas";
-import type {
-  ErrorCodigoLibre,
-  PlantillaCad,
-  ResultadoGeneracion,
-  ResultadoLibre,
-} from "./tipos";
+import type { ErrorCodigoLibre, PlantillaCad, ResultadoGeneracion, ResultadoLibre } from "./tipos";
 
 /* ── Apoyo ─────────────────────────────────────────────────────────────────── */
 
@@ -30,13 +25,7 @@ const CAJA: PlantillaCad = {
   esquema: {
     type: "object",
     properties: {
-      largo: {
-        type: "number",
-        title: "Largo",
-        default: 200,
-        minimum: 20,
-        maximum: 1200,
-      },
+      largo: { type: "number", title: "Largo", default: 200, minimum: 20, maximum: 1200 },
       con_tapa: { type: "boolean", title: "Con tapa", default: false },
     },
     required: [],
@@ -45,42 +34,16 @@ const CAJA: PlantillaCad = {
 
 const GLB = "Z2xURg".repeat(500);
 
-function generado(
-  parcial: Partial<ResultadoGeneracion> = {},
-): ResultadoGeneracion {
+function generado(parcial: Partial<ResultadoGeneracion> = {}): ResultadoGeneracion {
   return {
     plantilla: "caja",
     version_plantilla: 2,
-    parametros: {
-      largo: 200,
-      ancho: 150,
-      alto: 100,
-      espesor: 3,
-      con_tapa: true,
-    },
+    parametros: { largo: 200, ancho: 150, alto: 100, espesor: 3, con_tapa: true },
     dimensiones: { x: 200, y: 150, z: 100 },
     glb_base64: GLB,
     piezas: [
-      {
-        id: "base",
-        nombre: "Base",
-        cantidad: 1,
-        espesor_mm: 3,
-        ancho_mm: 200,
-        alto_mm: 150,
-        area_mm2: 30000,
-        perimetro_mm: 700,
-      },
-      {
-        id: "lado",
-        nombre: "Lado",
-        cantidad: 2,
-        espesor_mm: 3,
-        ancho_mm: 200,
-        alto_mm: 97,
-        area_mm2: 19400,
-        perimetro_mm: 594,
-      },
+      { id: "base", nombre: "Base", cantidad: 1, espesor_mm: 3, ancho_mm: 200, alto_mm: 150, area_mm2: 30000, perimetro_mm: 700 },
+      { id: "lado", nombre: "Lado", cantidad: 2, espesor_mm: 3, ancho_mm: 200, alto_mm: 97, area_mm2: 19400, perimetro_mm: 594 },
     ],
     validaciones: [],
     ...parcial,
@@ -110,42 +73,16 @@ const PLANCHAS: PlanchaCatalogo[] = [
       { codigo: "F7E099", anchoCm: 60.5, largoCm: 91.25 },
     ],
   },
-  {
-    material: "Acrílico ECO",
-    variante: "Blanco",
-    detalle: "Lechoso",
-    espesorMm: 3,
-    formatos: [{ codigo: "F7E072", anchoCm: 122, largoCm: 183 }],
-  },
-  {
-    material: "Acrílico ECO",
-    variante: "Cristal",
-    detalle: "",
-    espesorMm: 5,
-    formatos: [{ codigo: "F7E030", anchoCm: 122, largoCm: 244 }],
-  },
-  {
-    material: "MDF",
-    variante: "",
-    detalle: "",
-    espesorMm: 3,
-    formatos: [{ codigo: "MDF3", anchoCm: 122, largoCm: 244 }],
-  },
-  {
-    material: "Acrílico ECO",
-    variante: "Colores",
-    detalle: "Negro",
-    espesorMm: 3,
-    formatos: [],
-  },
+  { material: "Acrílico ECO", variante: "Blanco", detalle: "Lechoso", espesorMm: 3, formatos: [{ codigo: "F7E072", anchoCm: 122, largoCm: 183 }] },
+  { material: "Acrílico ECO", variante: "Cristal", detalle: "", espesorMm: 5, formatos: [{ codigo: "F7E030", anchoCm: 122, largoCm: 244 }] },
+  { material: "MDF", variante: "", detalle: "", espesorMm: 3, formatos: [{ codigo: "MDF3", anchoCm: 122, largoCm: 244 }] },
+  { material: "Acrílico ECO", variante: "Colores", detalle: "Negro", espesorMm: 3, formatos: [] },
 ];
 
 function dependencias(parcial: Partial<DependenciasCad> = {}) {
   return {
     listarPlantillas: vi.fn(async () => [CAJA]),
-    obtenerPlantilla: vi.fn(async (codigo: string) =>
-      codigo === "caja" ? CAJA : null,
-    ),
+    obtenerPlantilla: vi.fn(async (codigo: string) => (codigo === "caja" ? CAJA : null)),
     generarDiseno: vi.fn(async () => generado()),
     guardarVersion: vi.fn(async () => ({ version: 4 })),
     obtenerDisenoActual: vi.fn(async () => null),
@@ -166,9 +103,7 @@ afterEach(() => vi.restoreAllMocks());
 
 describe("definiciones", () => {
   it("hay una por cada herramienta que el ejecutor conoce, con esquema de objeto", () => {
-    expect(HERRAMIENTAS_CAD.map((h) => h.nombre).sort()).toEqual(
-      [...NOMBRES_HERRAMIENTA].sort(),
-    );
+    expect(HERRAMIENTAS_CAD.map((h) => h.nombre).sort()).toEqual([...NOMBRES_HERRAMIENTA].sort());
     for (const h of HERRAMIENTAS_CAD) {
       expect(h.descripcion.length).toBeGreaterThan(20);
       expect(h.parametros.type).toBe("object");
@@ -180,32 +115,19 @@ describe("definiciones", () => {
 
 describe("listar_plantillas y ver_plantilla", () => {
   it("lista sin los esquemas, que son lo que pesa", async () => {
-    const r = await ejecutarHerramienta(
-      "listar_plantillas",
-      {},
-      dependencias(),
-    );
+    const r = await ejecutarHerramienta("listar_plantillas", {}, dependencias());
     expect(r.ok).toBe(true);
     expect(r.resumen).toBe("1 plantilla");
     expect(leer(r.contenido)).toEqual({
       plantillas: [
-        {
-          codigo: "caja",
-          nombre: "Caja",
-          familia: "cajas",
-          descripcion: CAJA.descripcion,
-        },
+        { codigo: "caja", nombre: "Caja", familia: "cajas", descripcion: CAJA.descripcion },
       ],
     });
   });
 
   it("ver_plantilla devuelve el esquema de parámetros en mm", async () => {
     const deps = dependencias();
-    const r = await ejecutarHerramienta(
-      "ver_plantilla",
-      { codigo: " caja " },
-      deps,
-    );
+    const r = await ejecutarHerramienta("ver_plantilla", { codigo: " caja " }, deps);
     expect(deps.obtenerPlantilla).toHaveBeenCalledWith("caja");
     expect(r.ok).toBe(true);
     const datos = leer(r.contenido);
@@ -215,11 +137,7 @@ describe("listar_plantillas y ver_plantilla", () => {
   });
 
   it("una plantilla que no existe se le dice al modelo, no se lanza", async () => {
-    const r = await ejecutarHerramienta(
-      "ver_plantilla",
-      { codigo: "barco" },
-      dependencias(),
-    );
+    const r = await ejecutarHerramienta("ver_plantilla", { codigo: "barco" }, dependencias());
     expect(r.ok).toBe(false);
     expect(leer(r.contenido).error.codigo).toBe("plantilla_desconocida");
   });
@@ -244,10 +162,7 @@ describe("generar_diseno", () => {
       deps,
     );
 
-    expect(deps.generarDiseno).toHaveBeenCalledWith("caja", {
-      largo: 200,
-      con_tapa: true,
-    });
+    expect(deps.generarDiseno).toHaveBeenCalledWith("caja", { largo: 200, con_tapa: true });
     // Se guarda lo que devolvió el motor, no lo que mandó el modelo.
     expect(deps.guardarVersion).toHaveBeenCalledWith({
       plantilla: "caja",
@@ -256,33 +171,19 @@ describe("generar_diseno", () => {
     });
 
     expect(r.ok).toBe(true);
-    expect(r.diseno).toEqual({
-      plantilla: "caja",
-      parametros: generado().parametros,
-    });
+    expect(r.diseno).toEqual({ plantilla: "caja", parametros: generado().parametros });
     expect(r.resumen).toBe("200 × 150 × 100 mm · versión 4");
 
     const datos = leer(r.contenido);
     expect(datos.dimensiones_mm).toEqual({ x: 200, y: 150, z: 100 });
     expect(datos.version_guardada).toBe(4);
     expect(datos.total_piezas).toBe(3);
-    expect(datos.piezas[1]).toEqual({
-      id: "lado",
-      nombre: "Lado",
-      cantidad: 2,
-      espesor_mm: 3,
-      ancho_mm: 200,
-      alto_mm: 97,
-    });
+    expect(datos.piezas[1]).toEqual({ id: "lado", nombre: "Lado", cantidad: 2, espesor_mm: 3, ancho_mm: 200, alto_mm: 97 });
     expect(datos.exportable).toBe(true);
   });
 
   it("NUNCA le devuelve el GLB al modelo", async () => {
-    const r = await ejecutarHerramienta(
-      "generar_diseno",
-      { plantilla: "caja", parametros: {} },
-      dependencias(),
-    );
+    const r = await ejecutarHerramienta("generar_diseno", { plantilla: "caja", parametros: {} }, dependencias());
     expect(r.contenido).not.toContain("glb");
     expect(r.contenido).not.toContain(GLB.slice(0, 40));
     expect(r.contenido.length).toBeLessThan(2000);
@@ -294,35 +195,20 @@ describe("generar_diseno", () => {
       generarDiseno: vi.fn(async () =>
         generado({
           validaciones: [
-            {
-              nivel: "aviso",
-              codigo: "pared_delgada",
-              mensaje: "Pared delgada",
-              pieza: "base",
-            },
-            {
-              nivel: "error",
-              codigo: "no_cabe",
-              mensaje: "La base no cabe en ninguna plancha",
-            },
+            { nivel: "aviso", codigo: "pared_delgada", mensaje: "Pared delgada", pieza: "base" },
+            { nivel: "error", codigo: "no_cabe", mensaje: "La base no cabe en ninguna plancha" },
             { nivel: "aviso", codigo: "otra", mensaje: "Otra" },
           ],
         }),
       ),
     });
-    const r = await ejecutarHerramienta(
-      "generar_diseno",
-      { plantilla: "caja", parametros: {} },
-      deps,
-    );
+    const r = await ejecutarHerramienta("generar_diseno", { plantilla: "caja", parametros: {} }, deps);
 
     // Se genera y se guarda igual: el visor lo tiene que mostrar con su error.
     expect(r.ok).toBe(true);
     expect(deps.guardarVersion).toHaveBeenCalled();
     const datos = leer(r.contenido);
-    expect(datos.validaciones.map((v: { codigo: string }) => v.codigo)).toEqual(
-      ["no_cabe", "pared_delgada", "otra"],
-    );
+    expect(datos.validaciones.map((v: { codigo: string }) => v.codigo)).toEqual(["no_cabe", "pared_delgada", "otra"]);
     expect(datos.exportable).toBe(false);
     expect(r.resumen).toContain("1 error");
   });
@@ -330,19 +216,12 @@ describe("generar_diseno", () => {
   it("un 422 del motor vuelve como resultado, con los campos, y no se guarda nada", async () => {
     const deps = dependencias({
       generarDiseno: vi.fn(async () => {
-        throw new ErrorMotorFalso(
-          "Hay parámetros que no son válidos.",
-          "parametros_invalidos",
-          422,
-          [{ campo: "largo", mensaje: "Debe ser mayor o igual que 20" }],
-        );
+        throw new ErrorMotorFalso("Hay parámetros que no son válidos.", "parametros_invalidos", 422, [
+          { campo: "largo", mensaje: "Debe ser mayor o igual que 20" },
+        ]);
       }),
     });
-    const r = await ejecutarHerramienta(
-      "generar_diseno",
-      { plantilla: "caja", parametros: { largo: 2 } },
-      deps,
-    );
+    const r = await ejecutarHerramienta("generar_diseno", { plantilla: "caja", parametros: { largo: 2 } }, deps);
 
     expect(r.ok).toBe(false);
     expect(r.diseno).toBeUndefined();
@@ -357,26 +236,15 @@ describe("generar_diseno", () => {
   });
 
   it("un 404 o un 500 del motor también vuelven como resultado", async () => {
-    for (const [codigo, estado] of [
-      ["plantilla_desconocida", 404],
-      ["geometria", 500],
-    ] as const) {
+    for (const [codigo, estado] of [["plantilla_desconocida", 404], ["geometria", 500]] as const) {
       const deps = dependencias({
         generarDiseno: vi.fn(async () => {
           throw new ErrorMotorFalso("Falló", codigo, estado);
         }),
       });
-      const r = await ejecutarHerramienta(
-        "generar_diseno",
-        { plantilla: "x", parametros: {} },
-        deps,
-      );
+      const r = await ejecutarHerramienta("generar_diseno", { plantilla: "x", parametros: {} }, deps);
       expect(r.ok).toBe(false);
-      expect(leer(r.contenido).error).toEqual({
-        codigo,
-        estado,
-        mensaje: "Falló",
-      });
+      expect(leer(r.contenido).error).toEqual({ codigo, estado, mensaje: "Falló" });
     }
   });
 
@@ -386,11 +254,7 @@ describe("generar_diseno", () => {
         throw new Error("permission denied for table cad_disenos");
       }),
     });
-    const r = await ejecutarHerramienta(
-      "generar_diseno",
-      { plantilla: "caja", parametros: {} },
-      deps,
-    );
+    const r = await ejecutarHerramienta("generar_diseno", { plantilla: "caja", parametros: {} }, deps);
     expect(r.ok).toBe(false);
     expect(r.diseno).toBeUndefined();
     expect(leer(r.contenido).error.codigo).toBe("no_guardado");
@@ -405,34 +269,20 @@ describe("generar_diseno", () => {
       { plantilla: "caja", parametros: { tapa: { alto: 10 } } },
       deps,
     );
-    const sinPlantilla = await ejecutarHerramienta(
-      "generar_diseno",
-      { parametros: {} },
-      deps,
-    );
-    const sinNada = await ejecutarHerramienta(
-      "generar_diseno",
-      undefined,
-      deps,
-    );
+    const sinPlantilla = await ejecutarHerramienta("generar_diseno", { parametros: {} }, deps);
+    const sinNada = await ejecutarHerramienta("generar_diseno", undefined, deps);
 
     for (const r of [anidado, sinPlantilla, sinNada]) {
       expect(r.ok).toBe(false);
       expect(leer(r.contenido).error.codigo).toBe("argumentos_invalidos");
     }
-    expect(leer(anidado.contenido).error.errores[0].campo).toBe(
-      "parametros.tapa",
-    );
+    expect(leer(anidado.contenido).error.errores[0].campo).toBe("parametros.tapa");
     expect(deps.generarDiseno).not.toHaveBeenCalled();
   });
 
   it("sin parámetros genera con los valores por defecto", async () => {
     const deps = dependencias();
-    const r = await ejecutarHerramienta(
-      "generar_diseno",
-      { plantilla: "caja" },
-      deps,
-    );
+    const r = await ejecutarHerramienta("generar_diseno", { plantilla: "caja" }, deps);
     expect(r.ok).toBe(true);
     expect(deps.generarDiseno).toHaveBeenCalledWith("caja", {});
   });
@@ -479,11 +329,7 @@ describe("ver_diseno_actual", () => {
         origen: "chat" as const,
       })),
       generarDiseno: vi.fn(async () => {
-        throw new ErrorMotorFalso(
-          "No se pudo conectar con el motor CAD.",
-          "sin_conexion",
-          503,
-        );
+        throw new ErrorMotorFalso("No se pudo conectar con el motor CAD.", "sin_conexion", 503);
       }),
     });
     const r = await ejecutarHerramienta("ver_diseno_actual", {}, deps);
@@ -498,11 +344,7 @@ describe("ver_diseno_actual", () => {
 
 describe("buscar_planchas", () => {
   it("convierte los centímetros del catálogo a milímetros", async () => {
-    const r = await ejecutarHerramienta(
-      "buscar_planchas",
-      { material: "eco", color: "cristal", espesor_mm: 3 },
-      dependencias(),
-    );
+    const r = await ejecutarHerramienta("buscar_planchas", { material: "eco", color: "cristal", espesor_mm: 3 }, dependencias());
     expect(r.ok).toBe(true);
     expect(leer(r.contenido)).toEqual({
       total: 1,
@@ -523,9 +365,7 @@ describe("buscar_planchas", () => {
 
   it("busca sin tildes ni mayúsculas, por material, color y espesor", async () => {
     const deps = dependencias();
-    const total = async (args: unknown) =>
-      leer((await ejecutarHerramienta("buscar_planchas", args, deps)).contenido)
-        .total;
+    const total = async (args: unknown) => leer((await ejecutarHerramienta("buscar_planchas", args, deps)).contenido).total;
 
     expect(await total({ material: "ACRILICO" })).toBe(3);
     expect(await total({ color: "blanco lech" })).toBe(1);
@@ -545,11 +385,7 @@ describe("buscar_planchas", () => {
       espesorMm: 3,
       formatos: [{ codigo: `C${i}`, anchoCm: 122, largoCm: 244 }],
     }));
-    const r = await ejecutarHerramienta(
-      "buscar_planchas",
-      {},
-      dependencias({ cargarPlanchas: vi.fn(async () => muchas) }),
-    );
+    const r = await ejecutarHerramienta("buscar_planchas", {}, dependencias({ cargarPlanchas: vi.fn(async () => muchas) }));
     const datos = leer(r.contenido);
     expect(datos.total).toBe(MAX_PLANCHAS + 5);
     expect(datos.planchas).toHaveLength(MAX_PLANCHAS);
@@ -557,11 +393,7 @@ describe("buscar_planchas", () => {
   });
 
   it("un espesor que no es número es un argumento inválido", async () => {
-    const r = await ejecutarHerramienta(
-      "buscar_planchas",
-      { espesor_mm: "3 mm" },
-      dependencias(),
-    );
+    const r = await ejecutarHerramienta("buscar_planchas", { espesor_mm: "3 mm" }, dependencias());
     expect(r.ok).toBe(false);
     expect(leer(r.contenido).error.codigo).toBe("argumentos_invalidos");
   });
@@ -594,8 +426,7 @@ describe("ejecutarHerramienta", () => {
 
 /* ── Diseño libre ──────────────────────────────────────────────────────────── */
 
-const CODIGO =
-  'from diseno import pieza, rectangulo\npiezas = [pieza("a", "A", rectangulo(10, 10), 3)]\n';
+const CODIGO = 'from diseno import pieza, rectangulo\npiezas = [pieza("a", "A", rectangulo(10, 10), 3)]\n';
 
 function libre(): ResultadoLibre {
   return {
@@ -604,20 +435,9 @@ function libre(): ResultadoLibre {
     dimensiones: { x: 80, y: 100, z: 110 },
     glb_base64: GLB,
     piezas: [
-      {
-        id: "base",
-        nombre: "Base",
-        cantidad: 1,
-        espesor_mm: 3,
-        ancho_mm: 80,
-        alto_mm: 100,
-        area_mm2: 8000,
-        perimetro_mm: 360,
-      },
+      { id: "base", nombre: "Base", cantidad: 1, espesor_mm: 3, ancho_mm: 80, alto_mm: 100, area_mm2: 8000, perimetro_mm: 360 },
     ],
-    validaciones: [
-      { nivel: "aviso", codigo: "pared_delgada", mensaje: "Fina" },
-    ],
+    validaciones: [{ nivel: "aviso", codigo: "pared_delgada", mensaje: "Fina" }],
   };
 }
 
@@ -635,16 +455,8 @@ function depsLibre(parcial: Partial<DependenciasLibre> = {}) {
     ejecutarCodigo: vi.fn(async () => libre()),
     guardarVersionLibre: vi.fn(async () => ({ version: 7 })),
     renderizarActual: vi.fn(async () => "data:image/png;base64,iVBOR"),
-    listarReferencias: vi.fn(async () => [
-      {
-        nombre:
-          "plugins/build123d/skills/build123d/references/quick-reference.md",
-        bytes: 10,
-      },
-    ]),
-    leerReferencia: vi.fn(async (n: string) =>
-      n === "quick-reference.md" ? "# build123d" : null,
-    ),
+    listarReferencias: vi.fn(async () => [{ nombre: "plugins/build123d/skills/build123d/references/quick-reference.md", bytes: 10 }]),
+    leerReferencia: vi.fn(async (n: string) => (n === "quick-reference.md" ? "# build123d" : null)),
     intentos: { n: 0 },
     ...parcial,
   } satisfies DependenciasLibre;
@@ -657,25 +469,15 @@ describe("diseño libre", () => {
       ...NOMBRES_HERRAMIENTA,
       ...NOMBRES_HERRAMIENTA_LIBRE,
     ]);
-    expect(HERRAMIENTAS_LIBRE.map((h) => h.nombre).sort()).toEqual(
-      [...NOMBRES_HERRAMIENTA_LIBRE].sort(),
-    );
-    const r = await ejecutarHerramienta(
-      "ejecutar_build123d",
-      { codigo: CODIGO },
-      dependencias(),
-    );
+    expect(HERRAMIENTAS_LIBRE.map((h) => h.nombre).sort()).toEqual([...NOMBRES_HERRAMIENTA_LIBRE].sort());
+    const r = await ejecutarHerramienta("ejecutar_build123d", { codigo: CODIGO }, dependencias());
     expect(r.ok).toBe(false);
     expect(leer(r.contenido).error.codigo).toBe("diseno_libre_no_disponible");
   });
 
   it("ejecuta, guarda en borrador y le pide al visor el diseño libre", async () => {
     const l = depsLibre();
-    const r = await ejecutarHerramienta(
-      "ejecutar_build123d",
-      { codigo: CODIGO },
-      dependencias({ libre: l }),
-    );
+    const r = await ejecutarHerramienta("ejecutar_build123d", { codigo: CODIGO }, dependencias({ libre: l }));
     expect(r.ok).toBe(true);
     expect(l.ejecutarCodigo).toHaveBeenCalledWith(CODIGO);
     expect(l.guardarVersionLibre).toHaveBeenCalledWith(CODIGO);
@@ -691,27 +493,13 @@ describe("diseño libre", () => {
   it("un error del código vuelve estructurado, con pista, y no se guarda", async () => {
     const l = depsLibre({
       ejecutarCodigo: vi.fn(async () => {
-        throw new ErrorSandboxFalso({
-          tipo: "ejecucion",
-          mensaje: "NameError: x",
-          linea: 4,
-          traza: "diseno_libre.py, línea 4",
-        });
+        throw new ErrorSandboxFalso({ tipo: "ejecucion", mensaje: "NameError: x", linea: 4, traza: "diseno_libre.py, línea 4" });
       }),
     });
-    const r = await ejecutarHerramienta(
-      "ejecutar_build123d",
-      { codigo: CODIGO },
-      dependencias({ libre: l }),
-    );
+    const r = await ejecutarHerramienta("ejecutar_build123d", { codigo: CODIGO }, dependencias({ libre: l }));
     expect(r.ok).toBe(false);
     const { error } = leer(r.contenido);
-    expect(error).toMatchObject({
-      codigo: "codigo_invalido",
-      tipo: "ejecucion",
-      linea: 4,
-      mensaje: "NameError: x",
-    });
+    expect(error).toMatchObject({ codigo: "codigo_invalido", tipo: "ejecucion", linea: 4, mensaje: "NameError: x" });
     expect(error.pista).toBeTruthy();
     expect(error.intentos_restantes).toBe(MAX_INTENTOS_LIBRE - 1);
     expect(l.guardarVersionLibre).not.toHaveBeenCalled();
@@ -720,11 +508,7 @@ describe("diseño libre", () => {
 
   it("corta tras el máximo de intentos del turno", async () => {
     const l = depsLibre({ intentos: { n: MAX_INTENTOS_LIBRE } });
-    const r = await ejecutarHerramienta(
-      "ejecutar_build123d",
-      { codigo: CODIGO },
-      dependencias({ libre: l }),
-    );
+    const r = await ejecutarHerramienta("ejecutar_build123d", { codigo: CODIGO }, dependencias({ libre: l }));
     expect(leer(r.contenido).error.codigo).toBe("demasiados_intentos");
     expect(l.ejecutarCodigo).not.toHaveBeenCalled();
   });
@@ -733,13 +517,7 @@ describe("diseño libre", () => {
     const l = depsLibre();
     const deps = dependencias({
       libre: l,
-      obtenerDisenoActual: vi.fn(async () => ({
-        plantilla: "libre",
-        parametros: {},
-        version: 7,
-        origen: "chat" as const,
-        codigo: CODIGO,
-      })),
+      obtenerDisenoActual: vi.fn(async () => ({ plantilla: "libre", parametros: {}, version: 7, origen: "chat" as const, codigo: CODIGO })),
     });
     const r = await ejecutarHerramienta("ver_render", {}, deps);
     expect(r.ok).toBe(true);
@@ -749,17 +527,9 @@ describe("diseño libre", () => {
 
   it("leer_referencia_cad lee una y, si no existe, lista las que hay", async () => {
     const deps = dependencias({ libre: depsLibre() });
-    const r = await ejecutarHerramienta(
-      "leer_referencia_cad",
-      { nombre: "quick-reference.md" },
-      deps,
-    );
+    const r = await ejecutarHerramienta("leer_referencia_cad", { nombre: "quick-reference.md" }, deps);
     expect(leer(r.contenido).contenido).toBe("# build123d");
-    const otra = await ejecutarHerramienta(
-      "leer_referencia_cad",
-      { nombre: "../../etc/passwd" },
-      deps,
-    );
+    const otra = await ejecutarHerramienta("leer_referencia_cad", { nombre: "../../etc/passwd" }, deps);
     expect(otra.ok).toBe(true);
     expect(leer(otra.contenido).referencias).toHaveLength(1);
     expect(leer(otra.contenido).aviso).toContain("No existe");
@@ -782,11 +552,6 @@ describe("diseño libre", () => {
     expect(deps.generarDiseno).not.toHaveBeenCalled();
     expect(l.ejecutarCodigo).toHaveBeenCalledWith(CODIGO);
     const datos = leer(r.contenido);
-    expect(datos).toMatchObject({
-      plantilla: "libre",
-      estado: "borrador",
-      codigo: CODIGO,
-      dimensiones_mm: { x: 80, y: 100, z: 110 },
-    });
+    expect(datos).toMatchObject({ plantilla: "libre", estado: "borrador", codigo: CODIGO, dimensiones_mm: { x: 80, y: 100, z: 110 } });
   });
 });

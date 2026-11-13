@@ -11,12 +11,7 @@ import type {
   ValorParametro,
 } from "./tipos";
 
-export type ControlCampo =
-  | "numero"
-  | "entero"
-  | "interruptor"
-  | "lista"
-  | "texto";
+export type ControlCampo = "numero" | "entero" | "interruptor" | "lista" | "texto";
 
 export interface CampoEsquema {
   clave: string;
@@ -38,23 +33,19 @@ function controlDe(p: PropiedadEsquema): ControlCampo {
 }
 
 /** Los campos en el orden en que el motor declara las propiedades. */
-export function camposDe(
-  esquema: EsquemaParametros | null | undefined,
-): CampoEsquema[] {
+export function camposDe(esquema: EsquemaParametros | null | undefined): CampoEsquema[] {
   const requeridos = new Set(esquema?.required ?? []);
-  return Object.entries(esquema?.properties ?? {}).map(
-    ([clave, propiedad]) => ({
-      clave,
-      etiqueta: propiedad.title || clave,
-      ayuda: propiedad.description || undefined,
-      control: controlDe(propiedad),
-      requerido: requeridos.has(clave),
-      minimo: propiedad.minimum,
-      maximo: propiedad.maximum,
-      opciones: propiedad.enum ?? [],
-      propiedad,
-    }),
-  );
+  return Object.entries(esquema?.properties ?? {}).map(([clave, propiedad]) => ({
+    clave,
+    etiqueta: propiedad.title || clave,
+    ayuda: propiedad.description || undefined,
+    control: controlDe(propiedad),
+    requerido: requeridos.has(clave),
+    minimo: propiedad.minimum,
+    maximo: propiedad.maximum,
+    opciones: propiedad.enum ?? [],
+    propiedad,
+  }));
 }
 
 /** El valor con el que arranca un parámetro que el motor dejó sin `default`. */
@@ -65,9 +56,7 @@ function valorInicial(p: PropiedadEsquema): ValorParametro | undefined {
   return p.minimum;
 }
 
-export function valoresPorDefecto(
-  esquema: EsquemaParametros | null | undefined,
-): ParametrosCad {
+export function valoresPorDefecto(esquema: EsquemaParametros | null | undefined): ParametrosCad {
   const valores: ParametrosCad = {};
   for (const [clave, p] of Object.entries(esquema?.properties ?? {})) {
     const v = valorInicial(p);
@@ -121,10 +110,8 @@ export function normalizarValor(
     return crudo;
   }
 
-  const texto =
-    typeof crudo === "string" ? crudo.trim().replace(",", ".") : crudo;
-  if (texto === "" || texto === null || typeof texto === "boolean")
-    return undefined;
+  const texto = typeof crudo === "string" ? crudo.trim().replace(",", ".") : crudo;
+  if (texto === "" || texto === null || typeof texto === "boolean") return undefined;
   let n = Number(texto);
   if (!Number.isFinite(n)) return undefined;
   if (p.type === "integer") n = Math.round(n);
@@ -175,10 +162,7 @@ export function nombreArchivo(
  * veces sufijos propios, así que gana el id más largo que encaje: con piezas
  * `lateral` y `lateral_corto`, el nodo `lateral_corto_2` es de la segunda.
  */
-export function nodoAPieza(
-  nombre: string,
-  ids: readonly string[],
-): string | null {
+export function nodoAPieza(nombre: string, ids: readonly string[]): string | null {
   let mejor: string | null = null;
   for (const id of ids) {
     if (nombre !== id && !nombre.startsWith(`${id}_`)) continue;

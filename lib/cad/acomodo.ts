@@ -64,16 +64,10 @@ export interface OpcionesAcomodo {
 }
 
 /** Los formatos activos de un grupo del catálogo, de cm a mm. */
-export function formatosDeGrupo(
-  grupo: Pick<GrupoPlancha, "formatos">,
-): FormatoAcomodo[] {
+export function formatosDeGrupo(grupo: Pick<GrupoPlancha, "formatos">): FormatoAcomodo[] {
   return grupo.formatos
     .filter((f) => f.activo)
-    .map((f) => ({
-      id: f.id,
-      anchoMm: f.anchoCm * 10,
-      altoMm: f.largoCm * 10,
-    }));
+    .map((f) => ({ id: f.id, anchoMm: f.anchoCm * 10, altoMm: f.largoCm * 10 }));
 }
 
 const clave = (id: string, indice: number) => `${id}#${indice}`;
@@ -109,12 +103,7 @@ export function piezasQueNoEntran(
     (p) =>
       !formatos.some((f) =>
         entraSola(
-          {
-            id: p.id,
-            ancho: p.ancho_mm,
-            alto: p.alto_mm,
-            rotable: opciones.rotable,
-          },
+          { id: p.id, ancho: p.ancho_mm, alto: p.alto_mm, rotable: opciones.rotable },
           f.anchoMm - margen,
           f.altoMm - margen,
           opciones.rotable,
@@ -129,16 +118,11 @@ export function acomodarEnFormato(
   formato: FormatoAcomodo,
   opciones: OpcionesAcomodo,
 ): ResultadoAcomodo {
-  const r = empaquetar(
-    formato.anchoMm,
-    formato.altoMm,
-    copias(piezas, opciones.rotable),
-    {
-      rotar: opciones.rotable,
-      kerf: opciones.kerfMm ?? 0,
-      margen: opciones.margenMm ?? 0,
-    },
-  );
+  const r = empaquetar(formato.anchoMm, formato.altoMm, copias(piezas, opciones.rotable), {
+    rotar: opciones.rotable,
+    kerf: opciones.kerfMm ?? 0,
+    margen: opciones.margenMm ?? 0,
+  });
 
   const planchas: PlanchaUsada[] = r.planchas.map((p) => {
     const colocadas: PiezaColocada[] = [];
@@ -147,25 +131,13 @@ export function acomodarEnFormato(
       const w = panel.x2 - panel.x1;
       const h = panel.y2 - panel.y1;
       if (panel.libre || !panel.piezaId) {
-        if (
-          w > 0 &&
-          h > 0 &&
-          (!retazo || w * h > retazo.anchoMm * retazo.altoMm)
-        ) {
+        if (w > 0 && h > 0 && (!retazo || w * h > retazo.anchoMm * retazo.altoMm)) {
           retazo = { anchoMm: w, altoMm: h };
         }
         continue;
       }
       const { id, indice } = deClave(panel.piezaId);
-      colocadas.push({
-        id,
-        indice,
-        xMm: panel.x1,
-        yMm: panel.y1,
-        anchoMm: w,
-        altoMm: h,
-        rotada: !!panel.rotada,
-      });
+      colocadas.push({ id, indice, xMm: panel.x1, yMm: panel.y1, anchoMm: w, altoMm: h, rotada: !!panel.rotada });
     }
     return {
       anchoMm: p.ancho,
@@ -187,8 +159,7 @@ export function acomodarEnFormato(
     noCaben: r.noCaben.map((p) => deClave(p.id)),
     areaPiezasMm2,
     areaPlanchasMm2,
-    mermaPct:
-      areaPlanchasMm2 > 0 ? (1 - areaPiezasMm2 / areaPlanchasMm2) * 100 : 0,
+    mermaPct: areaPlanchasMm2 > 0 ? (1 - areaPiezasMm2 / areaPlanchasMm2) * 100 : 0,
   };
 }
 
@@ -209,8 +180,7 @@ export function acomodar(
       r.noCaben.length < mejor.noCaben.length ||
       (r.noCaben.length === mejor.noCaben.length &&
         (r.areaPlanchasMm2 < mejor.areaPlanchasMm2 ||
-          (r.areaPlanchasMm2 === mejor.areaPlanchasMm2 &&
-            r.planchas.length < mejor.planchas.length)))
+          (r.areaPlanchasMm2 === mejor.areaPlanchasMm2 && r.planchas.length < mejor.planchas.length)))
     ) {
       mejor = r;
     }

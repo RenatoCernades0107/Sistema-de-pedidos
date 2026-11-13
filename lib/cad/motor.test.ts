@@ -136,10 +136,7 @@ describe("generarDiseno", () => {
           detail: {
             codigo: "parametros_invalidos",
             mensaje: "Revisa las medidas.",
-            errores: [
-              { campo: "largo", mensaje: "Debe ser mayor que 50." },
-              { basura: true },
-            ],
+            errores: [{ campo: "largo", mensaje: "Debe ser mayor que 50." }, { basura: true }],
           },
         },
         422,
@@ -148,38 +145,24 @@ describe("generarDiseno", () => {
     const e = await errorDe(generarDiseno("caja", { largo: 1 }));
     expect(e).toMatchObject({ codigo: "parametros_invalidos", estado: 422 });
     expect(e.message).toBe("Revisa las medidas.");
-    expect(e.errores).toEqual([
-      { campo: "largo", mensaje: "Debe ser mayor que 50." },
-    ]);
+    expect(e.errores).toEqual([{ campo: "largo", mensaje: "Debe ser mayor que 50." }]);
   });
 
   it("422 de esquema (lista de pydantic): saca el campo de `loc`", async () => {
     fetchFalso.mockResolvedValue(
       respuesta(
-        {
-          detail: [
-            {
-              loc: ["body", "parametros", "largo"],
-              msg: "Input should be a number",
-            },
-          ],
-        },
+        { detail: [{ loc: ["body", "parametros", "largo"], msg: "Input should be a number" }] },
         422,
       ),
     );
     const e = await errorDe(generarDiseno("caja", { largo: "x" }));
     expect(e.codigo).toBe("parametros_invalidos");
-    expect(e.errores).toEqual([
-      { campo: "largo", mensaje: "Input should be a number" },
-    ]);
+    expect(e.errores).toEqual([{ campo: "largo", mensaje: "Input should be a number" }]);
   });
 
   it("500: fallo de geometría, sin errores por campo", async () => {
     fetchFalso.mockResolvedValue(
-      respuesta(
-        { detail: { codigo: "geometria", mensaje: "El radio no cabe." } },
-        500,
-      ),
+      respuesta({ detail: { codigo: "geometria", mensaje: "El radio no cabe." } }, 500),
     );
     const e = await errorDe(generarDiseno("caja", {}));
     expect(e).toMatchObject({ codigo: "geometria", estado: 500 });
@@ -204,33 +187,19 @@ describe("exportaciones", () => {
   const bytes = new TextEncoder().encode("0\nSECTION\n");
 
   it("DXF: devuelve los bytes y solo manda opciones si las hay", async () => {
-    fetchFalso.mockImplementation(
-      async () => new Response(bytes, { status: 200 }),
-    );
+    fetchFalso.mockImplementation(async () => new Response(bytes, { status: 200 }));
 
     const dxf = await exportarDxf("caja", { largo: 200 });
     expect(new Uint8Array(dxf)).toEqual(bytes);
     expect(llamada(0).url).toBe("http://motor.test/dxf");
-    expect(llamada(0).cuerpo).toEqual({
-      plantilla: "caja",
-      parametros: { largo: 200 },
-    });
+    expect(llamada(0).cuerpo).toEqual({ plantilla: "caja", parametros: { largo: 200 } });
 
-    await exportarDxf(
-      "caja",
-      { largo: 200 },
-      { kerf_mm: 0.1, separacion_mm: 5 },
-    );
-    expect(llamada(1).cuerpo.opciones).toEqual({
-      kerf_mm: 0.1,
-      separacion_mm: 5,
-    });
+    await exportarDxf("caja", { largo: 200 }, { kerf_mm: 0.1, separacion_mm: 5 });
+    expect(llamada(1).cuerpo.opciones).toEqual({ kerf_mm: 0.1, separacion_mm: 5 });
   });
 
   it("STEP: devuelve los bytes", async () => {
-    fetchFalso.mockImplementation(
-      async () => new Response(bytes, { status: 200 }),
-    );
+    fetchFalso.mockImplementation(async () => new Response(bytes, { status: 200 }));
     const step = await exportarStep("caja", {});
     expect(step.byteLength).toBe(bytes.byteLength);
     expect(llamada().url).toBe("http://motor.test/step");
@@ -238,10 +207,7 @@ describe("exportaciones", () => {
 
   it("propaga los errores del motor", async () => {
     fetchFalso.mockResolvedValue(
-      respuesta(
-        { detail: { codigo: "geometria", mensaje: "No se pudo acostar." } },
-        500,
-      ),
+      respuesta({ detail: { codigo: "geometria", mensaje: "No se pudo acostar." } }, 500),
     );
     const e = await errorDe(exportarDxf("caja", {}));
     expect(e.codigo).toBe("geometria");

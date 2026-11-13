@@ -14,20 +14,8 @@ import type { EsquemaParametros } from "./tipos";
 const esquema: EsquemaParametros = {
   type: "object",
   properties: {
-    largo: {
-      type: "number",
-      title: "Largo",
-      default: 200,
-      minimum: 50,
-      maximum: 1200,
-    },
-    divisiones: {
-      type: "integer",
-      title: "Divisiones",
-      default: 2,
-      minimum: 0,
-      maximum: 10,
-    },
+    largo: { type: "number", title: "Largo", default: 200, minimum: 50, maximum: 1200 },
+    divisiones: { type: "integer", title: "Divisiones", default: 2, minimum: 0, maximum: 10 },
     con_tapa: { type: "boolean", title: "Con tapa", default: true },
     union: { type: "string", title: "Unión", enum: ["pegada", "encastre"] },
     espesor: { type: "number", minimum: 2 },
@@ -45,12 +33,7 @@ describe("camposDe", () => {
       ["union", "lista"],
       ["espesor", "numero"],
     ]);
-    expect(campos[0]).toMatchObject({
-      etiqueta: "Largo",
-      requerido: true,
-      minimo: 50,
-      maximo: 1200,
-    });
+    expect(campos[0]).toMatchObject({ etiqueta: "Largo", requerido: true, minimo: 50, maximo: 1200 });
     expect(campos[4].etiqueta).toBe("espesor");
   });
 
@@ -109,12 +92,8 @@ describe("normalizarValor", () => {
   it("valida booleanos y listas", () => {
     expect(normalizarValor(esquema.properties.con_tapa, false)).toBe(false);
     expect(normalizarValor(esquema.properties.con_tapa, "x")).toBeUndefined();
-    expect(normalizarValor(esquema.properties.union, "encastre")).toBe(
-      "encastre",
-    );
-    expect(
-      normalizarValor(esquema.properties.union, "soldada"),
-    ).toBeUndefined();
+    expect(normalizarValor(esquema.properties.union, "encastre")).toBe("encastre");
+    expect(normalizarValor(esquema.properties.union, "soldada")).toBeUndefined();
   });
 });
 
@@ -123,9 +102,7 @@ describe("nombreArchivo", () => {
     expect(nombreArchivo("caja", { x: 200, y: 150.4, z: 100 }, "dxf")).toBe(
       "diseno-caja-200x150x100.dxf",
     );
-    expect(nombreArchivo("porta_afiches", null, "step")).toBe(
-      "diseno-porta_afiches.step",
-    );
+    expect(nombreArchivo("porta_afiches", null, "step")).toBe("diseno-porta_afiches.step");
   });
 });
 
@@ -151,12 +128,8 @@ describe("unidadDe y pasoDe", () => {
   it("las medidas van en mm, las cantidades sin unidad y los ángulos en grados", () => {
     expect(unidadDe({ type: "number", title: "Largo" })).toBe("mm");
     expect(unidadDe({ type: "integer", title: "Divisiones" })).toBeNull();
-    expect(
-      unidadDe({ type: "integer", title: "Espesor", description: "En mm." }),
-    ).toBe("mm");
-    expect(unidadDe({ type: "number", title: "Ángulo de inclinación" })).toBe(
-      "°",
-    );
+    expect(unidadDe({ type: "integer", title: "Espesor", description: "En mm." })).toBe("mm");
+    expect(unidadDe({ type: "number", title: "Ángulo de inclinación" })).toBe("°");
     expect(unidadDe({ type: "boolean" })).toBeNull();
   });
 

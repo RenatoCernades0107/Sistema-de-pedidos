@@ -50,12 +50,7 @@ export function deParametros(valor: Json | null | undefined): ParametrosCad {
   if (!valor || typeof valor !== "object" || Array.isArray(valor)) return {};
   const salida: ParametrosCad = {};
   for (const [clave, v] of Object.entries(valor)) {
-    if (
-      typeof v === "number" ||
-      typeof v === "boolean" ||
-      typeof v === "string"
-    )
-      salida[clave] = v;
+    if (typeof v === "number" || typeof v === "boolean" || typeof v === "string") salida[clave] = v;
   }
   return salida;
 }
@@ -64,13 +59,7 @@ function deHerramientas(valor: Json | null): HerramientaUsada[] {
   if (!Array.isArray(valor)) return [];
   const salida: HerramientaUsada[] = [];
   for (const h of valor) {
-    if (
-      !h ||
-      typeof h !== "object" ||
-      Array.isArray(h) ||
-      typeof h.nombre !== "string"
-    )
-      continue;
+    if (!h || typeof h !== "object" || Array.isArray(h) || typeof h.nombre !== "string") continue;
     salida.push({
       nombre: h.nombre,
       ok: h.ok !== false,
@@ -99,8 +88,7 @@ interface FilaVersion {
 }
 
 const COLUMNAS_DISENO = "id, nombre, version_actual, creado_en, actualizado_en";
-const COLUMNAS_VERSION =
-  "diseno_id, version, plantilla, version_plantilla, parametros, origen, creado_en";
+const COLUMNAS_VERSION = "diseno_id, version, plantilla, version_plantilla, parametros, origen, creado_en";
 
 const deDiseno = (d: FilaDiseno, v: FilaVersion | undefined): DisenoCad => ({
   id: d.id,
@@ -120,8 +108,7 @@ export async function listarDisenos(): Promise<DisenoCad[]> {
     .from("cad_disenos")
     .select(COLUMNAS_DISENO)
     .order("actualizado_en", { ascending: false });
-  if (error)
-    throw new Error(`No se pudieron leer los diseños: ${error.message}`);
+  if (error) throw new Error(`No se pudieron leer los diseños: ${error.message}`);
   if (!disenos || disenos.length === 0) return [];
 
   // Las versiones vigentes en una sola consulta. Se filtra por los números que
@@ -132,15 +119,9 @@ export async function listarDisenos(): Promise<DisenoCad[]> {
     const { data: versiones, error: errorVersiones } = await supabase
       .from("cad_diseno_versiones")
       .select(COLUMNAS_VERSION)
-      .in(
-        "diseno_id",
-        conVersion.map((d) => d.id),
-      )
+      .in("diseno_id", conVersion.map((d) => d.id))
       .in("version", [...new Set(conVersion.map((d) => d.version_actual))]);
-    if (errorVersiones)
-      throw new Error(
-        `No se pudieron leer los diseños: ${errorVersiones.message}`,
-      );
+    if (errorVersiones) throw new Error(`No se pudieron leer los diseños: ${errorVersiones.message}`);
 
     const actual = new Map(conVersion.map((d) => [d.id, d.version_actual]));
     for (const v of versiones ?? []) {
@@ -151,9 +132,7 @@ export async function listarDisenos(): Promise<DisenoCad[]> {
   return disenos.map((d) => deDiseno(d, vigentes.get(d.id)));
 }
 
-async function leerDiseno(
-  id: string,
-): Promise<{ diseno: FilaDiseno; version: FilaVersion | undefined } | null> {
+async function leerDiseno(id: string): Promise<{ diseno: FilaDiseno; version: FilaVersion | undefined } | null> {
   const supabase = await clienteServidor();
   const { data: diseno, error } = await supabase
     .from("cad_disenos")
@@ -170,8 +149,7 @@ async function leerDiseno(
     .eq("diseno_id", id)
     .eq("version", diseno.version_actual)
     .maybeSingle();
-  if (errorVersion)
-    throw new Error(`No se pudo leer el diseño: ${errorVersion.message}`);
+  if (errorVersion) throw new Error(`No se pudo leer el diseño: ${errorVersion.message}`);
   return { diseno, version: version ?? undefined };
 }
 
@@ -186,9 +164,7 @@ export async function obtenerDiseno(id: string): Promise<DisenoCad | null> {
  * cambió él o alguien desde el formulario. `null` si el diseño no tiene versión
  * todavía (o no existe).
  */
-export async function obtenerVersionActual(
-  disenoId: string,
-): Promise<VersionCad | null> {
+export async function obtenerVersionActual(disenoId: string): Promise<VersionCad | null> {
   const leido = await leerDiseno(disenoId);
   const v = leido?.version;
   if (!v) return null;
@@ -234,9 +210,7 @@ export async function guardarVersionDiseno(entrada: {
 }
 
 /** El material de la versión vigente de un diseño. `null` si no tiene. */
-export async function obtenerMaterialDiseno(
-  disenoId: string,
-): Promise<MaterialDiseno | null> {
+export async function obtenerMaterialDiseno(disenoId: string): Promise<MaterialDiseno | null> {
   const supabase = await clienteServidor();
   const { data: diseno, error } = await supabase
     .from("cad_disenos")
@@ -252,10 +226,7 @@ export async function obtenerMaterialDiseno(
     .eq("diseno_id", disenoId)
     .eq("version", diseno.version_actual)
     .maybeSingle();
-  if (errorVersion)
-    throw new Error(
-      `No se pudo leer el material del diseño: ${errorVersion.message}`,
-    );
+  if (errorVersion) throw new Error(`No se pudo leer el material del diseño: ${errorVersion.message}`);
   if (!data?.grupo_plancha_id) return null;
   return { grupoPlanchaId: data.grupo_plancha_id, color: data.color };
 }
@@ -264,10 +235,7 @@ export async function obtenerMaterialDiseno(
  * La conversación de un diseño, en orden. Con `limite`, solo los últimos: es lo
  * que se le reenvía al modelo.
  */
-export async function listarMensajes(
-  disenoId: string,
-  limite?: number,
-): Promise<MensajeCad[]> {
+export async function listarMensajes(disenoId: string, limite?: number): Promise<MensajeCad[]> {
   const supabase = await clienteServidor();
   let consulta = supabase
     .from("cad_mensajes")
@@ -277,8 +245,7 @@ export async function listarMensajes(
   if (limite) consulta = consulta.limit(limite);
 
   const { data, error } = await consulta;
-  if (error)
-    throw new Error(`No se pudo leer la conversación: ${error.message}`);
+  if (error) throw new Error(`No se pudo leer la conversación: ${error.message}`);
 
   return (data ?? []).reverse().map((m) => ({
     id: m.id,

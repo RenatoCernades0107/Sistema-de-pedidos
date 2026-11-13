@@ -60,10 +60,7 @@ export interface DependenciasCad {
   /** `lib/cad/motor.ts`. Lanzan `ErrorMotorCad`. */
   listarPlantillas(): Promise<PlantillaCad[]>;
   obtenerPlantilla(codigo: string): Promise<PlantillaCad | null>;
-  generarDiseno(
-    plantilla: string,
-    parametros: ParametrosCad,
-  ): Promise<ResultadoGeneracion>;
+  generarDiseno(plantilla: string, parametros: ParametrosCad): Promise<ResultadoGeneracion>;
   /** Guarda lo generado como versión nueva del diseño de esta conversación. */
   guardarVersion(entrada: {
     plantilla: string;
@@ -122,11 +119,7 @@ export const NOMBRES_HERRAMIENTA = [
 
 export type NombreHerramienta = (typeof NOMBRES_HERRAMIENTA)[number];
 
-const SIN_ARGUMENTOS = {
-  type: "object",
-  properties: {},
-  additionalProperties: false,
-};
+const SIN_ARGUMENTOS = { type: "object", properties: {}, additionalProperties: false };
 
 export const HERRAMIENTAS_CAD: HerramientaLlm[] = [
   {
@@ -144,10 +137,7 @@ export const HERRAMIENTAS_CAD: HerramientaLlm[] = [
     parametros: {
       type: "object",
       properties: {
-        codigo: {
-          type: "string",
-          description: 'El código de la plantilla, por ejemplo "caja".',
-        },
+        codigo: { type: "string", description: 'El código de la plantilla, por ejemplo "caja".' },
       },
       required: ["codigo"],
       additionalProperties: false,
@@ -163,10 +153,7 @@ export const HERRAMIENTAS_CAD: HerramientaLlm[] = [
     parametros: {
       type: "object",
       properties: {
-        plantilla: {
-          type: "string",
-          description: "El código de la plantilla.",
-        },
+        plantilla: { type: "string", description: "El código de la plantilla." },
         parametros: {
           type: "object",
           description:
@@ -193,20 +180,9 @@ export const HERRAMIENTAS_CAD: HerramientaLlm[] = [
     parametros: {
       type: "object",
       properties: {
-        material: {
-          type: "string",
-          description:
-            'Parte del nombre del material: "acrílico", "eco", "mdf".',
-        },
-        espesor_mm: {
-          type: "number",
-          description: "El espesor exacto, en milímetros.",
-        },
-        color: {
-          type: "string",
-          description:
-            'El color o acabado: "cristal", "blanco lechoso", "negro".',
-        },
+        material: { type: "string", description: 'Parte del nombre del material: "acrílico", "eco", "mdf".' },
+        espesor_mm: { type: "number", description: "El espesor exacto, en milímetros." },
+        color: { type: "string", description: 'El color o acabado: "cristal", "blanco lechoso", "negro".' },
       },
       additionalProperties: false,
     },
@@ -214,11 +190,7 @@ export const HERRAMIENTAS_CAD: HerramientaLlm[] = [
 ];
 
 /** Las herramientas del diseño libre: solo se ofrecen con el diseño libre activo. */
-export const NOMBRES_HERRAMIENTA_LIBRE = [
-  "leer_referencia_cad",
-  "ejecutar_build123d",
-  "ver_render",
-] as const;
+export const NOMBRES_HERRAMIENTA_LIBRE = ["leer_referencia_cad", "ejecutar_build123d", "ver_render"] as const;
 
 export type NombreHerramientaLibre = (typeof NOMBRES_HERRAMIENTA_LIBRE)[number];
 
@@ -230,13 +202,7 @@ export const HERRAMIENTAS_LIBRE: HerramientaLlm[] = [
       'Útiles: "quick-reference.md", "advanced-patterns.md", "SKILL.md". Úsala solo para diseño libre, cuando dudes de la API.',
     parametros: {
       type: "object",
-      properties: {
-        nombre: {
-          type: "string",
-          description:
-            'Ruta o nombre del archivo, p. ej. "quick-reference.md".',
-        },
-      },
+      properties: { nombre: { type: "string", description: 'Ruta o nombre del archivo, p. ej. "quick-reference.md".' } },
       additionalProperties: false,
     },
   },
@@ -248,12 +214,7 @@ export const HERRAMIENTAS_LIBRE: HerramientaLlm[] = [
       "lo muestra en el visor y devuelve medidas, despiece y validaciones. Si falla, devuelve el error (tipo, línea, traza) para corregirlo.",
     parametros: {
       type: "object",
-      properties: {
-        codigo: {
-          type: "string",
-          description: "El programa completo, en Python.",
-        },
-      },
+      properties: { codigo: { type: "string", description: "El programa completo, en Python." } },
       required: ["codigo"],
       additionalProperties: false,
     },
@@ -267,30 +228,21 @@ export const HERRAMIENTAS_LIBRE: HerramientaLlm[] = [
 ];
 
 /** Las herramientas que se le ofrecen al modelo en este turno. */
-export const herramientasDisponibles = (
-  libreActivo: boolean,
-): HerramientaLlm[] =>
+export const herramientasDisponibles = (libreActivo: boolean): HerramientaLlm[] =>
   libreActivo ? [...HERRAMIENTAS_CAD, ...HERRAMIENTAS_LIBRE] : HERRAMIENTAS_CAD;
 
 /* ── Argumentos ────────────────────────────────────────────────────────────── */
 
-const esquemaVerPlantilla = z.object({
-  codigo: z.string().trim().min(1).max(80),
-});
+const esquemaVerPlantilla = z.object({ codigo: z.string().trim().min(1).max(80) });
 
 const esquemaGenerar = z.object({
   plantilla: z.string().trim().min(1).max(80),
   parametros: z
-    .record(
-      z.string().min(1).max(80),
-      z.union([z.number(), z.boolean(), z.string().max(500)]),
-    )
+    .record(z.string().min(1).max(80), z.union([z.number(), z.boolean(), z.string().max(500)]))
     .default({}),
 });
 
-const esquemaReferencia = z.object({
-  nombre: z.string().trim().max(300).optional(),
-});
+const esquemaReferencia = z.object({ nombre: z.string().trim().max(300).optional() });
 
 const esquemaCodigo = z.object({ codigo: z.string().min(1).max(60_000) });
 
@@ -316,10 +268,7 @@ const exito = (
   ...extra,
 });
 
-const fallo = (
-  datos: { codigo: string; mensaje: string } & Record<string, unknown>,
-  resumen?: string,
-): ResultadoHerramienta => ({
+const fallo = (datos: { codigo: string; mensaje: string } & Record<string, unknown>, resumen?: string): ResultadoHerramienta => ({
   ok: false,
   contenido: JSON.stringify({ error: datos }),
   resumen: resumen ?? datos.mensaje,
@@ -330,10 +279,7 @@ function argumentosInvalidos(error: z.ZodError): ResultadoHerramienta {
     {
       codigo: "argumentos_invalidos",
       mensaje: "Los argumentos de la herramienta no son válidos.",
-      errores: error.issues.map((i) => ({
-        campo: i.path.join("."),
-        mensaje: i.message,
-      })),
+      errores: error.issues.map((i) => ({ campo: i.path.join("."), mensaje: i.message })),
     },
     "Argumentos inválidos",
   );
@@ -343,20 +289,9 @@ function argumentosInvalidos(error: z.ZodError): ResultadoHerramienta {
  * Un `ErrorMotorCad` (`lib/cad/motor.ts`), reconocido por su forma y no por
  * `instanceof`: así este archivo no importa el transporte del motor.
  */
-function errorDeMotor(
-  e: unknown,
-): {
-  codigo: string;
-  estado: number;
-  mensaje: string;
-  errores?: { campo: string; mensaje: string }[];
-} | null {
+function errorDeMotor(e: unknown): { codigo: string; estado: number; mensaje: string; errores?: { campo: string; mensaje: string }[] } | null {
   if (!(e instanceof Error)) return null;
-  const m = e as Error & {
-    codigo?: unknown;
-    estado?: unknown;
-    errores?: unknown;
-  };
+  const m = e as Error & { codigo?: unknown; estado?: unknown; errores?: unknown };
   if (typeof m.codigo !== "string" || typeof m.estado !== "number") return null;
   const errores = Array.isArray(m.errores)
     ? m.errores.filter(
@@ -364,46 +299,28 @@ function errorDeMotor(
           !!x && typeof x.campo === "string" && typeof x.mensaje === "string",
       )
     : [];
-  return {
-    codigo: m.codigo,
-    estado: m.estado,
-    mensaje: m.message,
-    ...(errores.length ? { errores } : {}),
-  };
+  return { codigo: m.codigo, estado: m.estado, mensaje: m.message, ...(errores.length ? { errores } : {}) };
 }
 
 /** Cualquier fallo, como resultado para el modelo. Lo inesperado se anota en el log. */
 function falloDe(e: unknown, herramienta: string): ResultadoHerramienta {
   const motor = errorDeMotor(e);
   if (motor) {
-    const campos = motor.errores
-      ?.map((x) => x.campo)
-      .filter(Boolean)
-      .join(", ");
-    return fallo(
-      motor,
-      campos ? `${motor.mensaje} (${campos})` : motor.mensaje,
-    );
+    const campos = motor.errores?.map((x) => x.campo).filter(Boolean).join(", ");
+    return fallo(motor, campos ? `${motor.mensaje} (${campos})` : motor.mensaje);
   }
   console.error(`[cad] herramienta ${herramienta}`, e);
-  return fallo({
-    codigo: "interno",
-    mensaje:
-      "La herramienta falló por un problema interno. No lo reintentes sin cambios.",
-  });
+  return fallo({ codigo: "interno", mensaje: "La herramienta falló por un problema interno. No lo reintentes sin cambios." });
 }
 
 /** 200 → "200", 12.50 → "12.5". */
 const num = (n: number) => String(+n.toFixed(2));
 
-const medidas = (d: ResultadoGeneracion["dimensiones"]) =>
-  `${num(d.x)} × ${num(d.y)} × ${num(d.z)} mm`;
+const medidas = (d: ResultadoGeneracion["dimensiones"]) => `${num(d.x)} × ${num(d.y)} × ${num(d.z)} mm`;
 
 /** Los errores primero: son los que impiden mandar el diseño a producción. */
 const ordenarValidaciones = (v: ValidacionCad[]): ValidacionCad[] =>
-  [...v].sort(
-    (a, b) => Number(b.nivel === "error") - Number(a.nivel === "error"),
-  );
+  [...v].sort((a, b) => Number(b.nivel === "error") - Number(a.nivel === "error"));
 
 /** Lo que el modelo necesita de una generación. Sin `glb_base64`, a propósito. */
 function resumenDeGeneracion(r: ResultadoGeneracion) {
@@ -437,9 +354,7 @@ function coincide(texto: string, buscado: string | undefined): boolean {
 
 /* ── Cada herramienta ──────────────────────────────────────────────────────── */
 
-async function listarPlantillas(
-  deps: DependenciasCad,
-): Promise<ResultadoHerramienta> {
+async function listarPlantillas(deps: DependenciasCad): Promise<ResultadoHerramienta> {
   const plantillas = await deps.listarPlantillas();
   return exito(
     {
@@ -454,10 +369,7 @@ async function listarPlantillas(
   );
 }
 
-async function verPlantilla(
-  args: unknown,
-  deps: DependenciasCad,
-): Promise<ResultadoHerramienta> {
+async function verPlantilla(args: unknown, deps: DependenciasCad): Promise<ResultadoHerramienta> {
   const a = esquemaVerPlantilla.safeParse(args);
   if (!a.success) return argumentosInvalidos(a.error);
 
@@ -486,19 +398,13 @@ async function verPlantilla(
   );
 }
 
-async function generarDiseno(
-  args: unknown,
-  deps: DependenciasCad,
-): Promise<ResultadoHerramienta> {
+async function generarDiseno(args: unknown, deps: DependenciasCad): Promise<ResultadoHerramienta> {
   const a = esquemaGenerar.safeParse(args);
   if (!a.success) return argumentosInvalidos(a.error);
 
   // Si el motor rechaza los parámetros (422) no se guarda nada: el error sale
   // por `falloDe` con el detalle por campo.
-  const generado = await deps.generarDiseno(
-    a.data.plantilla,
-    a.data.parametros,
-  );
+  const generado = await deps.generarDiseno(a.data.plantilla, a.data.parametros);
 
   // Se guardan los parámetros que devuelve el motor, ya normalizados y con los
   // valores por defecto puestos: es lo que el formulario va a mostrar.
@@ -522,34 +428,20 @@ async function generarDiseno(
   }
 
   const resumen = resumenDeGeneracion(generado);
-  const errores = resumen.validaciones.filter(
-    (v) => v.nivel === "error",
-  ).length;
+  const errores = resumen.validaciones.filter((v) => v.nivel === "error").length;
   return exito(
     { ...resumen, version_guardada: version },
     `${medidas(generado.dimensiones)} · versión ${version}` +
-      (errores > 0
-        ? ` · ${errores} ${errores === 1 ? "error" : "errores"}`
-        : ""),
-    {
-      diseno: {
-        plantilla: generado.plantilla,
-        parametros: generado.parametros,
-      },
-    },
+      (errores > 0 ? ` · ${errores} ${errores === 1 ? "error" : "errores"}` : ""),
+    { diseno: { plantilla: generado.plantilla, parametros: generado.parametros } },
   );
 }
 
-async function verDisenoActual(
-  deps: DependenciasCad,
-): Promise<ResultadoHerramienta> {
+async function verDisenoActual(deps: DependenciasCad): Promise<ResultadoHerramienta> {
   const actual = await deps.obtenerDisenoActual();
   if (!actual) {
     return exito(
-      {
-        diseno: null,
-        mensaje: "El diseño está vacío: todavía no se ha generado nada.",
-      },
+      { diseno: null, mensaje: "El diseño está vacío: todavía no se ha generado nada." },
       "Diseño vacío",
     );
   }
@@ -560,20 +452,13 @@ async function verDisenoActual(
     ultimo_cambio_desde: actual.origen,
   };
 
-  if (actual.plantilla === PLANTILLA_LIBRE)
-    return verDisenoLibreActual(actual, base, deps);
+  if (actual.plantilla === PLANTILLA_LIBRE) return verDisenoLibreActual(actual, base, deps);
 
   // Las medidas y las validaciones no se guardan: se le vuelven a pedir al
   // motor. Si no contesta, al menos van la plantilla y los parámetros.
   try {
-    const generado = await deps.generarDiseno(
-      actual.plantilla,
-      actual.parametros,
-    );
-    return exito(
-      { ...resumenDeGeneracion(generado), ...base },
-      `${medidas(generado.dimensiones)} · versión ${actual.version}`,
-    );
+    const generado = await deps.generarDiseno(actual.plantilla, actual.parametros);
+    return exito({ ...resumenDeGeneracion(generado), ...base }, `${medidas(generado.dimensiones)} · versión ${actual.version}`);
   } catch (e) {
     const motor = errorDeMotor(e);
     if (!motor) console.error("[cad] herramienta ver_diseno_actual", e);
@@ -588,10 +473,7 @@ async function verDisenoActual(
   }
 }
 
-async function buscarPlanchas(
-  args: unknown,
-  deps: DependenciasCad,
-): Promise<ResultadoHerramienta> {
+async function buscarPlanchas(args: unknown, deps: DependenciasCad): Promise<ResultadoHerramienta> {
   const a = esquemaBuscarPlanchas.safeParse(args ?? {});
   if (!a.success) return argumentosInvalidos(a.error);
   const { material, espesor_mm, color } = a.data;
@@ -621,13 +503,9 @@ async function buscarPlanchas(
     datos.aviso = `Hay ${grupos.length} resultados y solo se muestran ${MAX_PLANCHAS}. Afina con material, espesor_mm o color.`;
   }
   if (grupos.length === 0) {
-    datos.aviso =
-      "Ninguna plancha del catálogo coincide. Prueba con menos filtros.";
+    datos.aviso = "Ninguna plancha del catálogo coincide. Prueba con menos filtros.";
   }
-  return exito(
-    datos,
-    grupos.length === 1 ? "1 plancha" : `${grupos.length} planchas`,
-  );
+  return exito(datos, grupos.length === 1 ? "1 plancha" : `${grupos.length} planchas`);
 }
 
 /* ── Diseño libre ──────────────────────────────────────────────────────────── */
@@ -636,12 +514,7 @@ async function buscarPlanchas(
 function errorDeCodigo(e: unknown): ErrorCodigoLibre | null {
   if (!(e instanceof Error)) return null;
   const x = (e as Error & { errorCodigo?: unknown }).errorCodigo;
-  if (
-    !x ||
-    typeof x !== "object" ||
-    typeof (x as ErrorCodigoLibre).mensaje !== "string"
-  )
-    return null;
+  if (!x || typeof x !== "object" || typeof (x as ErrorCodigoLibre).mensaje !== "string") return null;
   return x as ErrorCodigoLibre;
 }
 
@@ -649,15 +522,12 @@ const PISTAS_ERROR: Record<ErrorCodigoLibre["tipo"], string> = {
   sintaxis: "Corrige la sintaxis en la línea indicada.",
   prohibido:
     "El sandbox solo admite `import math`, `from build123d import ...` y `from diseno import ...`, sin archivos, sin atributos con guion bajo, sin clases ni try/with. Reescribe esa parte.",
-  ejecucion:
-    "Lee la traza: la línea indicada es la de tu código. Corrige y vuelve a ejecutar.",
-  tiempo:
-    "Tardó demasiado: quita bucles largos o geometría con demasiados detalles.",
+  ejecucion: "Lee la traza: la línea indicada es la de tu código. Corrige y vuelve a ejecutar.",
+  tiempo: "Tardó demasiado: quita bucles largos o geometría con demasiados detalles.",
   memoria: "Usó demasiada memoria: simplifica la geometría.",
   contrato:
     "Asigna `piezas = [pieza(id, nombre, contorno, espesor, ubicaciones=[ubicar(...)])]` con caras planas de `diseno`, no sólidos 3D.",
-  geometria:
-    "Las piezas no forman geometría válida: revisa que los contornos sean cerrados y no se crucen.",
+  geometria: "Las piezas no forman geometría válida: revisa que los contornos sean cerrados y no se crucen.",
   salida: "El resultado fue demasiado grande: reduce piezas o detalles.",
 };
 
@@ -671,10 +541,7 @@ function sinLibre(nombre: string): ResultadoHerramienta {
   );
 }
 
-async function leerReferenciaCad(
-  args: unknown,
-  deps: DependenciasCad,
-): Promise<ResultadoHerramienta> {
+async function leerReferenciaCad(args: unknown, deps: DependenciasCad): Promise<ResultadoHerramienta> {
   if (!deps.libre) return sinLibre("leer_referencia_cad");
   const a = esquemaReferencia.safeParse(args ?? {});
   if (!a.success) return argumentosInvalidos(a.error);
@@ -689,10 +556,7 @@ async function leerReferenciaCad(
   if (!a.data.nombre) return listar();
 
   const texto = await deps.libre.leerReferencia(a.data.nombre);
-  if (texto === null)
-    return listar(
-      `No existe la referencia "${a.data.nombre}". Estas son las que hay.`,
-    );
+  if (texto === null) return listar(`No existe la referencia "${a.data.nombre}". Estas son las que hay.`);
   const recortado = texto.length > MAX_REFERENCIA;
   return exito(
     {
@@ -700,9 +564,7 @@ async function leerReferenciaCad(
       nota:
         "Material de referencia de build123d (VibeCAD). Adáptalo a las reglas del sandbox: nada de uvx ni exportar archivos; " +
         "el resultado es `piezas = [...]` de `diseno`.",
-      contenido: recortado
-        ? `${texto.slice(0, MAX_REFERENCIA)}\n…(recortado)`
-        : texto,
+      contenido: recortado ? `${texto.slice(0, MAX_REFERENCIA)}\n…(recortado)` : texto,
     },
     a.data.nombre.split("/").pop() ?? a.data.nombre,
   );
@@ -729,10 +591,7 @@ function resumenDeLibre(r: ResultadoLibre) {
   };
 }
 
-async function ejecutarBuild123d(
-  args: unknown,
-  deps: DependenciasCad,
-): Promise<ResultadoHerramienta> {
+async function ejecutarBuild123d(args: unknown, deps: DependenciasCad): Promise<ResultadoHerramienta> {
   if (!deps.libre) return sinLibre("ejecutar_build123d");
   const a = esquemaCodigo.safeParse(args);
   if (!a.success) return argumentosInvalidos(a.error);
@@ -778,17 +637,14 @@ async function ejecutarBuild123d(
     return fallo(
       {
         codigo: "no_guardado",
-        mensaje:
-          "El código funcionó pero no se pudo guardar, así que el visor no cambió. Dile a la persona que lo intente de nuevo.",
+        mensaje: "El código funcionó pero no se pudo guardar, así que el visor no cambió. Dile a la persona que lo intente de nuevo.",
       },
       "No se pudo guardar el diseño",
     );
   }
 
   const resumen = resumenDeLibre(generado);
-  const errores = resumen.validaciones.filter(
-    (v) => v.nivel === "error",
-  ).length;
+  const errores = resumen.validaciones.filter((v) => v.nivel === "error").length;
   return exito(
     {
       ...resumen,
@@ -799,9 +655,7 @@ async function ejecutarBuild123d(
       siguiente_paso: "Usa ver_render para comprobar que se ve como se pidió.",
     },
     `Personalizado · ${medidas(generado.dimensiones)} · versión ${version} · borrador` +
-      (errores > 0
-        ? ` · ${errores} ${errores === 1 ? "error" : "errores"}`
-        : ""),
+      (errores > 0 ? ` · ${errores} ${errores === 1 ? "error" : "errores"}` : ""),
     { diseno: { plantilla: PLANTILLA_LIBRE, parametros: {} } },
   );
 }
@@ -810,21 +664,13 @@ async function verRender(deps: DependenciasCad): Promise<ResultadoHerramienta> {
   if (!deps.libre) return sinLibre("ver_render");
   const actual = await deps.obtenerDisenoActual();
   if (!actual) {
-    return fallo(
-      { codigo: "sin_diseno", mensaje: "Todavía no hay un diseño que mirar." },
-      "Diseño vacío",
-    );
+    return fallo({ codigo: "sin_diseno", mensaje: "Todavía no hay un diseño que mirar." }, "Diseño vacío");
   }
   const imagen = await deps.libre.renderizarActual();
   return exito(
     {
       version: actual.version,
-      vistas: [
-        "isométrica (arriba a la izquierda)",
-        "frente",
-        "planta",
-        "lateral",
-      ],
+      vistas: ["isométrica (arriba a la izquierda)", "frente", "planta", "lateral"],
       nota: "La imagen va a continuación. Cada pieza tiene un color distinto.",
     },
     `Render de la versión ${actual.version}`,
@@ -837,36 +683,21 @@ async function verDisenoLibreActual(
   base: Record<string, unknown>,
   deps: DependenciasCad,
 ): Promise<ResultadoHerramienta> {
-  const datos = {
-    ...base,
-    tipo: "diseño libre",
-    estado: actual.estado ?? "borrador",
-    codigo: actual.codigo ?? "",
-  };
+  const datos = { ...base, tipo: "diseño libre", estado: actual.estado ?? "borrador", codigo: actual.codigo ?? "" };
   if (!deps.libre || !actual.codigo) {
     return exito(
-      {
-        ...datos,
-        aviso:
-          "El diseño libre no está disponible ahora: no se pueden recalcular medidas.",
-      },
+      { ...datos, aviso: "El diseño libre no está disponible ahora: no se pueden recalcular medidas." },
       `Versión ${actual.version} · personalizado`,
     );
   }
   try {
     const r = await deps.libre.ejecutarCodigo(actual.codigo);
-    return exito(
-      { ...resumenDeLibre(r), ...datos },
-      `${medidas(r.dimensiones)} · versión ${actual.version} · personalizado`,
-    );
+    return exito({ ...resumenDeLibre(r), ...datos }, `${medidas(r.dimensiones)} · versión ${actual.version} · personalizado`);
   } catch (e) {
     const error = errorDeCodigo(e) ?? errorDeMotor(e);
     if (!error) console.error("[cad] herramienta ver_diseno_actual (libre)", e);
     return exito(
-      {
-        ...datos,
-        aviso: `No se pudieron recalcular medidas: ${error?.mensaje ?? "el sandbox falló"}`,
-      },
+      { ...datos, aviso: `No se pudieron recalcular medidas: ${error?.mensaje ?? "el sandbox falló"}` },
       `Versión ${actual.version} · personalizado`,
     );
   }
