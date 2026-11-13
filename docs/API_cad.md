@@ -136,6 +136,10 @@ seguridad y despliegue en `cad/sandbox/README.md`). Cabecera `X-API-Key` si
 - `POST /ejecutar {codigo}` → lo de `/generar` sin `plantilla`/`parametros`:
   `{ codigo, nombre, dimensiones, glb_base64, piezas, validaciones, salida }`.
 - `POST /dxf {codigo, opciones?: {kerf_mm, separacion_mm}}` → `application/dxf`.
+- `POST /dxf/planchas {codigo, planchas, opciones?: {kerf_mm}}` → `application/dxf`:
+  ejecuta el código y dibuja sus piezas en las planchas, igual que
+  `/dxf/planchas` del motor (mismas `planchas`, capa `PLANCHA`). Acomodo que no
+  cuadra con las piezas: 422 `acomodo_invalido` con `errores`.
 - `POST /step {codigo}` → `application/step`.
 - `POST /render {glb_base64 | codigo}` → `{ png_base64, vistas, ancho, alto }`
   (PNG 960×960: isométrica, frente, planta, lateral).

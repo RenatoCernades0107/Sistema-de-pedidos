@@ -261,7 +261,7 @@ begin
   if has_table_privilege('authenticated', 'public.cad_diseno_versiones', 'update') then
     raise exception 'FALLO: una versión se puede actualizar sin pasar por aprobar_version_diseno';
   end if;
-  if has_function_privilege('anon', 'public.guardar_version_diseno_libre(uuid, text, text)', 'execute')
+  if has_function_privilege('anon', 'public.guardar_version_diseno_libre(uuid, text, text, uuid, text, jsonb)', 'execute')
      or has_function_privilege('anon', 'public.aprobar_version_diseno(uuid, integer)', 'execute') then
     raise exception 'FALLO: anon puede guardar o aprobar diseños libres';
   end if;
@@ -327,10 +327,39 @@ begin
     raise exception 'FALLO: se aprobó dos veces la misma versión';
   exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
 
+  -- El mismo código (elegir material) conserva la aprobación (20261122000100).
+  v_version := public.guardar_version_diseno_libre(v_diseno, 'piezas = []');
+  select * into v_fila from public.cad_diseno_versiones where diseno_id = v_diseno and version = v_version;
+  if v_fila.estado <> 'aprobado' or v_fila.aprobado_por::text <> current_setting('plexi.test_admin')
+     or v_fila.aprobado_en is null then
+    raise exception 'FALLO: el mismo código aprobado no conservó la aprobación';
+  end if;
+
   -- Una versión libre nueva vuelve a nacer en borrador.
   v_version := public.guardar_version_diseno_libre(v_diseno, 'piezas = [1]');
   if (select estado from public.cad_diseno_versiones where diseno_id = v_diseno and version = v_version) <> 'borrador' then
     raise exception 'FALLO: una versión libre nueva no nació en borrador';
+  end if;
+
+  -- Material y acomodo (20261122000100): se guardan; sin material, la siguiente
+  -- hereda el de la anterior, pero no su acomodo.
+  if exists (select 1 from public.grupos_plancha) then
+    v_version := public.guardar_version_diseno_libre(v_diseno, 'piezas = [1]', 'formulario',
+      (select id from public.grupos_plancha order by id limit 1), '  Azul ',
+      '{"formato": "1000x2000", "merma_pct": 20}'::jsonb);
+    select * into v_fila from public.cad_diseno_versiones where diseno_id = v_diseno and version = v_version;
+    if v_fila.grupo_plancha_id is null or v_fila.color <> 'Azul' or v_fila.codigo <> 'piezas = [1]'
+       or v_fila.estado <> 'borrador' or v_fila.origen <> 'formulario'
+       or (v_fila.acomodo ->> 'merma_pct')::numeric <> 20 then
+      raise exception 'FALLO: la versión libre no guardó el material y su acomodo';
+    end if;
+    v_version := public.guardar_version_diseno_libre(v_diseno, 'piezas = [2]');
+    select * into v_fila from public.cad_diseno_versiones where diseno_id = v_diseno and version = v_version;
+    if v_fila.grupo_plancha_id is null or v_fila.color <> 'Azul' or v_fila.acomodo is not null then
+      raise exception 'FALLO: la versión libre siguiente no heredó el material (o heredó el acomodo)';
+    end if;
+  else
+    raise notice 'No hay grupos de plancha: se salta la prueba de material en diseño libre';
   end if;
 end $$;
 

@@ -176,7 +176,7 @@ def ejecutar(
             return Resultado(False, {"ok": False, "error": {"tipo": "salida", "mensaje": "Resultado ilegible."}})
         binario = None
         ruta_bin = os.path.join(dir_trabajo, "salida.bin")
-        if datos.get("ok") and modo in ("dxf", "step"):
+        if datos.get("ok") and modo in ("dxf", "dxf_planchas", "step"):
             if not os.path.exists(ruta_bin) or os.path.getsize(ruta_bin) > MAX_SALIDA_BIN:
                 return Resultado(False, {"ok": False, "error": {"tipo": "salida", "mensaje": "Falta el archivo exportado."}})
             with open(ruta_bin, "rb") as f:

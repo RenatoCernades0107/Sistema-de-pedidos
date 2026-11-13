@@ -4,6 +4,7 @@ import {
   disenoLibreActivo,
   ejecutarCodigo,
   exportarDxfLibre,
+  exportarDxfPlanchasLibre,
   leerReferencia,
   renderizar,
 } from "./sandbox";
@@ -113,6 +114,32 @@ describe("transporte", () => {
     fetchFalso.mockResolvedValue(new Response("0\nSECTION"));
     await exportarDxfLibre("x", { kerf_mm: 0.1 });
     expect(llamada().cuerpo).toEqual({ codigo: "x", opciones: { kerf_mm: 0.1 } });
+  });
+
+  it("el DXF por plancha manda el código, las planchas y el kerf", async () => {
+    fetchFalso.mockResolvedValue(new Response("0\nSECTION"));
+    const planchas = [{ ancho_mm: 300, alto_mm: 300, piezas: [{ id: "a", indice: 1, x_mm: 0, y_mm: 0, rotada: false }] }];
+    await exportarDxfPlanchasLibre("x", planchas, { kerf_mm: 0.2 });
+    expect(llamada().url).toBe("http://sandbox.test/dxf/planchas");
+    expect(llamada().cuerpo).toEqual({ codigo: "x", planchas, opciones: { kerf_mm: 0.2 } });
+  });
+
+  it("un acomodo inválido trae sus errores", async () => {
+    fetchFalso.mockResolvedValue(
+      respuesta(
+        {
+          detail: {
+            codigo: "acomodo_invalido",
+            mensaje: "El acomodo en planchas no es válido.",
+            errores: [{ campo: "planchas", mensaje: "Falta colocar la copia 1 de «a»." }],
+          },
+        },
+        422,
+      ),
+    );
+    const e = await errorDe(exportarDxfPlanchasLibre("x", []));
+    expect(e.codigo).toBe("acomodo_invalido");
+    expect(e.errores).toEqual([{ campo: "planchas", mensaje: "Falta colocar la copia 1 de «a»." }]);
   });
 
   it("el render vuelve como data URL", async () => {

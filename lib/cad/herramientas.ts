@@ -20,11 +20,16 @@
 
 import { z } from "zod";
 import { palabras } from "@/lib/busqueda-inteligente";
+import { colorDe, espesorTexto, pideColor, type GrupoPlancha } from "@/lib/cortes/catalogo";
+import type { ConfigCortes } from "@/lib/cortes/config";
 import type { HerramientaLlm } from "@/lib/llm/inferhub";
+import { PARAMETRO_ESPESOR, planchasDeDiseno, type ResultadoAcomodo } from "./acomodo";
+import { costoDiseno } from "./costo";
 import {
   PLANTILLA_LIBRE,
   type ErrorCodigoLibre,
   type EstadoDisenoLibre,
+  type MaterialDiseno,
   type ParametrosCad,
   type PiezaCad,
   type PlantillaCad,
@@ -47,14 +52,11 @@ export type DisenoActual = {
   estado?: EstadoDisenoLibre;
 };
 
-/** Lo que se lee de un grupo del catálogo de planchas (`lib/cortes/catalogo.ts`). */
-export type PlanchaCatalogo = {
-  material: string;
-  variante: string;
-  detalle: string;
-  espesorMm: number;
-  formatos: { codigo: string; anchoCm: number; largoCm: number }[];
-};
+/** Un grupo del catálogo de planchas (`lib/cortes/catalogo.ts`), con sus formatos activos. */
+export type PlanchaCatalogo = GrupoPlancha;
+
+/** La foto del acomodo que se guarda con la versión: el acomodo y el kerf con que se hizo. */
+export type FotoAcomodo = ResultadoAcomodo & { kerfMm: number };
 
 export interface DependenciasCad {
   /** `lib/cad/motor.ts`. Lanzan `ErrorMotorCad`. */
@@ -66,11 +68,23 @@ export interface DependenciasCad {
     plantilla: string;
     parametros: ParametrosCad;
     versionPlantilla: number;
+    /** Sin material, la versión hereda el de la anterior. */
+    material?: MaterialDiseno;
+    acomodo?: FotoAcomodo | null;
   }): Promise<{ version: number }>;
   /** `null` si el diseño todavía no tiene ninguna versión. */
   obtenerDisenoActual(): Promise<DisenoActual | null>;
+  /** El material de la versión vigente. `null` si no tiene. */
+  obtenerMaterial(): Promise<MaterialDiseno | null>;
   /** Los grupos con formatos activos. */
   cargarPlanchas(): Promise<PlanchaCatalogo[]>;
+  /** La configuración de cortes (kerf y margen en cm, láser, cobro). */
+  cargarConfigCortes(): Promise<ConfigCortes>;
+  /**
+   * El precio en Odoo de cada código de plancha. Solo si quien chatea es
+   * Administración: sin ella, `ver_costo` no da montos.
+   */
+  cargarPrecios?(codigos: string[]): Promise<Record<string, number>>;
   /** Solo si el diseño libre está activo (`CAD_DISENO_LIBRE=1` y sandbox configurado). */
   libre?: DependenciasLibre;
 }
@@ -81,6 +95,15 @@ export interface DependenciasLibre {
   ejecutarCodigo(codigo: string): Promise<ResultadoLibre>;
   /** Guarda el código como versión nueva en borrador. */
   guardarVersionLibre(codigo: string): Promise<{ version: number }>;
+  /**
+   * Guarda el mismo código como versión nueva con material y acomodo. Sin ella,
+   * `elegir_material` no está disponible para diseños libres.
+   */
+  guardarVersionLibreConMaterial?(
+    codigo: string,
+    material: MaterialDiseno,
+    acomodo: FotoAcomodo | null,
+  ): Promise<{ version: number }>;
   /** El render 2×2 del diseño vigente (libre o de plantilla), como `data:` URL. */
   renderizarActual(): Promise<string>;
   listarReferencias(): Promise<{ nombre: string; bytes: number }[]>;
@@ -115,6 +138,8 @@ export const NOMBRES_HERRAMIENTA = [
   "generar_diseno",
   "ver_diseno_actual",
   "buscar_planchas",
+  "elegir_material",
+  "ver_costo",
 ] as const;
 
 export type NombreHerramienta = (typeof NOMBRES_HERRAMIENTA)[number];
@@ -187,6 +212,31 @@ export const HERRAMIENTAS_CAD: HerramientaLlm[] = [
       additionalProperties: false,
     },
   },
+  {
+    nombre: "elegir_material",
+    descripcion:
+      "Elige la plancha del catálogo con la que se cortará el diseño actual. Si la plantilla tiene parámetro de espesor, lo pone al de la plancha y regenera. " +
+      "Guarda una versión nueva con el material y devuelve cómo se acomodan las piezas: cuántas planchas y de qué formato, la merma, " +
+      "las piezas que no entran y los problemas de espesor. Si el material es ambiguo o no existe, devuelve las opciones.",
+    parametros: {
+      type: "object",
+      properties: {
+        material: { type: "string", description: 'El material: "acrílico eco", "mdf".' },
+        color: { type: "string", description: 'El color o acabado: "cristal", "blanco lechoso". Omítelo si el material no tiene colores.' },
+        espesor_mm: { type: "number", description: "El espesor de la plancha, en milímetros." },
+      },
+      required: ["material", "espesor_mm"],
+      additionalProperties: false,
+    },
+  },
+  {
+    nombre: "ver_costo",
+    descripcion:
+      "Calcula lo que cuesta fabricar el diseño actual en el material elegido: planchas, minutos de láser y, solo si quien pregunta es Administración, " +
+      "los montos de material, servicio de corte y total. No es el precio al cliente (no incluye plegado, pegado ni armado). " +
+      "Necesita que el diseño tenga material (elegir_material).",
+    parametros: SIN_ARGUMENTOS,
+  },
 ];
 
 /** Las herramientas del diseño libre: solo se ofrecen con el diseño libre activo. */
@@ -250,6 +300,12 @@ const esquemaBuscarPlanchas = z.object({
   material: z.string().trim().max(80).optional(),
   espesor_mm: z.number().positive().optional(),
   color: z.string().trim().max(80).optional(),
+});
+
+const esquemaElegirMaterial = z.object({
+  material: z.string().trim().min(1).max(80),
+  color: z.string().trim().max(80).optional(),
+  espesor_mm: z.number().positive(),
 });
 
 /* ── Apoyo ─────────────────────────────────────────────────────────────────── */
@@ -508,6 +564,362 @@ async function buscarPlanchas(args: unknown, deps: DependenciasCad): Promise<Res
   return exito(datos, grupos.length === 1 ? "1 plancha" : `${grupos.length} planchas`);
 }
 
+/* ── Material y costo ──────────────────────────────────────────────────────── */
+
+/** Hasta cuántas opciones se devuelven cuando el material es ambiguo. */
+const MAX_OPCIONES_MATERIAL = 15;
+
+const textoColor = (g: Pick<GrupoPlancha, "variante" | "detalle">) => `${g.variante} ${g.detalle}`;
+
+/** Si el texto dice exactamente lo buscado, sin tildes, mayúsculas ni separadores. */
+const igual = (texto: string, buscado: string) => palabras(texto).join(" ") === palabras(buscado).join(" ");
+
+/** De varios candidatos, los que coinciden exactamente; si ninguno, todos. */
+function exactos<T>(candidatos: T[], texto: (c: T) => string, buscado: string | undefined): T[] {
+  if (!buscado || candidatos.length < 2) return candidatos;
+  const iguales = candidatos.filter((c) => igual(texto(c), buscado));
+  return iguales.length > 0 ? iguales : candidatos;
+}
+
+/**
+ * El grupo del catálogo que nombra la persona. Un color que no es el de ningún
+ * grupo vale si el único grupo de ese material y espesor tiene el código
+ * compartido entre colores (`pideColor`): ahí el color se guarda aparte.
+ */
+function resolverGrupo(
+  catalogo: PlanchaCatalogo[],
+  pedido: { material: string; color?: string; espesor_mm: number },
+): { grupo: PlanchaCatalogo; color: string | null } | { candidatos: PlanchaCatalogo[] } {
+  const color = pedido.color?.trim() || undefined;
+  const base = catalogo.filter(
+    (g) =>
+      g.formatos.length > 0 &&
+      coincide(g.material, pedido.material) &&
+      Math.abs(g.espesorMm - pedido.espesor_mm) < 0.01,
+  );
+
+  let candidatos = color ? base.filter((g) => coincide(textoColor(g), color)) : base;
+  if (color && candidatos.length === 0) {
+    const compartidos = base.filter(pideColor);
+    if (compartidos.length === 1) return { grupo: compartidos[0], color };
+    return { candidatos: compartidos.length > 0 ? compartidos : base };
+  }
+  candidatos = exactos(candidatos, textoColor, color);
+  candidatos = exactos(candidatos, (g) => g.material, pedido.material);
+  if (candidatos.length !== 1) return { candidatos };
+  const grupo = candidatos[0];
+  return { grupo, color: color && pideColor(grupo) ? color : null };
+}
+
+const opcionDeGrupo = (g: PlanchaCatalogo) => ({
+  material: g.material,
+  color: colorDe(g),
+  espesor_mm: g.espesorMm,
+});
+
+const nombreMaterial = (g: PlanchaCatalogo, color: string | null) =>
+  `${g.material} · ${color ?? colorDe(g)} · ${espesorTexto(g.espesorMm)}`;
+
+/** El kerf y el margen de la configuración de cortes, de cm a mm. */
+const corteDe = (config: ConfigCortes) => ({
+  kerfMm: config.corte.kerfLaser * 10,
+  margenMm: config.corte.margen * 10,
+});
+
+/** El formato de un acomodo, en mm. */
+function formatoDe(grupo: PlanchaCatalogo, acomodo: ResultadoAcomodo | null) {
+  const f = acomodo ? grupo.formatos.find((x) => x.id === acomodo.formatoId) : undefined;
+  return f ? { codigo: f.codigo, ancho_mm: +(f.anchoCm * 10).toFixed(1), largo_mm: +(f.largoCm * 10).toFixed(1) } : null;
+}
+
+/** Las copias que no entran en el formato elegido, por pieza. */
+function piezasFueraDe(acomodo: ResultadoAcomodo | null, piezas: PiezaCad[]) {
+  const porId = new Map<string, number>();
+  for (const c of acomodo?.noCaben ?? []) porId.set(c.id, (porId.get(c.id) ?? 0) + 1);
+  return [...porId].map(([id, copias]) => ({
+    id,
+    nombre: piezas.find((p) => p.id === id)?.nombre ?? id,
+    copias,
+  }));
+}
+
+/** El resumen del acomodo para el modelo y su línea para la ficha. */
+function resumenDeAcomodo(
+  grupo: PlanchaCatalogo,
+  color: string | null,
+  piezas: PiezaCad[],
+  planchas: ReturnType<typeof planchasDeDiseno>,
+) {
+  const a = planchas.acomodo;
+  const formato = formatoDe(grupo, a);
+  const fuera = piezasFueraDe(a, piezas);
+  const datos = {
+    material: nombreMaterial(grupo, color),
+    planchas: a?.planchas.length ?? 0,
+    formato,
+    merma_pct: a ? +a.mermaPct.toFixed(1) : null,
+    piezas_que_no_entran: fuera,
+    problemas: planchas.problemas,
+  };
+  const partes = [nombreMaterial(grupo, color)];
+  if (a && formato) {
+    partes.push(
+      `${a.planchas.length} ${a.planchas.length === 1 ? "plancha" : "planchas"} ${num(formato.ancho_mm / 10)}×${num(formato.largo_mm / 10)} cm`,
+      `merma ${num(+a.mermaPct.toFixed(0))} %`,
+    );
+  }
+  const copiasFuera = fuera.reduce((s, f) => s + f.copias, 0);
+  if (copiasFuera > 0) partes.push(`${copiasFuera} ${copiasFuera === 1 ? "pieza no entra" : "piezas no entran"}`);
+  else if (planchas.problemas.length > 0) partes.push("revisar el espesor");
+  return { datos, resumen: partes.join(" · ") };
+}
+
+const AVISO_PIEZAS_FUERA =
+  "Hay piezas que no entran en ninguna plancha de este material: díselo a la persona y propón achicarlas, dividirlas u otro material.";
+
+function sinDiseno(): ResultadoHerramienta {
+  return fallo(
+    { codigo: "sin_diseno", mensaje: "Todavía no hay un diseño. Genera uno antes de elegir material o calcular el costo." },
+    "Diseño vacío",
+  );
+}
+
+async function elegirMaterial(args: unknown, deps: DependenciasCad): Promise<ResultadoHerramienta> {
+  const a = esquemaElegirMaterial.safeParse(args);
+  if (!a.success) return argumentosInvalidos(a.error);
+
+  const actual = await deps.obtenerDisenoActual();
+  if (!actual) return sinDiseno();
+
+  const elegido = resolverGrupo(await deps.cargarPlanchas(), a.data);
+  if ("candidatos" in elegido) {
+    const { candidatos } = elegido;
+    return fallo(
+      {
+        codigo: candidatos.length === 0 ? "material_no_encontrado" : "material_ambiguo",
+        mensaje:
+          candidatos.length === 0
+            ? "Ninguna plancha del catálogo coincide con ese material y espesor. Busca con buscar_planchas y pregunta a la persona."
+            : "Hay varias planchas que coinciden: pregunta a la persona cuál, o vuelve a llamar con el color exacto.",
+        opciones: candidatos.slice(0, MAX_OPCIONES_MATERIAL).map(opcionDeGrupo),
+      },
+      candidatos.length === 0 ? "Material no encontrado" : `${candidatos.length} materiales posibles`,
+    );
+  }
+  const { grupo, color } = elegido;
+  const material: MaterialDiseno = { grupoPlanchaId: grupo.id, color };
+  const corte = corteDe(await deps.cargarConfigCortes());
+
+  if (actual.plantilla === PLANTILLA_LIBRE) return elegirMaterialLibre(actual, grupo, material, corte, deps);
+
+  // Elegir la plancha es también elegir el espesor, si la plantilla lo tiene.
+  const plantilla = await deps.obtenerPlantilla(actual.plantilla);
+  const conEspesor = plantilla?.esquema?.properties?.[PARAMETRO_ESPESOR]?.type === "number";
+  const generado = await deps.generarDiseno(
+    actual.plantilla,
+    conEspesor ? { ...actual.parametros, [PARAMETRO_ESPESOR]: grupo.espesorMm } : actual.parametros,
+  );
+  const piezas = generado.piezas ?? [];
+  const planchas = planchasDeDiseno(grupo, generado.parametros, piezas, corte);
+
+  let version: number;
+  try {
+    ({ version } = await deps.guardarVersion({
+      plantilla: generado.plantilla,
+      parametros: generado.parametros,
+      versionPlantilla: generado.version_plantilla,
+      material,
+      acomodo: planchas.acomodo ? { ...planchas.acomodo, kerfMm: corte.kerfMm } : null,
+    }));
+  } catch (e) {
+    console.error("[cad] guardar material del chat", e);
+    return fallo(
+      { codigo: "no_guardado", mensaje: "No se pudo guardar el material. Dile a la persona que lo intente de nuevo." },
+      "No se pudo guardar el material",
+    );
+  }
+
+  const { datos, resumen } = resumenDeAcomodo(grupo, color, piezas, planchas);
+  return exito(
+    {
+      ...datos,
+      version_guardada: version,
+      ...(conEspesor ? { espesor_aplicado_mm: grupo.espesorMm, dimensiones_mm: generado.dimensiones } : {}),
+      ...(datos.piezas_que_no_entran.length > 0 ? { aviso: AVISO_PIEZAS_FUERA } : {}),
+    },
+    `${resumen} · versión ${version}`,
+    { diseno: { plantilla: generado.plantilla, parametros: generado.parametros } },
+  );
+}
+
+async function elegirMaterialLibre(
+  actual: DisenoActual,
+  grupo: PlanchaCatalogo,
+  material: MaterialDiseno,
+  corte: { kerfMm: number; margenMm: number },
+  deps: DependenciasCad,
+): Promise<ResultadoHerramienta> {
+  const guardar = deps.libre?.guardarVersionLibreConMaterial;
+  if (!deps.libre || !guardar || !actual.codigo) {
+    return fallo(
+      {
+        codigo: "material_libre_no_disponible",
+        mensaje:
+          "Todavía no se puede elegir el material de un diseño personalizado desde el chat. Dile a la persona que lo elija en la pestaña Planchas.",
+      },
+      "No disponible en diseño personalizado",
+    );
+  }
+
+  const r = await deps.libre.ejecutarCodigo(actual.codigo);
+  const piezas = r.piezas ?? [];
+  // En un diseño libre el espesor lo fija el código: solo se comprueba.
+  const planchas = planchasDeDiseno(grupo, {}, piezas, corte);
+
+  let version: number;
+  try {
+    ({ version } = await guardar(
+      actual.codigo,
+      material,
+      planchas.acomodo ? { ...planchas.acomodo, kerfMm: corte.kerfMm } : null,
+    ));
+  } catch (e) {
+    console.error("[cad] guardar material libre del chat", e);
+    return fallo(
+      { codigo: "no_guardado", mensaje: "No se pudo guardar el material. Dile a la persona que lo intente de nuevo." },
+      "No se pudo guardar el material",
+    );
+  }
+
+  const { datos, resumen } = resumenDeAcomodo(grupo, material.color, piezas, planchas);
+  const estado = actual.estado ?? "borrador";
+  return exito(
+    {
+      ...datos,
+      version_guardada: version,
+      // El código no cambió: la versión nueva conserva la aprobación que tuviera.
+      estado,
+      ...(datos.piezas_que_no_entran.length > 0 ? { aviso: AVISO_PIEZAS_FUERA } : {}),
+      nota: "En un diseño personalizado el espesor lo fija el código: si no coincide con la plancha, corrige el código.",
+    },
+    `${resumen} · versión ${version}${estado === "borrador" ? " · borrador" : ""}`,
+    { diseno: { plantilla: PLANTILLA_LIBRE, parametros: {} } },
+  );
+}
+
+async function verCosto(deps: DependenciasCad): Promise<ResultadoHerramienta> {
+  const actual = await deps.obtenerDisenoActual();
+  if (!actual) return sinDiseno();
+
+  const material = await deps.obtenerMaterial();
+  if (!material) {
+    return fallo(
+      {
+        codigo: "sin_material",
+        mensaje:
+          "El diseño no tiene material. Pregunta a la persona material, color y espesor, y elígelo con elegir_material antes de calcular el costo.",
+      },
+      "Falta el material",
+    );
+  }
+
+  const [grupos, config] = await Promise.all([deps.cargarPlanchas(), deps.cargarConfigCortes()]);
+  const grupo = grupos.find((g) => g.id === material.grupoPlanchaId);
+  if (!grupo) {
+    return fallo(
+      {
+        codigo: "material_fuera_de_catalogo",
+        mensaje: "El material del diseño ya no está en el catálogo (o no tiene formatos activos). Elige otro con elegir_material.",
+      },
+      "Material fuera del catálogo",
+    );
+  }
+
+  // Las piezas no se guardan: se recalculan con el motor o el sandbox.
+  let piezas: PiezaCad[];
+  let parametros: ParametrosCad = {};
+  let validaciones: ValidacionCad[];
+  const avisos: string[] = [];
+  if (actual.plantilla === PLANTILLA_LIBRE) {
+    if (!deps.libre || !actual.codigo) return sinLibre("ver_costo");
+    const r = await deps.libre.ejecutarCodigo(actual.codigo);
+    piezas = r.piezas ?? [];
+    validaciones = r.validaciones ?? [];
+    if (actual.estado !== "aprobado") {
+      avisos.push("Es un diseño personalizado en borrador: Administración tiene que aprobarlo antes de cotizarlo.");
+    }
+  } else {
+    const r = await deps.generarDiseno(actual.plantilla, actual.parametros);
+    piezas = r.piezas ?? [];
+    parametros = r.parametros;
+    validaciones = r.validaciones ?? [];
+  }
+  if (validaciones.some((v) => v.nivel === "error")) {
+    avisos.push("El diseño tiene errores de validación: hay que corregirlos antes de cotizarlo.");
+  }
+
+  const planchas = planchasDeDiseno(grupo, parametros, piezas, corteDe(config));
+  const codigos = grupo.formatos.map((f) => f.codigo);
+  const conMontos = !!deps.cargarPrecios;
+  let precios: Record<string, number>;
+  if (deps.cargarPrecios) {
+    try {
+      precios = await deps.cargarPrecios(codigos);
+    } catch (e) {
+      console.error("[cad] precios de planchas (chat)", e);
+      precios = {};
+      avisos.push("No se pudieron leer los precios de Odoo: el material sale en cero.");
+    }
+  } else {
+    // Sin montos, el precio no importa: con cero, el costo no se queja de que falte.
+    precios = Object.fromEntries(codigos.map((c) => [c, 0]));
+  }
+
+  const costo = costoDiseno({ piezas, grupo, acomodo: planchas.acomodo, precios, config });
+  const nombre = nombreMaterial(grupo, material.color);
+  if (!costo) {
+    return fallo(
+      {
+        codigo: "sin_acomodo",
+        mensaje: "No se pudo calcular el costo: las piezas no se pudieron acomodar en las planchas de este material.",
+        material: nombre,
+        problemas: planchas.problemas,
+      },
+      "Costo no disponible",
+    );
+  }
+
+  const problemas = [...planchas.problemas, ...(costo.problema ? [costo.problema] : [])];
+  const fuera = piezasFueraDe(planchas.acomodo, piezas);
+  const formato = formatoDe(grupo, planchas.acomodo);
+  const datos = {
+    material: nombre,
+    planchas: +costo.planchas.toFixed(2),
+    formato,
+    minutos_laser: +costo.minutosLaser.toFixed(1),
+    ...(conMontos
+      ? {
+          moneda: "PEN (soles)",
+          costo_material: costo.material,
+          servicio_corte: costo.servicio,
+          total: costo.total,
+        }
+      : { montos: "Solo Administración ve los montos. No des ni estimes precios: da planchas y minutos de láser." }),
+    piezas_que_no_entran: fuera,
+    problemas,
+    ...(avisos.length ? { avisos } : {}),
+    nota: "Es el costo de material y corte láser, no el precio al cliente: no incluye plegado, pegado ni armado.",
+  };
+
+  const partes = [
+    ...(conMontos ? [`S/ ${costo.total.toFixed(2)}`] : []),
+    `${num(costo.planchas)} ${costo.planchas === 1 ? "plancha" : "planchas"}${formato ? ` ${formato.codigo}` : ""}`,
+    `${num(+costo.minutosLaser.toFixed(1))} min de láser`,
+  ];
+  if (problemas.length > 0) partes.push(fuera.length > 0 ? "piezas que no entran" : "con problemas");
+  return exito(datos, partes.join(" · "));
+}
+
 /* ── Diseño libre ──────────────────────────────────────────────────────────── */
 
 /** El error de código que trae un `ErrorSandboxCad`, reconocido por su forma. */
@@ -727,6 +1139,10 @@ export async function ejecutarHerramienta(
         return await verDisenoActual(deps);
       case "buscar_planchas":
         return await buscarPlanchas(argumentos, deps);
+      case "elegir_material":
+        return await elegirMaterial(argumentos, deps);
+      case "ver_costo":
+        return await verCosto(deps);
     }
     switch (nombre as NombreHerramientaLibre) {
       case "leer_referencia_cad":

@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
-import { guardarVersion } from "@/app/(app)/disenos/acciones";
+import { guardarMaterialDisenoLibre, guardarVersion } from "@/app/(app)/disenos/acciones";
 import {
   acomodar,
   formatosDeGrupo,
@@ -29,6 +29,7 @@ import type {
   PiezaCad,
   PlantillaCad,
   ResultadoGeneracion,
+  VersionLibreCad,
 } from "@/lib/cad/tipos";
 import { PLANTILLA_LIBRE } from "@/lib/cad/tipos";
 
@@ -72,7 +73,9 @@ export interface EstadoDiseno {
   grupo: GrupoPlancha | null;
   /**
    * Elige el material. Si la plantilla tiene `espesor`, lo pone al de la plancha
-   * y regenera; siempre guarda una versión nueva con el material.
+   * y regenera; siempre guarda una versión nueva con el material. En un diseño
+   * libre no se regenera (el espesor lo fija el código): se guarda el mismo
+   * código con el material y el acomodo de sus piezas.
    */
   elegirMaterial: (material: MaterialDiseno) => Promise<void>;
   /** Las piezas acomodadas en el mejor formato del grupo. `null` sin material o sin diseño. */
@@ -277,10 +280,34 @@ export function DisenoProvider({
 
   const elegirMaterial = useCallback<EstadoDiseno["elegirMaterial"]>(
     async (nuevo) => {
+      const anterior = materialRef.current;
       materialRef.current = nuevo;
       setMaterial(nuevo);
       if (plantilla === null) return;
       const grupo = catalogo.find((g) => g.id === nuevo.grupoPlanchaId);
+
+      if (plantilla === PLANTILLA_LIBRE) {
+        const { acomodo } = calcularPlanchas(grupo ?? null, parametros, resultado?.piezas, corte);
+        try {
+          const libre = await guardarMaterialDisenoLibre(
+            disenoId,
+            nuevo,
+            acomodo ? { ...acomodo, kerfMm: corte.kerfMm } : null,
+          );
+          // La versión nueva (mismo código) pasa a ser la vigente: sin volver a ejecutarlo.
+          if (libre) {
+            setResultado((r) =>
+              r && r.plantilla === PLANTILLA_LIBRE ? ({ ...r, libre } as ResultadoGeneracion & { libre: VersionLibreCad }) : r,
+            );
+          }
+        } catch (e) {
+          materialRef.current = anterior;
+          setMaterial(anterior);
+          toast.error(e instanceof Error ? e.message : "No se pudo guardar el material.");
+        }
+        return;
+      }
+
       const esquema = plantillas.find((p) => p.codigo === plantilla)?.esquema;
       const conEspesor = grupo && esquema?.properties[PARAMETRO_ESPESOR]?.type === "number";
       // Elegir la plancha es también elegir el espesor: se regenera con él y se guarda.
@@ -289,7 +316,7 @@ export function DisenoProvider({
         conEspesor ? { ...parametros, [PARAMETRO_ESPESOR]: grupo.espesorMm } : parametros,
       );
     },
-    [aplicar, catalogo, parametros, plantilla, plantillas],
+    [aplicar, catalogo, corte, disenoId, parametros, plantilla, plantillas, resultado],
   );
 
   const grupo = useMemo(

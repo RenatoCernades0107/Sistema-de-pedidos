@@ -4,7 +4,8 @@
  *
  * De plantilla: las piezas del motor acomodadas en las planchas que se guardaron
  * con esa versión (`/dxf/planchas`); si la versión no guardó acomodo, el
- * despiece suelto. Libre: el DXF del sandbox, solo si la versión está aprobada.
+ * despiece suelto. Libre: lo mismo pero con el sandbox (el código se lee de la
+ * base), y solo si la versión está aprobada.
  */
 
 import { z } from "zod";
@@ -14,6 +15,7 @@ import { exportarDxf, exportarDxfPlanchas } from "@/lib/cad/motor";
 import {
   ErrorSandboxCad,
   exportarDxfLibre,
+  exportarDxfPlanchasLibre,
   sandboxConfigurado,
 } from "@/lib/cad/sandbox";
 import { PLANTILLA_LIBRE } from "@/lib/cad/tipos";
@@ -32,6 +34,20 @@ const cuerpo = z.object({
   disenoId: z.uuid(),
   version: z.number().int().positive(),
 });
+
+/** El acomodo guardado con la versión, si tiene planchas, y su kerf. */
+function conPlanchas(
+  guardado: unknown,
+): { acomodo: ResultadoAcomodo; kerf?: { kerf_mm: number } } | null {
+  const acomodo = guardado as (ResultadoAcomodo & { kerfMm?: number }) | null;
+  if (!acomodo || !Array.isArray(acomodo.planchas) || acomodo.planchas.length === 0) {
+    return null;
+  }
+  return {
+    acomodo,
+    kerf: typeof acomodo.kerfMm === "number" ? { kerf_mm: acomodo.kerfMm } : undefined,
+  };
+}
 
 export async function POST(request: Request) {
   const cerrada = await puertaCad();
@@ -64,6 +80,15 @@ export async function POST(request: Request) {
         return error("Falta configurar el sandbox CAD.", 503, {
           codigo: "no_configurado",
         });
+      const guardado = conPlanchas(v.acomodo);
+      if (guardado) {
+        const dxf = await exportarDxfPlanchasLibre(
+          v.codigo,
+          aPlanchasMotor(guardado.acomodo),
+          guardado.kerf,
+        );
+        return archivo(dxf, "application/dxf", `${nombre}-planchas.dxf`);
+      }
       return archivo(
         await exportarDxfLibre(v.codigo),
         "application/dxf",
@@ -72,18 +97,9 @@ export async function POST(request: Request) {
     }
 
     const parametros = deParametros(v.parametros);
-    const acomodo = v.acomodo as
-      | (ResultadoAcomodo & { kerfMm?: number })
-      | null;
-    if (
-      acomodo &&
-      Array.isArray(acomodo.planchas) &&
-      acomodo.planchas.length > 0
-    ) {
-      const kerf =
-        typeof acomodo.kerfMm === "number"
-          ? { kerf_mm: acomodo.kerfMm }
-          : undefined;
+    const guardado = conPlanchas(v.acomodo);
+    if (guardado) {
+      const { acomodo, kerf } = guardado;
       const dxf = await exportarDxfPlanchas(
         v.plantilla,
         parametros,
@@ -102,7 +118,7 @@ export async function POST(request: Request) {
       return error(
         e.message,
         e.estado === 422 || e.estado === 503 ? e.estado : 502,
-        { codigo: e.codigo },
+        { codigo: e.codigo, ...(e.errores ? { errores: e.errores } : {}) },
       );
     }
     return errorDeMotor(e);

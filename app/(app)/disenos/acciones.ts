@@ -17,8 +17,8 @@ import { exigirAdmin, exigirCad } from "@/lib/sesion";
 import { clienteServidor } from "@/lib/supabase-servidor";
 import { mensajeDeError } from "@/lib/errores";
 import { guardarVersionDiseno, listarMensajes, type MensajeCad } from "@/lib/cad/disenos-servidor";
-import { aprobarVersionLibre } from "@/lib/cad/libre-servidor";
-import type { MaterialDiseno, ParametrosCad } from "@/lib/cad/tipos";
+import { aprobarVersionLibre, guardarMaterialLibre, obtenerVersionLibre } from "@/lib/cad/libre-servidor";
+import type { MaterialDiseno, ParametrosCad, VersionLibreCad } from "@/lib/cad/tipos";
 import type { Json } from "@/lib/supabase-tipos";
 
 const ERROR_SIN_DISENO = "El diseño ya no está disponible. Recarga la página.";
@@ -94,6 +94,29 @@ export async function guardarVersion(
     material: material ? validar(esquemaMaterial, material) : null,
     acomodo: material && acomodo ? (validar(esquemaAcomodo, acomodo) as Json) : null,
   });
+}
+
+/**
+ * El material de un diseño libre (hecho con código): guarda el mismo código de
+ * la versión vigente —lo lee la base, no el navegador— como versión nueva con el
+ * material y su acomodo. Si el código ya estaba aprobado, sigue aprobado.
+ * Devuelve la versión libre que quedó vigente (número y estado).
+ */
+export async function guardarMaterialDisenoLibre(
+  disenoId: string,
+  material: MaterialDiseno,
+  acomodo?: Record<string, unknown> | null,
+): Promise<VersionLibreCad | null> {
+  await exigirCad();
+
+  const id = validar(esquemaId, disenoId);
+  await guardarMaterialLibre({
+    disenoId: id,
+    material: validar(esquemaMaterial, material),
+    acomodo: acomodo ? (validar(esquemaAcomodo, acomodo) as Json) : null,
+    origen: "formulario",
+  });
+  return obtenerVersionLibre(id);
 }
 
 export async function renombrarDiseno(disenoId: string, nombre: string): Promise<void> {

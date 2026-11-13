@@ -2,8 +2,10 @@
 Proceso hijo que ejecuta un diseño libre. Lo lanza `ejecutor.py`, nunca la API.
 
 Entrada: `entrada.json` en el directorio actual (temporal) con
-`{"codigo": str, "modo": "generar"|"dxf"|"step", "opciones": {...}}`.
-Salida: `resultado.json` (y `salida.bin` para dxf/step) en el mismo directorio.
+`{"codigo": str, "modo": "generar"|"dxf"|"dxf_planchas"|"step", "opciones": {...}}`.
+Salida: `resultado.json` (y `salida.bin` para dxf/dxf_planchas/step) en el mismo
+directorio. En `dxf_planchas`, `opciones` trae `kerf_mm` y `planchas` (el acomodo,
+con la forma de `/dxf/planchas` del motor).
 
 Capas, en este orden:
   1. Límites de recursos (los pone el padre antes de exec: CPU, memoria,
@@ -57,7 +59,16 @@ def main() -> int:
     import math
 
     import build123d
-    from motor.exportar import exportar_dxf, exportar_glb, exportar_step
+    from motor.exportar import (
+        ErrorAcomodo,
+        PiezaEnPlancha,
+        PlanchaAcomodada,
+        exportar_dxf,
+        exportar_dxf_planchas,
+        exportar_glb,
+        exportar_step,
+        validar_planchas,
+    )
     from motor.plantillas.base import Diseno, Parametros, Pieza, Plantilla
     from motor.validacion import validar
 
@@ -178,6 +189,40 @@ def main() -> int:
                 kerf_mm=float(opciones.get("kerf_mm", 0)),
                 separacion_mm=float(opciones.get("separacion_mm", 5)),
             )
+            with open("salida.bin", "wb") as f:
+                f.write(contenido)
+            _escribir({"ok": True, "nombre": nombre})
+        elif modo == "dxf_planchas":
+            planchas = [
+                PlanchaAcomodada(
+                    ancho_mm=float(p["ancho_mm"]),
+                    alto_mm=float(p["alto_mm"]),
+                    piezas=[
+                        PiezaEnPlancha(
+                            str(pp["id"]),
+                            int(pp["indice"]),
+                            float(pp["x_mm"]),
+                            float(pp["y_mm"]),
+                            bool(pp.get("rotada", False)),
+                        )
+                        for pp in p.get("piezas") or []
+                    ],
+                )
+                for p in opciones.get("planchas") or []
+            ]
+            try:
+                validar_planchas(diseno, planchas)
+            except ErrorAcomodo as e:
+                # No es culpa del código: el acomodo no corresponde a estas piezas.
+                _escribir(
+                    {
+                        "ok": False,
+                        "error": {"tipo": "acomodo", "mensaje": e.mensaje},
+                        "acomodo": {"mensaje": e.mensaje, "errores": e.errores},
+                    }
+                )
+                return 0
+            contenido = exportar_dxf_planchas(diseno, planchas, kerf_mm=float(opciones.get("kerf_mm", 0)))
             with open("salida.bin", "wb") as f:
                 f.write(contenido)
             _escribir({"ok": True, "nombre": nombre})

@@ -2143,7 +2143,14 @@ export type Database = {
       etiqueta: { Args: { valor: string }; Returns: string }
       generar_codigo_pedido: { Args: { p_fecha?: string }; Returns: string }
       guardar_version_diseno_libre: {
-        Args: { p_codigo: string; p_diseno_id: string; p_origen?: string }
+        Args: {
+          p_acomodo?: Json
+          p_codigo: string
+          p_color?: string
+          p_diseno_id: string
+          p_grupo_plancha_id?: string
+          p_origen?: string
+        }
         Returns: number
       }
       guardar_version_diseno: {

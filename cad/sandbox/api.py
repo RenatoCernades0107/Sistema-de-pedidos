@@ -57,6 +57,37 @@ class SolicitudDxf(SolicitudCodigo):
     opciones: OpcionesDxf = Field(default_factory=OpcionesDxf)
 
 
+class EntradaPiezaPlancha(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str = Field(min_length=1, max_length=64)
+    indice: int = Field(ge=1, le=10000)
+    x_mm: float
+    y_mm: float
+    rotada: bool = False
+
+
+class EntradaPlancha(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    ancho_mm: float = Field(gt=0, le=10000)
+    alto_mm: float = Field(gt=0, le=10000)
+    piezas: list[EntradaPiezaPlancha] = Field(default_factory=list, max_length=2000)
+
+
+class OpcionesDxfPlanchas(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    kerf_mm: float = Field(0, ge=0, le=5)
+
+
+class SolicitudDxfPlanchas(SolicitudCodigo):
+    """Mismo acomodo que `/dxf/planchas` del motor, pero las piezas salen de ejecutar el código."""
+
+    opciones: OpcionesDxfPlanchas = Field(default_factory=OpcionesDxfPlanchas)
+    planchas: list[EntradaPlancha] = Field(min_length=1, max_length=200)
+
+
 class SolicitudRender(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -142,6 +173,30 @@ async def dxf(solicitud: SolicitudDxf) -> Response:
         content=r.binario,
         media_type="application/dxf",
         headers={"Content-Disposition": 'attachment; filename="diseno-libre.dxf"'},
+    )
+
+
+@app.post("/dxf/planchas", dependencies=protegido)
+async def dxf_planchas(solicitud: SolicitudDxfPlanchas) -> Response:
+    opciones = {
+        "kerf_mm": solicitud.opciones.kerf_mm,
+        "planchas": [p.model_dump() for p in solicitud.planchas],
+    }
+    r = await run_in_threadpool(ejecutar, solicitud.codigo, "dxf_planchas", opciones)
+    if not r.ok and isinstance(r.datos.get("acomodo"), dict):
+        acomodo = r.datos["acomodo"]
+        raise _error(
+            422,
+            "acomodo_invalido",
+            str(acomodo.get("mensaje") or "El acomodo en planchas no es válido."),
+            errores=acomodo.get("errores") or [],
+        )
+    if not r.ok or r.binario is None:
+        raise _error_codigo(r.datos, solicitud.codigo)
+    return Response(
+        content=r.binario,
+        media_type="application/dxf",
+        headers={"Content-Disposition": 'attachment; filename="diseno-libre-planchas.dxf"'},
     )
 
 

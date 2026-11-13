@@ -89,3 +89,50 @@ def test_referencias():
 )
 def test_referencias_sin_salto_de_ruta(nombre):
     assert cliente.get(f"/referencias/{nombre}").status_code == 404
+
+
+def _planchas_soporte(desplazar_y: float = 0.0) -> list[dict]:
+    """Base (80×100) y respaldo (80×110) en una plancha de 300×300, lado a lado."""
+    return [
+        {
+            "ancho_mm": 300,
+            "alto_mm": 300,
+            "piezas": [
+                {"id": "base", "indice": 1, "x_mm": 10, "y_mm": 10 + desplazar_y, "rotada": False},
+                {"id": "respaldo", "indice": 1, "x_mm": 120, "y_mm": 10, "rotada": False},
+            ],
+        }
+    ]
+
+
+def test_dxf_planchas():
+    import ezdxf
+
+    r = cliente.post(
+        "/dxf/planchas", json={"codigo": SOPORTE, "planchas": _planchas_soporte(), "opciones": {"kerf_mm": 0.1}}
+    )
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"].startswith("application/dxf")
+    doc = ezdxf.read(io.StringIO(r.content.decode("ascii")))
+    capas = {e.dxf.layer for e in doc.modelspace()}
+    assert {"PLANCHA", "CORTE", "GRABADO"} <= capas
+    assert len([e for e in doc.modelspace() if e.dxf.layer == "PLANCHA"]) == 4
+
+
+def test_dxf_planchas_acomodo_invalido():
+    # La base se sale de la plancha y falta el respaldo.
+    planchas = _planchas_soporte(desplazar_y=250)
+    planchas[0]["piezas"].pop()
+    r = cliente.post("/dxf/planchas", json={"codigo": SOPORTE, "planchas": planchas})
+    assert r.status_code == 422
+    detalle = r.json()["detail"]
+    assert detalle["codigo"] == "acomodo_invalido"
+    mensajes = " ".join(e["mensaje"] for e in detalle["errores"])
+    assert "se sale" in mensajes and "respaldo" in mensajes
+
+
+def test_dxf_planchas_codigo_invalido_y_cuerpo():
+    r = cliente.post("/dxf/planchas", json={"codigo": "import os\n", "planchas": _planchas_soporte()})
+    assert r.status_code == 422 and r.json()["detail"]["codigo"] == "codigo_invalido"
+    r = cliente.post("/dxf/planchas", json={"codigo": SOPORTE, "planchas": []})
+    assert r.status_code == 422 and r.json()["detail"]["codigo"] == "parametros_invalidos"

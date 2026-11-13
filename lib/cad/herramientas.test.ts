@@ -10,9 +10,18 @@ import {
   herramientasDisponibles,
   type DependenciasCad,
   type DependenciasLibre,
+  type DisenoActual,
   type PlanchaCatalogo,
 } from "./herramientas";
-import type { ErrorCodigoLibre, PlantillaCad, ResultadoGeneracion, ResultadoLibre } from "./tipos";
+import { CONFIG_CORTES_DEFECTO } from "@/lib/cortes/config";
+import type {
+  ErrorCodigoLibre,
+  MaterialDiseno,
+  ParametrosCad,
+  PlantillaCad,
+  ResultadoGeneracion,
+  ResultadoLibre,
+} from "./tipos";
 
 /* ── Apoyo ─────────────────────────────────────────────────────────────────── */
 
@@ -62,21 +71,48 @@ class ErrorMotorFalso extends Error {
   }
 }
 
+/** Un grupo del catálogo con formatos activos y sin código compartido entre colores. */
+function grupo(
+  id: string,
+  material: string,
+  variante: string,
+  detalle: string,
+  espesorMm: number,
+  formatos: { codigo: string; anchoCm: number; largoCm: number; skuCompartido?: boolean }[],
+): PlanchaCatalogo {
+  return {
+    id,
+    material,
+    variante,
+    detalle,
+    espesorMm,
+    rotable: true,
+    sobrantesActivo: false,
+    formatos: formatos.map((f) => ({
+      id: `${id}-${f.codigo}`,
+      codigo: f.codigo,
+      anchoCm: f.anchoCm,
+      largoCm: f.largoCm,
+      skuCompartido: f.skuCompartido ?? false,
+      porVerificar: false,
+      nota: null,
+      activo: true,
+    })),
+  };
+}
+
 const PLANCHAS: PlanchaCatalogo[] = [
-  {
-    material: "Acrílico ECO",
-    variante: "Cristal",
-    detalle: "",
-    espesorMm: 3,
-    formatos: [
-      { codigo: "F7E024", anchoCm: 122, largoCm: 183 },
-      { codigo: "F7E099", anchoCm: 60.5, largoCm: 91.25 },
-    ],
-  },
-  { material: "Acrílico ECO", variante: "Blanco", detalle: "Lechoso", espesorMm: 3, formatos: [{ codigo: "F7E072", anchoCm: 122, largoCm: 183 }] },
-  { material: "Acrílico ECO", variante: "Cristal", detalle: "", espesorMm: 5, formatos: [{ codigo: "F7E030", anchoCm: 122, largoCm: 244 }] },
-  { material: "MDF", variante: "", detalle: "", espesorMm: 3, formatos: [{ codigo: "MDF3", anchoCm: 122, largoCm: 244 }] },
-  { material: "Acrílico ECO", variante: "Colores", detalle: "Negro", espesorMm: 3, formatos: [] },
+  grupo("eco-cristal-3", "Acrílico ECO", "Cristal", "", 3, [
+    { codigo: "F7E024", anchoCm: 122, largoCm: 183 },
+    { codigo: "F7E099", anchoCm: 60.5, largoCm: 91.25 },
+  ]),
+  grupo("eco-blanco-3", "Acrílico ECO", "Blanco", "Lechoso", 3, [{ codigo: "F7E072", anchoCm: 122, largoCm: 183 }]),
+  grupo("eco-cristal-5", "Acrílico ECO", "Cristal", "", 5, [{ codigo: "F7E030", anchoCm: 122, largoCm: 244 }]),
+  grupo("mdf-3", "MDF", "", "", 3, [{ codigo: "MDF3", anchoCm: 122, largoCm: 244 }]),
+  grupo("eco-negro-3", "Acrílico ECO", "Colores", "Negro", 3, []),
+  grupo("eco-colores-3", "Acrílico ECO", "Varios colores", "", 3, [
+    { codigo: "F7E0CC", anchoCm: 122, largoCm: 183, skuCompartido: true },
+  ]),
 ];
 
 function dependencias(parcial: Partial<DependenciasCad> = {}) {
@@ -85,8 +121,10 @@ function dependencias(parcial: Partial<DependenciasCad> = {}) {
     obtenerPlantilla: vi.fn(async (codigo: string) => (codigo === "caja" ? CAJA : null)),
     generarDiseno: vi.fn(async () => generado()),
     guardarVersion: vi.fn(async () => ({ version: 4 })),
-    obtenerDisenoActual: vi.fn(async () => null),
+    obtenerDisenoActual: vi.fn(async (): Promise<DisenoActual | null> => null),
+    obtenerMaterial: vi.fn(async (): Promise<MaterialDiseno | null> => null),
     cargarPlanchas: vi.fn(async () => PLANCHAS),
+    cargarConfigCortes: vi.fn(async () => CONFIG_CORTES_DEFECTO),
     ...parcial,
   } satisfies DependenciasCad;
 }
@@ -367,24 +405,20 @@ describe("buscar_planchas", () => {
     const deps = dependencias();
     const total = async (args: unknown) => leer((await ejecutarHerramienta("buscar_planchas", args, deps)).contenido).total;
 
-    expect(await total({ material: "ACRILICO" })).toBe(3);
+    expect(await total({ material: "ACRILICO" })).toBe(4);
     expect(await total({ color: "blanco lech" })).toBe(1);
-    expect(await total({ espesor_mm: 3 })).toBe(3);
+    expect(await total({ espesor_mm: 3 })).toBe(4);
     expect(await total({ espesor_mm: 5 })).toBe(1);
     expect(await total({ material: "mdf", color: "cristal" })).toBe(0);
     // Sin filtros, todo lo que tiene algún formato.
-    expect(await total({})).toBe(4);
-    expect(await total(undefined)).toBe(4);
+    expect(await total({})).toBe(5);
+    expect(await total(undefined)).toBe(5);
   });
 
   it("recorta los resultados y avisa de cuántos había", async () => {
-    const muchas = Array.from({ length: MAX_PLANCHAS + 5 }, (_, i) => ({
-      material: "Acrílico",
-      variante: `Color ${i}`,
-      detalle: "",
-      espesorMm: 3,
-      formatos: [{ codigo: `C${i}`, anchoCm: 122, largoCm: 244 }],
-    }));
+    const muchas = Array.from({ length: MAX_PLANCHAS + 5 }, (_, i) =>
+      grupo(`g${i}`, "Acrílico", `Color ${i}`, "", 3, [{ codigo: `C${i}`, anchoCm: 122, largoCm: 244 }]),
+    );
     const r = await ejecutarHerramienta("buscar_planchas", {}, dependencias({ cargarPlanchas: vi.fn(async () => muchas) }));
     const datos = leer(r.contenido);
     expect(datos.total).toBe(MAX_PLANCHAS + 5);
@@ -396,6 +430,229 @@ describe("buscar_planchas", () => {
     const r = await ejecutarHerramienta("buscar_planchas", { espesor_mm: "3 mm" }, dependencias());
     expect(r.ok).toBe(false);
     expect(leer(r.contenido).error.codigo).toBe("argumentos_invalidos");
+  });
+});
+
+/* ── elegir_material y ver_costo ───────────────────────────────────────────── */
+
+const CAJA_CON_ESPESOR: PlantillaCad = {
+  ...CAJA,
+  esquema: {
+    ...CAJA.esquema,
+    properties: { ...CAJA.esquema.properties, espesor: { type: "number", title: "Espesor", default: 3 } },
+  },
+};
+
+const ACTUAL_CAJA: DisenoActual = {
+  plantilla: "caja",
+  parametros: { largo: 200, ancho: 150, alto: 100, espesor: 5, con_tapa: true },
+  version: 3,
+  origen: "formulario",
+};
+
+/** El motor de verdad devuelve las piezas con el espesor pedido. */
+const motorConEspesor = () =>
+  vi.fn(async (_plantilla: string, ps: ParametrosCad) => {
+    const e = typeof ps.espesor === "number" ? ps.espesor : 3;
+    const base = generado();
+    return generado({
+      parametros: { ...base.parametros, ...ps },
+      piezas: base.piezas.map((p) => ({ ...p, espesor_mm: e })),
+    });
+  });
+
+describe("elegir_material", () => {
+  it("fija el espesor de la plancha, regenera y guarda la versión con material y acomodo", async () => {
+    const deps = dependencias({
+      obtenerDisenoActual: vi.fn(async () => ACTUAL_CAJA),
+      obtenerPlantilla: vi.fn(async () => CAJA_CON_ESPESOR),
+      generarDiseno: motorConEspesor(),
+    });
+    const r = await ejecutarHerramienta(
+      "elegir_material",
+      { material: "acrilico eco", color: "cristal", espesor_mm: 3 },
+      deps,
+    );
+    expect(r.ok).toBe(true);
+    expect(deps.generarDiseno).toHaveBeenCalledWith("caja", { ...ACTUAL_CAJA.parametros, espesor: 3 });
+
+    const guardado = vi.mocked(deps.guardarVersion).mock.calls[0][0];
+    expect(guardado.material).toEqual({ grupoPlanchaId: "eco-cristal-3", color: null });
+    expect(guardado.parametros.espesor).toBe(3);
+    expect(guardado.acomodo?.kerfMm).toBe(CONFIG_CORTES_DEFECTO.corte.kerfLaser * 10);
+    expect(guardado.acomodo?.planchas.length).toBeGreaterThan(0);
+
+    const datos = leer(r.contenido);
+    expect(datos.material).toBe("Acrílico ECO · Cristal · 3 mm");
+    expect(datos.planchas).toBe(1);
+    expect(datos.formato.codigo).toMatch(/^F7E0/);
+    expect(typeof datos.merma_pct).toBe("number");
+    expect(datos.piezas_que_no_entran).toEqual([]);
+    expect(datos.problemas).toEqual([]);
+    expect(datos.version_guardada).toBe(4);
+    expect(r.diseno).toEqual({ plantilla: "caja", parametros: guardado.parametros });
+    expect(r.resumen).toContain("1 plancha");
+  });
+
+  it("sin parámetro de espesor no lo toca y avisa si las piezas no coinciden con la plancha", async () => {
+    const deps = dependencias({
+      obtenerDisenoActual: vi.fn(async () => ACTUAL_CAJA),
+      generarDiseno: motorConEspesor(),
+    });
+    const r = await ejecutarHerramienta("elegir_material", { material: "mdf", espesor_mm: 3 }, deps);
+    expect(deps.generarDiseno).toHaveBeenCalledWith("caja", ACTUAL_CAJA.parametros);
+    const datos = leer(r.contenido);
+    expect(datos.problemas.join(" ")).toContain("5 mm");
+    expect(r.resumen).toContain("espesor");
+  });
+
+  it("avisa de las piezas que no entran en ninguna plancha", async () => {
+    const enorme = generado();
+    enorme.piezas = [{ ...enorme.piezas[0], id: "panel", nombre: "Panel", ancho_mm: 3000, alto_mm: 2000 }];
+    const deps = dependencias({
+      obtenerDisenoActual: vi.fn(async () => ACTUAL_CAJA),
+      generarDiseno: vi.fn(async () => enorme),
+    });
+    const r = await ejecutarHerramienta(
+      "elegir_material",
+      { material: "eco", color: "cristal", espesor_mm: 3 },
+      deps,
+    );
+    expect(r.ok).toBe(true);
+    const datos = leer(r.contenido);
+    expect(datos.piezas_que_no_entran).toEqual([{ id: "panel", nombre: "Panel", copias: 1 }]);
+    expect(datos.problemas.join(" ")).toContain("«Panel»");
+    expect(datos.aviso).toContain("no entran");
+    expect(r.resumen).toContain("no entra");
+  });
+
+  it("si el material es ambiguo devuelve las opciones y no guarda nada", async () => {
+    const deps = dependencias({ obtenerDisenoActual: vi.fn(async () => ACTUAL_CAJA) });
+    const r = await ejecutarHerramienta("elegir_material", { material: "acrílico", espesor_mm: 3 }, deps);
+    expect(r.ok).toBe(false);
+    const { error } = leer(r.contenido);
+    expect(error.codigo).toBe("material_ambiguo");
+    // El negro no tiene formatos: no es una opción.
+    expect(error.opciones.map((o: { color: string }) => o.color)).toEqual([
+      "Cristal",
+      "Blanco lechoso",
+      "Varios colores",
+    ]);
+    expect(deps.guardarVersion).not.toHaveBeenCalled();
+  });
+
+  it("un color suelto vale en el grupo de código compartido, y se guarda", async () => {
+    const deps = dependencias({ obtenerDisenoActual: vi.fn(async () => ACTUAL_CAJA) });
+    const r = await ejecutarHerramienta(
+      "elegir_material",
+      { material: "eco", color: "Rojo", espesor_mm: 3 },
+      deps,
+    );
+    expect(r.ok).toBe(true);
+    expect(vi.mocked(deps.guardarVersion).mock.calls[0][0].material).toEqual({ grupoPlanchaId: "eco-colores-3", color: "Rojo" });
+  });
+
+  it("un material que no existe o un diseño vacío se le dicen al modelo", async () => {
+    const vacio = await ejecutarHerramienta("elegir_material", { material: "mdf", espesor_mm: 3 }, dependencias());
+    expect(leer(vacio.contenido).error.codigo).toBe("sin_diseno");
+
+    const deps = dependencias({ obtenerDisenoActual: vi.fn(async () => ACTUAL_CAJA) });
+    const r = await ejecutarHerramienta("elegir_material", { material: "vidrio", espesor_mm: 4 }, deps);
+    expect(leer(r.contenido).error.codigo).toBe("material_no_encontrado");
+    expect(deps.generarDiseno).not.toHaveBeenCalled();
+
+    const sinEspesor = await ejecutarHerramienta("elegir_material", { material: "mdf" }, deps);
+    expect(leer(sinEspesor.contenido).error.codigo).toBe("argumentos_invalidos");
+  });
+
+  it("en un diseño libre, sin la persistencia con material, dice que no está disponible", async () => {
+    const libreDeps = depsLibre();
+    const deps = dependencias({
+      obtenerDisenoActual: vi.fn(async () => ({ ...ACTUAL_CAJA, plantilla: "libre", parametros: {}, codigo: CODIGO })),
+      libre: libreDeps,
+    });
+    const r = await ejecutarHerramienta("elegir_material", { material: "mdf", espesor_mm: 3 }, deps);
+    expect(r.ok).toBe(false);
+    expect(leer(r.contenido).error.codigo).toBe("material_libre_no_disponible");
+    expect(libreDeps.ejecutarCodigo).not.toHaveBeenCalled();
+    expect(deps.guardarVersion).not.toHaveBeenCalled();
+  });
+
+  it("en un diseño libre con la persistencia, ejecuta el código y guarda material y acomodo", async () => {
+    const guardarVersionLibreConMaterial = vi.fn(async () => ({ version: 8 }));
+    const deps = dependencias({
+      obtenerDisenoActual: vi.fn(async () => ({ ...ACTUAL_CAJA, plantilla: "libre", parametros: {}, codigo: CODIGO })),
+      libre: depsLibre({ guardarVersionLibreConMaterial }),
+    });
+    const r = await ejecutarHerramienta("elegir_material", { material: "mdf", espesor_mm: 3 }, deps);
+    expect(r.ok).toBe(true);
+    const [codigo, material, acomodo] = guardarVersionLibreConMaterial.mock.calls[0] as unknown as [
+      string,
+      MaterialDiseno,
+      { planchas: unknown[] },
+    ];
+    expect(codigo).toBe(CODIGO);
+    expect(material).toEqual({ grupoPlanchaId: "mdf-3", color: null });
+    expect(acomodo.planchas).toHaveLength(1);
+    expect(r.diseno).toEqual({ plantilla: "libre", parametros: {} });
+    expect(deps.generarDiseno).not.toHaveBeenCalled();
+  });
+});
+
+describe("ver_costo", () => {
+  const conMaterial = (parcial: Partial<DependenciasCad> = {}) =>
+    dependencias({
+      obtenerDisenoActual: vi.fn(async () => ({ ...ACTUAL_CAJA, parametros: { ...ACTUAL_CAJA.parametros, espesor: 3 } })),
+      obtenerMaterial: vi.fn(async () => ({ grupoPlanchaId: "eco-cristal-3", color: null })),
+      ...parcial,
+    });
+
+  it("sin material pide elegirlo primero", async () => {
+    const deps = dependencias({ obtenerDisenoActual: vi.fn(async () => ACTUAL_CAJA) });
+    const r = await ejecutarHerramienta("ver_costo", {}, deps);
+    expect(r.ok).toBe(false);
+    expect(leer(r.contenido).error.codigo).toBe("sin_material");
+    expect(deps.generarDiseno).not.toHaveBeenCalled();
+  });
+
+  it("a Administración le da los montos", async () => {
+    const cargarPrecios = vi.fn(async () => ({ F7E024: 300, F7E099: 90 }));
+    const r = await ejecutarHerramienta("ver_costo", {}, conMaterial({ cargarPrecios }));
+    expect(r.ok).toBe(true);
+    expect(cargarPrecios).toHaveBeenCalledWith(["F7E024", "F7E099"]);
+    const datos = leer(r.contenido);
+    expect(datos.total).toBeGreaterThan(0);
+    expect(datos.costo_material).toBeGreaterThan(0);
+    expect(datos.minutos_laser).toBeGreaterThan(0);
+    expect(datos.problemas).toEqual([]);
+    expect(r.resumen).toMatch(/^S\/ /);
+  });
+
+  it("a los demás solo planchas y minutos, sin montos", async () => {
+    const r = await ejecutarHerramienta("ver_costo", {}, conMaterial());
+    expect(r.ok).toBe(true);
+    const datos = leer(r.contenido);
+    expect(datos.planchas).toBeGreaterThan(0);
+    expect(datos.minutos_laser).toBeGreaterThan(0);
+    for (const clave of ["total", "costo_material", "servicio_corte"]) expect(datos).not.toHaveProperty(clave);
+    expect(datos.montos).toContain("Administración");
+    // Sin precios no hay queja de precios que faltan.
+    expect(datos.problemas).toEqual([]);
+    expect(r.resumen).not.toContain("S/");
+  });
+
+  it("si Odoo falla, avisa y sigue", async () => {
+    const r = await ejecutarHerramienta(
+      "ver_costo",
+      {},
+      conMaterial({
+        cargarPrecios: vi.fn(async () => {
+          throw new Error("Odoo caído");
+        }),
+      }),
+    );
+    expect(r.ok).toBe(true);
+    expect(leer(r.contenido).avisos.join(" ")).toContain("Odoo");
   });
 });
 

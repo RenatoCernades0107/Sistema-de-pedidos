@@ -30,3 +30,14 @@ describe("prompt del diseño libre", () => {
     expect(c).toContain("borrador");
   });
 });
+
+describe("prompt de material y costo", () => {
+  it("pide el material antes de cotizar y avisa de las piezas que no entran", () => {
+    const p = promptDeTurno(null);
+    for (const clave of ["elegir_material", "ver_costo", "no entran", "pregúntale primero material"]) {
+      expect(p).toContain(clave);
+    }
+    // Sin montos, no se inventan.
+    expect(p).toMatch(/no des ni estimes precios/);
+  });
+});

@@ -23,12 +23,15 @@
 
 import { z } from "zod";
 import { perfilActual, perfilConCad } from "@/lib/sesion";
-import { cargarCatalogoPlanchas } from "@/lib/cortes-servidor";
+import { cargarCatalogoPlanchas, cargarConfigCortes } from "@/lib/cortes-servidor";
+import { productosPorCodigo } from "@/lib/odoo/catalogos";
+import type { Json } from "@/lib/supabase-tipos";
 import {
   agregarMensaje,
   guardarVersionDiseno,
   listarMensajes,
   obtenerDiseno,
+  obtenerMaterialDiseno,
   obtenerVersionActual,
   type HerramientaUsada,
 } from "@/lib/cad/disenos-servidor";
@@ -106,6 +109,8 @@ function dependenciasLibre(disenoId: string): DependenciasLibre {
       return r;
     },
     guardarVersionLibre: (codigo) => guardarVersionLibre({ disenoId, codigo, origen: "chat" }),
+    guardarVersionLibreConMaterial: (codigo, material, acomodo) =>
+      guardarVersionLibre({ disenoId, codigo, origen: "chat", material, acomodo: acomodo as unknown as Json }),
     renderizarActual: async () => {
       const actual = await disenoActual(disenoId);
       if (actual?.plantilla === PLANTILLA_LIBRE && actual.codigo) {
@@ -121,25 +126,46 @@ function dependenciasLibre(disenoId: string): DependenciasLibre {
   };
 }
 
-/** El motor, la base y el catálogo de verdad, atados al diseño de esta conversación. */
-function dependencias(disenoId: string, libreActivo: boolean): DependenciasCad {
+/** Lo que cuesta cada plancha en Odoo, por su código. */
+async function preciosDePlanchas(codigos: string[]): Promise<Record<string, number>> {
+  const productos = await productosPorCodigo(codigos);
+  return Object.fromEntries([...productos].map(([codigo, p]) => [codigo, p.precio]));
+}
+
+/**
+ * El motor, la base y el catálogo de verdad, atados al diseño de esta
+ * conversación. Los precios, solo si quien chatea es Administración.
+ */
+function dependencias(disenoId: string, libreActivo: boolean, conPrecios: boolean): DependenciasCad {
   return {
     listarPlantillas,
     obtenerPlantilla,
     generarDiseno,
-    guardarVersion: ({ plantilla, parametros, versionPlantilla }) =>
-      guardarVersionDiseno({ disenoId, plantilla, parametros, versionPlantilla, origen: "chat" }),
+    guardarVersion: ({ plantilla, parametros, versionPlantilla, material, acomodo }) =>
+      guardarVersionDiseno({
+        disenoId,
+        plantilla,
+        parametros,
+        versionPlantilla,
+        origen: "chat",
+        material,
+        acomodo: acomodo as unknown as Json,
+      }),
     obtenerDisenoActual: () => disenoActual(disenoId),
+    obtenerMaterial: () => obtenerMaterialDiseno(disenoId),
     cargarPlanchas: () => cargarCatalogoPlanchas(true),
+    cargarConfigCortes,
+    ...(conPrecios ? { cargarPrecios: preciosDePlanchas } : {}),
     ...(libreActivo ? { libre: dependenciasLibre(disenoId) } : {}),
   };
 }
 
 export async function POST(request: Request) {
-  if (!(await perfilConCad())) {
+  const perfil = await perfilConCad();
+  if (!perfil) {
     // Solo para decir cuál de las dos cosas pasó: sin sesión, o sin permiso.
-    const perfil = await perfilActual();
-    return perfil && !perfil.debeCambiarPassword
+    const actual = await perfilActual();
+    return actual && !actual.debeCambiarPassword
       ? error("Tu rol no puede usar el asistente de diseños.", 403)
       : error("Tu sesión caducó. Recarga la página.", 401);
   }
@@ -186,7 +212,7 @@ export async function POST(request: Request) {
     return error("No se pudo abrir la conversación. Intenta de nuevo.", 500);
   }
 
-  const deps = dependencias(disenoId, libreActivo);
+  const deps = dependencias(disenoId, libreActivo, perfil.rol === "administracion");
   const inicio = new Date();
 
   // Dos formas de que quien escucha se vaya: la petición se aborta, o el

@@ -231,3 +231,35 @@ export function problemaDeEspesor(
   }
   return null;
 }
+
+/**
+ * El acomodo de un despiece en un grupo y lo que impide cortarlo ahí (espesor
+ * distinto, piezas que no entran en ningún formato). Lo usa el asistente al
+ * elegir material y al calcular el costo; la pantalla hace lo mismo en
+ * `components/disenos/diseno-contexto.tsx`.
+ */
+export function planchasDeDiseno(
+  grupo: Pick<GrupoPlancha, "formatos" | "espesorMm" | "rotable">,
+  parametros: ParametrosCad,
+  piezas: PiezaCad[] | undefined,
+  corte: { kerfMm: number; margenMm: number },
+): { acomodo: ResultadoAcomodo | null; problemas: string[]; piezasFuera: PiezaCad[] } {
+  const problemas: string[] = [];
+  const espesor = problemaDeEspesor(parametros, piezas, grupo);
+  if (espesor) problemas.push(espesor);
+  if (!piezas?.length) return { acomodo: null, problemas, piezasFuera: [] };
+
+  const formatos = formatosDeGrupo(grupo);
+  const opciones = { rotable: grupo.rotable, kerfMm: corte.kerfMm, margenMm: corte.margenMm };
+  if (formatos.length === 0) {
+    problemas.push("El material elegido no tiene formatos de plancha activos.");
+    return { acomodo: null, problemas, piezasFuera: [] };
+  }
+  const piezasFuera = piezasQueNoEntran(piezas, formatos, opciones);
+  for (const p of piezasFuera) {
+    problemas.push(
+      `«${p.nombre}» (${Math.round(p.ancho_mm)} × ${Math.round(p.alto_mm)} mm) no entra en ninguna plancha de este material${grupo.rotable ? "" : " (no se puede girar)"}.`,
+    );
+  }
+  return { acomodo: acomodar(piezas, formatos, opciones), problemas, piezasFuera };
+}

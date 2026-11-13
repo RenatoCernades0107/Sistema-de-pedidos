@@ -9,7 +9,7 @@
  * configurado (`CAD_SANDBOX_BASE_URL`): ver `disenoLibreActivo`.
  */
 
-import type { ErrorCodigoLibre, ResultadoLibre } from "./tipos";
+import type { ErrorCodigoLibre, OpcionesDxfPlanchas, PlanchaAcomodadaCad, ResultadoLibre } from "./tipos";
 
 export class ErrorSandboxCad extends Error {
   /** `codigo_invalido` (el código del LLM falló), `no_configurado`, `sin_conexion`… */
@@ -17,13 +17,22 @@ export class ErrorSandboxCad extends Error {
   estado: number;
   /** Solo con `codigo_invalido`: el detalle para que el modelo corrija su código. */
   errorCodigo?: ErrorCodigoLibre;
+  /** Solo con `acomodo_invalido`: qué copia de qué pieza no cuadra con las planchas. */
+  errores?: { campo: string; mensaje: string }[];
 
-  constructor(mensaje: string, codigo: string, estado: number, errorCodigo?: ErrorCodigoLibre) {
+  constructor(
+    mensaje: string,
+    codigo: string,
+    estado: number,
+    errorCodigo?: ErrorCodigoLibre,
+    errores?: { campo: string; mensaje: string }[],
+  ) {
     super(mensaje);
     this.name = "ErrorSandboxCad";
     this.codigo = codigo;
     this.estado = estado;
     if (errorCodigo) this.errorCodigo = errorCodigo;
+    if (errores?.length) this.errores = errores;
   }
 }
 
@@ -58,6 +67,15 @@ function deErrorCodigo(v: unknown): ErrorCodigoLibre | undefined {
   return salida;
 }
 
+/** Los errores por campo de un 422 (`acomodo_invalido`, `parametros_invalidos`). */
+function deErrores(v: unknown): { campo: string; mensaje: string }[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  return v
+    .filter((e): e is { campo: string; mensaje: string } => esObjeto(e) && typeof e.mensaje === "string")
+    .slice(0, 50)
+    .map((e) => ({ campo: typeof e.campo === "string" ? e.campo : "", mensaje: e.mensaje.slice(0, 500) }));
+}
+
 const POR_ESTADO: Record<number, { codigo: string; mensaje: string }> = {
   401: { codigo: "no_autorizado", mensaje: "El sandbox CAD rechazó la clave de la aplicación. Avisa a soporte." },
   404: { codigo: "no_encontrado", mensaje: "El sandbox CAD no tiene eso." },
@@ -76,7 +94,7 @@ async function errorDe(res: Response): Promise<ErrorSandboxCad> {
   if (esObjeto(detail)) {
     const mensaje = typeof detail.mensaje === "string" && detail.mensaje ? detail.mensaje : base.mensaje;
     const codigo = typeof detail.codigo === "string" && detail.codigo ? detail.codigo : base.codigo;
-    return new ErrorSandboxCad(mensaje, codigo, res.status, deErrorCodigo(detail.error));
+    return new ErrorSandboxCad(mensaje, codigo, res.status, deErrorCodigo(detail.error), deErrores(detail.errores));
   }
   return new ErrorSandboxCad(base.mensaje, base.codigo, res.status);
 }
@@ -115,6 +133,20 @@ export async function exportarDxfLibre(
   opciones?: { kerf_mm?: number; separacion_mm?: number },
 ): Promise<ArrayBuffer> {
   const res = await peticion("/dxf", post({ codigo, ...(opciones ? { opciones } : {}) }));
+  return res.arrayBuffer();
+}
+
+/**
+ * El DXF de producción de un diseño libre: ejecuta el código y dibuja sus
+ * piezas en las planchas del acomodo (capa PLANCHA), como `/dxf/planchas` del
+ * motor. Un acomodo que no cuadra llega como `acomodo_invalido` con `errores`.
+ */
+export async function exportarDxfPlanchasLibre(
+  codigo: string,
+  planchas: PlanchaAcomodadaCad[],
+  opciones?: OpcionesDxfPlanchas,
+): Promise<ArrayBuffer> {
+  const res = await peticion("/dxf/planchas", post({ codigo, planchas, ...(opciones ? { opciones } : {}) }));
   return res.arrayBuffer();
 }
 
