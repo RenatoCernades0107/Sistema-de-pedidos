@@ -4,6 +4,8 @@ import { useEffect, useRef } from "react";
 import { Check, LoaderCircle, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TextoAgente } from "@/components/cotizaciones/texto-agente";
+import type { ReferenciaCara } from "@/lib/cad/caras";
+import { ChipCara } from "./chip-cara";
 
 /** Una herramienta que el asistente está usando o ya usó en un turno. */
 export interface ActividadChat {
@@ -18,6 +20,8 @@ export interface MensajeChat {
   rol: "usuario" | "asistente";
   contenido: string;
   actividad: ActividadChat[];
+  /** Las caras del visor que la persona señaló con este mensaje. */
+  referencias?: ReferenciaCara[];
 }
 
 /** Cómo se dice cada herramienta mientras corre y cuando acabó. */
@@ -90,11 +94,19 @@ export function ChatMensajes({
 
           if (m.rol === "usuario") {
             return (
-              <div
-                key={m.id}
-                className="bg-primary text-primary-foreground max-w-[85%] min-w-0 self-end rounded-xl px-3.5 py-2 text-sm break-words whitespace-pre-wrap"
-              >
-                {m.contenido}
+              <div key={m.id} className="flex max-w-[85%] min-w-0 flex-col items-end gap-1.5 self-end">
+                {m.referencias && m.referencias.length > 0 && (
+                  <ul className="flex flex-wrap justify-end gap-1.5" aria-label="Caras señaladas">
+                    {m.referencias.map((r) => (
+                      <li key={r.clave} className="max-w-full">
+                        <ChipCara cara={r} className="text-muted-foreground" />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="bg-primary text-primary-foreground max-w-full min-w-0 rounded-xl px-3.5 py-2 text-sm break-words whitespace-pre-wrap">
+                  {m.contenido}
+                </div>
               </div>
             );
           }

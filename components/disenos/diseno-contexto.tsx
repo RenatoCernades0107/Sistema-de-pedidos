@@ -20,6 +20,7 @@ import {
   problemaDeEspesor,
   type ResultadoAcomodo,
 } from "@/lib/cad/acomodo";
+import { MAX_REFERENCIAS, type ReferenciaCara } from "@/lib/cad/caras";
 import { tinteDeColor, type TinteAcrilico } from "@/lib/cad/colores";
 import { colorDe, type GrupoPlancha } from "@/lib/cortes/catalogo";
 import type { ConfigCortes } from "@/lib/cortes/config";
@@ -53,6 +54,19 @@ export interface EstadoDiseno {
   /** La pieza resaltada: la comparten el visor y la lista de piezas. */
   piezaActiva: string | null;
   setPiezaActiva: (id: string | null) => void;
+  /** El visor está en modo "seleccionar caras": cada clic señala una cara. */
+  modoCaras: boolean;
+  setModoCaras: (activo: boolean) => void;
+  /**
+   * Las caras señaladas en el visor para el próximo mensaje del chat. Se
+   * vacían al enviar y cuando cambia la geometría.
+   */
+  carasReferidas: ReferenciaCara[];
+  /** Agrega la cara o, si ya estaba, la quita. */
+  alternarCara: (cara: ReferenciaCara) => void;
+  quitarCara: (clave: string) => void;
+  /** Reemplaza todas (para vaciarlas o devolverlas si el turno falló). */
+  setCarasReferidas: (caras: ReferenciaCara[]) => void;
   /**
    * Genera el diseño y lo deja como vigente. Guarda una versión nueva salvo con
    * `guardar: false`, que es lo que usa el chat: su ruta ya la guardó.
@@ -169,6 +183,22 @@ export function DisenoProvider({
   const [error, setError] = useState<string | null>(null);
   const [erroresCampo, setErroresCampo] = useState<Record<string, string>>({});
   const [piezaActiva, setPiezaActiva] = useState<string | null>(null);
+  const [modoCaras, setModoCaras] = useState(false);
+  const [carasReferidas, setCarasReferidas] = useState<ReferenciaCara[]>([]);
+  const alternarCara = useCallback((cara: ReferenciaCara) => {
+    setCarasReferidas((actuales) => {
+      if (actuales.some((c) => c.clave === cara.clave)) return actuales.filter((c) => c.clave !== cara.clave);
+      if (actuales.length >= MAX_REFERENCIAS) {
+        toast.info(`Puedes señalar hasta ${MAX_REFERENCIAS} caras por mensaje.`);
+        return actuales;
+      }
+      return [...actuales, cara];
+    });
+  }, []);
+  const quitarCara = useCallback(
+    (clave: string) => setCarasReferidas((actuales) => actuales.filter((c) => c.clave !== clave)),
+    [],
+  );
   const [material, setMaterial] = useState<MaterialDiseno | null>(inicial.material ?? null);
   // `aplicar` guarda con el material vigente sin depender de él (no se recrea).
   const materialRef = useRef(material);
@@ -245,6 +275,8 @@ export function DisenoProvider({
       setPlantilla(generado.plantilla);
       setParametros(generado.parametros);
       setPiezaActiva(null);
+      // La geometría cambió: las caras señaladas ya no son las mismas.
+      setCarasReferidas([]);
       setCargando(false);
 
       // Las versiones libres las guarda el chat; aquí solo se muestran.
@@ -346,6 +378,12 @@ export function DisenoProvider({
       erroresCampo,
       piezaActiva,
       setPiezaActiva,
+      modoCaras,
+      setModoCaras,
+      carasReferidas,
+      alternarCara,
+      quitarCara,
+      setCarasReferidas,
       aplicar,
       catalogo,
       corte,
@@ -368,6 +406,10 @@ export function DisenoProvider({
       error,
       erroresCampo,
       piezaActiva,
+      modoCaras,
+      carasReferidas,
+      alternarCara,
+      quitarCara,
       aplicar,
       catalogo,
       corte,

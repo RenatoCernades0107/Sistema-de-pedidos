@@ -13,6 +13,7 @@
 import { clienteServidor } from "@/lib/supabase-servidor";
 import { mensajeDeError } from "@/lib/errores";
 import type { Json } from "@/lib/supabase-tipos";
+import { esquemaReferenciaCara, type ReferenciaCara } from "./caras";
 import type { DisenoCad, MaterialDiseno, ParametrosCad } from "./tipos";
 
 export type OrigenVersion = "formulario" | "chat";
@@ -42,6 +43,8 @@ export type MensajeCad = {
   rol: RolMensajeCad;
   contenido: string;
   herramientas: HerramientaUsada[];
+  /** Las caras del visor que la persona señaló con el mensaje. */
+  referencias: ReferenciaCara[];
   creadoEn: string;
 };
 
@@ -65,6 +68,17 @@ function deHerramientas(valor: Json | null): HerramientaUsada[] {
       ok: h.ok !== false,
       resumen: typeof h.resumen === "string" ? h.resumen : "",
     });
+  }
+  return salida;
+}
+
+/** Las caras guardadas con un mensaje; las que no se entiendan se saltan. */
+export function deReferencias(valor: Json | null): ReferenciaCara[] {
+  if (!Array.isArray(valor)) return [];
+  const salida: ReferenciaCara[] = [];
+  for (const r of valor) {
+    const leida = esquemaReferenciaCara.safeParse(r);
+    if (leida.success) salida.push(leida.data);
   }
   return salida;
 }
@@ -239,7 +253,7 @@ export async function listarMensajes(disenoId: string, limite?: number): Promise
   const supabase = await clienteServidor();
   let consulta = supabase
     .from("cad_mensajes")
-    .select("id, rol, contenido, herramientas, creado_en")
+    .select("id, rol, contenido, herramientas, referencias, creado_en")
     .eq("diseno_id", disenoId)
     .order("creado_en", { ascending: false });
   if (limite) consulta = consulta.limit(limite);
@@ -252,6 +266,7 @@ export async function listarMensajes(disenoId: string, limite?: number): Promise
     rol: m.rol === "usuario" ? "usuario" : "asistente",
     contenido: m.contenido,
     herramientas: deHerramientas(m.herramientas),
+    referencias: deReferencias(m.referencias),
     creadoEn: m.creado_en,
   }));
 }
@@ -262,6 +277,7 @@ export async function agregarMensaje(entrada: {
   rol: RolMensajeCad;
   contenido: string;
   herramientas?: HerramientaUsada[];
+  referencias?: ReferenciaCara[];
   /** Solo para ordenar los dos mensajes de un turno que se guardan a la vez. */
   creadoEn?: string;
 }): Promise<void> {
@@ -271,6 +287,7 @@ export async function agregarMensaje(entrada: {
     rol: entrada.rol,
     contenido: entrada.contenido,
     herramientas: entrada.herramientas?.length ? entrada.herramientas : null,
+    referencias: entrada.referencias?.length ? (entrada.referencias as unknown as Json) : null,
     ...(entrada.creadoEn ? { creado_en: entrada.creadoEn } : {}),
   });
   if (error) throw new Error(mensajeDeError(error));
