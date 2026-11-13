@@ -19,6 +19,10 @@ Dos scripts, los dos pensados para correr contra el proyecto de Supabase en la n
   productos terminados y su RLS, la línea de tipo `terminado` con su ficha, que quien
   no es Administración la ve sin precios, y el anotado de los materiales usados.
   Tampoco necesita las cuentas del seed, y termina en `ROLLBACK`.
+- **`cad.sql`** — verifica la migración `20261116000100`: las tablas de los diseños CAD
+  y su RLS, la numeración de versiones de `guardar_version_diseno`, los CHECK de origen
+  y rol, la cascada al borrar un diseño y que quien no es Administración no ve ni
+  escribe nada. Tampoco necesita las cuentas del seed, y termina en `ROLLBACK`.
 - **`estado.sql`** — no verifica nada, solo reporta: cuántos pedidos, pagos y adjuntos
   hay, cómo se reparten los estados y si algún saldo quedó descuadrado.
 

@@ -267,6 +267,8 @@ export interface PermisosRol {
   configurar: boolean;
   /** Buscar, registrar y etiquetar los sobrantes del almacén en `/sobrantes`. */
   verSobrantes: boolean;
+  /** Diseñar piezas con el motor CAD (chat, render 3D y exportación DXF/STEP) en `/disenos`. */
+  usarCad: boolean;
 }
 
 export const ROLES: Record<Rol, PermisosRol> = {
@@ -291,6 +293,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     verMetricas: true,
     configurar: true,
     verSobrantes: true,
+    usarCad: true,
   },
   logistica: {
     nombre: "Logística",
@@ -313,6 +316,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     verMetricas: false,
     configurar: false,
     verSobrantes: true,
+    usarCad: false,
   },
   operaciones: {
     nombre: "Operaciones",
@@ -335,6 +339,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     verMetricas: false,
     configurar: false,
     verSobrantes: true,
+    usarCad: false,
   },
 };
 
@@ -518,6 +523,7 @@ export interface ConfigHerramienta {
 
 export const HERRAMIENTAS: ConfigHerramienta[] = [
   { titulo: "Cotizaciones", href: "/cotizaciones", permiso: "gestionarCotizaciones" },
+  { titulo: "Diseños", href: "/disenos", permiso: "usarCad" },
   { titulo: "Sobrantes", href: "/sobrantes", permiso: "verSobrantes" },
   { titulo: "Métricas", href: "/metricas", permiso: "verMetricas" },
   { titulo: "Configuración", href: "/configuracion", permiso: "configurar" },

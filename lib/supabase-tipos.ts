@@ -114,6 +114,127 @@ export type Database = {
           },
         ]
       }
+      cad_diseno_versiones: {
+        Row: {
+          creado_en: string
+          creado_por: string | null
+          diseno_id: string
+          id: string
+          origen: string
+          parametros: Json
+          plantilla: string
+          version: number
+          version_plantilla: number | null
+        }
+        Insert: {
+          creado_en?: string
+          creado_por?: string | null
+          diseno_id: string
+          id?: string
+          origen: string
+          parametros?: Json
+          plantilla: string
+          version: number
+          version_plantilla?: number | null
+        }
+        Update: {
+          creado_en?: string
+          creado_por?: string | null
+          diseno_id?: string
+          id?: string
+          origen?: string
+          parametros?: Json
+          plantilla?: string
+          version?: number
+          version_plantilla?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cad_diseno_versiones_creado_por_fkey"
+            columns: ["creado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cad_diseno_versiones_diseno_id_fkey"
+            columns: ["diseno_id"]
+            isOneToOne: false
+            referencedRelation: "cad_disenos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cad_disenos: {
+        Row: {
+          actualizado_en: string
+          creado_en: string
+          creado_por: string | null
+          id: string
+          nombre: string
+          version_actual: number
+        }
+        Insert: {
+          actualizado_en?: string
+          creado_en?: string
+          creado_por?: string | null
+          id?: string
+          nombre?: string
+          version_actual?: number
+        }
+        Update: {
+          actualizado_en?: string
+          creado_en?: string
+          creado_por?: string | null
+          id?: string
+          nombre?: string
+          version_actual?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cad_disenos_creado_por_fkey"
+            columns: ["creado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cad_mensajes: {
+        Row: {
+          contenido: string
+          creado_en: string
+          diseno_id: string
+          herramientas: Json | null
+          id: string
+          rol: string
+        }
+        Insert: {
+          contenido: string
+          creado_en?: string
+          diseno_id: string
+          herramientas?: Json | null
+          id?: string
+          rol: string
+        }
+        Update: {
+          contenido?: string
+          creado_en?: string
+          diseno_id?: string
+          herramientas?: Json | null
+          id?: string
+          rol?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cad_mensajes_diseno_id_fkey"
+            columns: ["diseno_id"]
+            isOneToOne: false
+            referencedRelation: "cad_disenos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       configuracion: {
         Row: {
           actualizado_en: string
@@ -1980,6 +2101,16 @@ export type Database = {
       escritura_del_sistema: { Args: never; Returns: boolean }
       etiqueta: { Args: { valor: string }; Returns: string }
       generar_codigo_pedido: { Args: { p_fecha?: string }; Returns: string }
+      guardar_version_diseno: {
+        Args: {
+          p_diseno_id: string
+          p_origen: string
+          p_parametros: Json
+          p_plantilla: string
+          p_version_plantilla?: number
+        }
+        Returns: number
+      }
       lineas_de_pedido: {
         Args: { p_codigo: string }
         Returns: {
