@@ -27,6 +27,8 @@ const POR_CONSTRAINT: ReadonlyArray<readonly [RegExp, string]> = [
     /cotizaciones_sincronizada_con_orden|cotizaciones_error_con_motivo/,
     "El estado de la cotización en Odoo no cuadra. Recarga la página.",
   ],
+  [/cad_disenos_nombre_check/, "El nombre del diseño no puede quedar vacío."],
+  [/cad_diseno_versiones_diseno_id_version_key/, "Alguien guardó el diseño a la vez. Vuelve a intentarlo."],
   [/pedidos_monto_pagado_check/, "El abono supera el total del pedido."],
   [
     /pedidos_comprobante_formato/,

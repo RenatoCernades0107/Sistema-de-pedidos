@@ -42,6 +42,8 @@ export async function leerLineasDePedido(codigo: string): Promise<LineaDePedido[
     planchasUsadas: num(f.planchas_usadas),
     terminado: f.tipo === "terminado" ? leerTerminado(f.terminado) : null,
     materialesUsados: f.tipo === "terminado" ? leerMaterialesUsados(f.materiales_usados) : null,
+    diseno:
+      f.diseno_id && f.diseno_version ? { disenoId: f.diseno_id, version: f.diseno_version } : null,
     importe: num(f.importe),
     produccionId: f.odoo_produccion_id,
     produccionNombre: f.odoo_produccion_nombre,

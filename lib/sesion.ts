@@ -119,6 +119,22 @@ export async function perfilConCotizaciones(): Promise<Perfil | null> {
   return ROLES[perfil.rol].gestionarCotizaciones ? perfil : null;
 }
 
+/** La herramienta de diseños (`/disenos`): el chat, el render y las descargas del motor CAD. */
+export async function exigirCad(): Promise<Perfil> {
+  const perfil = await exigirSesion();
+  if (!ROLES[perfil.rol].usarCad) {
+    redirect(RUTA_PEDIDOS);
+  }
+  return perfil;
+}
+
+/** Lo mismo para los route handlers de `/api/cad` y del chat de diseños. `null` si no puede. */
+export async function perfilConCad(): Promise<Perfil | null> {
+  const perfil = await perfilActual();
+  if (!perfil || perfil.debeCambiarPassword) return null;
+  return ROLES[perfil.rol].usarCad ? perfil : null;
+}
+
 /**
  * El dashboard de `/metricas`. Va por su permiso y no por `exigirAdmin()` porque la
  * entrada del menú sale de ese mismo permiso: así la puerta y el enlace no pueden

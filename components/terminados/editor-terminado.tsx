@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { CircleAlert, Trash2 } from "lucide-react";
 import {
   buscarGrupos,
@@ -44,6 +44,8 @@ import { cn } from "@/lib/utils";
 import { usePrecios } from "@/components/cortes/editor-corte";
 import { ArmadoCaja } from "@/components/terminados/armado-caja";
 import { CortesTerminado } from "@/components/terminados/cortes-terminado";
+import { ModeloCadTerminado } from "@/components/terminados/modelo-cad-terminado";
+import { parametrosCadDe } from "@/lib/terminados/plantilla-cad";
 import { armadoDeCaja } from "@/lib/terminados/armado";
 import { BuscadorProducto } from "@/components/cotizaciones/buscador-producto";
 import { ComboBusqueda, type Opcion } from "@/components/cotizaciones/combo-busqueda";
@@ -219,6 +221,19 @@ export function EditorTerminado({
     [geometria, medidas, areaManual, unidades, plancha, accesorios, tipo, catalogo, opciones, formatos, configCortes, grupo],
   );
 
+  /** Si el producto lo dibuja una plantilla del motor CAD: sus parámetros en mm. */
+  const parametrosCad = useMemo(
+    () =>
+      producto?.plantillaCad
+        ? parametrosCadDe(producto, aMedidas(medidas), { espesorMm: grupo?.espesorMm, texto: textoPedido })
+        : null,
+    [producto, medidas, grupo, textoPedido],
+  );
+  // Mientras el motor no conteste —o si no puede— se muestra la estimación por forma.
+  const [cadListo, setCadListo] = useState(false);
+  const alDisponibleCad = useCallback((si: boolean) => setCadListo(si), []);
+  const conModeloCad = !!parametrosCad && cadListo;
+
   const precioFinal = precio.trim() === "" ? calculo.precioSugerido : Number(precio.replace(",", "."));
   const precioValido = Number.isFinite(precioFinal) && precioFinal >= 0;
 
@@ -281,6 +296,8 @@ export function EditorTerminado({
       precioUnitario: Math.round(precioFinal * 100) / 100,
       reservar,
       calculo,
+      // El enlace al diseño CAD se conserva mientras siga siendo un personalizado.
+      disenoVersionId: producto ? null : (inicial?.disenoVersionId ?? null),
     });
   };
 
@@ -584,7 +601,18 @@ export function EditorTerminado({
                   </p>
                 )}
 
-                {calculo.corte && calculo.piezas && (
+                {producto?.plantillaCad && parametrosCad && (
+                  <ModeloCadTerminado
+                    plantilla={producto.plantillaCad}
+                    parametros={parametrosCad}
+                    nombre={`${producto.codigo} ${producto.nombre}`}
+                    color={color || null}
+                    alDisponible={alDisponibleCad}
+                    className="bg-background rounded-md border p-3"
+                  />
+                )}
+
+                {!conModeloCad && calculo.corte && calculo.piezas && (
                   <CortesTerminado
                     piezas={calculo.piezas}
                     formato={calculo.corte.formato}
@@ -594,7 +622,7 @@ export function EditorTerminado({
                   />
                 )}
 
-                {armadoDeCaja(geometria, aMedidas(medidas)) && (
+                {!conModeloCad && armadoDeCaja(geometria, aMedidas(medidas)) && (
                   <details className="bg-background rounded-md border px-3 py-2">
                     <summary className="cursor-pointer text-xs font-medium">Cómo se arma (3D)</summary>
                     <ArmadoCaja geometria={geometria} medidas={aMedidas(medidas)} className="mt-2" />

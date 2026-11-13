@@ -84,6 +84,8 @@ export interface LineaTerminado {
   /** El precio final de cada unidad: el sugerido, o el que escribió quien cotiza. */
   precioUnitario: number;
   reservar: boolean;
+  /** Si sale de un diseño CAD: la versión que se cotiza (`cad_diseno_versiones.id`). */
+  disenoVersionId?: string | null;
   /** Lo que se enseña mientras se arma; al guardar, el servidor lo rehace. */
   calculo: CalculoTerminado;
 }

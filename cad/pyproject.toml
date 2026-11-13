@@ -1,0 +1,27 @@
+[project]
+name = "motor-cad"
+version = "0.1.0"
+description = "Motor CAD de Plexiacril: plantillas paramétricas de piezas planas (render 3D, despiece, DXF y STEP)."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi==0.162.5",
+    "uvicorn==0.54.0",
+    "pydantic==2.14.3",
+    "build123d==0.13.0",
+    "ezdxf==1.4.5",
+    "pillow==13.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.2.0",
+    "httpx==0.28.1",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"

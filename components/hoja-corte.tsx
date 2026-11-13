@@ -13,6 +13,7 @@ import { indicacionesDe, origenDePlancha, piezasDePlancha } from "@/lib/hoja-cor
 import { planchasCalculadas, type LineaDePedido } from "@/lib/pedido-lineas";
 import { LeyendaPlano, PlanoCorte } from "@/components/cortes/plano-corte";
 import { DescargarDxf } from "@/components/cortes/descargar-dxf";
+import { DescargarDxfDiseno } from "@/components/disenos/descargar-dxf-diseno";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -39,11 +40,14 @@ export function HojaCorte({
   codigo,
   lineas,
   kerfLaserCm = 0,
+  puedeCad = false,
 }: {
   codigo: string;
   lineas: LineaDePedido[];
   /** El grosor del corte láser de la configuración: el DXF lo compensa. */
   kerfLaserCm?: number;
+  /** Si quien mira puede usar el motor CAD: ofrece el DXF de las líneas que vienen de un diseño. */
+  puedeCad?: boolean;
 }) {
   const { pedido } = useStore();
   const p = pedido(codigo);
@@ -130,6 +134,7 @@ export function HojaCorte({
               de={cortes.length}
               codigo={p.codigo}
               kerfLaserCm={kerfLaserCm}
+              puedeCad={puedeCad}
             />
           ))
         )}
@@ -146,6 +151,7 @@ export function HojaCorte({
                   <span>
                     <span className="tnum font-medium">{n(l.cantidad)} ×</span> {l.nombre}
                     {l.codigo && <span className="text-muted-foreground ml-1.5 font-mono text-xs">{l.codigo}</span>}
+                    {puedeCad && <BotonDxfDiseno linea={l} codigo={codigo} nombre={l.nombre} bloque />}
                     {l.descripcion && (
                       <span className="text-muted-foreground block text-xs whitespace-pre-line">{l.descripcion}</span>
                     )}
@@ -208,14 +214,18 @@ function Corte({
   de,
   codigo,
   kerfLaserCm,
+  puedeCad,
 }: {
   linea: LineaDePedido;
   numero: number;
   de: number;
   codigo: string;
   kerfLaserCm: number;
+  puedeCad: boolean;
 }) {
   const c = vistaDe(l);
+  // Si la línea viene de un diseño CAD, el DXF bueno es el del motor (piezas reales), no el de rectángulos.
+  const referencia = puedeCad ? l.diseno : null;
   const piezas = totalPiezas(c.piezas);
   const hayFraccion = c.planchas.some((p) => p.cobro.factor < 1);
   const conNombre = c.piezas.some((p) => p.nombre);
@@ -228,7 +238,9 @@ function Corte({
             {de > 1 && <span className="text-muted-foreground font-normal">Corte {numero} de {de} · </span>}
             {c.titulo}
           </h2>
-          {c.laser && (
+          {referencia ? (
+            <DescargarDxfDiseno referencia={referencia} nombre={`${codigo} ${c.nombreArchivo.join(" ")}`} />
+          ) : c.laser && (
             <DescargarDxf
               planchas={c.planchas}
               kerfCm={kerfLaserCm}
@@ -331,6 +343,27 @@ function Corte({
         )}
       </div>
     </section>
+  );
+}
+
+/** El DXF del motor para una línea que no se corta aquí pero viene de un diseño CAD. */
+function BotonDxfDiseno({
+  linea,
+  codigo,
+  nombre,
+  bloque,
+}: {
+  linea: LineaDePedido;
+  codigo: string;
+  nombre: string;
+  bloque?: boolean;
+}) {
+  const referencia = linea.diseno;
+  if (!referencia) return null;
+  return (
+    <span className={cn("print:hidden", bloque && "my-1 block")}>
+      <DescargarDxfDiseno referencia={referencia} nombre={`${codigo} ${nombre}`} />
+    </span>
   );
 }
 

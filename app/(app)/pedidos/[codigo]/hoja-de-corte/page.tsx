@@ -1,6 +1,8 @@
 import { HojaCorte } from "@/components/hoja-corte";
 import { cargarConfigCortes } from "@/lib/cortes-servidor";
 import { cargarLineasDePedido } from "@/lib/pedido-odoo-servidor";
+import { ROLES } from "@/lib/dominio";
+import { perfilActual } from "@/lib/sesion";
 
 /**
  * La hoja de corte imprimible. El pedido sale del layout, como en el detalle; las
@@ -10,6 +12,11 @@ import { cargarLineasDePedido } from "@/lib/pedido-odoo-servidor";
  */
 export default async function Page({ params }: PageProps<"/pedidos/[codigo]/hoja-de-corte">) {
   const codigo = decodeURIComponent((await params).codigo);
-  const [lineas, config] = await Promise.all([cargarLineasDePedido(codigo), cargarConfigCortes()]);
-  return <HojaCorte codigo={codigo} lineas={lineas} kerfLaserCm={config.corte.kerfLaser} />;
+  const [lineas, config, perfil] = await Promise.all([
+    cargarLineasDePedido(codigo),
+    cargarConfigCortes(),
+    perfilActual(),
+  ]);
+  const puedeCad = !!perfil && ROLES[perfil.rol].usarCad;
+  return <HojaCorte codigo={codigo} lineas={lineas} kerfLaserCm={config.corte.kerfLaser} puedeCad={puedeCad} />;
 }

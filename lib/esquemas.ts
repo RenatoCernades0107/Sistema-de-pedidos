@@ -587,6 +587,8 @@ export const esquemaLineaTerminado = z
       .refine((n) => decimalesDe(n) <= 2, "El precio admite hasta 2 decimales"),
     /** Si lo estimado se reserva en Odoo al confirmar el pedido. */
     reservar: z.boolean(),
+    /** La versión del diseño CAD del que sale la línea (`cad_diseno_versiones`). */
+    disenoVersionId: z.uuid().nullable().optional(),
   })
   .superRefine((v, ctx) => {
     if (v.productoCodigo) {

@@ -114,6 +114,155 @@ export type Database = {
           },
         ]
       }
+      cad_diseno_versiones: {
+        Row: {
+          acomodo: Json | null
+          aprobado_en: string | null
+          aprobado_por: string | null
+          codigo: string | null
+          color: string | null
+          creado_en: string
+          creado_por: string | null
+          diseno_id: string
+          estado: string
+          grupo_plancha_id: string | null
+          id: string
+          origen: string
+          parametros: Json
+          plantilla: string
+          version: number
+          version_plantilla: number | null
+        }
+        Insert: {
+          acomodo?: Json | null
+          aprobado_en?: string | null
+          aprobado_por?: string | null
+          codigo?: string | null
+          color?: string | null
+          creado_en?: string
+          creado_por?: string | null
+          diseno_id: string
+          estado?: string
+          grupo_plancha_id?: string | null
+          id?: string
+          origen: string
+          parametros?: Json
+          plantilla: string
+          version: number
+          version_plantilla?: number | null
+        }
+        Update: {
+          acomodo?: Json | null
+          aprobado_en?: string | null
+          aprobado_por?: string | null
+          codigo?: string | null
+          color?: string | null
+          creado_en?: string
+          creado_por?: string | null
+          diseno_id?: string
+          estado?: string
+          grupo_plancha_id?: string | null
+          id?: string
+          origen?: string
+          parametros?: Json
+          plantilla?: string
+          version?: number
+          version_plantilla?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cad_diseno_versiones_grupo_plancha_id_fkey"
+            columns: ["grupo_plancha_id"]
+            isOneToOne: false
+            referencedRelation: "grupos_plancha"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cad_diseno_versiones_creado_por_fkey"
+            columns: ["creado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cad_diseno_versiones_diseno_id_fkey"
+            columns: ["diseno_id"]
+            isOneToOne: false
+            referencedRelation: "cad_disenos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cad_disenos: {
+        Row: {
+          actualizado_en: string
+          creado_en: string
+          creado_por: string | null
+          id: string
+          nombre: string
+          version_actual: number
+        }
+        Insert: {
+          actualizado_en?: string
+          creado_en?: string
+          creado_por?: string | null
+          id?: string
+          nombre?: string
+          version_actual?: number
+        }
+        Update: {
+          actualizado_en?: string
+          creado_en?: string
+          creado_por?: string | null
+          id?: string
+          nombre?: string
+          version_actual?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cad_disenos_creado_por_fkey"
+            columns: ["creado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cad_mensajes: {
+        Row: {
+          contenido: string
+          creado_en: string
+          diseno_id: string
+          herramientas: Json | null
+          id: string
+          rol: string
+        }
+        Insert: {
+          contenido: string
+          creado_en?: string
+          diseno_id: string
+          herramientas?: Json | null
+          id?: string
+          rol: string
+        }
+        Update: {
+          contenido?: string
+          creado_en?: string
+          diseno_id?: string
+          herramientas?: Json | null
+          id?: string
+          rol?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cad_mensajes_diseno_id_fkey"
+            columns: ["diseno_id"]
+            isOneToOne: false
+            referencedRelation: "cad_disenos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       configuracion: {
         Row: {
           actualizado_en: string
@@ -149,6 +298,7 @@ export type Database = {
           corte: Json | null
           cotizacion_id: string
           descripcion: string | null
+          diseno_version_id: string | null
           id: string
           importe: number | null
           indicaciones: string | null
@@ -170,6 +320,7 @@ export type Database = {
           corte?: Json | null
           cotizacion_id: string
           descripcion?: string | null
+          diseno_version_id?: string | null
           id?: string
           importe?: number | null
           indicaciones?: string | null
@@ -191,6 +342,7 @@ export type Database = {
           corte?: Json | null
           cotizacion_id?: string
           descripcion?: string | null
+          diseno_version_id?: string | null
           id?: string
           importe?: number | null
           indicaciones?: string | null
@@ -1234,6 +1386,8 @@ export type Database = {
           imagen_url: string | null
           nombre: string
           notas: string | null
+          parametros_cad: Json | null
+          plantilla_cad: string | null
           tipo: string
           usos: string | null
         }
@@ -1248,6 +1402,8 @@ export type Database = {
           imagen_url?: string | null
           nombre: string
           notas?: string | null
+          parametros_cad?: Json | null
+          plantilla_cad?: string | null
           tipo: string
           usos?: string | null
         }
@@ -1262,6 +1418,8 @@ export type Database = {
           imagen_url?: string | null
           nombre?: string
           notas?: string | null
+          parametros_cad?: Json | null
+          plantilla_cad?: string | null
           tipo?: string
           usos?: string | null
         }
@@ -1917,6 +2075,10 @@ export type Database = {
         Args: { p_codigo: string; p_descontado: boolean; p_error?: string }
         Returns: undefined
       }
+      aprobar_version_diseno: {
+        Args: { p_diseno_id: string; p_version: number }
+        Returns: undefined
+      }
       array_sin_duplicados: { Args: { a: unknown }; Returns: boolean }
       auditoria_texto: { Args: { campo: string; valor: Json }; Returns: string }
       auth_rol: { Args: never; Returns: Database["public"]["Enums"]["rol"] }
@@ -1980,12 +2142,39 @@ export type Database = {
       escritura_del_sistema: { Args: never; Returns: boolean }
       etiqueta: { Args: { valor: string }; Returns: string }
       generar_codigo_pedido: { Args: { p_fecha?: string }; Returns: string }
+      guardar_version_diseno_libre: {
+        Args: {
+          p_acomodo?: Json
+          p_codigo: string
+          p_color?: string
+          p_diseno_id: string
+          p_grupo_plancha_id?: string
+          p_origen?: string
+        }
+        Returns: number
+      }
+      guardar_version_diseno: {
+        Args: {
+          p_acomodo?: Json
+          p_color?: string
+          p_diseno_id: string
+          p_grupo_plancha_id?: string
+          p_origen: string
+          p_parametros: Json
+          p_plantilla: string
+          p_version_plantilla?: number
+        }
+        Returns: number
+      }
       lineas_de_pedido: {
         Args: { p_codigo: string }
         Returns: {
           cantidad: number
           corte: Json
           descripcion: string
+          diseno_id: string
+          diseno_version: number
+          diseno_version_id: string
           importe: number
           indicaciones: string
           materiales_usados: Json

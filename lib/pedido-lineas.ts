@@ -9,6 +9,7 @@
 
 import { planchasNuevas, type CorteGuardado } from "./cortes/guardado";
 import type { MaterialUsado, TerminadoGuardado } from "./terminados/guardado";
+import type { ReferenciaDiseno } from "./cad/referencia";
 
 export interface LineaDePedido {
   posicion: number;
@@ -27,6 +28,8 @@ export interface LineaDePedido {
   terminado: TerminadoGuardado | null;
   /** Lo que logística anotó que se usó en el producto terminado. `null`: nadie lo dijo todavía. */
   materialesUsados: MaterialUsado[] | null;
+  /** Si la línea sale de un diseño CAD: cuál y qué versión se cotizó. */
+  diseno?: ReferenciaDiseno | null;
   /** Solo para Administración; `null` para los demás. */
   importe: number | null;
   /** Con el piloto de sobrantes: la orden de fabricación del corte en Odoo. */
