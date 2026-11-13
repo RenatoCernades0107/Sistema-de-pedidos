@@ -179,15 +179,19 @@ def ejecutar(
         shutil.rmtree(dir_trabajo, ignore_errors=True)
 
 
+def _senal(nombre: str) -> int | None:
+    """Número de señal POSIX (negativo como lo devuelve Popen) o None si el SO no la tiene."""
+    valor = getattr(signal, nombre, None)
+    return -int(valor) if valor is not None else None
+
+
 def _error_sin_resultado(codigo_salida: int, ruta_consola: str) -> dict[str, Any]:
     cola = _leer_cola(ruta_consola)
-    sigxcpu = getattr(signal, "SIGXCPU", None)
-    sigxfsz = getattr(signal, "SIGXFSZ", None)
-    if codigo_salida in tuple(x for x in (-sigxcpu if sigxcpu else None, -signal.SIGKILL) if x):
+    if codigo_salida in (_senal("SIGXCPU"), _senal("SIGKILL")):
         return {"tipo": "tiempo", "mensaje": "El diseño agotó el tiempo de CPU y se detuvo."}
-    if "MemoryError" in cola or codigo_salida in (-signal.SIGSEGV, -signal.SIGABRT) or "bad_alloc" in cola:
+    if "MemoryError" in cola or "bad_alloc" in cola or codigo_salida in (_senal("SIGSEGV"), _senal("SIGABRT")):
         return {"tipo": "memoria", "mensaje": "El diseño superó el límite de memoria."}
-    if sigxfsz and codigo_salida == -sigxfsz:
+    if codigo_salida == _senal("SIGXFSZ"):
         return {"tipo": "salida", "mensaje": "El diseño intentó escribir demasiados datos."}
     return {
         "tipo": "ejecucion",
