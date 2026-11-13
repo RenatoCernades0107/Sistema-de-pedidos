@@ -54,7 +54,9 @@ const TINTES: [string, TinteAcrilico | null][] = [
 const POR_DEFECTO: TinteAcrilico = { color: "#b0b4b8", opacidad: 0.75 };
 
 /** El tinte de un color del catálogo. `null`: cristal / transparente o sin color. */
-export function tinteDeColor(nombre: string | null | undefined): TinteAcrilico | null {
+export function tinteDeColor(
+  nombre: string | null | undefined,
+): TinteAcrilico | null {
   const texto = compactar(nombre ?? "");
   if (!texto) return null;
   for (const [clave, tinte] of TINTES) if (texto.includes(clave)) return tinte;

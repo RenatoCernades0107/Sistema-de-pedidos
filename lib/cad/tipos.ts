@@ -137,7 +137,15 @@ export type ResultadoLibre = {
 
 /** Por qué el código no produjo un diseño, para que el modelo lo corrija. */
 export type ErrorCodigoLibre = {
-  tipo: "sintaxis" | "prohibido" | "ejecucion" | "tiempo" | "memoria" | "contrato" | "geometria" | "salida";
+  tipo:
+    | "sintaxis"
+    | "prohibido"
+    | "ejecucion"
+    | "tiempo"
+    | "memoria"
+    | "contrato"
+    | "geometria"
+    | "salida";
   mensaje: string;
   linea?: number;
   columna?: number;

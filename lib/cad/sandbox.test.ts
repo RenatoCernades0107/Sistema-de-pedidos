@@ -69,7 +69,15 @@ describe("interruptor", () => {
 
 describe("transporte", () => {
   it("ejecuta con la clave y sin duplicar la barra", async () => {
-    fetchFalso.mockResolvedValue(respuesta({ codigo: "x", glb_base64: "", piezas: [], validaciones: [], dimensiones: { x: 1, y: 1, z: 1 } }));
+    fetchFalso.mockResolvedValue(
+      respuesta({
+        codigo: "x",
+        glb_base64: "",
+        piezas: [],
+        validaciones: [],
+        dimensiones: { x: 1, y: 1, z: 1 },
+      }),
+    );
     const r = await ejecutarCodigo("x");
     const { url, metodo, cabeceras, cuerpo } = llamada();
     expect(url).toBe("http://sandbox.test/ejecutar");
@@ -86,7 +94,12 @@ describe("transporte", () => {
           detail: {
             codigo: "codigo_invalido",
             mensaje: "No se puede importar «os».",
-            error: { tipo: "prohibido", mensaje: "No se puede importar «os».", linea: 3, columna: 0 },
+            error: {
+              tipo: "prohibido",
+              mensaje: "No se puede importar «os».",
+              linea: 3,
+              columna: 0,
+            },
           },
         },
         422,
@@ -95,11 +108,27 @@ describe("transporte", () => {
     const e = await errorDe(ejecutarCodigo("import os"));
     expect(e.codigo).toBe("codigo_invalido");
     expect(e.estado).toBe(422);
-    expect(e.errorCodigo).toEqual({ tipo: "prohibido", mensaje: "No se puede importar «os».", linea: 3, columna: 0 });
+    expect(e.errorCodigo).toEqual({
+      tipo: "prohibido",
+      mensaje: "No se puede importar «os».",
+      linea: 3,
+      columna: 0,
+    });
   });
 
   it("un tipo de error desconocido se trata como de ejecución", async () => {
-    fetchFalso.mockResolvedValue(respuesta({ detail: { codigo: "codigo_invalido", mensaje: "x", error: { tipo: "raro", mensaje: "x" } } }, 422));
+    fetchFalso.mockResolvedValue(
+      respuesta(
+        {
+          detail: {
+            codigo: "codigo_invalido",
+            mensaje: "x",
+            error: { tipo: "raro", mensaje: "x" },
+          },
+        },
+        422,
+      ),
+    );
     const e = await errorDe(ejecutarCodigo("x"));
     expect(e.errorCodigo?.tipo).toBe("ejecucion");
   });
@@ -112,17 +141,29 @@ describe("transporte", () => {
   it("el DXF manda las opciones", async () => {
     fetchFalso.mockResolvedValue(new Response("0\nSECTION"));
     await exportarDxfLibre("x", { kerf_mm: 0.1 });
-    expect(llamada().cuerpo).toEqual({ codigo: "x", opciones: { kerf_mm: 0.1 } });
+    expect(llamada().cuerpo).toEqual({
+      codigo: "x",
+      opciones: { kerf_mm: 0.1 },
+    });
   });
 
   it("el render vuelve como data URL", async () => {
     fetchFalso.mockResolvedValue(respuesta({ png_base64: "iVBORw0KGgo=" }));
-    expect(await renderizar({ glb_base64: "Z2xURg==" })).toBe("data:image/png;base64,iVBORw0KGgo=");
+    expect(await renderizar({ glb_base64: "Z2xURg==" })).toBe(
+      "data:image/png;base64,iVBORw0KGgo=",
+    );
   });
 
   it("una referencia inexistente es null y la ruta se codifica por tramos", async () => {
-    fetchFalso.mockResolvedValue(respuesta({ detail: { codigo: "referencia_desconocida", mensaje: "no" } }, 404));
+    fetchFalso.mockResolvedValue(
+      respuesta(
+        { detail: { codigo: "referencia_desconocida", mensaje: "no" } },
+        404,
+      ),
+    );
     expect(await leerReferencia("plugins/a b.md")).toBeNull();
-    expect(llamada().url).toBe("http://sandbox.test/referencias/plugins/a%20b.md");
+    expect(llamada().url).toBe(
+      "http://sandbox.test/referencias/plugins/a%20b.md",
+    );
   });
 });

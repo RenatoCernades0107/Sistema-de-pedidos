@@ -32,7 +32,12 @@ export class ErrorMotorCad extends Error {
   estado: number;
   errores?: ErrorCampoCad[];
 
-  constructor(mensaje: string, codigo: string, estado: number, errores?: ErrorCampoCad[]) {
+  constructor(
+    mensaje: string,
+    codigo: string,
+    estado: number,
+    errores?: ErrorCampoCad[],
+  ) {
     super(mensaje);
     this.name = "ErrorMotorCad";
     this.codigo = codigo;
@@ -47,12 +52,24 @@ const POR_ESTADO: Record<number, { codigo: string; mensaje: string }> = {
     codigo: "no_autorizado",
     mensaje: "El motor CAD rechazó la clave de la aplicación. Avisa a soporte.",
   },
-  404: { codigo: "plantilla_desconocida", mensaje: "Esa plantilla no existe en el motor CAD." },
-  422: { codigo: "parametros_invalidos", mensaje: "Hay parámetros que no son válidos." },
-  500: { codigo: "geometria", mensaje: "El motor CAD no pudo construir la geometría." },
+  404: {
+    codigo: "plantilla_desconocida",
+    mensaje: "Esa plantilla no existe en el motor CAD.",
+  },
+  422: {
+    codigo: "parametros_invalidos",
+    mensaje: "Hay parámetros que no son válidos.",
+  },
+  500: {
+    codigo: "geometria",
+    mensaje: "El motor CAD no pudo construir la geometría.",
+  },
 };
 
-const GENERICO = { codigo: "motor", mensaje: "El motor CAD falló. Intenta de nuevo." };
+const GENERICO = {
+  codigo: "motor",
+  mensaje: "El motor CAD falló. Intenta de nuevo.",
+};
 
 export const motorConfigurado = () => Boolean(process.env.CAD_API_BASE_URL);
 
@@ -101,8 +118,12 @@ async function errorDe(res: Response): Promise<ErrorMotorCad> {
 
   if (esObjeto(detail)) {
     return new ErrorMotorCad(
-      typeof detail.mensaje === "string" && detail.mensaje ? detail.mensaje : base.mensaje,
-      typeof detail.codigo === "string" && detail.codigo ? detail.codigo : base.codigo,
+      typeof detail.mensaje === "string" && detail.mensaje
+        ? detail.mensaje
+        : base.mensaje,
+      typeof detail.codigo === "string" && detail.codigo
+        ? detail.codigo
+        : base.codigo,
       res.status,
       erroresDeCampo(detail.errores),
     );
@@ -119,8 +140,16 @@ async function errorDe(res: Response): Promise<ErrorMotorCad> {
 
   // El string de un 404 o un 401 ("Not Found") es para el log, no para la
   // persona; el de un 422 o un 500 sí lo escribió el motor para que se lea.
-  const legible = typeof detail === "string" && detail && res.status !== 401 && res.status !== 404;
-  return new ErrorMotorCad(legible ? (detail as string) : base.mensaje, base.codigo, res.status);
+  const legible =
+    typeof detail === "string" &&
+    detail &&
+    res.status !== 401 &&
+    res.status !== 404;
+  return new ErrorMotorCad(
+    legible ? (detail as string) : base.mensaje,
+    base.codigo,
+    res.status,
+  );
 }
 
 async function peticion(path: string, init?: RequestInit): Promise<Response> {
@@ -134,9 +163,17 @@ async function peticion(path: string, init?: RequestInit): Promise<Response> {
 
   let res: Response;
   try {
-    res = await fetch(url(path), { ...init, headers: cabeceras(), cache: "no-store" });
+    res = await fetch(url(path), {
+      ...init,
+      headers: cabeceras(),
+      cache: "no-store",
+    });
   } catch {
-    throw new ErrorMotorCad("No se pudo conectar con el motor CAD.", "sin_conexion", 503);
+    throw new ErrorMotorCad(
+      "No se pudo conectar con el motor CAD.",
+      "sin_conexion",
+      503,
+    );
   }
 
   if (!res.ok) throw await errorDe(res);
@@ -147,20 +184,31 @@ async function json<T>(res: Response): Promise<T> {
   try {
     return (await res.json()) as T;
   } catch {
-    throw new ErrorMotorCad("El motor CAD devolvió una respuesta ilegible.", "respuesta", 502);
+    throw new ErrorMotorCad(
+      "El motor CAD devolvió una respuesta ilegible.",
+      "respuesta",
+      502,
+    );
   }
 }
 
-const post = (cuerpo: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(cuerpo) });
+const post = (cuerpo: unknown): RequestInit => ({
+  method: "POST",
+  body: JSON.stringify(cuerpo),
+});
 
 export async function listarPlantillas(): Promise<PlantillaCad[]> {
   return json<PlantillaCad[]>(await peticion("/plantillas"));
 }
 
 /** `null` si el motor no conoce ese código. */
-export async function obtenerPlantilla(codigo: string): Promise<PlantillaCad | null> {
+export async function obtenerPlantilla(
+  codigo: string,
+): Promise<PlantillaCad | null> {
   try {
-    return await json<PlantillaCad>(await peticion(`/plantillas/${encodeURIComponent(codigo)}`));
+    return await json<PlantillaCad>(
+      await peticion(`/plantillas/${encodeURIComponent(codigo)}`),
+    );
   } catch (e) {
     if (e instanceof ErrorMotorCad && e.estado === 404) return null;
     throw e;
@@ -172,7 +220,9 @@ export async function generarDiseno(
   plantilla: string,
   parametros: ParametrosCad,
 ): Promise<ResultadoGeneracion> {
-  return json<ResultadoGeneracion>(await peticion("/generar", post({ plantilla, parametros })));
+  return json<ResultadoGeneracion>(
+    await peticion("/generar", post({ plantilla, parametros })),
+  );
 }
 
 /** El despiece acostado, en mm, listo para la cortadora. */
@@ -209,7 +259,12 @@ export async function exportarDxfPlanchas(
 ): Promise<ArrayBuffer> {
   const res = await peticion(
     "/dxf/planchas",
-    post({ plantilla, parametros, planchas, ...(opciones ? { opciones } : {}) }),
+    post({
+      plantilla,
+      parametros,
+      planchas,
+      ...(opciones ? { opciones } : {}),
+    }),
   );
   return res.arrayBuffer();
 }

@@ -7,7 +7,11 @@
  */
 
 import { MAX_INTENTOS_LIBRE } from "./herramientas";
-import { PLANTILLA_LIBRE, type EstadoDisenoLibre, type ParametrosCad } from "./tipos";
+import {
+  PLANTILLA_LIBRE,
+  type EstadoDisenoLibre,
+  type ParametrosCad,
+} from "./tipos";
 
 export const PROMPT_SISTEMA_CAD = `Eres el asistente de diseño de Plexiacril, un taller que fabrica productos de acrílico y materiales afines cortados con láser. Ayudas al personal del taller a diseñar productos (cajas, ánforas, displays, porta afiches, letras, alzadores, letreros, atriles…) que después se cortan en plancha y se arman.
 
@@ -112,7 +116,8 @@ export function contextoDisenoActual(
 
   if (diseno.plantilla === PLANTILLA_LIBRE) {
     let codigo = diseno.codigo ?? "";
-    if (codigo.length > LIMITE_CODIGO) codigo = `${codigo.slice(0, LIMITE_CODIGO)}\n# …(recortado)`;
+    if (codigo.length > LIMITE_CODIGO)
+      codigo = `${codigo.slice(0, LIMITE_CODIGO)}\n# …(recortado)`;
     return [
       "# Diseño actual",
       "- Tipo: diseño personalizado (libre, con código)",
@@ -126,7 +131,8 @@ export function contextoDisenoActual(
   }
 
   let parametros = JSON.stringify(diseno.parametros);
-  if (parametros.length > LIMITE_PARAMETROS) parametros = `${parametros.slice(0, LIMITE_PARAMETROS)}…`;
+  if (parametros.length > LIMITE_PARAMETROS)
+    parametros = `${parametros.slice(0, LIMITE_PARAMETROS)}…`;
 
   const origen =
     diseno.origen === "formulario"

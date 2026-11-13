@@ -61,3 +61,30 @@ export function tiempoLaser(
   }
   return { segundos, costo: (segundos / 60) * config.costoPorMinuto };
 }
+
+/** Una pieza de forma cualquiera: lo que cuenta para el láser es su contorno real. */
+export interface PiezaPerimetro {
+  /** El contorno completo de una copia (exterior más agujeros), en mm. */
+  perimetroMm: number;
+  cantidad: number;
+}
+
+/**
+ * Como `tiempoLaser`, pero con el perímetro que midió el motor CAD en vez del
+ * de un rectángulo: un círculo o una letra no se cortan como su caja envolvente.
+ */
+export function tiempoLaserPorPerimetro(
+  piezas: PiezaPerimetro[],
+  espesorMm: number,
+  config: ConfigCortes["laser"],
+): TiempoLaser {
+  const { velocidad, pierce, pasadas } = parametrosLaser(config.tabla, espesorMm);
+  const efectiva = velocidad * config.factorVelocidad;
+
+  let segundos = 0;
+  for (const p of piezas) {
+    if (!(p.perimetroMm > 0) || !(p.cantidad > 0)) continue;
+    segundos += p.cantidad * ((p.perimetroMm * pasadas) / efectiva + pierce + config.overheadPorPieza);
+  }
+  return { segundos, costo: (segundos / 60) * config.costoPorMinuto };
+}

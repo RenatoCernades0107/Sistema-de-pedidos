@@ -14,7 +14,9 @@ import { mensajeDeError } from "@/lib/errores";
 import type { VersionLibreCad } from "./tipos";
 
 /** La versión vigente si es libre; `null` si es de plantilla, no hay versión o no existe. */
-export async function obtenerVersionLibre(disenoId: string): Promise<VersionLibreCad | null> {
+export async function obtenerVersionLibre(
+  disenoId: string,
+): Promise<VersionLibreCad | null> {
   const supabase = await clienteServidor();
   const { data: diseno, error } = await supabase
     .from("cad_disenos")
@@ -30,7 +32,8 @@ export async function obtenerVersionLibre(disenoId: string): Promise<VersionLibr
     .eq("diseno_id", disenoId)
     .eq("version", diseno.version_actual)
     .maybeSingle();
-  if (errorVersion) throw new Error(`No se pudo leer el diseño: ${errorVersion.message}`);
+  if (errorVersion)
+    throw new Error(`No se pudo leer el diseño: ${errorVersion.message}`);
   if (!v?.codigo) return null;
   return {
     version: v.version,
@@ -57,7 +60,10 @@ export async function guardarVersionLibre(entrada: {
 }
 
 /** Aprueba una versión libre. La base exige Administración. */
-export async function aprobarVersionLibre(disenoId: string, version: number): Promise<void> {
+export async function aprobarVersionLibre(
+  disenoId: string,
+  version: number,
+): Promise<void> {
   const supabase = await clienteServidor();
   const { error } = await supabase.rpc("aprobar_version_diseno", {
     p_diseno_id: disenoId,

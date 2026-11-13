@@ -7,12 +7,25 @@ import { LUGARES, UBICACIONES } from "@/lib/dominio";
 import { fechaCompleta } from "@/lib/formato";
 import { hoy } from "@/lib/fecha";
 import { MODALIDADES } from "@/lib/cortes/calcular";
-import { fraccionEnPalabras, materialDeCorte, totalPiezas } from "@/lib/cortes/guardado";
-import { materialDeTerminado, tituloTerminado } from "@/lib/terminados/guardado";
-import { indicacionesDe, origenDePlancha, piezasDePlancha } from "@/lib/hoja-corte";
+import {
+  fraccionEnPalabras,
+  materialDeCorte,
+  totalPiezas,
+} from "@/lib/cortes/guardado";
+import {
+  materialDeTerminado,
+  tituloTerminado,
+} from "@/lib/terminados/guardado";
+import {
+  indicacionesDe,
+  origenDePlancha,
+  piezasDePlancha,
+} from "@/lib/hoja-corte";
 import { planchasCalculadas, type LineaDePedido } from "@/lib/pedido-lineas";
 import { LeyendaPlano, PlanoCorte } from "@/components/cortes/plano-corte";
 import { DescargarDxf } from "@/components/cortes/descargar-dxf";
+import { DescargarDxfDiseno } from "@/components/disenos/descargar-dxf-diseno";
+import { leerReferenciaDiseno } from "@/lib/cad/referencia";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -20,7 +33,13 @@ const n = (x: number) => String(+x.toFixed(2));
 
 /** Una casilla para marcar a mano, en el papel. En pantalla es solo dibujo. */
 const Casilla = ({ className }: { className?: string }) => (
-  <span className={cn("border-foreground/60 inline-block size-4 shrink-0 rounded-[3px] border", className)} aria-hidden />
+  <span
+    className={cn(
+      "border-foreground/60 inline-block size-4 shrink-0 rounded-[3px] border",
+      className,
+    )}
+    aria-hidden
+  />
 );
 
 /**
@@ -39,11 +58,14 @@ export function HojaCorte({
   codigo,
   lineas,
   kerfLaserCm = 0,
+  puedeCad = false,
 }: {
   codigo: string;
   lineas: LineaDePedido[];
   /** El grosor del corte láser de la configuración: el DXF lo compensa. */
   kerfLaserCm?: number;
+  /** Si quien mira puede usar el motor CAD: ofrece el DXF de las líneas que vienen de un diseño. */
+  puedeCad?: boolean;
 }) {
   const { pedido } = useStore();
   const p = pedido(codigo);
@@ -52,8 +74,15 @@ export function HojaCorte({
     return (
       <div className="grid min-h-[60vh] place-items-center p-6 text-center">
         <div>
-          <h1 className="text-lg font-semibold">No existe el pedido {codigo}</h1>
-          <Button render={<Link href="/pedidos" />} nativeButton={false} variant="outline" className="mt-4">
+          <h1 className="text-lg font-semibold">
+            No existe el pedido {codigo}
+          </h1>
+          <Button
+            render={<Link href="/pedidos" />}
+            nativeButton={false}
+            variant="outline"
+            className="mt-4"
+          >
             Volver a la lista
           </Button>
         </div>
@@ -80,7 +109,12 @@ export function HojaCorte({
           <ArrowLeft className="size-3.5" />
           Volver al pedido
         </Button>
-        <Button onClick={() => window.print()} size="sm" className="ml-auto gap-1.5" disabled={cortes.length === 0}>
+        <Button
+          onClick={() => window.print()}
+          size="sm"
+          className="ml-auto gap-1.5"
+          disabled={cortes.length === 0}
+        >
           <Printer className="size-3.5" />
           Imprimir
         </Button>
@@ -90,7 +124,9 @@ export function HojaCorte({
         <header className="flex flex-col gap-4 border-b pb-4">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <p className="eyebrow w-full">Hoja de corte</p>
-            <h1 className="text-primary text-2xl font-semibold tracking-tight tabular-nums">{p.codigo}</h1>
+            <h1 className="text-primary text-2xl font-semibold tracking-tight tabular-nums">
+              {p.codigo}
+            </h1>
             <p className="text-lg font-medium">{p.cliente}</p>
           </div>
           <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-4">
@@ -99,7 +135,9 @@ export function HojaCorte({
             </Dato>
             <Dato etiqueta="Responsable">{p.responsable ?? "Sin asignar"}</Dato>
             <Dato etiqueta="Ubicación">{UBICACIONES[p.ubicacion]}</Dato>
-            <Dato etiqueta="Entrega">{p.esProvincia ? "Provincia" : LUGARES[p.entrega]}</Dato>
+            <Dato etiqueta="Entrega">
+              {p.esProvincia ? "Provincia" : LUGARES[p.entrega]}
+            </Dato>
           </dl>
           {(indicaciones || p.observaciones) && (
             <div className="bg-muted/40 flex flex-col gap-2 rounded-lg border px-3 py-2.5 text-sm">
@@ -120,7 +158,9 @@ export function HojaCorte({
         </header>
 
         {cortes.length === 0 ? (
-          <p className="text-muted-foreground py-8 text-center text-sm">Este pedido no tiene cortes.</p>
+          <p className="text-muted-foreground py-8 text-center text-sm">
+            Este pedido no tiene cortes.
+          </p>
         ) : (
           cortes.map((l, i) => (
             <Corte
@@ -130,40 +170,67 @@ export function HojaCorte({
               de={cortes.length}
               codigo={p.codigo}
               kerfLaserCm={kerfLaserCm}
+              puedeCad={puedeCad}
             />
           ))
         )}
 
         {otros.length > 0 && (
-          <section className="mt-6 break-inside-avoid border-t pt-4" aria-labelledby="hoja-otros">
+          <section
+            className="mt-6 break-inside-avoid border-t pt-4"
+            aria-labelledby="hoja-otros"
+          >
             <h2 id="hoja-otros" className="text-sm font-semibold">
               Además, el pedido lleva
             </h2>
             <ul className="mt-2 flex flex-col gap-1.5 text-sm">
-              {otros.map((l) => (
-                <li key={l.posicion} className="flex items-start gap-2">
-                  <Casilla className="mt-0.5" />
-                  <span>
-                    <span className="tnum font-medium">{n(l.cantidad)} ×</span> {l.nombre}
-                    {l.codigo && <span className="text-muted-foreground ml-1.5 font-mono text-xs">{l.codigo}</span>}
-                    {l.descripcion && (
-                      <span className="text-muted-foreground block text-xs whitespace-pre-line">{l.descripcion}</span>
-                    )}
-                    {l.indicaciones && (
-                      <span className="block text-xs whitespace-pre-line">
-                        <span className="font-medium">Indicaciones: </span>
-                        {l.indicaciones}
-                      </span>
-                    )}
-                  </span>
-                </li>
-              ))}
+              {otros.map((l) => {
+                const referencia = puedeCad
+                  ? leerReferenciaDiseno(l.terminado?.notas)
+                  : null;
+                return (
+                  <li key={l.posicion} className="flex items-start gap-2">
+                    <Casilla className="mt-0.5" />
+                    <span>
+                      <span className="tnum font-medium">
+                        {n(l.cantidad)} ×
+                      </span>{" "}
+                      {l.nombre}
+                      {l.codigo && (
+                        <span className="text-muted-foreground ml-1.5 font-mono text-xs">
+                          {l.codigo}
+                        </span>
+                      )}
+                      {l.descripcion && (
+                        <span className="text-muted-foreground block text-xs whitespace-pre-line">
+                          {l.descripcion}
+                        </span>
+                      )}
+                      {l.indicaciones && (
+                        <span className="block text-xs whitespace-pre-line">
+                          <span className="font-medium">Indicaciones: </span>
+                          {l.indicaciones}
+                        </span>
+                      )}
+                      {referencia && (
+                        <span className="mt-1 block">
+                          <DescargarDxfDiseno
+                            referencia={referencia}
+                            nombre={`${codigo} ${l.nombre}`}
+                          />
+                        </span>
+                      )}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           </section>
         )}
 
         <footer className="text-muted-foreground mt-6 border-t pt-3 text-xs">
-          {p.codigo} · impresa el <span className="tnum">{fechaCompleta(hoy())}</span>
+          {p.codigo} · impresa el{" "}
+          <span className="tnum">{fechaCompleta(hoy())}</span>
         </footer>
       </article>
     </div>
@@ -208,40 +275,67 @@ function Corte({
   de,
   codigo,
   kerfLaserCm,
+  puedeCad,
 }: {
   linea: LineaDePedido;
   numero: number;
   de: number;
   codigo: string;
   kerfLaserCm: number;
+  puedeCad: boolean;
 }) {
   const c = vistaDe(l);
+  // Si la línea viene de un diseño CAD, el DXF bueno es el del motor (piezas reales), no el de rectángulos.
+  const referencia = puedeCad ? leerReferenciaDiseno(l.terminado?.notas) : null;
   const piezas = totalPiezas(c.piezas);
   const hayFraccion = c.planchas.some((p) => p.cobro.factor < 1);
   const conNombre = c.piezas.some((p) => p.nombre);
 
   return (
-    <section className="mt-6 flex flex-col gap-4" aria-labelledby={`hoja-corte-${l.posicion}`}>
+    <section
+      className="mt-6 flex flex-col gap-4"
+      aria-labelledby={`hoja-corte-${l.posicion}`}
+    >
       <div className="break-inside-avoid">
         <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-          <h2 id={`hoja-corte-${l.posicion}`} className="text-base font-semibold">
-            {de > 1 && <span className="text-muted-foreground font-normal">Corte {numero} de {de} · </span>}
+          <h2
+            id={`hoja-corte-${l.posicion}`}
+            className="text-base font-semibold"
+          >
+            {de > 1 && (
+              <span className="text-muted-foreground font-normal">
+                Corte {numero} de {de} ·{" "}
+              </span>
+            )}
             {c.titulo}
           </h2>
-          {c.laser && (
-            <DescargarDxf
-              planchas={c.planchas}
-              kerfCm={kerfLaserCm}
-              nombre={[codigo, de > 1 ? `corte ${numero}` : null, ...c.nombreArchivo]}
+          {referencia ? (
+            <DescargarDxfDiseno
+              referencia={referencia}
+              nombre={`${codigo} ${c.nombreArchivo.join(" ")}`}
             />
+          ) : (
+            c.laser && (
+              <DescargarDxf
+                planchas={c.planchas}
+                kerfCm={kerfLaserCm}
+                nombre={[
+                  codigo,
+                  de > 1 ? `corte ${numero}` : null,
+                  ...c.nombreArchivo,
+                ]}
+              />
+            )
           )}
         </div>
         <p className="text-muted-foreground mt-0.5 text-sm">
           {c.unidades && `${c.unidades}: `}
           {piezas} {piezas === 1 ? "pieza" : "piezas"} en {c.planchas.length}{" "}
-          {c.planchas.length === 1 ? "plancha" : "planchas"} de {n(c.formato.ancho)}×{n(c.formato.alto)} cm{" "}
+          {c.planchas.length === 1 ? "plancha" : "planchas"} de{" "}
+          {n(c.formato.ancho)}×{n(c.formato.alto)} cm{" "}
           <span className="font-mono">{c.formato.codigo}</span>
-          {!c.rotable && " · no girar las piezas: el material tiene veta o dibujo"}
+          {!c.rotable &&
+            " · no girar las piezas: el material tiene veta o dibujo"}
         </p>
         {l.indicaciones && (
           <p className="mt-1.5 text-sm whitespace-pre-line">
@@ -255,7 +349,9 @@ function Corte({
           <thead>
             <tr className="border-b">
               <th className="eyebrow py-1.5 pr-3 text-left">N.º</th>
-              {conNombre && <th className="eyebrow py-1.5 pr-3 text-left">Pieza</th>}
+              {conNombre && (
+                <th className="eyebrow py-1.5 pr-3 text-left">Pieza</th>
+              )}
               <th className="eyebrow py-1.5 pr-3 text-left">Medida</th>
               <th className="eyebrow py-1.5 pr-3 text-right">Cantidad</th>
               <th className="eyebrow py-1.5 text-center">Hecho</th>
@@ -273,7 +369,9 @@ function Corte({
                 <td className="tnum py-1.5 pr-3">
                   {n(p.ancho)} × {n(p.alto)} cm
                 </td>
-                <td className="tnum py-1.5 pr-3 text-right">{Math.floor(p.cantidad)}</td>
+                <td className="tnum py-1.5 pr-3 text-right">
+                  {Math.floor(p.cantidad)}
+                </td>
                 <td className="py-1.5 text-center">
                   <Casilla />
                 </td>
@@ -296,7 +394,9 @@ function Corte({
                 <span className="font-medium">
                   Plancha {i + 1} de {c.planchas.length}
                 </span>{" "}
-                <span className="text-muted-foreground">· {origenDePlancha(p, c.formato)}</span>
+                <span className="text-muted-foreground">
+                  · {origenDePlancha(p, c.formato)}
+                </span>
                 <span className="text-muted-foreground block text-xs">
                   {piezasDePlancha(p)
                     .map((x) => `${x.cantidad} × N.º ${x.fila}`)
@@ -322,11 +422,16 @@ function Corte({
             {l.planchasUsadas !== null ? (
               <span className="tnum font-semibold">{n(l.planchasUsadas)}</span>
             ) : (
-              <span className="border-foreground/60 inline-block w-16 border-b" aria-hidden>
+              <span
+                className="border-foreground/60 inline-block w-16 border-b"
+                aria-hidden
+              >
                 &nbsp;
               </span>
             )}{" "}
-            <span className="text-muted-foreground">(calculadas: {n(planchasCalculadas(l))})</span>
+            <span className="text-muted-foreground">
+              (calculadas: {n(planchasCalculadas(l))})
+            </span>
           </p>
         )}
       </div>
@@ -334,7 +439,13 @@ function Corte({
   );
 }
 
-function Dato({ etiqueta, children }: { etiqueta: string; children: React.ReactNode }) {
+function Dato({
+  etiqueta,
+  children,
+}: {
+  etiqueta: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="min-w-0">
       <dt className="eyebrow">{etiqueta}</dt>

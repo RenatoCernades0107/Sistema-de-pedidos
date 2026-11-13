@@ -1383,6 +1383,8 @@ export type Database = {
           imagen_url: string | null
           nombre: string
           notas: string | null
+          parametros_cad: Json | null
+          plantilla_cad: string | null
           tipo: string
           usos: string | null
         }
@@ -1397,6 +1399,8 @@ export type Database = {
           imagen_url?: string | null
           nombre: string
           notas?: string | null
+          parametros_cad?: Json | null
+          plantilla_cad?: string | null
           tipo: string
           usos?: string | null
         }
@@ -1411,6 +1415,8 @@ export type Database = {
           imagen_url?: string | null
           nombre?: string
           notas?: string | null
+          parametros_cad?: Json | null
+          plantilla_cad?: string | null
           tipo?: string
           usos?: string | null
         }

@@ -19,6 +19,9 @@ Dos scripts, los dos pensados para correr contra el proyecto de Supabase en la n
   productos terminados y su RLS, la línea de tipo `terminado` con su ficha, que quien
   no es Administración la ve sin precios, y el anotado de los materiales usados.
   Tampoco necesita las cuentas del seed, y termina en `ROLLBACK`.
+- **`terminados_cad.sql`** — verifica la migración `20261119000100`: `plantilla_cad` y
+  `parametros_cad` de `pt_productos` (van juntos, en mm), los valores de algunos productos
+  y que los que ninguna plantilla cubre quedan en null. Termina en `ROLLBACK`.
 - **`cad.sql`** — verifica la migración `20261116000100`: las tablas de los diseños CAD
   y su RLS, la numeración de versiones de `guardar_version_diseno`, los CHECK de origen
   y rol, la cascada al borrar un diseño y que quien no es Administración no ve ni

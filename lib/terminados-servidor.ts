@@ -29,6 +29,7 @@ import type {
 } from "./terminados/catalogo";
 import { leerConfigTerminados, type ConfigTerminados } from "./terminados/config";
 import { limpiarMedidas, type Geometria } from "./terminados/geometria";
+import { leerParametrosCad } from "./terminados/plantilla-cad";
 import { descripcionDeTerminado, guardarCorteDeTerminado, type TerminadoGuardado } from "./terminados/guardado";
 
 export const CLAVE_CONFIG_TERMINADOS = "terminados";
@@ -44,7 +45,7 @@ export const cargarConfigTerminados = cache(async (): Promise<ConfigTerminados> 
 });
 
 const COLUMNAS_PRODUCTO = `
-  codigo, tipo, nombre, usos, a_medida, contacto_alimentario, imagen_url, notas, geometria, activo,
+  codigo, tipo, nombre, usos, a_medida, contacto_alimentario, imagen_url, notas, geometria, activo, plantilla_cad, parametros_cad,
   pt_medidas ( id, orden, medida_1_cm, medida_2_cm, medida_3_cm, diametro_cm, altura_cm, altura_max_cm, formato, estimado, nota ),
   pt_espesores ( id, orden, espesor_min_mm, espesor_max_mm, aplicacion, material, estimado, nota ),
   pt_producto_color ( pt_colores ( nombre ) ),
@@ -63,6 +64,8 @@ interface FilaProducto {
   notas: string | null;
   geometria: Geometria;
   activo: boolean;
+  plantilla_cad: string | null;
+  parametros_cad: unknown;
   pt_medidas: {
     id: string;
     orden: number;
@@ -109,6 +112,8 @@ const deProducto = (p: FilaProducto): ProductoEstandar => ({
   notas: p.notas,
   geometria: p.geometria,
   activo: p.activo,
+  plantillaCad: p.plantilla_cad,
+  parametrosCad: p.plantilla_cad ? leerParametrosCad(p.parametros_cad) : null,
   medidas: (p.pt_medidas ?? [])
     .map((m) => ({
       id: m.id,

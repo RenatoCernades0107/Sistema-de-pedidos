@@ -3,6 +3,8 @@ import { exigirCad } from "@/lib/sesion";
 import { obtenerDiseno, obtenerMaterialDiseno } from "@/lib/cad/disenos-servidor";
 import { cargarCatalogoPlanchas, cargarConfigCortes } from "@/lib/cortes-servidor";
 import type { GrupoPlancha } from "@/lib/cortes/catalogo";
+import { productosPorCodigo } from "@/lib/odoo/catalogos";
+import type { CostosDiseno } from "@/components/disenos/diseno-contexto";
 import { ErrorMotorCad, listarPlantillas } from "@/lib/cad/motor";
 import type { PlantillaCad } from "@/lib/cad/tipos";
 import { DisenoProvider } from "@/components/disenos/diseno-contexto";
@@ -26,26 +28,46 @@ async function plantillasDelMotor(): Promise<{ plantillas: PlantillaCad[]; aviso
   }
 }
 
-/** El catálogo de planchas para elegir el material. Sin él, el diseño se usa igual. */
-async function catalogo(): Promise<{ grupos: GrupoPlancha[]; kerfMm: number; margenMm: number }> {
+/**
+ * El catálogo de planchas para elegir el material. Sin él, el diseño se usa igual.
+ * Con `conPrecios` (solo Administración) trae también lo que cuesta cada plancha
+ * en Odoo, para el panel de costo.
+ */
+async function catalogo(conPrecios: boolean): Promise<{
+  grupos: GrupoPlancha[];
+  kerfMm: number;
+  margenMm: number;
+  costos: CostosDiseno | null;
+}> {
   try {
     const [grupos, config] = await Promise.all([cargarCatalogoPlanchas(true), cargarConfigCortes()]);
+    let costos: CostosDiseno | null = null;
+    if (conPrecios) {
+      try {
+        const productos = await productosPorCodigo(grupos.flatMap((g) => g.formatos.map((f) => f.codigo)));
+        costos = { config, precios: Object.fromEntries([...productos].map(([c, p]) => [c, p.precio])) };
+      } catch (e) {
+        // Sin Odoo el diseño se usa igual; el panel de costo dice que no hay precios.
+        console.error("[cad] precios de planchas", e);
+        costos = { config, precios: {} };
+      }
+    }
     // La configuración de cortes está en cm; el diseño, en mm.
-    return { grupos, kerfMm: config.corte.kerfLaser * 10, margenMm: config.corte.margen * 10 };
+    return { grupos, kerfMm: config.corte.kerfLaser * 10, margenMm: config.corte.margen * 10, costos };
   } catch (e) {
     console.error("[cad] catálogo de planchas", e);
-    return { grupos: [], kerfMm: 0, margenMm: 0 };
+    return { grupos: [], kerfMm: 0, margenMm: 0, costos: null };
   }
 }
 
 export default async function Page({ params }: PageProps<"/disenos/[id]">) {
-  await exigirCad();
+  const perfil = await exigirCad();
   const { id } = await params;
   const [diseno, { plantillas, aviso }, material, planchas] = await Promise.all([
     obtenerDiseno(id),
     plantillasDelMotor(),
     obtenerMaterialDiseno(id),
-    catalogo(),
+    catalogo(perfil.rol === "administracion"),
   ]);
   if (!diseno) notFound();
 
@@ -56,6 +78,7 @@ export default async function Page({ params }: PageProps<"/disenos/[id]">) {
       inicial={{ plantilla: diseno.plantilla, parametros: diseno.parametros, material }}
       catalogo={planchas.grupos}
       corte={{ kerfMm: planchas.kerfMm, margenMm: planchas.margenMm }}
+      costos={planchas.costos}
     >
       <VistaDiseno disenoId={diseno.id} nombre={diseno.nombre} avisoMotor={aviso} />
     </DisenoProvider>

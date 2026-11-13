@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { useDiseno } from "./diseno-contexto";
 
 /** El resultado de `/api/cad/libre` trae, además, la versión libre. */
-function versionLibre(resultado: ResultadoGeneracion | null): VersionLibreCad | null {
+export function versionLibre(resultado: ResultadoGeneracion | null): VersionLibreCad | null {
   const libre = (resultado as (ResultadoGeneracion & { libre?: VersionLibreCad }) | null)?.libre;
   return libre && typeof libre.codigo === "string" ? libre : null;
 }

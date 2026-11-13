@@ -8,6 +8,7 @@
  */
 
 import { compactar } from "../busqueda-inteligente";
+import type { ParametrosCad } from "../cad/tipos";
 import type { ProductoTerminado as EtiquetaDePedido } from "../dominio";
 import type { ConfigTerminados } from "./config";
 import type { Geometria, Medidas } from "./geometria";
@@ -90,6 +91,10 @@ export interface ProductoEstandar {
   notas: string | null;
   geometria: Geometria;
   activo: boolean;
+  /** La plantilla del motor CAD que lo dibuja ("caja", "letras"…); null si ninguna. */
+  plantillaCad: string | null;
+  /** Sus parámetros para la primera medida, en mm (`lib/terminados/plantilla-cad.ts`). */
+  parametrosCad: ParametrosCad | null;
   medidas: MedidaEstandar[];
   espesores: EspesorRecomendado[];
   /** Los nombres de los colores de acrílico en que se hace. */

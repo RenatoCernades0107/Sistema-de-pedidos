@@ -22,6 +22,7 @@ import {
 } from "@/lib/cad/acomodo";
 import { tinteDeColor, type TinteAcrilico } from "@/lib/cad/colores";
 import { colorDe, type GrupoPlancha } from "@/lib/cortes/catalogo";
+import type { ConfigCortes } from "@/lib/cortes/config";
 import type {
   MaterialDiseno,
   ParametrosCad,
@@ -80,6 +81,18 @@ export interface EstadoDiseno {
   problemasMaterial: string[];
   /** El color del acrílico para el visor. `null`: cristal. */
   tinte: TinteAcrilico | null;
+
+  /* ── Costo ── */
+  /**
+   * Para calcular lo que cuesta: la configuración de cortes y el precio de Odoo
+   * de cada plancha, por código. Solo llega a Administración; `null` para los demás.
+   */
+  costos: CostosDiseno | null;
+}
+
+export interface CostosDiseno {
+  config: ConfigCortes;
+  precios: Record<string, number>;
 }
 
 /** Acomodo y problemas de un despiece en un grupo: lo usan la pantalla y el guardado. */
@@ -131,6 +144,7 @@ export function DisenoProvider({
   inicial,
   catalogo = SIN_CATALOGO,
   corte = SIN_KERF,
+  costos = null,
   children,
 }: {
   disenoId: string;
@@ -138,6 +152,7 @@ export function DisenoProvider({
   inicial: { plantilla: string | null; parametros: ParametrosCad; material?: MaterialDiseno | null };
   catalogo?: GrupoPlancha[];
   corte?: { kerfMm: number; margenMm: number };
+  costos?: CostosDiseno | null;
   children: ReactNode;
 }) {
   const [plantilla, setPlantilla] = useState(inicial.plantilla);
@@ -311,6 +326,7 @@ export function DisenoProvider({
       acomodo: planchas.acomodo,
       problemasMaterial: planchas.problemas,
       tinte,
+      costos,
     }),
     [
       disenoId,
@@ -330,6 +346,7 @@ export function DisenoProvider({
       elegirMaterial,
       planchas,
       tinte,
+      costos,
     ],
   );
 

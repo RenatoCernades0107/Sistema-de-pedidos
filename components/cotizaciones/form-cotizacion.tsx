@@ -20,6 +20,7 @@ import {
   quitarLinea,
   totalReferencial,
   type Linea,
+  type LineaTerminado,
 } from "@/lib/lineas-cotizacion";
 import type { GrupoPlancha } from "@/lib/cortes/catalogo";
 import type { ConfigCortes } from "@/lib/cortes/config";
@@ -52,20 +53,26 @@ export function FormCotizacion({
   catalogo,
   config,
   terminados,
+  lineaInicial = null,
 }: {
   catalogo: GrupoPlancha[];
   config: ConfigCortes;
   /** El catálogo de productos terminados. */
   terminados: CatalogoTerminados;
+  /** Un producto terminado con el que arrancar (p. ej. desde un diseño CAD); se abre en su editor. */
+  lineaInicial?: Omit<LineaTerminado, "tipo" | "clave"> | null;
 }) {
   const router = useRouter();
   const [canal, setCanal] = useState<Canal>("tienda");
   const [cliente, setCliente] = useState<ClienteOdoo | null>(null);
-  const [lineas, setLineas] = useState<Linea[]>([]);
+  const [arranque] = useState(() => (lineaInicial ? ponerTerminado([], lineaInicial) : null));
+  const [lineas, setLineas] = useState<Linea[]>(arranque?.lineas ?? []);
   /** El editor de corte: cerrado, abierto para uno nuevo, o editando el de esa clave. */
   const [corte, setCorte] = useState<{ clave: string | null } | null>(null);
   /** Lo mismo, para el editor de producto terminado. */
-  const [terminado, setTerminado] = useState<{ clave: string | null } | null>(null);
+  const [terminado, setTerminado] = useState<{ clave: string | null } | null>(
+    arranque ? { clave: arranque.clave } : null,
+  );
   const [notas, setNotas] = useState("");
   const [resaltada, setResaltada] = useState<string | null>(null);
   const [pendiente, iniciar] = useTransition();

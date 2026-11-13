@@ -14,6 +14,7 @@ import { PLANTILLA_LIBRE } from "@/lib/cad/tipos";
 import { useDiseno } from "./diseno-contexto";
 import { FormularioParametros } from "./formulario-parametros";
 import { ListaPiezas, ListaValidaciones } from "./lista-piezas";
+import { PanelCosto } from "./panel-costo";
 import { PanelPlanchas } from "./panel-planchas";
 
 // three necesita `window` y un `<canvas>`: el visor no se prerenderiza. `ssr:
@@ -223,6 +224,7 @@ export function PanelDiseno({ avisoMotor }: { avisoMotor?: string | null }) {
                 <span className="text-muted-foreground tabular-nums">{acomodo.planchas.length}</span>
               ) : null}
             </TabsTrigger>
+            <TabsTrigger value="costo">Costo</TabsTrigger>
             <TabsTrigger value="validaciones">
               Validaciones
               {errores > 0 ? (
@@ -285,6 +287,13 @@ export function PanelDiseno({ avisoMotor }: { avisoMotor?: string | null }) {
               <PanelPlanchas />
             ) : (
               <p className="text-muted-foreground text-sm">Las planchas aparecen al generar el diseño.</p>
+            )}
+          </TabsContent>
+          <TabsContent value="costo">
+            {resultado ? (
+              <PanelCosto />
+            ) : (
+              <p className="text-muted-foreground text-sm">El costo aparece al generar el diseño.</p>
             )}
           </TabsContent>
           <TabsContent value="validaciones">

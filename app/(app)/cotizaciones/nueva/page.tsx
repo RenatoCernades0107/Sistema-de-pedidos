@@ -6,9 +6,17 @@ import { calentarCatalogos } from "@/lib/odoo/catalogos";
 import { odooConfigurado } from "@/lib/odoo/rpc";
 import { FormCotizacion } from "@/components/cotizaciones/form-cotizacion";
 import { AvisoOdoo } from "@/components/cotizaciones/aviso-odoo";
+import { lineaDeDiseno } from "@/lib/cad/cotizar";
+import { disenoParaCotizar } from "@/lib/cad/cotizar-servidor";
 
-export default async function Page() {
+/**
+ * `?diseno=<id>`: viene de «Agregar a cotización» en `/disenos`. La cotización
+ * arranca con ese diseño (su versión vigente) como producto terminado.
+ */
+export default async function Page({ searchParams }: PageProps<"/cotizaciones/nueva">) {
   await exigirCotizaciones();
+  const disenoParam = (await searchParams).diseno;
+  const disenoId = typeof disenoParam === "string" && /^[0-9a-f-]{36}$/i.test(disenoParam) ? disenoParam : null;
 
   if (!odooConfigurado()) {
     return (
@@ -31,5 +39,21 @@ export default async function Page() {
     cargarCatalogoTerminados(true),
   ]);
 
-  return <FormCotizacion catalogo={catalogo} config={config} terminados={terminados} />;
+  const desdeDiseno = disenoId ? await disenoParaCotizar(disenoId, catalogo) : null;
+
+  return (
+    <>
+      {desdeDiseno && !desdeDiseno.ok && (
+        <p role="alert" className="text-destructive px-4 pt-5 text-sm md:px-6">
+          {desdeDiseno.error}
+        </p>
+      )}
+      <FormCotizacion
+        catalogo={catalogo}
+        config={config}
+        terminados={terminados}
+        lineaInicial={desdeDiseno?.ok ? lineaDeDiseno(desdeDiseno.diseno) : null}
+      />
+    </>
+  );
 }
