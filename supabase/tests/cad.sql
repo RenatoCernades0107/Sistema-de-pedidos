@@ -31,7 +31,7 @@ begin
   if has_table_privilege('authenticated', 'public.cad_mensajes', 'update') then
     raise exception 'FALLO: un mensaje de la conversación se puede editar';
   end if;
-  if has_function_privilege('anon', 'public.guardar_version_diseno(uuid, text, jsonb, text, integer)', 'execute') then
+  if has_function_privilege('anon', 'public.guardar_version_diseno(uuid, text, jsonb, text, integer, uuid, text, jsonb)', 'execute') then
     raise exception 'FALLO: anon puede ejecutar guardar_version_diseno';
   end if;
 end $$;
@@ -97,6 +97,37 @@ begin
     raise exception 'FALLO: la versión no quedó firmada por quien la guardó';
   end if;
 
+  -- 2.2b Sin material, las columnas nuevas quedan vacías; con material, se guardan.
+  if v_fila.grupo_plancha_id is not null or v_fila.color is not null or v_fila.acomodo is not null then
+    raise exception 'FALLO: una versión sin material guardó material';
+  end if;
+  if exists (select 1 from public.grupos_plancha) then
+    v_version := public.guardar_version_diseno(
+      v_diseno.id, 'caja', '{"espesor": 3}'::jsonb, 'formulario', null,
+      (select id from public.grupos_plancha order by id limit 1), '  Rojo ',
+      '{"formato_id": "x", "planchas": [], "merma_pct": 12.5}'::jsonb);
+    select * into v_fila from public.cad_diseno_versiones
+     where diseno_id = v_diseno.id and version = v_version;
+    if v_fila.grupo_plancha_id is null or v_fila.color <> 'Rojo'
+       or (v_fila.acomodo ->> 'merma_pct')::numeric <> 12.5 then
+      raise exception 'FALLO: la versión no guardó el material y su acomodo';
+    end if;
+    -- Sin material, la siguiente hereda el de la anterior, pero no su acomodo.
+    v_version := public.guardar_version_diseno(v_diseno.id, 'caja', '{"espesor": 3}'::jsonb, 'chat');
+    select * into v_fila from public.cad_diseno_versiones
+     where diseno_id = v_diseno.id and version = v_version;
+    if v_fila.grupo_plancha_id is null or v_fila.color <> 'Rojo' or v_fila.acomodo is not null then
+      raise exception 'FALLO: la versión siguiente no heredó el material (o heredó el acomodo)';
+    end if;
+    begin
+      perform public.guardar_version_diseno(
+        v_diseno.id, 'caja', '{}'::jsonb, 'formulario', null, null, null, '[1]'::jsonb);
+      raise exception 'FALLO: se aceptó un acomodo que no es un objeto';
+    exception when check_violation then null; end;
+  else
+    raise notice 'No hay grupos de plancha: se salta la prueba de material';
+  end if;
+
   -- 2.3 Un número de versión no se repite dentro del diseño.
   begin
     insert into public.cad_diseno_versiones (diseno_id, version, plantilla, origen)
@@ -113,8 +144,9 @@ begin
     perform public.guardar_version_diseno(v_diseno.id, 'caja', '[1, 2]'::jsonb, 'chat');
     raise exception 'FALLO: se aceptaron parámetros que no son un objeto';
   exception when check_violation then null; end;
-  -- Un guardado rechazado no gasta el número.
-  if (select version_actual from public.cad_disenos where id = v_diseno.id) <> 2 then
+  -- Un guardado rechazado no gasta el número (2, o 3 si se probó el material).
+  if (select version_actual from public.cad_disenos where id = v_diseno.id)
+     <> (select max(version) from public.cad_diseno_versiones where diseno_id = v_diseno.id) then
     raise exception 'FALLO: un guardado rechazado movió la versión vigente';
   end if;
 
@@ -215,5 +247,117 @@ end $$;
 set local role postgres;
 
 select 'cad: todo en orden' as resultado;
+
+rollback;
+
+-- ── Diseño libre (20261118000100) ───────────────────────────────────────────
+-- Bloque propio, con su transacción: versiones con código, en borrador, y la
+-- aprobación solo de Administración.
+
+begin;
+
+do $$
+begin
+  if has_table_privilege('authenticated', 'public.cad_diseno_versiones', 'update') then
+    raise exception 'FALLO: una versión se puede actualizar sin pasar por aprobar_version_diseno';
+  end if;
+  if has_function_privilege('anon', 'public.guardar_version_diseno_libre(uuid, text, text)', 'execute')
+     or has_function_privilege('anon', 'public.aprobar_version_diseno(uuid, integer)', 'execute') then
+    raise exception 'FALLO: anon puede guardar o aprobar diseños libres';
+  end if;
+end $$;
+
+select set_config('plexi.test_admin',
+                  (select id::text from public.usuarios where rol = 'administracion' and activo
+                    order by creado_en limit 1),
+                  true);
+select set_config('plexi.test_otro',
+                  coalesce((select id::text from public.usuarios where rol <> 'administracion' and activo
+                             order by creado_en limit 1), ''),
+                  true);
+select set_config('request.jwt.claims',
+                  json_build_object('sub', current_setting('plexi.test_admin'), 'role', 'authenticated')::text,
+                  true);
+set local role authenticated;
+
+do $$
+declare
+  v_diseno  uuid;
+  v_version integer;
+  v_fila    public.cad_diseno_versiones%rowtype;
+begin
+  insert into public.cad_disenos default values returning id into v_diseno;
+  perform set_config('plexi.diseno_libre', v_diseno::text, true);
+
+  -- Una versión de plantilla nace aprobada y sin código.
+  v_version := public.guardar_version_diseno(v_diseno, 'caja', '{}'::jsonb, 'formulario');
+  select * into v_fila from public.cad_diseno_versiones where diseno_id = v_diseno and version = v_version;
+  if v_fila.estado <> 'aprobado' or v_fila.codigo is not null then
+    raise exception 'FALLO: una versión de plantilla no nace aprobada y sin código';
+  end if;
+
+  -- La libre: plantilla 'libre', parámetros vacíos, código, borrador, numerada en la misma serie.
+  v_version := public.guardar_version_diseno_libre(v_diseno, 'piezas = []');
+  if v_version <> 2 then raise exception 'FALLO: la versión libre no siguió la numeración (es la %)', v_version; end if;
+  select * into v_fila from public.cad_diseno_versiones where diseno_id = v_diseno and version = 2;
+  if v_fila.plantilla <> 'libre' or v_fila.codigo <> 'piezas = []' or v_fila.estado <> 'borrador'
+     or v_fila.parametros <> '{}'::jsonb or v_fila.origen <> 'chat' then
+    raise exception 'FALLO: la versión libre no guardó lo esperado';
+  end if;
+
+  -- 'libre' sin código, o código con plantilla, no entran.
+  begin
+    perform public.guardar_version_diseno(v_diseno, 'libre', '{}'::jsonb, 'chat');
+    raise exception 'FALLO: se guardó una versión libre sin código';
+  exception when check_violation then null; end;
+  begin
+    perform public.guardar_version_diseno_libre(v_diseno, '   ');
+    raise exception 'FALLO: se guardó una versión libre con código vacío';
+  exception when check_violation then null; end;
+
+  -- Aprobar: una vez, firmado.
+  perform public.aprobar_version_diseno(v_diseno, 2);
+  select * into v_fila from public.cad_diseno_versiones where diseno_id = v_diseno and version = 2;
+  if v_fila.estado <> 'aprobado' or v_fila.aprobado_por::text <> current_setting('plexi.test_admin')
+     or v_fila.aprobado_en is null then
+    raise exception 'FALLO: la aprobación no quedó registrada';
+  end if;
+  begin
+    perform public.aprobar_version_diseno(v_diseno, 2);
+    raise exception 'FALLO: se aprobó dos veces la misma versión';
+  exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
+
+  -- Una versión libre nueva vuelve a nacer en borrador.
+  v_version := public.guardar_version_diseno_libre(v_diseno, 'piezas = [1]');
+  if (select estado from public.cad_diseno_versiones where diseno_id = v_diseno and version = v_version) <> 'borrador' then
+    raise exception 'FALLO: una versión libre nueva no nació en borrador';
+  end if;
+end $$;
+
+-- Otro rol no puede aprobar ni guardar versiones libres.
+set local role postgres;
+select set_config('request.jwt.claims',
+                  json_build_object('sub', nullif(current_setting('plexi.test_otro'), ''), 'role', 'authenticated')::text,
+                  true);
+set local role authenticated;
+
+do $$
+declare
+  v_diseno uuid := current_setting('plexi.diseno_libre')::uuid;
+begin
+  if current_setting('plexi.test_otro') = '' then return; end if;
+  begin
+    perform public.aprobar_version_diseno(v_diseno, 3);
+    raise exception 'FALLO: otro rol pudo aprobar un diseño libre';
+  exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
+  begin
+    perform public.guardar_version_diseno_libre(v_diseno, 'piezas = []');
+    raise exception 'FALLO: otro rol pudo guardar una versión libre';
+  exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
+end $$;
+
+set local role postgres;
+
+select 'cad diseño libre: todo en orden' as resultado;
 
 rollback;

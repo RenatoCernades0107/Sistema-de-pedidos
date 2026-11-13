@@ -21,12 +21,16 @@
 import { z } from "zod";
 import { palabras } from "@/lib/busqueda-inteligente";
 import type { HerramientaLlm } from "@/lib/llm/inferhub";
-import type {
-  ParametrosCad,
-  PiezaCad,
-  PlantillaCad,
-  ResultadoGeneracion,
-  ValidacionCad,
+import {
+  PLANTILLA_LIBRE,
+  type ErrorCodigoLibre,
+  type EstadoDisenoLibre,
+  type ParametrosCad,
+  type PiezaCad,
+  type PlantillaCad,
+  type ResultadoGeneracion,
+  type ResultadoLibre,
+  type ValidacionCad,
 } from "./tipos";
 
 /* ── Lo que necesita para trabajar ─────────────────────────────────────────── */
@@ -38,6 +42,9 @@ export type DisenoActual = {
   version: number;
   /** De dónde vino el último cambio. */
   origen: "formulario" | "chat";
+  /** Solo en un diseño libre (`plantilla === "libre"`): su código y si está aprobado. */
+  codigo?: string;
+  estado?: EstadoDisenoLibre;
 };
 
 /** Lo que se lee de un grupo del catálogo de planchas (`lib/cortes/catalogo.ts`). */
@@ -64,7 +71,29 @@ export interface DependenciasCad {
   obtenerDisenoActual(): Promise<DisenoActual | null>;
   /** Los grupos con formatos activos. */
   cargarPlanchas(): Promise<PlanchaCatalogo[]>;
+  /** Solo si el diseño libre está activo (`CAD_DISENO_LIBRE=1` y sandbox configurado). */
+  libre?: DependenciasLibre;
 }
+
+/** Diseño libre: el sandbox (`lib/cad/sandbox.ts`) y la persistencia de versiones libres. */
+export interface DependenciasLibre {
+  /** Lanza un error con `errorCodigo` si el código falla (lo que lanza `ErrorSandboxCad`). */
+  ejecutarCodigo(codigo: string): Promise<ResultadoLibre>;
+  /** Guarda el código como versión nueva en borrador. */
+  guardarVersionLibre(codigo: string): Promise<{ version: number }>;
+  /** El render 2×2 del diseño vigente (libre o de plantilla), como `data:` URL. */
+  renderizarActual(): Promise<string>;
+  listarReferencias(): Promise<{ nombre: string; bytes: number }[]>;
+  leerReferencia(nombre: string): Promise<string | null>;
+  /** Cuántas veces se ejecutó código en este turno; lo lleva quien arma las dependencias. */
+  intentos: { n: number };
+}
+
+/** Cuántas ejecuciones de código se permiten en un turno. */
+export const MAX_INTENTOS_LIBRE = 6;
+
+/** Hasta cuántos caracteres de una referencia se le devuelven al modelo. */
+export const MAX_REFERENCIA = 30_000;
 
 export type ResultadoHerramienta = {
   ok: boolean;
@@ -74,6 +103,8 @@ export type ResultadoHerramienta = {
   resumen: string;
   /** Solo tras un `generar_diseno` que salió bien: lo que el visor tiene que mostrar. */
   diseno?: { plantilla: string; parametros: ParametrosCad };
+  /** Imágenes (`data:` URL) para que el modelo las mire: el render de `ver_render`. */
+  imagenes?: string[];
 };
 
 /* ── Las definiciones que ve el modelo ─────────────────────────────────────── */
@@ -158,6 +189,48 @@ export const HERRAMIENTAS_CAD: HerramientaLlm[] = [
   },
 ];
 
+/** Las herramientas del diseño libre: solo se ofrecen con el diseño libre activo. */
+export const NOMBRES_HERRAMIENTA_LIBRE = ["leer_referencia_cad", "ejecutar_build123d", "ver_render"] as const;
+
+export type NombreHerramientaLibre = (typeof NOMBRES_HERRAMIENTA_LIBRE)[number];
+
+export const HERRAMIENTAS_LIBRE: HerramientaLlm[] = [
+  {
+    nombre: "leer_referencia_cad",
+    descripcion:
+      "Lee un archivo de referencia de build123d (guías y ejemplos). Sin nombre, o con un nombre que no existe, devuelve la lista. " +
+      'Útiles: "quick-reference.md", "advanced-patterns.md", "SKILL.md". Úsala solo para diseño libre, cuando dudes de la API.',
+    parametros: {
+      type: "object",
+      properties: { nombre: { type: "string", description: 'Ruta o nombre del archivo, p. ej. "quick-reference.md".' } },
+      additionalProperties: false,
+    },
+  },
+  {
+    nombre: "ejecutar_build123d",
+    descripcion:
+      "Diseño libre (solo si ninguna plantilla sirve): ejecuta código Python build123d en el sandbox. El código DEBE asignar " +
+      "`piezas = [pieza(...), ...]` con las ayudas de `from diseno import ...`. Si funciona, lo guarda como versión nueva EN BORRADOR, " +
+      "lo muestra en el visor y devuelve medidas, despiece y validaciones. Si falla, devuelve el error (tipo, línea, traza) para corregirlo.",
+    parametros: {
+      type: "object",
+      properties: { codigo: { type: "string", description: "El programa completo, en Python." } },
+      required: ["codigo"],
+      additionalProperties: false,
+    },
+  },
+  {
+    nombre: "ver_render",
+    descripcion:
+      "Devuelve una imagen del diseño vigente con cuatro vistas (isométrica, frente, planta, lateral) para comprobar que se ve como se pidió.",
+    parametros: SIN_ARGUMENTOS,
+  },
+];
+
+/** Las herramientas que se le ofrecen al modelo en este turno. */
+export const herramientasDisponibles = (libreActivo: boolean): HerramientaLlm[] =>
+  libreActivo ? [...HERRAMIENTAS_CAD, ...HERRAMIENTAS_LIBRE] : HERRAMIENTAS_CAD;
+
 /* ── Argumentos ────────────────────────────────────────────────────────────── */
 
 const esquemaVerPlantilla = z.object({ codigo: z.string().trim().min(1).max(80) });
@@ -168,6 +241,10 @@ const esquemaGenerar = z.object({
     .record(z.string().min(1).max(80), z.union([z.number(), z.boolean(), z.string().max(500)]))
     .default({}),
 });
+
+const esquemaReferencia = z.object({ nombre: z.string().trim().max(300).optional() });
+
+const esquemaCodigo = z.object({ codigo: z.string().min(1).max(60_000) });
 
 const esquemaBuscarPlanchas = z.object({
   material: z.string().trim().max(80).optional(),
@@ -180,7 +257,11 @@ const esquemaBuscarPlanchas = z.object({
 /** Hasta cuántos grupos de planchas se le devuelven al modelo de una vez. */
 export const MAX_PLANCHAS = 30;
 
-const exito = (datos: unknown, resumen: string, extra?: Pick<ResultadoHerramienta, "diseno">): ResultadoHerramienta => ({
+const exito = (
+  datos: unknown,
+  resumen: string,
+  extra?: Pick<ResultadoHerramienta, "diseno" | "imagenes">,
+): ResultadoHerramienta => ({
   ok: true,
   contenido: JSON.stringify(datos),
   resumen,
@@ -371,6 +452,8 @@ async function verDisenoActual(deps: DependenciasCad): Promise<ResultadoHerramie
     ultimo_cambio_desde: actual.origen,
   };
 
+  if (actual.plantilla === PLANTILLA_LIBRE) return verDisenoLibreActual(actual, base, deps);
+
   // Las medidas y las validaciones no se guardan: se le vuelven a pedir al
   // motor. Si no contesta, al menos van la plantilla y los parámetros.
   try {
@@ -425,6 +508,201 @@ async function buscarPlanchas(args: unknown, deps: DependenciasCad): Promise<Res
   return exito(datos, grupos.length === 1 ? "1 plancha" : `${grupos.length} planchas`);
 }
 
+/* ── Diseño libre ──────────────────────────────────────────────────────────── */
+
+/** El error de código que trae un `ErrorSandboxCad`, reconocido por su forma. */
+function errorDeCodigo(e: unknown): ErrorCodigoLibre | null {
+  if (!(e instanceof Error)) return null;
+  const x = (e as Error & { errorCodigo?: unknown }).errorCodigo;
+  if (!x || typeof x !== "object" || typeof (x as ErrorCodigoLibre).mensaje !== "string") return null;
+  return x as ErrorCodigoLibre;
+}
+
+const PISTAS_ERROR: Record<ErrorCodigoLibre["tipo"], string> = {
+  sintaxis: "Corrige la sintaxis en la línea indicada.",
+  prohibido:
+    "El sandbox solo admite `import math`, `from build123d import ...` y `from diseno import ...`, sin archivos, sin atributos con guion bajo, sin clases ni try/with. Reescribe esa parte.",
+  ejecucion: "Lee la traza: la línea indicada es la de tu código. Corrige y vuelve a ejecutar.",
+  tiempo: "Tardó demasiado: quita bucles largos o geometría con demasiados detalles.",
+  memoria: "Usó demasiada memoria: simplifica la geometría.",
+  contrato:
+    "Asigna `piezas = [pieza(id, nombre, contorno, espesor, ubicaciones=[ubicar(...)])]` con caras planas de `diseno`, no sólidos 3D.",
+  geometria: "Las piezas no forman geometría válida: revisa que los contornos sean cerrados y no se crucen.",
+  salida: "El resultado fue demasiado grande: reduce piezas o detalles.",
+};
+
+function sinLibre(nombre: string): ResultadoHerramienta {
+  return fallo(
+    {
+      codigo: "diseno_libre_no_disponible",
+      mensaje: `El diseño libre no está disponible ahora, así que "${nombre}" no se puede usar. Usa una plantilla.`,
+    },
+    "Diseño libre no disponible",
+  );
+}
+
+async function leerReferenciaCad(args: unknown, deps: DependenciasCad): Promise<ResultadoHerramienta> {
+  if (!deps.libre) return sinLibre("leer_referencia_cad");
+  const a = esquemaReferencia.safeParse(args ?? {});
+  if (!a.success) return argumentosInvalidos(a.error);
+
+  const listar = async (aviso?: string) => {
+    const lista = await deps.libre!.listarReferencias();
+    return exito(
+      { ...(aviso ? { aviso } : {}), referencias: lista.map((r) => r.nombre) },
+      `${lista.length} referencias`,
+    );
+  };
+  if (!a.data.nombre) return listar();
+
+  const texto = await deps.libre.leerReferencia(a.data.nombre);
+  if (texto === null) return listar(`No existe la referencia "${a.data.nombre}". Estas son las que hay.`);
+  const recortado = texto.length > MAX_REFERENCIA;
+  return exito(
+    {
+      nombre: a.data.nombre,
+      nota:
+        "Material de referencia de build123d (VibeCAD). Adáptalo a las reglas del sandbox: nada de uvx ni exportar archivos; " +
+        "el resultado es `piezas = [...]` de `diseno`.",
+      contenido: recortado ? `${texto.slice(0, MAX_REFERENCIA)}\n…(recortado)` : texto,
+    },
+    a.data.nombre.split("/").pop() ?? a.data.nombre,
+  );
+}
+
+/** Lo que el modelo necesita de una ejecución. Sin `glb_base64`. */
+function resumenDeLibre(r: ResultadoLibre) {
+  const validaciones = ordenarValidaciones(r.validaciones ?? []);
+  const piezas: PiezaCad[] = r.piezas ?? [];
+  return {
+    nombre: r.nombre ?? null,
+    dimensiones_mm: r.dimensiones,
+    piezas: piezas.map((p) => ({
+      id: p.id,
+      nombre: p.nombre,
+      cantidad: p.cantidad,
+      espesor_mm: p.espesor_mm,
+      ancho_mm: p.ancho_mm,
+      alto_mm: p.alto_mm,
+    })),
+    total_piezas: piezas.reduce((suma, p) => suma + p.cantidad, 0),
+    validaciones,
+    ...(r.salida ? { salida: r.salida.slice(0, 2000) } : {}),
+  };
+}
+
+async function ejecutarBuild123d(args: unknown, deps: DependenciasCad): Promise<ResultadoHerramienta> {
+  if (!deps.libre) return sinLibre("ejecutar_build123d");
+  const a = esquemaCodigo.safeParse(args);
+  if (!a.success) return argumentosInvalidos(a.error);
+
+  if (deps.libre.intentos.n >= MAX_INTENTOS_LIBRE) {
+    return fallo(
+      {
+        codigo: "demasiados_intentos",
+        mensaje: `Ya se ejecutó código ${MAX_INTENTOS_LIBRE} veces en este turno. Detente, explica a la persona qué falta resolver y pregunta cómo seguir.`,
+      },
+      "Demasiados intentos",
+    );
+  }
+  deps.libre.intentos.n++;
+
+  let generado: ResultadoLibre;
+  try {
+    generado = await deps.libre.ejecutarCodigo(a.data.codigo);
+  } catch (e) {
+    const error = errorDeCodigo(e);
+    if (!error) throw e;
+    const linea = error.linea ? ` (línea ${error.linea})` : "";
+    return fallo(
+      {
+        codigo: "codigo_invalido",
+        tipo: error.tipo,
+        mensaje: error.mensaje,
+        ...(error.linea ? { linea: error.linea } : {}),
+        ...(error.traza ? { traza: error.traza } : {}),
+        ...(error.salida ? { salida: error.salida } : {}),
+        pista: PISTAS_ERROR[error.tipo] ?? PISTAS_ERROR.ejecucion,
+        intentos_restantes: MAX_INTENTOS_LIBRE - deps.libre.intentos.n,
+      },
+      `Error de ${error.tipo}${linea}`,
+    );
+  }
+
+  let version: number;
+  try {
+    ({ version } = await deps.libre.guardarVersionLibre(a.data.codigo));
+  } catch (e) {
+    console.error("[cad] guardar versión libre", e);
+    return fallo(
+      {
+        codigo: "no_guardado",
+        mensaje: "El código funcionó pero no se pudo guardar, así que el visor no cambió. Dile a la persona que lo intente de nuevo.",
+      },
+      "No se pudo guardar el diseño",
+    );
+  }
+
+  const resumen = resumenDeLibre(generado);
+  const errores = resumen.validaciones.filter((v) => v.nivel === "error").length;
+  return exito(
+    {
+      ...resumen,
+      version_guardada: version,
+      estado: "borrador",
+      aviso:
+        "Es un diseño personalizado en BORRADOR: Administración tiene que aprobarlo antes de bajar el DXF para producción. Díselo a la persona.",
+      siguiente_paso: "Usa ver_render para comprobar que se ve como se pidió.",
+    },
+    `Personalizado · ${medidas(generado.dimensiones)} · versión ${version} · borrador` +
+      (errores > 0 ? ` · ${errores} ${errores === 1 ? "error" : "errores"}` : ""),
+    { diseno: { plantilla: PLANTILLA_LIBRE, parametros: {} } },
+  );
+}
+
+async function verRender(deps: DependenciasCad): Promise<ResultadoHerramienta> {
+  if (!deps.libre) return sinLibre("ver_render");
+  const actual = await deps.obtenerDisenoActual();
+  if (!actual) {
+    return fallo({ codigo: "sin_diseno", mensaje: "Todavía no hay un diseño que mirar." }, "Diseño vacío");
+  }
+  const imagen = await deps.libre.renderizarActual();
+  return exito(
+    {
+      version: actual.version,
+      vistas: ["isométrica (arriba a la izquierda)", "frente", "planta", "lateral"],
+      nota: "La imagen va a continuación. Cada pieza tiene un color distinto.",
+    },
+    `Render de la versión ${actual.version}`,
+    { imagenes: [imagen] },
+  );
+}
+
+async function verDisenoLibreActual(
+  actual: DisenoActual,
+  base: Record<string, unknown>,
+  deps: DependenciasCad,
+): Promise<ResultadoHerramienta> {
+  const datos = { ...base, tipo: "diseño libre", estado: actual.estado ?? "borrador", codigo: actual.codigo ?? "" };
+  if (!deps.libre || !actual.codigo) {
+    return exito(
+      { ...datos, aviso: "El diseño libre no está disponible ahora: no se pueden recalcular medidas." },
+      `Versión ${actual.version} · personalizado`,
+    );
+  }
+  try {
+    const r = await deps.libre.ejecutarCodigo(actual.codigo);
+    return exito({ ...resumenDeLibre(r), ...datos }, `${medidas(r.dimensiones)} · versión ${actual.version} · personalizado`);
+  } catch (e) {
+    const error = errorDeCodigo(e) ?? errorDeMotor(e);
+    if (!error) console.error("[cad] herramienta ver_diseno_actual (libre)", e);
+    return exito(
+      { ...datos, aviso: `No se pudieron recalcular medidas: ${error?.mensaje ?? "el sandbox falló"}` },
+      `Versión ${actual.version} · personalizado`,
+    );
+  }
+}
+
 /* ── El ejecutor ───────────────────────────────────────────────────────────── */
 
 /**
@@ -449,11 +727,22 @@ export async function ejecutarHerramienta(
         return await verDisenoActual(deps);
       case "buscar_planchas":
         return await buscarPlanchas(argumentos, deps);
+    }
+    switch (nombre as NombreHerramientaLibre) {
+      case "leer_referencia_cad":
+        return await leerReferenciaCad(argumentos, deps);
+      case "ejecutar_build123d":
+        return await ejecutarBuild123d(argumentos, deps);
+      case "ver_render":
+        return await verRender(deps);
       default:
         return fallo(
           {
             codigo: "herramienta_desconocida",
-            mensaje: `No existe la herramienta "${nombre}". Las disponibles: ${NOMBRES_HERRAMIENTA.join(", ")}.`,
+            mensaje: `No existe la herramienta "${nombre}". Las disponibles: ${[
+              ...NOMBRES_HERRAMIENTA,
+              ...(deps.libre ? NOMBRES_HERRAMIENTA_LIBRE : []),
+            ].join(", ")}.`,
           },
           "Herramienta desconocida",
         );

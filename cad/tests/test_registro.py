@@ -13,7 +13,7 @@ from motor.plantillas import describir, listar, obtener
 from motor.plantillas.base import FAMILIAS, Parametros
 from motor.plantillas.registro import EsquemaNoPlano, esquema_plano
 
-CLAVES = {"type", "title", "description", "default", "minimum", "maximum", "enum"}
+CLAVES = {"type", "title", "description", "default", "minimum", "maximum", "enum", "minLength", "maxLength"}
 
 
 @pytest.mark.parametrize("plantilla", listar(), ids=lambda p: p.codigo)
@@ -30,8 +30,10 @@ def test_esquema_plano(plantilla):
         assert set(prop) <= CLAVES, nombre
         assert {"type", "title", "description", "default"} <= set(prop), nombre
         assert prop["type"] in {"number", "integer", "boolean", "string"}
-        if prop["type"] == "string":
+        if prop["type"] == "string" and "enum" in prop:
             assert prop["enum"] and prop["default"] in prop["enum"]
+        elif prop["type"] == "string":  # texto libre: siempre con largo máximo
+            assert 0 < len(prop["default"]) <= prop["maxLength"]
         if prop["type"] in {"number", "integer"}:
             assert prop["minimum"] <= prop["default"] <= prop["maximum"]
     # los valores por defecto forman un diseño válido
@@ -95,3 +97,17 @@ def test_rechaza_campos_que_no_son_planos():
 
     with pytest.raises(EsquemaNoPlano):
         esquema_plano(SinDescripcion)
+
+
+def test_admite_texto_libre_con_largo_maximo():
+    class ConTexto(Parametros):
+        t: str = Field("hola", title="T", description="Texto libre.", min_length=1, max_length=20)
+
+    assert esquema_plano(ConTexto)["properties"]["t"] == {
+        "type": "string",
+        "title": "T",
+        "description": "Texto libre.",
+        "default": "hola",
+        "minLength": 1,
+        "maxLength": 20,
+    }

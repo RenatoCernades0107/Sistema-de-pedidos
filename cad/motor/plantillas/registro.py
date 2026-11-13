@@ -2,7 +2,8 @@
 Registro de plantillas (código → plantilla) y exportación de su esquema.
 
 El esquema que se publica es JSON Schema **plano**: sin `$ref`, `$defs` ni
-`anyOf`; los `Literal` salen como `enum`. El formulario de la app se genera a
+`anyOf`; los `Literal` salen como `enum`. Un texto libre (por ejemplo, el
+texto de un letrero) se admite solo con `max_length` (sale como `maxLength`). El formulario de la app se genera a
 partir de él, así que una plantilla con un campo que no se pueda aplanar no se
 deja registrar.
 """
@@ -16,7 +17,7 @@ from .base import FAMILIAS, Parametros, Plantilla
 _PLANTILLAS: dict[str, Plantilla] = {}
 
 _TIPOS = {"number", "integer", "boolean", "string"}
-_CLAVES = ("type", "title", "description", "default", "minimum", "maximum", "enum")
+_CLAVES = ("type", "title", "description", "default", "minimum", "maximum", "enum", "minLength", "maxLength")
 
 
 class EsquemaNoPlano(ValueError):
@@ -59,8 +60,10 @@ def _aplanar(nombre: str, prop: dict[str, Any], definiciones: dict[str, Any]) ->
     tipo = p.get("type")
     if tipo not in _TIPOS:
         raise EsquemaNoPlano(f"«{nombre}»: tipo «{tipo}» no admitido; solo {sorted(_TIPOS)}.")
-    if tipo == "string" and not p.get("enum"):
-        raise EsquemaNoPlano(f"«{nombre}»: un texto debe ser un Literal con sus opciones (enum).")
+    if tipo == "string" and not p.get("enum") and "maxLength" not in p:
+        raise EsquemaNoPlano(
+            f"«{nombre}»: un texto debe ser un Literal con sus opciones (enum) o un texto libre con max_length."
+        )
     if "enum" in p and not all(isinstance(v, str) for v in p["enum"]):
         raise EsquemaNoPlano(f"«{nombre}»: las opciones de un enum deben ser textos.")
     for obligatoria in ("title", "description", "default"):

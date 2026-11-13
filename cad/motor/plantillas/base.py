@@ -67,7 +67,8 @@ class Parametros(BaseModel):
     """
     Base de los parámetros de una plantilla.
 
-    Solo campos planos: `float`, `int`, `bool` o `Literal[...]` de textos, cada
+    Solo campos planos: `float`, `int`, `bool`, `Literal[...]` de textos o
+    `str` con `max_length` (texto libre), cada
     uno con `title`, `description`, `default` y, si aplica, `ge`/`le`. El
     registro lo comprueba al registrar la plantilla.
     """

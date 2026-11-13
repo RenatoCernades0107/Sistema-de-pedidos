@@ -84,12 +84,44 @@ Entrada: la de `/generar` más `"opciones": { "kerf_mm": 0, "separacion_mm": 5 }
 solaparse, en mm, con curvas reales. Capas: `CORTE` (color 1) y `GRABADO`
 (color 3), las mismas de `lib/cortes/dxf.ts`.
 
+## `POST /dxf/planchas`
+El DXF de producción: las piezas ya acomodadas en las planchas reales del
+catálogo (el acomodo lo calcula la app, `lib/cad/acomodo.ts`). Entrada: la de
+`/generar` más
+
+```json
+{
+  "opciones": { "kerf_mm": 0.2 },
+  "planchas": [
+    {
+      "ancho_mm": 1220,
+      "alto_mm": 1830,
+      "piezas": [ { "id": "base", "indice": 1, "x_mm": 0, "y_mm": 1680, "rotada": false } ]
+    }
+  ]
+}
+```
+
+- `indice`: qué copia de la pieza es, de 1 a su `cantidad`.
+- `x_mm`, `y_mm`: esquina inferior izquierda de la caja nominal (sin kerf) de
+  la pieza ya girada, en coordenadas de la plancha (origen abajo a la
+  izquierda, Y hacia arriba, como el DXF).
+- `rotada`: girada 90° en sentido antihorario.
+
+Devuelve `application/dxf` (R12, mm): cada plancha en la capa `PLANCHA`
+(color 8), una al lado de la otra y separadas 50 mm como en
+`lib/cortes/dxf.ts`, con los contornos reales en `CORTE` (con kerf) y
+`GRABADO`. Cada copia de cada pieza tiene que aparecer exactamente una vez y
+caer dentro de su plancha; si no, 422 con `codigo: "acomodo_invalido"` y la
+lista de `errores` (`campo` como `planchas.0.piezas.3`).
+
 ## `POST /step`
 Entrada: la de `/generar`. Devuelve `application/step` con el conjunto armado.
 
 ## Errores
 - 401 sin API key válida.
 - 404 plantilla desconocida.
+- 422 acomodo inválido en `/dxf/planchas` (`codigo: "acomodo_invalido"`).
 - 422 parámetros inválidos:
   `{ "detail": { "codigo": "parametros_invalidos", "mensaje": "…", "errores": [ { "campo": "largo", "mensaje": "…" } ] } }`
 - 500 fallo de geometría: `{ "detail": { "codigo": "geometria", "mensaje": "…" } }`

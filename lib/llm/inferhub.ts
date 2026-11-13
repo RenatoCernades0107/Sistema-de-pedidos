@@ -39,8 +39,11 @@ export type LlamadaLlm = {
 export type MensajeLlm =
   | { rol: "usuario"; contenido: string | ParteLlm[] }
   | { rol: "asistente"; contenido: string; llamadas?: LlamadaLlm[] }
-  /** El resultado de una llamada, que vuelve al modelo. */
-  | { rol: "herramienta"; idLlamada: string; contenido: string };
+  /**
+   * El resultado de una llamada, que vuelve al modelo. `imagenes` (URLs o
+   * `data:`) son para herramientas que devuelven algo que mirar, como un render.
+   */
+  | { rol: "herramienta"; idLlamada: string; contenido: string; imagenes?: string[] };
 
 export type HerramientaLlm = {
   nombre: string;
@@ -132,12 +135,47 @@ function mensajeDeCable(m: MensajeLlm): Record<string, unknown> {
   }
 }
 
+/**
+ * Los mensajes en el formato del cable. Un mensaje `tool` solo lleva texto en
+ * este formato (y no todos los proveedores aceptan imágenes ahí), así que las
+ * imágenes de los resultados de herramientas van en un mensaje `user` justo
+ * después de la tanda de resultados —nunca en medio: los `tool` de una misma
+ * tanda tienen que ir seguidos—.
+ */
+function mensajesDeCable(mensajes: MensajeLlm[]): Record<string, unknown>[] {
+  const salida: Record<string, unknown>[] = [];
+  let pendientes: { idLlamada: string; url: string }[] = [];
+  const vaciar = () => {
+    if (pendientes.length === 0) return;
+    salida.push({
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: `Imágenes devueltas por las herramientas (${[...new Set(pendientes.map((p) => p.idLlamada))].join(", ")}):`,
+        },
+        ...pendientes.map((p) => ({ type: "image_url", image_url: { url: p.url } })),
+      ],
+    });
+    pendientes = [];
+  };
+  for (const m of mensajes) {
+    if (m.rol !== "herramienta") vaciar();
+    salida.push(mensajeDeCable(m));
+    if (m.rol === "herramienta" && m.imagenes?.length) {
+      pendientes.push(...m.imagenes.map((url) => ({ idLlamada: m.idLlamada, url })));
+    }
+  }
+  vaciar();
+  return salida;
+}
+
 /** El cuerpo de `POST /chat/completions`. Exportado para poder probarlo. */
 export function cuerpoDePeticion(peticion: PeticionChat, modelo: string): Record<string, unknown> {
   const cuerpo: Record<string, unknown> = {
     model: modelo,
     stream: true,
-    messages: [{ role: "system", content: peticion.sistema }, ...peticion.mensajes.map(mensajeDeCable)],
+    messages: [{ role: "system", content: peticion.sistema }, ...mensajesDeCable(peticion.mensajes)],
   };
   if (peticion.herramientas?.length) {
     cuerpo.tools = peticion.herramientas.map((h) => ({

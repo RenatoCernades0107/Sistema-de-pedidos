@@ -23,7 +23,17 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import VERSION
-from .exportar import SEPARACION_MM, exportar_dxf, exportar_glb, exportar_step
+from .exportar import (
+    SEPARACION_MM,
+    ErrorAcomodo,
+    PiezaEnPlancha,
+    PlanchaAcomodada,
+    exportar_dxf,
+    exportar_dxf_planchas,
+    exportar_glb,
+    exportar_step,
+    validar_planchas,
+)
 from .plantillas import describir, listar, obtener
 from .plantillas.base import Diseno, ErrorParametros
 from .validacion import validar
@@ -54,6 +64,35 @@ class OpcionesDxf(BaseModel):
 
 class SolicitudDxf(Solicitud):
     opciones: OpcionesDxf = Field(default_factory=OpcionesDxf)
+
+
+class EntradaPiezaPlancha(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    indice: int = Field(ge=1)
+    x_mm: float
+    y_mm: float
+    rotada: bool = False
+
+
+class EntradaPlancha(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    ancho_mm: float = Field(gt=0, le=10000)
+    alto_mm: float = Field(gt=0, le=10000)
+    piezas: list[EntradaPiezaPlancha] = Field(default_factory=list)
+
+
+class OpcionesDxfPlanchas(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    kerf_mm: float = Field(0, ge=0, le=5)
+
+
+class SolicitudDxfPlanchas(Solicitud):
+    opciones: OpcionesDxfPlanchas = Field(default_factory=OpcionesDxfPlanchas)
+    planchas: list[EntradaPlancha] = Field(min_length=1, max_length=200)
 
 
 # --------------------------------------------------------------------------
@@ -99,6 +138,10 @@ def _mensaje_cuerpo(e: dict[str, Any]) -> str:
         return "Debe ser un número."
     if tipo.startswith("string"):
         return "Debe ser un texto."
+    if tipo == "too_short":
+        return "No puede estar vacío."
+    if tipo == "greater_than":
+        return f"Debe ser mayor que {ctx.get('gt')}."
     if tipo.startswith(("dict", "model")):
         return "Debe ser un objeto."
     return "Valor no válido."
@@ -219,4 +262,27 @@ def step(solicitud: Solicitud) -> Response:
         content=contenido,
         media_type="application/step",
         headers={"Content-Disposition": f'attachment; filename="{diseno.plantilla.codigo}.step"'},
+    )
+
+
+@app.post("/dxf/planchas", dependencies=protegido)
+def dxf_planchas(solicitud: SolicitudDxfPlanchas) -> Response:
+    diseno = _disenar(solicitud)
+    planchas = [
+        PlanchaAcomodada(
+            ancho_mm=p.ancho_mm,
+            alto_mm=p.alto_mm,
+            piezas=[PiezaEnPlancha(pp.id, pp.indice, pp.x_mm, pp.y_mm, pp.rotada) for pp in p.piezas],
+        )
+        for p in solicitud.planchas
+    ]
+    try:
+        validar_planchas(diseno, planchas)
+    except ErrorAcomodo as e:
+        raise _error(422, "acomodo_invalido", e.mensaje, errores=e.errores) from e
+    contenido = _geometria(exportar_dxf_planchas, diseno, planchas, kerf_mm=solicitud.opciones.kerf_mm)
+    return Response(
+        content=contenido,
+        media_type="application/dxf",
+        headers={"Content-Disposition": f'attachment; filename="{diseno.plantilla.codigo}-planchas.dxf"'},
     )

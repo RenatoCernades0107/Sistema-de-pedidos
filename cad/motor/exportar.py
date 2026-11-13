@@ -15,6 +15,7 @@ color van también en cada entidad, porque RDWorks agrupa por color.
 
   CORTE    color 1 (rojo)   contornos que se cortan
   GRABADO  color 3 (verde)  trazos que se graban
+  PLANCHA  color 8 (gris)   contorno de cada plancha (solo en el DXF por plancha)
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ from typing import Any
 
 import ezdxf
 import numpy as np
-from build123d import Compound, Edge, Face, GeomType, Kind, Wire, export_step
+from build123d import Compound, Edge, Face, GeomType, Kind, Location, Wire, export_step
 
 from .plantillas.base import Diseno, Pieza
 from .validacion import plancha_maxima
@@ -372,3 +373,141 @@ def _cabecera_mm(dxf: str, extension: tuple[float, float, float, float] | None) 
                 count=1,
             )
     return dxf
+
+
+# --------------------------------------------------------------------------
+# DXF por plancha
+# --------------------------------------------------------------------------
+
+#: Separación entre planchas en el DXF, la misma de `lib/cortes/dxf.ts`.
+SEPARACION_PLANCHAS_MM = 50.0
+#: Holgura al comprobar que una pieza cae dentro de su plancha (mm).
+TOLERANCIA_PLANCHA_MM = 0.01
+
+CAPAS_DXF_PLANCHAS = {**CAPAS_DXF, "PLANCHA": 8}
+
+
+@dataclass
+class PiezaEnPlancha:
+    """Dónde va una copia de una pieza: la esquina inferior izquierda de su caja."""
+
+    id: str
+    #: Qué copia de la pieza es, de 1 a `cantidad`.
+    indice: int
+    x_mm: float
+    y_mm: float
+    #: Girada 90° en sentido antihorario.
+    rotada: bool = False
+
+
+@dataclass
+class PlanchaAcomodada:
+    ancho_mm: float
+    alto_mm: float
+    piezas: list[PiezaEnPlancha]
+
+
+class ErrorAcomodo(ValueError):
+    """El acomodo pedido no es válido: lo dicen `errores` (`campo`, `mensaje`)."""
+
+    def __init__(self, mensaje: str, errores: list[dict[str, str]]):
+        super().__init__(mensaje)
+        self.mensaje = mensaje
+        self.errores = errores
+
+
+def _girar(forma: Any, rotada: bool) -> Any:
+    if not rotada:
+        return forma
+    return forma.moved(Location((0, 0, 0), (0, 0, 1), 90))
+
+
+def validar_planchas(diseno: Diseno, planchas: list[PlanchaAcomodada]) -> None:
+    """
+    Cada copia de cada pieza va exactamente una vez y cae entera dentro de su
+    plancha (con su caja nominal, sin kerf). Lanza `ErrorAcomodo` si no.
+    """
+    errores: list[dict[str, str]] = []
+    piezas = {p.id: p for p in diseno.piezas}
+    vistas: dict[tuple[str, int], int] = {}
+    for i, plancha in enumerate(planchas):
+        if plancha.ancho_mm <= 0 or plancha.alto_mm <= 0:
+            errores.append({"campo": f"planchas.{i}", "mensaje": "La plancha no tiene medidas válidas."})
+            continue
+        for j, pp in enumerate(plancha.piezas):
+            campo = f"planchas.{i}.piezas.{j}"
+            pieza = piezas.get(pp.id)
+            if pieza is None:
+                errores.append({"campo": campo, "mensaje": f"El diseño no tiene la pieza «{pp.id}»."})
+                continue
+            if not 1 <= pp.indice <= pieza.cantidad:
+                errores.append(
+                    {"campo": campo, "mensaje": f"«{pp.id}» tiene {pieza.cantidad} copia(s); no existe la {pp.indice}."}
+                )
+                continue
+            clave = (pp.id, pp.indice)
+            vistas[clave] = vistas.get(clave, 0) + 1
+            if vistas[clave] == 2:
+                errores.append({"campo": campo, "mensaje": f"La copia {pp.indice} de «{pp.id}» está repetida."})
+            caja = _girar(pieza.contorno, pp.rotada).bounding_box()
+            ancho, alto = caja.max.X - caja.min.X, caja.max.Y - caja.min.Y
+            t = TOLERANCIA_PLANCHA_MM
+            if (
+                pp.x_mm < -t
+                or pp.y_mm < -t
+                or pp.x_mm + ancho > plancha.ancho_mm + t
+                or pp.y_mm + alto > plancha.alto_mm + t
+            ):
+                errores.append(
+                    {"campo": campo, "mensaje": f"La copia {pp.indice} de «{pp.id}» se sale de la plancha {i + 1}."}
+                )
+    for pieza in diseno.piezas:
+        for indice in range(1, pieza.cantidad + 1):
+            if (pieza.id, indice) not in vistas:
+                errores.append({"campo": "planchas", "mensaje": f"Falta colocar la copia {indice} de «{pieza.id}»."})
+    if errores:
+        raise ErrorAcomodo("El acomodo en planchas no es válido.", errores)
+
+
+def exportar_dxf_planchas(diseno: Diseno, planchas: list[PlanchaAcomodada], kerf_mm: float = 0.0) -> bytes:
+    """
+    DXF R12 con cada plancha dibujada (capa PLANCHA, color 8) y sus piezas en
+    el sitio pedido, con los contornos reales (CORTE) y el grabado (GRABADO).
+    Las planchas van una al lado de la otra, separadas 50 mm.
+    """
+    validar_planchas(diseno, planchas)
+    doc = ezdxf.new("R12")
+    doc.header["$MEASUREMENT"] = 1
+    if "Defpoints" in doc.layers:
+        doc.layers.remove("Defpoints")
+    for capa, color in CAPAS_DXF_PLANCHAS.items():
+        doc.layers.add(capa, color=color)
+    msp = doc.modelspace()
+    piezas = {p.id: p for p in diseno.piezas}
+    cortes = {p.id: contornos_de_corte(p, kerf_mm) for p in diseno.piezas}
+    atributos_plancha = {"layer": "PLANCHA", "color": 8}
+
+    ox = 0.0
+    alto_max = 0.0
+    for plancha in planchas:
+        w, h = plancha.ancho_mm, plancha.alto_mm
+        esquinas = [(ox, 0.0), (ox + w, 0.0), (ox + w, h), (ox, h)]
+        for a, b in zip(esquinas, esquinas[1:] + esquinas[:1]):
+            msp.add_line(a, b, dxfattribs=atributos_plancha)
+        for pp in plancha.piezas:
+            pieza = piezas[pp.id]
+            caja = _girar(pieza.contorno, pp.rotada).bounding_box()
+            dx = ox + pp.x_mm - caja.min.X
+            dy = pp.y_mm - caja.min.Y
+            for arista in pieza.grabado:
+                _dibujar_arista(msp, _girar(arista, pp.rotada), dx, dy, "GRABADO")
+            for contorno in cortes[pp.id]:
+                for arista in _girar(contorno, pp.rotada).edges():
+                    _dibujar_arista(msp, arista, dx, dy, "CORTE")
+        alto_max = max(alto_max, h)
+        ox += w + SEPARACION_PLANCHAS_MM
+
+    texto = io.StringIO()
+    doc.write(texto)
+    extension = (0.0, 0.0, ox - SEPARACION_PLANCHAS_MM, alto_max) if planchas else None
+    return _cabecera_mm(texto.getvalue(), extension).encode("ascii", errors="replace")

@@ -675,6 +675,7 @@ dependencies = [
     { name = "build123d" },
     { name = "ezdxf" },
     { name = "fastapi" },
+    { name = "pillow" },
     { name = "pydantic" },
     { name = "uvicorn" },
 ]
@@ -690,6 +691,7 @@ requires-dist = [
     { name = "build123d", specifier = "==0.13.0" },
     { name = "ezdxf", specifier = "==1.4.5" },
     { name = "fastapi", specifier = "==0.162.5" },
+    { name = "pillow", specifier = "==13.0.0" },
     { name = "pydantic", specifier = "==2.14.3" },
     { name = "uvicorn", specifier = "==0.54.0" },
 ]

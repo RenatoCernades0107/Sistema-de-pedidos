@@ -116,9 +116,16 @@ export type Database = {
       }
       cad_diseno_versiones: {
         Row: {
+          acomodo: Json | null
+          aprobado_en: string | null
+          aprobado_por: string | null
+          codigo: string | null
+          color: string | null
           creado_en: string
           creado_por: string | null
           diseno_id: string
+          estado: string
+          grupo_plancha_id: string | null
           id: string
           origen: string
           parametros: Json
@@ -127,9 +134,16 @@ export type Database = {
           version_plantilla: number | null
         }
         Insert: {
+          acomodo?: Json | null
+          aprobado_en?: string | null
+          aprobado_por?: string | null
+          codigo?: string | null
+          color?: string | null
           creado_en?: string
           creado_por?: string | null
           diseno_id: string
+          estado?: string
+          grupo_plancha_id?: string | null
           id?: string
           origen: string
           parametros?: Json
@@ -138,9 +152,16 @@ export type Database = {
           version_plantilla?: number | null
         }
         Update: {
+          acomodo?: Json | null
+          aprobado_en?: string | null
+          aprobado_por?: string | null
+          codigo?: string | null
+          color?: string | null
           creado_en?: string
           creado_por?: string | null
           diseno_id?: string
+          estado?: string
+          grupo_plancha_id?: string | null
           id?: string
           origen?: string
           parametros?: Json
@@ -149,6 +170,13 @@ export type Database = {
           version_plantilla?: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "cad_diseno_versiones_grupo_plancha_id_fkey"
+            columns: ["grupo_plancha_id"]
+            isOneToOne: false
+            referencedRelation: "grupos_plancha"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "cad_diseno_versiones_creado_por_fkey"
             columns: ["creado_por"]
@@ -2038,6 +2066,10 @@ export type Database = {
         Args: { p_codigo: string; p_descontado: boolean; p_error?: string }
         Returns: undefined
       }
+      aprobar_version_diseno: {
+        Args: { p_diseno_id: string; p_version: number }
+        Returns: undefined
+      }
       array_sin_duplicados: { Args: { a: unknown }; Returns: boolean }
       auditoria_texto: { Args: { campo: string; valor: Json }; Returns: string }
       auth_rol: { Args: never; Returns: Database["public"]["Enums"]["rol"] }
@@ -2101,9 +2133,16 @@ export type Database = {
       escritura_del_sistema: { Args: never; Returns: boolean }
       etiqueta: { Args: { valor: string }; Returns: string }
       generar_codigo_pedido: { Args: { p_fecha?: string }; Returns: string }
+      guardar_version_diseno_libre: {
+        Args: { p_codigo: string; p_diseno_id: string; p_origen?: string }
+        Returns: number
+      }
       guardar_version_diseno: {
         Args: {
+          p_acomodo?: Json
+          p_color?: string
           p_diseno_id: string
+          p_grupo_plancha_id?: string
           p_origen: string
           p_parametros: Json
           p_plantilla: string

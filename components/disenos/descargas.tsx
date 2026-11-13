@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Box, Download, Loader2 } from "lucide-react";
+import { Box, Download, LayoutGrid, Loader2 } from "lucide-react";
+import { aPlanchasMotor } from "@/lib/cad/acomodo";
 import { toast } from "sonner";
 import { nombreArchivo } from "@/lib/cad/esquema";
 import { Button } from "@/components/ui/button";
 import { useDiseno } from "./diseno-contexto";
 
-type Formato = "dxf" | "step";
+type Formato = "dxf" | "step" | "dxf-planchas";
 
 /** Hace que el navegador guarde unos bytes como si se hubiera pulsado un enlace de descarga. */
 function guardar(blob: Blob, nombre: string) {
@@ -31,7 +32,7 @@ function guardar(blob: Blob, nombre: string) {
  * porque sirve para revisar el modelo, no para cortar.
  */
 export function Descargas() {
-  const { resultado, cargando } = useDiseno();
+  const { resultado, cargando, acomodo, problemasMaterial, corte } = useDiseno();
   const [bajando, setBajando] = useState<Formato | null>(null);
 
   if (!resultado) return null;
@@ -46,20 +47,35 @@ export function Descargas() {
       const res = await fetch(`/api/cad/${formato}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plantilla: resultado.plantilla, parametros: resultado.parametros }),
+        body: JSON.stringify({
+          plantilla: resultado.plantilla,
+          parametros: resultado.parametros,
+          ...(formato === "dxf-planchas" && acomodo
+            ? { planchas: aPlanchasMotor(acomodo), opciones: { kerf_mm: corte.kerfMm } }
+            : {}),
+        }),
       });
       if (!res.ok) {
         const cuerpo = (await res.json().catch(() => ({}))) as { error?: string };
         toast.error(cuerpo.error ?? "No se pudo generar el archivo.");
         return;
       }
-      guardar(await res.blob(), nombreArchivo(resultado.plantilla, resultado.dimensiones, formato));
+      const nombre = nombreArchivo(resultado.plantilla, resultado.dimensiones, "dxf");
+      guardar(
+        await res.blob(),
+        formato === "dxf-planchas"
+          ? nombre.replace(/\.dxf$/, "-planchas.dxf")
+          : nombreArchivo(resultado.plantilla, resultado.dimensiones, formato),
+      );
     } catch {
       toast.error("No se pudo descargar el archivo. Revisa tu conexión.");
     } finally {
       setBajando(null);
     }
   }
+
+  // El DXF por plancha necesita un material elegido en el que entre todo.
+  const sinPlanchas = !acomodo || acomodo.noCaben.length > 0 || problemasMaterial.length > 0;
 
   // Mientras se regenera, lo que hay en pantalla ya no es lo que se bajaría.
   const ocupado = cargando || bajando !== null;
@@ -97,6 +113,23 @@ export function Descargas() {
         {bajando === "dxf" ? <Loader2 className="animate-spin" /> : <Download />}
         DXF de corte
       </Button>
+      {acomodo && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-1.5"
+          onClick={() => descargar("dxf-planchas")}
+          disabled={ocupado || bloqueado || sinPlanchas}
+          title={
+            sinPlanchas
+              ? "Revisa la pestaña Planchas: el diseño no entra en el material elegido"
+              : "Las piezas acomodadas en cada plancha, con su contorno"
+          }
+        >
+          {bajando === "dxf-planchas" ? <Loader2 className="animate-spin" /> : <LayoutGrid />}
+          DXF por plancha
+        </Button>
+      )}
     </div>
   );
 }

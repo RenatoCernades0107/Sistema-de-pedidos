@@ -1,5 +1,6 @@
 "use client";
 
+import type { TinteAcrilico } from "@/lib/cad/colores";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "next-themes";
 import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber";
@@ -167,6 +168,7 @@ const TEMAS = {
     celda: "#d4d4d8",
     seccion: "#a1a1aa",
     ambiente: 1.1,
+    opacidad: 0.38,
   },
   dark: {
     acrilico: "#9fd6ee",
@@ -176,10 +178,13 @@ const TEMAS = {
     celda: "#3f3f46",
     seccion: "#71717a",
     ambiente: 0.7,
+    opacidad: 0.38,
   },
 } as const;
 
-type Tema = (typeof TEMAS)[keyof typeof TEMAS];
+type Tema = {
+  [K in keyof (typeof TEMAS)["light"]]: (typeof TEMAS)["light"][K] extends string ? string : number;
+};
 
 const DIRECCION_INICIAL = new THREE.Vector3(1, 0.75, 1.25).normalize();
 
@@ -284,7 +289,7 @@ function Pieza({
           <meshPhysicalMaterial
             color={activa ? tema.activo : tema.acrilico}
             transparent
-            opacity={activa ? 0.7 : 0.38}
+            opacity={activa ? Math.max(0.7, tema.opacidad) : tema.opacidad}
             roughness={0.06}
             metalness={0}
             ior={1.49}
@@ -401,6 +406,8 @@ export interface PropsVisor3D {
   idsPiezas: readonly string[];
   piezaActiva?: string | null;
   alCambiarPieza?: (id: string | null) => void;
+  /** El color del acrílico elegido; sin él, cristal. */
+  tinte?: TinteAcrilico | null;
   className?: string;
 }
 
@@ -410,10 +417,15 @@ export default function Visor3D({
   idsPiezas,
   piezaActiva = null,
   alCambiarPieza,
+  tinte = null,
   className,
 }: PropsVisor3D) {
   const { resolvedTheme } = useTheme();
-  const tema = resolvedTheme === "dark" ? TEMAS.dark : TEMAS.light;
+  const base: Tema = resolvedTheme === "dark" ? TEMAS.dark : TEMAS.light;
+  const tema = useMemo<Tema>(
+    () => (tinte ? { ...base, acrilico: tinte.color, opacidad: tinte.opacidad } : base),
+    [base, tinte],
+  );
   const { modelo, fallo } = useModelo(glbBase64, idsPiezas);
   const [explosion, setExplosion] = useState(0);
 

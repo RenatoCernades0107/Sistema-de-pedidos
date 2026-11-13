@@ -190,6 +190,49 @@ describe("lo que se envía", () => {
       },
     ]);
   });
+
+  it("las imágenes de herramientas van en un mensaje user después de toda la tanda", () => {
+    const enviado = cuerpoDePeticion(
+      {
+        sistema: "S",
+        mensajes: [
+          {
+            rol: "asistente",
+            contenido: "",
+            llamadas: [
+              { id: "c1", nombre: "ver_render", argumentos: {} },
+              { id: "c2", nombre: "otra", argumentos: {} },
+            ],
+          },
+          { rol: "herramienta", idLlamada: "c1", contenido: '{"ok":true}', imagenes: ["data:image/png;base64,AAAA"] },
+          { rol: "herramienta", idLlamada: "c2", contenido: '{"ok":true}' },
+          { rol: "asistente", contenido: "Listo." },
+        ],
+      },
+      "m",
+    );
+    const mensajes = enviado.messages as Record<string, unknown>[];
+    expect(mensajes.map((m) => m.role)).toEqual(["system", "assistant", "tool", "tool", "user", "assistant"]);
+    expect(mensajes[2]).toEqual({ role: "tool", tool_call_id: "c1", content: '{"ok":true}' });
+    expect(mensajes[4]).toEqual({
+      role: "user",
+      content: [
+        { type: "text", text: "Imágenes devueltas por las herramientas (c1):" },
+        { type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } },
+      ],
+    });
+  });
+
+  it("una imagen al final de la conversación también se envía", () => {
+    const enviado = cuerpoDePeticion(
+      {
+        sistema: "S",
+        mensajes: [{ rol: "herramienta", idLlamada: "c1", contenido: "x", imagenes: ["u"] }],
+      },
+      "m",
+    );
+    expect((enviado.messages as { role: string }[]).map((m) => m.role)).toEqual(["system", "tool", "user"]);
+  });
 });
 
 /* ── La respuesta ──────────────────────────────────────────────────────────── */

@@ -13,7 +13,9 @@
 
 import type {
   OpcionesDxf,
+  OpcionesDxfPlanchas,
   ParametrosCad,
+  PlanchaAcomodadaCad,
   PlantillaCad,
   ResultadoGeneracion,
 } from "./tipos";
@@ -192,5 +194,22 @@ export async function exportarStep(
   parametros: ParametrosCad,
 ): Promise<ArrayBuffer> {
   const res = await peticion("/step", post({ plantilla, parametros }));
+  return res.arrayBuffer();
+}
+
+/**
+ * El DXF de producción: las piezas en las planchas que dijo el acomodo, con el
+ * contorno de cada plancha. Un 422 `acomodo_invalido` trae los `errores`.
+ */
+export async function exportarDxfPlanchas(
+  plantilla: string,
+  parametros: ParametrosCad,
+  planchas: PlanchaAcomodadaCad[],
+  opciones?: OpcionesDxfPlanchas,
+): Promise<ArrayBuffer> {
+  const res = await peticion(
+    "/dxf/planchas",
+    post({ plantilla, parametros, planchas, ...(opciones ? { opciones } : {}) }),
+  );
   return res.arrayBuffer();
 }

@@ -13,10 +13,11 @@ FROM python:3.13-slim-bookworm
 COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.9.1 /lambda-adapter /opt/extensions/lambda-adapter
 COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /usr/local/bin/uv
 
-# Bibliotecas del sistema que necesita OCP (el núcleo de build123d).
+# Bibliotecas del sistema que necesita OCP (el núcleo de build123d) y la fuente
+# DejaVu Sans Bold de las plantillas «letras» y «letrero» (motor/plantillas/formas.py).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        libgl1 libglib2.0-0 libx11-6 libxext6 libxrender1 libfontconfig1 libexpat1 \
+        libgl1 libglib2.0-0 libx11-6 libxext6 libxrender1 libfontconfig1 libexpat1 fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

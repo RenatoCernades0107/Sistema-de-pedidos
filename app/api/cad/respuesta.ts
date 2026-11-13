@@ -93,3 +93,27 @@ export function archivo(contenido: ArrayBuffer, tipoMime: string, nombre: string
     },
   });
 }
+
+export const cuerpoDxfPlanchas = cuerpoGenerar.extend({
+  opciones: z.object({ kerf_mm: z.number().min(0).max(5).optional() }).optional(),
+  planchas: z
+    .array(
+      z.object({
+        ancho_mm: z.number().positive().max(10000),
+        alto_mm: z.number().positive().max(10000),
+        piezas: z
+          .array(
+            z.object({
+              id: z.string().min(1).max(64),
+              indice: z.number().int().min(1).max(10000),
+              x_mm: z.number().refine(Number.isFinite),
+              y_mm: z.number().refine(Number.isFinite),
+              rotada: z.boolean(),
+            }),
+          )
+          .max(2000),
+      }),
+    )
+    .min(1)
+    .max(200),
+});

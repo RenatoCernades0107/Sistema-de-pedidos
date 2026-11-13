@@ -12,7 +12,23 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { guardarVersion } from "@/app/(app)/disenos/acciones";
-import type { ParametrosCad, PlantillaCad, ResultadoGeneracion } from "@/lib/cad/tipos";
+import {
+  acomodar,
+  formatosDeGrupo,
+  PARAMETRO_ESPESOR,
+  piezasQueNoEntran,
+  problemaDeEspesor,
+  type ResultadoAcomodo,
+} from "@/lib/cad/acomodo";
+import { tinteDeColor, type TinteAcrilico } from "@/lib/cad/colores";
+import { colorDe, type GrupoPlancha } from "@/lib/cortes/catalogo";
+import type {
+  MaterialDiseno,
+  ParametrosCad,
+  PiezaCad,
+  PlantillaCad,
+  ResultadoGeneracion,
+} from "@/lib/cad/tipos";
 
 /**
  * El diseño que se está trabajando: el punto de encuentro del chat (izquierda)
@@ -43,9 +59,59 @@ export interface EstadoDiseno {
     parametros: ParametrosCad,
     opciones?: { guardar?: boolean },
   ) => Promise<void>;
+
+  /* ── Planchas ── */
+  /** Los grupos del catálogo con algún formato activo. Vacío si no se pudo leer. */
+  catalogo: GrupoPlancha[];
+  /** El kerf del láser y el borde que no se aprovecha, en mm (de la configuración de cortes). */
+  corte: { kerfMm: number; margenMm: number };
+  material: MaterialDiseno | null;
+  /** El grupo del material elegido, si sigue en el catálogo. */
+  grupo: GrupoPlancha | null;
+  /**
+   * Elige el material. Si la plantilla tiene `espesor`, lo pone al de la plancha
+   * y regenera; siempre guarda una versión nueva con el material.
+   */
+  elegirMaterial: (material: MaterialDiseno) => Promise<void>;
+  /** Las piezas acomodadas en el mejor formato del grupo. `null` sin material o sin diseño. */
+  acomodo: ResultadoAcomodo | null;
+  /** Lo que impide cortar el diseño en el material elegido. Vacío: todo bien. */
+  problemasMaterial: string[];
+  /** El color del acrílico para el visor. `null`: cristal. */
+  tinte: TinteAcrilico | null;
+}
+
+/** Acomodo y problemas de un despiece en un grupo: lo usan la pantalla y el guardado. */
+function calcularPlanchas(
+  grupo: GrupoPlancha | null,
+  parametros: ParametrosCad,
+  piezas: PiezaCad[] | undefined,
+  corte: { kerfMm: number; margenMm: number },
+): { acomodo: ResultadoAcomodo | null; problemas: string[] } {
+  if (!grupo) return { acomodo: null, problemas: [] };
+  const problemas: string[] = [];
+  const espesor = problemaDeEspesor(parametros, piezas, grupo);
+  if (espesor) problemas.push(espesor);
+  if (!piezas?.length) return { acomodo: null, problemas };
+
+  const formatos = formatosDeGrupo(grupo);
+  const opciones = { rotable: grupo.rotable, kerfMm: corte.kerfMm, margenMm: corte.margenMm };
+  if (formatos.length === 0) {
+    problemas.push("El material elegido no tiene formatos de plancha activos.");
+    return { acomodo: null, problemas };
+  }
+  for (const p of piezasQueNoEntran(piezas, formatos, opciones)) {
+    problemas.push(
+      `«${p.nombre}» (${Math.round(p.ancho_mm)} × ${Math.round(p.alto_mm)} mm) no entra en ninguna plancha de este material${grupo.rotable ? "" : " (no se puede girar)"}.`,
+    );
+  }
+  return { acomodo: acomodar(piezas, formatos, opciones), problemas };
 }
 
 const Contexto = createContext<EstadoDiseno | null>(null);
+
+const SIN_CATALOGO: GrupoPlancha[] = [];
+const SIN_KERF = { kerfMm: 0, margenMm: 0 };
 
 export function useDiseno(): EstadoDiseno {
   const valor = useContext(Contexto);
@@ -62,11 +128,15 @@ export function DisenoProvider({
   disenoId,
   plantillas,
   inicial,
+  catalogo = SIN_CATALOGO,
+  corte = SIN_KERF,
   children,
 }: {
   disenoId: string;
   plantillas: PlantillaCad[];
-  inicial: { plantilla: string | null; parametros: ParametrosCad };
+  inicial: { plantilla: string | null; parametros: ParametrosCad; material?: MaterialDiseno | null };
+  catalogo?: GrupoPlancha[];
+  corte?: { kerfMm: number; margenMm: number };
   children: ReactNode;
 }) {
   const [plantilla, setPlantilla] = useState(inicial.plantilla);
@@ -78,6 +148,13 @@ export function DisenoProvider({
   const [error, setError] = useState<string | null>(null);
   const [erroresCampo, setErroresCampo] = useState<Record<string, string>>({});
   const [piezaActiva, setPiezaActiva] = useState<string | null>(null);
+  const [material, setMaterial] = useState<MaterialDiseno | null>(inicial.material ?? null);
+  // `aplicar` guarda con el material vigente sin depender de él (no se recrea).
+  const materialRef = useRef(material);
+  const contexto = useRef({ catalogo, corte });
+  useEffect(() => {
+    contexto.current = { catalogo, corte };
+  }, [catalogo, corte]);
 
   /**
    * El turno de la última llamada. El formulario dispara una generación por cada
@@ -149,7 +226,18 @@ export function DisenoProvider({
       if (opciones?.guardar === false) return;
       try {
         // Se guarda lo que devolvió el motor, ya normalizado, no lo que se escribió.
-        await guardarVersion(disenoId, generado.plantilla, generado.parametros);
+        const elegido = materialRef.current;
+        const grupo = elegido
+          ? (contexto.current.catalogo.find((g) => g.id === elegido.grupoPlanchaId) ?? null)
+          : null;
+        const { acomodo } = calcularPlanchas(grupo, generado.parametros, generado.piezas, contexto.current.corte);
+        await guardarVersion(
+          disenoId,
+          generado.plantilla,
+          generado.parametros,
+          elegido,
+          acomodo ? { ...acomodo, kerfMm: contexto.current.corte.kerfMm } : null,
+        );
       } catch {
         toast.error("El diseño se generó, pero no se pudo guardar esta versión.");
       }
@@ -167,6 +255,36 @@ export function DisenoProvider({
     return cancelar;
   }, [aplicar, cancelar]);
 
+  const elegirMaterial = useCallback<EstadoDiseno["elegirMaterial"]>(
+    async (nuevo) => {
+      materialRef.current = nuevo;
+      setMaterial(nuevo);
+      if (plantilla === null) return;
+      const grupo = catalogo.find((g) => g.id === nuevo.grupoPlanchaId);
+      const esquema = plantillas.find((p) => p.codigo === plantilla)?.esquema;
+      const conEspesor = grupo && esquema?.properties[PARAMETRO_ESPESOR]?.type === "number";
+      // Elegir la plancha es también elegir el espesor: se regenera con él y se guarda.
+      await aplicar(
+        plantilla,
+        conEspesor ? { ...parametros, [PARAMETRO_ESPESOR]: grupo.espesorMm } : parametros,
+      );
+    },
+    [aplicar, catalogo, parametros, plantilla, plantillas],
+  );
+
+  const grupo = useMemo(
+    () => (material ? (catalogo.find((g) => g.id === material.grupoPlanchaId) ?? null) : null),
+    [catalogo, material],
+  );
+  const planchas = useMemo(
+    () => calcularPlanchas(grupo, parametros, resultado?.piezas, corte),
+    [grupo, parametros, resultado, corte],
+  );
+  const tinte = useMemo(
+    () => (grupo ? tinteDeColor(material?.color ?? colorDe(grupo)) : null),
+    [grupo, material],
+  );
+
   const valor = useMemo<EstadoDiseno>(
     () => ({
       disenoId,
@@ -180,6 +298,14 @@ export function DisenoProvider({
       piezaActiva,
       setPiezaActiva,
       aplicar,
+      catalogo,
+      corte,
+      material,
+      grupo,
+      elegirMaterial,
+      acomodo: planchas.acomodo,
+      problemasMaterial: planchas.problemas,
+      tinte,
     }),
     [
       disenoId,
@@ -192,6 +318,13 @@ export function DisenoProvider({
       erroresCampo,
       piezaActiva,
       aplicar,
+      catalogo,
+      corte,
+      material,
+      grupo,
+      elegirMaterial,
+      planchas,
+      tinte,
     ],
   );
 

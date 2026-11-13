@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import { exigirCad } from "@/lib/sesion";
-import { obtenerDiseno } from "@/lib/cad/disenos-servidor";
+import { obtenerDiseno, obtenerMaterialDiseno } from "@/lib/cad/disenos-servidor";
+import { cargarCatalogoPlanchas, cargarConfigCortes } from "@/lib/cortes-servidor";
+import type { GrupoPlancha } from "@/lib/cortes/catalogo";
 import { ErrorMotorCad, listarPlantillas } from "@/lib/cad/motor";
 import type { PlantillaCad } from "@/lib/cad/tipos";
 import { DisenoProvider } from "@/components/disenos/diseno-contexto";
@@ -24,17 +26,36 @@ async function plantillasDelMotor(): Promise<{ plantillas: PlantillaCad[]; aviso
   }
 }
 
+/** El catálogo de planchas para elegir el material. Sin él, el diseño se usa igual. */
+async function catalogo(): Promise<{ grupos: GrupoPlancha[]; kerfMm: number; margenMm: number }> {
+  try {
+    const [grupos, config] = await Promise.all([cargarCatalogoPlanchas(true), cargarConfigCortes()]);
+    // La configuración de cortes está en cm; el diseño, en mm.
+    return { grupos, kerfMm: config.corte.kerfLaser * 10, margenMm: config.corte.margen * 10 };
+  } catch (e) {
+    console.error("[cad] catálogo de planchas", e);
+    return { grupos: [], kerfMm: 0, margenMm: 0 };
+  }
+}
+
 export default async function Page({ params }: PageProps<"/disenos/[id]">) {
   await exigirCad();
   const { id } = await params;
-  const [diseno, { plantillas, aviso }] = await Promise.all([obtenerDiseno(id), plantillasDelMotor()]);
+  const [diseno, { plantillas, aviso }, material, planchas] = await Promise.all([
+    obtenerDiseno(id),
+    plantillasDelMotor(),
+    obtenerMaterialDiseno(id),
+    catalogo(),
+  ]);
   if (!diseno) notFound();
 
   return (
     <DisenoProvider
       disenoId={diseno.id}
       plantillas={plantillas}
-      inicial={{ plantilla: diseno.plantilla, parametros: diseno.parametros }}
+      inicial={{ plantilla: diseno.plantilla, parametros: diseno.parametros, material }}
+      catalogo={planchas.grupos}
+      corte={{ kerfMm: planchas.kerfMm, margenMm: planchas.margenMm }}
     >
       <VistaDiseno disenoId={diseno.id} nombre={diseno.nombre} avisoMotor={aviso} />
     </DisenoProvider>

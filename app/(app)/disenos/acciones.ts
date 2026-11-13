@@ -13,11 +13,13 @@
  */
 
 import { z } from "zod";
-import { exigirCad } from "@/lib/sesion";
+import { exigirAdmin, exigirCad } from "@/lib/sesion";
 import { clienteServidor } from "@/lib/supabase-servidor";
 import { mensajeDeError } from "@/lib/errores";
 import { guardarVersionDiseno, listarMensajes, type MensajeCad } from "@/lib/cad/disenos-servidor";
-import type { ParametrosCad } from "@/lib/cad/tipos";
+import { aprobarVersionLibre } from "@/lib/cad/libre-servidor";
+import type { MaterialDiseno, ParametrosCad } from "@/lib/cad/tipos";
+import type { Json } from "@/lib/supabase-tipos";
 
 const ERROR_SIN_DISENO = "El diseño ya no está disponible. Recarga la página.";
 
@@ -57,11 +59,30 @@ export async function crearDiseno(): Promise<{ id: string }> {
   return { id: data.id };
 }
 
-/** Una versión nueva desde el formulario. Las del asistente las guarda el chat. */
+/** El material elegido: un grupo del catálogo y, si el grupo lo pide, el color. */
+const esquemaMaterial = z.object({
+  grupoPlanchaId: z.uuid("El material no es válido."),
+  color: z.string().trim().min(1).max(80).nullable(),
+});
+
+/**
+ * La foto del acomodo: se guarda tal cual para saber qué se mandó a cortar, así
+ * que basta con que sea un objeto y no sea enorme.
+ */
+const esquemaAcomodo = z
+  .record(z.string(), z.unknown())
+  .refine((a) => JSON.stringify(a).length <= 200_000, "El acomodo es demasiado grande.");
+
+/**
+ * Una versión nueva desde el formulario. Las del asistente las guarda el chat.
+ * Sin `material`, la versión hereda el de la anterior.
+ */
 export async function guardarVersion(
   disenoId: string,
   plantilla: string,
   parametros: ParametrosCad,
+  material?: MaterialDiseno | null,
+  acomodo?: Record<string, unknown> | null,
 ): Promise<{ version: number }> {
   await exigirCad();
 
@@ -70,6 +91,8 @@ export async function guardarVersion(
     plantilla: validar(esquemaPlantilla, plantilla),
     parametros: validar(esquemaParametros, parametros),
     origen: "formulario",
+    material: material ? validar(esquemaMaterial, material) : null,
+    acomodo: material && acomodo ? (validar(esquemaAcomodo, acomodo) as Json) : null,
   });
 }
 
@@ -103,4 +126,17 @@ export async function eliminarDiseno(disenoId: string): Promise<void> {
 export async function cargarMensajes(disenoId: string): Promise<MensajeCad[]> {
   await exigirCad();
   return listarMensajes(validar(esquemaId, disenoId));
+}
+
+/**
+ * Aprueba la versión libre vigente de un diseño (diseño personalizado hecho con
+ * código): desde aquí ya se puede bajar el DXF. Solo Administración; la base lo
+ * vuelve a comprobar (`aprobar_version_diseno`).
+ */
+export async function aprobarDisenoLibre(disenoId: string, version: number): Promise<void> {
+  await exigirAdmin();
+  await aprobarVersionLibre(
+    validar(esquemaId, disenoId),
+    validar(z.number().int().min(1, "La versión no es válida."), version),
+  );
 }

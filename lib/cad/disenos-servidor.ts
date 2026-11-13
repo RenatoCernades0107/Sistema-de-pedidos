@@ -13,7 +13,7 @@
 import { clienteServidor } from "@/lib/supabase-servidor";
 import { mensajeDeError } from "@/lib/errores";
 import type { Json } from "@/lib/supabase-tipos";
-import type { DisenoCad, ParametrosCad } from "./tipos";
+import type { DisenoCad, MaterialDiseno, ParametrosCad } from "./tipos";
 
 export type OrigenVersion = "formulario" | "chat";
 
@@ -189,6 +189,10 @@ export async function guardarVersionDiseno(entrada: {
   parametros: ParametrosCad;
   origen: OrigenVersion;
   versionPlantilla?: number | null;
+  /** Sin material, la versión hereda el de la anterior (lo hace la base). */
+  material?: MaterialDiseno | null;
+  /** Foto del acomodo en planchas (`ResultadoAcomodo` de `lib/cad/acomodo.ts`). */
+  acomodo?: Json | null;
 }): Promise<{ version: number }> {
   const supabase = await clienteServidor();
   const { data, error } = await supabase.rpc("guardar_version_diseno", {
@@ -197,9 +201,34 @@ export async function guardarVersionDiseno(entrada: {
     p_parametros: entrada.parametros,
     p_origen: entrada.origen,
     p_version_plantilla: entrada.versionPlantilla ?? undefined,
+    p_grupo_plancha_id: entrada.material?.grupoPlanchaId ?? undefined,
+    p_color: entrada.material?.color ?? undefined,
+    p_acomodo: entrada.acomodo ?? undefined,
   });
   if (error) throw new Error(mensajeDeError(error));
   return { version: data };
+}
+
+/** El material de la versión vigente de un diseño. `null` si no tiene. */
+export async function obtenerMaterialDiseno(disenoId: string): Promise<MaterialDiseno | null> {
+  const supabase = await clienteServidor();
+  const { data: diseno, error } = await supabase
+    .from("cad_disenos")
+    .select("version_actual")
+    .eq("id", disenoId)
+    .maybeSingle();
+  if (error) throw new Error(`No se pudo leer el diseño: ${error.message}`);
+  if (!diseno || diseno.version_actual === 0) return null;
+
+  const { data, error: errorVersion } = await supabase
+    .from("cad_diseno_versiones")
+    .select("grupo_plancha_id, color")
+    .eq("diseno_id", disenoId)
+    .eq("version", diseno.version_actual)
+    .maybeSingle();
+  if (errorVersion) throw new Error(`No se pudo leer el material del diseño: ${errorVersion.message}`);
+  if (!data?.grupo_plancha_id) return null;
+  return { grupoPlanchaId: data.grupo_plancha_id, color: data.color };
 }
 
 /**

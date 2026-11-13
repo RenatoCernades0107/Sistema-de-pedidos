@@ -12,6 +12,7 @@ import { Descargas } from "./descargas";
 import { useDiseno } from "./diseno-contexto";
 import { FormularioParametros } from "./formulario-parametros";
 import { ListaPiezas, ListaValidaciones } from "./lista-piezas";
+import { PanelPlanchas } from "./panel-planchas";
 
 // three necesita `window` y un `<canvas>`: el visor no se prerenderiza. `ssr:
 // false` solo se admite desde un Client Component, y este lo es.
@@ -118,6 +119,9 @@ export function PanelDiseno({ avisoMotor }: { avisoMotor?: string | null }) {
     piezaActiva,
     setPiezaActiva,
     aplicar,
+    acomodo,
+    problemasMaterial,
+    tinte,
   } = useDiseno();
   const [cambiando, setCambiando] = useState(false);
   const [pestana, setPestana] = useState("parametros");
@@ -159,6 +163,7 @@ export function PanelDiseno({ avisoMotor }: { avisoMotor?: string | null }) {
             idsPiezas={idsPiezas}
             piezaActiva={piezaActiva}
             alCambiarPieza={setPiezaActiva}
+            tinte={tinte}
           />
         ) : cargando ? (
           <Skeleton className="h-full w-full rounded-none" />
@@ -206,6 +211,14 @@ export function PanelDiseno({ avisoMotor }: { avisoMotor?: string | null }) {
             <TabsTrigger value="piezas">
               Piezas
               {resultado && <span className="text-muted-foreground tabular-nums">{resultado.piezas.length}</span>}
+            </TabsTrigger>
+            <TabsTrigger value="planchas">
+              Planchas
+              {problemasMaterial.length > 0 ? (
+                <span className="text-destructive tabular-nums">{problemasMaterial.length}</span>
+              ) : acomodo ? (
+                <span className="text-muted-foreground tabular-nums">{acomodo.planchas.length}</span>
+              ) : null}
             </TabsTrigger>
             <TabsTrigger value="validaciones">
               Validaciones
@@ -260,6 +273,13 @@ export function PanelDiseno({ avisoMotor }: { avisoMotor?: string | null }) {
               />
             ) : (
               <p className="text-muted-foreground text-sm">El despiece aparece al generar el diseño.</p>
+            )}
+          </TabsContent>
+          <TabsContent value="planchas">
+            {resultado ? (
+              <PanelPlanchas />
+            ) : (
+              <p className="text-muted-foreground text-sm">Las planchas aparecen al generar el diseño.</p>
             )}
           </TabsContent>
           <TabsContent value="validaciones">

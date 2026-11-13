@@ -9,6 +9,7 @@ dependencies = [
     "pydantic==2.14.3",
     "build123d==0.13.0",
     "ezdxf==1.4.5",
+    "pillow==13.0.0",
 ]
 
 [dependency-groups]
