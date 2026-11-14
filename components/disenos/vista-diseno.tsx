@@ -7,6 +7,7 @@ import { useDiseno } from "./diseno-contexto";
 import { PanelChat } from "./panel-chat";
 import { PanelCosto } from "./panel-costo";
 import { PanelPlanchas } from "./panel-planchas";
+import { MiniaturaDiseno } from "./miniatura-diseno";
 import {
   AvisoGeneracion,
   AvisoMotor,
@@ -47,6 +48,7 @@ export function VistaDiseno({
   modelo,
   pie,
   sinAgregarACotizacion = false,
+  vigenteConFoto = false,
   className,
 }: {
   disenoId: string;
@@ -66,6 +68,8 @@ export function VistaDiseno({
   pie?: ReactNode;
   /** En un pedido, el costo no lleva el botón "Agregar a cotización". */
   sinAgregarACotizacion?: boolean;
+  /** Si la versión vigente ya tiene su foto PNG: al abrir no se saca otra. */
+  vigenteConFoto?: boolean;
   /** El alto. Por defecto, la pantalla menos la cabecera del shell. */
   className?: string;
 }) {
@@ -96,6 +100,7 @@ export function VistaDiseno({
         className,
       )}
     >
+      <MiniaturaDiseno vigenteConFoto={vigenteConFoto} />
       <div className="bg-background flex min-h-11 items-center gap-2 border-b px-2 py-1.5">
         {volver}
         <h1 className="min-w-0 flex-1 truncate text-sm font-medium">{titulo ?? nombre}</h1>

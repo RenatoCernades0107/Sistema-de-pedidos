@@ -128,6 +128,7 @@ export type Database = {
           grupo_plancha_id: string | null
           id: string
           materiales: Json | null
+          miniatura_path: string | null
           origen: string
           parametros: Json
           plantilla: string
@@ -147,6 +148,7 @@ export type Database = {
           grupo_plancha_id?: string | null
           id?: string
           materiales?: Json | null
+          miniatura_path?: string | null
           origen: string
           parametros?: Json
           plantilla: string
@@ -166,6 +168,7 @@ export type Database = {
           grupo_plancha_id?: string | null
           id?: string
           materiales?: Json | null
+          miniatura_path?: string | null
           origen?: string
           parametros?: Json
           plantilla?: string
@@ -1390,6 +1393,7 @@ export type Database = {
           contacto_alimentario: string | null
           geometria: Database["public"]["Enums"]["pt_geometria"]
           imagen_url: string | null
+          miniatura_path: string | null
           nombre: string
           notas: string | null
           parametros_cad: Json | null
@@ -1406,6 +1410,7 @@ export type Database = {
           contacto_alimentario?: string | null
           geometria?: Database["public"]["Enums"]["pt_geometria"]
           imagen_url?: string | null
+          miniatura_path?: string | null
           nombre: string
           notas?: string | null
           parametros_cad?: Json | null
@@ -1422,6 +1427,7 @@ export type Database = {
           contacto_alimentario?: string | null
           geometria?: Database["public"]["Enums"]["pt_geometria"]
           imagen_url?: string | null
+          miniatura_path?: string | null
           nombre?: string
           notas?: string | null
           parametros_cad?: Json | null

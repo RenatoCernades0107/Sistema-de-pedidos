@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, Box, Info, Loader2 } from "lucide-react";
+import { ArrowLeft, Box, ImagePlus, Info, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { disenoParaPedido, eliminarDiseno, renombrarDiseno } from "@/app/(app)/disenos/acciones";
+import { guardarMiniaturaProducto } from "@/app/(app)/disenos/miniaturas-acciones";
 import { lineaDeDiseno } from "@/lib/cad/cotizar";
 import { valoresPorDefecto } from "@/lib/cad/esquema";
 import type { MaterialesPorCopia } from "@/lib/cad/materiales";
-import type { MaterialDiseno, ParametrosCad, PlantillaCad } from "@/lib/cad/tipos";
+import type { MaterialDiseno, ParametrosCad, PlantillaCad, ResultadoGeneracion } from "@/lib/cad/tipos";
 import type { GrupoPlancha } from "@/lib/cortes/catalogo";
 import { money } from "@/lib/formato";
 import type { LineaTerminado } from "@/lib/lineas-cotizacion";
@@ -274,14 +275,61 @@ function ModeloCatalogo({
 
   const esquemaDe = (codigo: string) => plantillas.find((p) => p.codigo === codigo)?.esquema;
 
-  const elegirProducto = (p: ProductoEstandar) => {
-    if (!p.plantillaCad) return;
-    alElegir(p.codigo);
+  /** Los parámetros del producto en su primera medida estándar: con los que abre y con los que se fotografía. */
+  const parametrosIniciales = (p: ProductoEstandar & { plantillaCad: string }): ParametrosCad => {
     const primera = p.medidas[0];
     const params = parametrosCadDe(p, primera ? medidasDeFila(primera, p.geometria) : {}, {
       espesorMm: grupo?.espesorMm,
     });
-    void aplicar(p.plantillaCad, { ...valoresPorDefecto(esquemaDe(p.plantillaCad)), ...params });
+    return { ...valoresPorDefecto(esquemaDe(p.plantillaCad)), ...params };
+  };
+
+  const elegirProducto = (p: ProductoEstandar) => {
+    if (!p.plantillaCad) return;
+    alElegir(p.codigo);
+    void aplicar(p.plantillaCad, parametrosIniciales({ ...p, plantillaCad: p.plantillaCad }));
+  };
+
+  // Las fotos que se van sacando aquí, por código, para verlas sin recargar.
+  const [fotos, setFotos] = useState<Record<string, string>>({});
+  const fotoDe = (p: ProductoEstandar) => fotos[p.codigo] ?? p.miniatura;
+  const sinFoto = conModelo.filter((p) => !fotoDe(p));
+  const [fotografiando, setFotografiando] = useState<{ hechas: number; total: number } | null>(null);
+
+  /**
+   * Saca la foto de cada producto que no tiene: lo genera con el motor en su
+   * primera medida estándar (sin tocar el diseño abierto) y guarda el PNG. Uno
+   * por uno, para no saturar el motor.
+   */
+  const generarFotos = async () => {
+    const pendientes = sinFoto;
+    setFotografiando({ hechas: 0, total: pendientes.length });
+    const { renderizarMiniatura } = await import("@/lib/cad/miniatura");
+    let fallidas = 0;
+    for (const [i, p] of pendientes.entries()) {
+      try {
+        const plantillaCad = p.plantillaCad!;
+        const r = await fetch("/api/cad/generar", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ plantilla: plantillaCad, parametros: parametrosIniciales({ ...p, plantillaCad }) }),
+        });
+        if (!r.ok) throw new Error(`El motor respondió ${r.status}.`);
+        const resultado = (await r.json()) as ResultadoGeneracion;
+        const form = new FormData();
+        form.set("codigo", p.codigo);
+        form.set("archivo", await renderizarMiniatura(resultado.glb_base64), "miniatura.png");
+        const url = await guardarMiniaturaProducto(form);
+        setFotos((f) => ({ ...f, [p.codigo]: url }));
+      } catch (e) {
+        fallidas++;
+        console.error(`[terminados] miniatura de ${p.codigo}`, e);
+      }
+      setFotografiando({ hechas: i + 1, total: pendientes.length });
+    }
+    setFotografiando(null);
+    if (fallidas > 0) toast.error(`No se pudo sacar la foto de ${fallidas} producto${fallidas === 1 ? "" : "s"}.`);
+    else toast.success("Miniaturas listas.");
   };
 
   const elegirMedida = (p: ProductoEstandar, m: MedidaEstandar) => {
@@ -310,9 +358,19 @@ function ModeloCatalogo({
 
   return (
     <div className="flex flex-col gap-5">
-      <p className="text-muted-foreground text-sm">
-        Elige el modelo y su medida estándar. Luego lo ajustas en Parámetros o en el chat.
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <p className="text-muted-foreground min-w-0 flex-1 text-sm">
+          Elige el modelo y su medida estándar. Luego lo ajustas en Parámetros o en el chat.
+        </p>
+        {(sinFoto.length > 0 || fotografiando) && (
+          <Button type="button" variant="outline" size="sm" onClick={generarFotos} disabled={fotografiando !== null}>
+            {fotografiando ? <Loader2 className="animate-spin" aria-hidden /> : <ImagePlus aria-hidden />}
+            {fotografiando
+              ? `Generando miniaturas ${fotografiando.hechas}/${fotografiando.total}`
+              : `Generar miniaturas (${sinFoto.length})`}
+          </Button>
+        )}
+      </div>
 
       <div role="group" aria-label="Tipo" className="flex flex-wrap gap-1.5">
         {tipos.map((t) => (
@@ -346,8 +404,13 @@ function ModeloCatalogo({
                   actual && "border-primary ring-primary/20 ring-2",
                 )}
               >
-                <span className="from-muted/40 to-muted grid h-20 place-items-center bg-gradient-to-b">
-                  <Box className={cn("size-8", actual ? "text-primary" : "text-muted-foreground/70")} aria-hidden />
+                <span className="from-muted/40 to-muted grid h-28 place-items-center overflow-hidden bg-gradient-to-b">
+                  {fotoDe(p) ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- PNG chico ya del tamaño justo; no pasa por el optimizador.
+                    <img src={fotoDe(p)!} alt="" loading="lazy" className="h-full w-full object-contain p-1" />
+                  ) : (
+                    <Box className={cn("size-8", actual ? "text-primary" : "text-muted-foreground/70")} aria-hidden />
+                  )}
                 </span>
                 <span className="px-3 py-2">
                   <span className="block text-sm font-medium">{p.nombre}</span>

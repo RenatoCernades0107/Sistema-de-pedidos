@@ -31,6 +31,7 @@ import { leerConfigTerminados, type ConfigTerminados } from "./terminados/config
 import { limpiarMedidas, type Geometria } from "./terminados/geometria";
 import { leerParametrosCad } from "./terminados/plantilla-cad";
 import { descripcionDeTerminado, guardarCorteDeTerminado, type TerminadoGuardado } from "./terminados/guardado";
+import { urlMiniatura } from "@/lib/cad/miniatura-url";
 
 export const CLAVE_CONFIG_TERMINADOS = "terminados";
 
@@ -45,7 +46,7 @@ export const cargarConfigTerminados = cache(async (): Promise<ConfigTerminados> 
 });
 
 const COLUMNAS_PRODUCTO = `
-  codigo, tipo, nombre, usos, a_medida, contacto_alimentario, imagen_url, notas, geometria, activo, plantilla_cad, parametros_cad,
+  codigo, tipo, nombre, usos, a_medida, contacto_alimentario, imagen_url, miniatura_path, notas, geometria, activo, plantilla_cad, parametros_cad,
   pt_medidas ( id, orden, medida_1_cm, medida_2_cm, medida_3_cm, diametro_cm, altura_cm, altura_max_cm, formato, estimado, nota ),
   pt_espesores ( id, orden, espesor_min_mm, espesor_max_mm, aplicacion, material, estimado, nota ),
   pt_producto_color ( pt_colores ( nombre ) ),
@@ -61,6 +62,7 @@ interface FilaProducto {
   a_medida: boolean;
   contacto_alimentario: string | null;
   imagen_url: string | null;
+  miniatura_path: string | null;
   notas: string | null;
   geometria: Geometria;
   activo: boolean;
@@ -109,6 +111,7 @@ const deProducto = (p: FilaProducto): ProductoEstandar => ({
   aMedida: p.a_medida,
   contactoAlimentario: p.contacto_alimentario,
   imagenUrl: p.imagen_url,
+  miniatura: urlMiniatura(p.miniatura_path),
   notas: p.notas,
   geometria: p.geometria,
   activo: p.activo,
