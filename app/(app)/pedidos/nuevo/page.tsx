@@ -9,6 +9,7 @@ import { calentarCatalogos } from "@/lib/odoo/catalogos";
 import { odooConfigurado } from "@/lib/odoo/rpc";
 import { AvisoOdoo } from "@/components/cotizaciones/aviso-odoo";
 import { cargarCatalogoTerminados } from "@/lib/terminados-servidor";
+import { catalogoParaDiseno, plantillasDelMotor } from "@/lib/cad/pagina-servidor";
 import { NuevoPedidoForm, type DesdeCotizacion } from "@/components/nuevo-pedido-form";
 
 /**
@@ -52,11 +53,27 @@ export default async function Page({ searchParams }: PageProps<"/pedidos/nuevo">
   // Mientras la página llega al navegador, el servidor va cargando los catálogos
   // de Odoo: así la primera búsqueda no espera la carga entera.
   after(() => calentarCatalogos());
-  const [catalogo, config, terminados] = await Promise.all([
+  // Los productos terminados se diseñan con el motor CAD, como en /disenos.
+  const [catalogo, config, terminados, { plantillas, aviso }, planchas] = await Promise.all([
     cargarCatalogoPlanchas(true),
     cargarConfigCortes(),
     cargarCatalogoTerminados(true),
+    plantillasDelMotor(),
+    catalogoParaDiseno(perfil.rol === "administracion"),
   ]);
 
-  return <NuevoPedidoForm catalogo={catalogo} config={config} terminados={terminados} desdeCotizacion={desde} />;
+  return (
+    <NuevoPedidoForm
+      catalogo={catalogo}
+      config={config}
+      terminados={terminados}
+      diseno={{
+        plantillas,
+        avisoMotor: aviso,
+        corte: { kerfMm: planchas.kerfMm, margenMm: planchas.margenMm },
+        costos: planchas.costos,
+      }}
+      desdeCotizacion={desde}
+    />
+  );
 }

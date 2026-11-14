@@ -1,89 +1,215 @@
 "use client";
 
-import Link from "next/link";
-import { useState } from "react";
-import { ArrowLeft } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useDiseno } from "./diseno-contexto";
 import { PanelChat } from "./panel-chat";
-import { PanelDiseno } from "./panel-diseno";
+import { PanelCosto } from "./panel-costo";
+import { PanelPlanchas } from "./panel-planchas";
+import {
+  AvisoGeneracion,
+  AvisoMotor,
+  PestanaParametros,
+  PestanaPiezas,
+  SelectorPlantilla,
+  VisorDiseno,
+  useResumenDiseno,
+} from "./panel-diseno";
 
-type Mitad = "chat" | "diseno";
+export type PestanaDiseno = "chat" | "3d" | "modelo" | "parametros" | "piezas" | "planchas" | "costo";
 
 /**
- * La pantalla partida de un diseño: el chat a la izquierda y el diseño a la
- * derecha. En el celular no caben los dos, así que se alterna entre uno y otro.
+ * La pantalla de un diseño, partida en dos:
  *
- * Las dos mitades están siempre montadas y la que no toca solo se oculta: si se
- * desmontaran al cambiar de pestaña, el chat perdería lo que se está escribiendo
- * y el visor tendría que volver a cargar el modelo.
+ *   - a la izquierda, un menú (Chat · Modelo · Parámetros · Piezas · Planchas ·
+ *     Costo) y lo de la pestaña elegida;
+ *   - a la derecha, el modelo 3D a todo el alto.
+ *
+ * En el celular no caben las dos columnas: el modelo pasa a ser una pestaña más
+ * ("3D") y el `pie`, si lo hay, queda siempre abajo.
+ *
+ * Todas las pestañas quedan montadas y la que no toca solo se oculta: si el chat
+ * se desmontara perdería lo que se está escribiendo, y el visor tendría que
+ * volver a cargar el modelo.
+ *
+ * La usan `/disenos/[id]` y el producto terminado de `/pedidos/nuevo`; lo que
+ * cambia entre las dos llega por props (la barra de arriba, la pestaña Modelo, el pie).
  */
 export function VistaDiseno({
   disenoId,
-  nombre,
+  volver,
+  titulo,
+  nombreDiseno,
+  extra,
+  nombreModelo,
   avisoMotor,
+  modelo,
+  pie,
+  sinAgregarACotizacion = false,
+  className,
 }: {
   disenoId: string;
-  nombre: string;
+  /** El botón de volver de la barra de arriba. */
+  volver: ReactNode;
+  /** El título de la barra. Sin él, el nombre del diseño (que el chat puede poner solo). */
+  titulo?: ReactNode;
+  nombreDiseno?: string;
+  /** Lo que va a la derecha de la barra. */
+  extra?: ReactNode;
+  /** El nombre que se ve en el visor. Sin él, el de la plantilla. */
+  nombreModelo?: string | null;
   avisoMotor?: string | null;
+  /** El contenido de la pestaña Modelo. Por defecto, las plantillas del motor. */
+  modelo?: ReactNode;
+  /** Debajo del menú (en el celular, debajo de todo): la cantidad y el precio de un pedido. */
+  pie?: ReactNode;
+  /** En un pedido, el costo no lleva el botón "Agregar a cotización". */
+  sinAgregarACotizacion?: boolean;
+  /** El alto. Por defecto, la pantalla menos la cabecera del shell. */
+  className?: string;
 }) {
-  const [mitad, setMitad] = useState<Mitad>("chat");
   // El nombre puede llegar por el chat (el automático del primer mensaje).
-  const [titulo, setTitulo] = useState(nombre);
+  const [nombre, setNombre] = useState(nombreDiseno ?? "");
+  const { plantilla, plantillas, resultado } = useDiseno();
+  const resumen = useResumenDiseno();
+  // Sin modelo todavía, se arranca eligiéndolo; con uno, conversando.
+  const [pestana, setPestana] = useState<PestanaDiseno>(plantilla === null && plantillas.length > 0 ? "modelo" : "chat");
+
+  // "3D" solo existe en el celular: si la ventana se agranda con ella abierta, se vuelve al chat.
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 48rem)");
+    const revisar = () => mq.matches && setPestana((p) => (p === "3d" ? "chat" : p));
+    mq.addEventListener("change", revisar);
+    return () => mq.removeEventListener("change", revisar);
+  }, []);
+
+  const en3d = pestana === "3d";
+  const panel = "min-h-0 flex-1 overflow-y-auto px-4 py-4 data-[hidden]:hidden";
 
   return (
-    // El mismo alto fijo que el asistente de cotizaciones: la pantalla menos la
-    // cabecera del shell y, en móvil, menos el hueco de las pestañas de abajo.
-    <div className="flex h-[calc(100dvh-3.5rem-1px-5rem)] min-h-0 flex-col md:h-[calc(100dvh-3.5rem-1px)]">
-      <div className="flex items-center gap-2 border-b px-2 py-1.5">
-        <Button
-          render={<Link href="/disenos" />}
-          nativeButton={false}
-          variant="ghost"
-          size="sm"
-          className="text-muted-foreground gap-1.5"
-        >
-          <ArrowLeft />
-          Diseños
-        </Button>
-        <h1 className="min-w-0 flex-1 truncate text-sm font-medium">{titulo}</h1>
-
-        <div role="tablist" aria-label="Qué se ve" className="bg-muted flex rounded-lg p-[3px] md:hidden">
-          {(["chat", "diseno"] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              role="tab"
-              aria-selected={mitad === m}
-              onClick={() => setMitad(m)}
-              className={cn(
-                "rounded-md px-2.5 py-0.5 text-sm font-medium transition-colors",
-                mitad === m ? "bg-background text-foreground shadow-sm" : "text-foreground/60",
-              )}
-            >
-              {m === "chat" ? "Chat" : "Diseño"}
-            </button>
-          ))}
-        </div>
+    <div
+      className={cn(
+        // El mismo alto fijo que el asistente de cotizaciones: la pantalla menos la
+        // cabecera del shell y, en móvil, menos el hueco de las pestañas de abajo.
+        "flex h-[calc(100dvh-3.5rem-1px-5rem)] min-h-0 flex-col md:h-[calc(100dvh-3.5rem-1px)]",
+        className,
+      )}
+    >
+      <div className="bg-background flex min-h-11 items-center gap-2 border-b px-2 py-1.5">
+        {volver}
+        <h1 className="min-w-0 flex-1 truncate text-sm font-medium">{titulo ?? nombre}</h1>
+        {extra}
       </div>
 
-      <div className="flex min-h-0 flex-1">
-        <section
-          aria-label="Chat con el asistente"
-          className={cn(
-            "min-h-0 min-w-0 flex-1 flex-col md:flex md:border-r",
-            mitad === "chat" ? "flex" : "hidden",
-          )}
-        >
-          <PanelChat disenoId={disenoId} onNombre={setTitulo} />
-        </section>
+      <Tabs
+        value={pestana}
+        onValueChange={(v) => setPestana(v as PestanaDiseno)}
+        className="flex min-h-0 flex-1 flex-col gap-0 md:grid md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] md:grid-rows-[minmax(0,1fr)_auto]"
+      >
+        {/* Izquierda: el menú y lo de cada pestaña. */}
         <section
           aria-label="Diseño"
-          className={cn("min-h-0 min-w-0 flex-1 md:block", mitad === "diseno" ? "block" : "hidden")}
+          className={cn(
+            "bg-background flex min-h-0 flex-col md:col-start-1 md:row-start-1 md:flex-1 md:border-r",
+            en3d ? "flex-none" : "flex-1",
+          )}
         >
-          <PanelDiseno avisoMotor={avisoMotor} />
+          <div className="shrink-0 overflow-x-auto border-b px-2">
+            <TabsList variant="line" className="h-11 gap-1">
+              <TabsTrigger value="chat" className="px-2.5">
+                Chat
+              </TabsTrigger>
+              <TabsTrigger value="3d" className="px-2.5 md:hidden">
+                3D
+              </TabsTrigger>
+              <TabsTrigger value="modelo" className="px-2.5">
+                Modelo
+              </TabsTrigger>
+              <TabsTrigger value="parametros" className="px-2.5">
+                Parámetros
+              </TabsTrigger>
+              <TabsTrigger value="piezas" className="px-2.5">
+                Piezas
+                {resumen.errores > 0 ? (
+                  <span className="text-destructive tabular-nums" title="Errores del diseño">
+                    {resumen.errores}
+                  </span>
+                ) : resumen.piezas > 0 ? (
+                  <span className="text-muted-foreground font-normal tabular-nums">{resumen.piezas}</span>
+                ) : null}
+              </TabsTrigger>
+              <TabsTrigger value="planchas" className="px-2.5">
+                Planchas
+                {resumen.problemasMaterial > 0 ? (
+                  <span className="text-destructive tabular-nums">{resumen.problemasMaterial}</span>
+                ) : resumen.planchas > 0 ? (
+                  <span className="text-muted-foreground font-normal tabular-nums">{resumen.planchas}</span>
+                ) : null}
+              </TabsTrigger>
+              <TabsTrigger value="costo" className="px-2.5">
+                Costo
+              </TabsTrigger>
+            </TabsList>
+          </div>
+
+          <div className={cn("flex min-h-0 flex-1 flex-col", en3d && "hidden md:flex")}>
+            {/* El error de generación se ve desde cualquier pestaña menos el chat (que tiene los suyos). */}
+            {pestana !== "chat" && (
+              <div className="px-4 pt-3 empty:hidden">
+                <AvisoGeneracion />
+              </div>
+            )}
+            <TabsContent
+              value="chat"
+              keepMounted
+              className="flex min-h-0 flex-1 flex-col data-[hidden]:hidden"
+            >
+              <PanelChat disenoId={disenoId} onNombre={setNombre} />
+            </TabsContent>
+            <TabsContent value="modelo" keepMounted className={panel}>
+              {plantillas.length === 0 ? (
+                <AvisoMotor avisoMotor={avisoMotor} />
+              ) : (
+                (modelo ?? <SelectorPlantilla alElegir={() => setPestana("parametros")} />)
+              )}
+            </TabsContent>
+            <TabsContent value="parametros" keepMounted className={panel}>
+              <PestanaParametros />
+            </TabsContent>
+            <TabsContent value="piezas" keepMounted className={panel}>
+              <PestanaPiezas />
+            </TabsContent>
+            <TabsContent value="planchas" keepMounted className={panel}>
+              {resultado ? (
+                <PanelPlanchas />
+              ) : (
+                <p className="text-muted-foreground text-sm">Las planchas aparecen al generar el diseño.</p>
+              )}
+            </TabsContent>
+            <TabsContent value="costo" keepMounted className={panel}>
+              {resultado ? (
+                <PanelCosto sinAgregar={sinAgregarACotizacion} />
+              ) : (
+                <p className="text-muted-foreground text-sm">El costo aparece al generar el diseño.</p>
+              )}
+            </TabsContent>
+          </div>
         </section>
-      </div>
+
+        {/* Derecha: el modelo a todo el alto. En el celular, solo con la pestaña 3D. */}
+        <section
+          aria-label="Modelo 3D"
+          className={cn(
+            "min-h-0 flex-1 md:col-start-2 md:row-span-2 md:row-start-1 md:block",
+            en3d ? "block" : "hidden",
+          )}
+        >
+          <VisorDiseno nombre={nombreModelo} avisoMotor={avisoMotor} />
+        </section>
+
+        {pie && <div className="bg-background shrink-0 border-t md:col-start-1 md:row-start-2 md:border-r">{pie}</div>}
+      </Tabs>
     </div>
   );
 }

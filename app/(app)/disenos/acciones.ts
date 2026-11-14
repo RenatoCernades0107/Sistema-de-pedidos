@@ -2,7 +2,7 @@
 
 /**
  * Lo que se guarda desde `/disenos`: crear un diseño, guardar una versión desde
- * el formulario, renombrarlo y borrarlo.
+ * el formulario, renombrarlo y borrarlo, y leer su versión vigente para un pedido.
  *
  * Las mismas reglas que el resto de acciones: se escribe con la sesión de quien
  * pide, se revalida con Zod —el navegador no es de fiar— y un UPDATE que no toca
@@ -20,6 +20,9 @@ import {
   crearOReusarBorrador,
   guardarVersionDiseno,
   listarMensajes,
+  obtenerDiseno,
+  obtenerMaterialDiseno,
+  obtenerMaterialesPorCopia,
   renombrarSiPorDefecto,
   type MensajeCad,
 } from "@/lib/cad/disenos-servidor";
@@ -28,6 +31,8 @@ import { aprobarVersionLibre, guardarMaterialLibre, obtenerVersionLibre } from "
 import { esquemaMaterialesGuardados, type MaterialesPorCopia } from "@/lib/cad/materiales";
 import type { MaterialDiseno, ParametrosCad, VersionLibreCad } from "@/lib/cad/tipos";
 import type { Json } from "@/lib/supabase-tipos";
+import { disenoParaCotizar, type DisenoCotizable } from "@/lib/cad/cotizar-servidor";
+import { cargarCatalogoPlanchas } from "@/lib/cortes-servidor";
 
 const ERROR_SIN_DISENO = "El diseño ya no está disponible. Recarga la página.";
 
@@ -201,4 +206,33 @@ export async function aprobarDisenoLibre(disenoId: string, version: number): Pro
     validar(esquemaId, disenoId),
     validar(z.number().int().min(1, "La versión no es válida."), version),
   );
+}
+
+/**
+ * La versión vigente de un diseño, lista para volverse una línea de pedido (el
+ * producto terminado de `/pedidos/nuevo`). Las mismas reglas que "Agregar a
+ * cotización": con material, y si es libre, aprobado.
+ */
+export async function disenoParaPedido(disenoId: string): Promise<DisenoCotizable> {
+  await exigirCad();
+  const id = validar(esquemaId, disenoId);
+  return disenoParaCotizar(id, await cargarCatalogoPlanchas(true));
+}
+
+/** Lo que hace falta para volver a abrir un diseño fuera de `/disenos` (al editar una línea del pedido). */
+export async function abrirDiseno(disenoId: string): Promise<{
+  plantilla: string | null;
+  parametros: ParametrosCad;
+  material: MaterialDiseno | null;
+  materiales: MaterialesPorCopia;
+}> {
+  await exigirCad();
+  const id = validar(esquemaId, disenoId);
+  const [diseno, material, materiales] = await Promise.all([
+    obtenerDiseno(id),
+    obtenerMaterialDiseno(id),
+    obtenerMaterialesPorCopia(id),
+  ]);
+  if (!diseno) throw new Error(ERROR_SIN_DISENO);
+  return { plantilla: diseno.plantilla, parametros: diseno.parametros, material, materiales };
 }

@@ -125,13 +125,15 @@ test("un estándar se arma del catálogo, reserva lo estimado y descuenta lo que
 
   await editor.getByRole("textbox", { name: /^Cantidad \(obligatorio\)$/ }).fill("2");
   // Seis caras por caja, acomodadas en la plancha: 12 piezas en un cuarto de 122×244.
-  const estimado = editor.getByRole("region", { name: "Material estimado" });
-  await expect(estimado.getByText(/0\.32 m² por unidad/)).toBeVisible();
-  const cortes = estimado.getByTestId("cortes-terminado");
+  await editor.getByRole("tab", { name: /^Piezas/ }).click();
+  const cortes = editor.getByTestId("cortes-terminado");
   await expect(cortes.getByText("12 piezas", { exact: true })).toBeVisible();
   await expect(cortes.getByText(/^en un cuarto de plancha de 122×244/)).toBeVisible();
   await expect(cortes.getByText("Base y tapa, frente y fondo", { exact: true })).toBeVisible();
-  await expect(estimado.getByText("0.25", { exact: true })).toBeVisible();
+  await editor.getByRole("tab", { name: "Materiales" }).click();
+  const estimado = editor.getByRole("region", { name: "Material estimado" });
+  await expect(estimado.getByText(/0\.32 m²\/u/)).toBeVisible();
+  await expect(editor.getByRole("region", { name: "Materiales" })).toContainText(/\b0\.25\b/);
   await expect(editor.getByTestId("precio-sugerido")).not.toHaveText(/S\/\s*0\.00/);
 
   await editor.getByLabel("Reservar este material en Odoo al confirmar el pedido").check();
@@ -232,6 +234,7 @@ test("un personalizado sin reserva no toca el stock hasta que el pedido termina"
   await expect(editor.getByRole("button", { name: "Agregar al pedido" })).toBeDisabled();
   await editor.getByLabel("Nombre del producto").fill("Exhibidor de tres cuerpos");
   await elegirMaterial(editor);
+  await editor.getByRole("tab", { name: "Materiales" }).click();
   await editor.getByLabel("Área por unidad (m²)").fill("2");
   await editor.getByLabel("Precio unitario").fill("480");
   await editor.getByRole("button", { name: "Agregar al pedido" }).click();
@@ -285,6 +288,7 @@ test("anular un pedido con material reservado cancela su orden de fabricación",
   await editor.getByRole("button", { name: /ANF-003\s*Ánfora cilíndrica/ }).click();
   await editor.getByRole("button", { name: "Ø 20 × 25 cm" }).click();
   await elegirMaterial(editor);
+  await editor.getByRole("tab", { name: "Materiales" }).click();
   await editor.getByLabel("Reservar este material en Odoo al confirmar el pedido").check();
   await editor.getByRole("button", { name: "Agregar al pedido" }).click();
 

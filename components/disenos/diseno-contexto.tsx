@@ -101,6 +101,13 @@ export interface EstadoDiseno {
     opciones?: { guardar?: boolean },
   ) => Promise<void>;
 
+  /**
+   * Espera a que termine de guardarse la última versión pedida desde aquí (el
+   * formulario, el material o el espesor de una copia). Antes de usar la versión
+   * vigente fuera del diseño (el producto terminado de un pedido).
+   */
+  esperarGuardado: () => Promise<void>;
+
   /* ── Planchas ── */
   /** Los grupos del catálogo con algún formato activo. Vacío si no se pudo leer. */
   catalogo: GrupoPlancha[];
@@ -245,6 +252,16 @@ export function DisenoProvider({
    * respuesta de "120" podría llegar después que la de "1200" y pisarla.
    */
   const turno = useRef(0);
+  /** El último guardado en marcha: `esperarGuardado` lo espera. */
+  const guardado = useRef<Promise<unknown>>(Promise.resolve());
+  const esperarGuardado = useCallback(async () => {
+    await guardado.current.catch(() => {});
+  }, []);
+  /** Lo deja como el guardado en marcha y lo devuelve. */
+  const registrar = useCallback(<T,>(promesa: Promise<T>): Promise<T> => {
+    guardado.current = promesa;
+    return promesa;
+  }, []);
   const enCurso = useRef<AbortController | null>(null);
 
   /** Deja huérfana la llamada en curso: su respuesta, si llega, se descarta. */
@@ -322,19 +339,21 @@ export function DisenoProvider({
         const materiales = podar(porCopiaRef.current, generado.piezas);
         const { catalogo: cat, corte: c } = contexto.current;
         const { grupos } = calcularPlanchas(cat, elegido, materiales, generado.parametros, generado.piezas, c);
-        await guardarVersion(
-          disenoId,
-          generado.plantilla,
-          generado.parametros,
-          elegido,
-          acomodoParaGuardar(grupos, c.kerfMm) as unknown as Record<string, unknown> | null,
-          materiales,
+        await registrar(
+          guardarVersion(
+            disenoId,
+            generado.plantilla,
+            generado.parametros,
+            elegido,
+            acomodoParaGuardar(grupos, c.kerfMm) as unknown as Record<string, unknown> | null,
+            materiales,
+          ),
         );
       } catch {
         toast.error("El diseño se generó, pero no se pudo guardar esta versión.");
       }
     },
-    [disenoId],
+    [disenoId, registrar],
   );
 
   // El diseño guardado se regenera al abrir: el GLB no se persiste, solo los
@@ -359,11 +378,13 @@ export function DisenoProvider({
         const materiales = porCopiaRef.current;
         const { grupos } = calcularPlanchas(catalogo, nuevo, materiales, parametros, resultado?.piezas, corte);
         try {
-          const libre = await guardarMaterialDisenoLibre(
-            disenoId,
-            nuevo,
-            acomodoParaGuardar(grupos, corte.kerfMm) as unknown as Record<string, unknown> | null,
-            materiales,
+          const libre = await registrar(
+            guardarMaterialDisenoLibre(
+              disenoId,
+              nuevo,
+              acomodoParaGuardar(grupos, corte.kerfMm) as unknown as Record<string, unknown> | null,
+              materiales,
+            ),
           );
           // La versión nueva (mismo código) pasa a ser la vigente: sin volver a ejecutarlo.
           if (libre) {
@@ -387,7 +408,7 @@ export function DisenoProvider({
         conEspesor ? { ...parametros, [PARAMETRO_ESPESOR]: grupo.espesorMm } : parametros,
       );
     },
-    [aplicar, catalogo, corte, disenoId, parametros, plantilla, plantillas, resultado],
+    [aplicar, catalogo, corte, disenoId, parametros, plantilla, plantillas, registrar, resultado],
   );
 
   const mostrarMaterial = useCallback<EstadoDiseno["mostrarMaterial"]>((nuevo, materiales) => {
@@ -426,7 +447,7 @@ export function DisenoProvider({
       const acomodo = acomodoParaGuardar(grupos, corte.kerfMm) as unknown as Record<string, unknown> | null;
       try {
         if (plantilla === PLANTILLA_LIBRE) {
-          const libre = await guardarMaterialDisenoLibre(disenoId, materialRef.current, acomodo, materiales);
+          const libre = await registrar(guardarMaterialDisenoLibre(disenoId, materialRef.current, acomodo, materiales));
           if (libre) {
             setResultado((r) =>
               r && r.plantilla === PLANTILLA_LIBRE ? ({ ...r, libre } as ResultadoGeneracion & { libre: VersionLibreCad }) : r,
@@ -434,7 +455,7 @@ export function DisenoProvider({
           }
         } else {
           // El mismo diseño con otro material: no hace falta regenerar.
-          await guardarVersion(disenoId, plantilla, parametros, materialRef.current, acomodo, materiales);
+          await registrar(guardarVersion(disenoId, plantilla, parametros, materialRef.current, acomodo, materiales));
         }
       } catch (e) {
         porCopiaRef.current = anterior;
@@ -442,7 +463,7 @@ export function DisenoProvider({
         toast.error(e instanceof Error ? e.message : "No se pudo guardar el material.");
       }
     },
-    [catalogo, corte, disenoId, parametros, plantilla, resultado],
+    [catalogo, corte, disenoId, parametros, plantilla, registrar, resultado],
   );
 
   const grupo = useMemo(
@@ -491,6 +512,7 @@ export function DisenoProvider({
       quitarCara,
       setCarasReferidas,
       aplicar,
+      esperarGuardado,
       catalogo,
       corte,
       material,
@@ -522,6 +544,7 @@ export function DisenoProvider({
       alternarCara,
       quitarCara,
       aplicar,
+      esperarGuardado,
       catalogo,
       corte,
       material,

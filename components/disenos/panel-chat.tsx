@@ -6,7 +6,7 @@
  * El asistente contesta en streaming por `app/api/disenos/chat`. Cuando genera
  * un diseño llega un evento `diseno` y se le pasa al contexto compartido con
  * `guardar: false` —la ruta ya guardó la versión—, que es lo que mueve el visor
- * y el formulario de la derecha.
+ * y la pestaña Parámetros.
  *
  * La conversación guardada se lee al abrir, con una Server Action. Lo que se
  * ve mientras tanto es estado de aquí: el servidor guarda el turno al cerrarlo,
@@ -241,7 +241,7 @@ export function PanelChat(props: {
           <p className="font-medium">El asistente no está disponible</p>
           <p className="text-muted-foreground max-w-sm text-sm">{sinConfigurar}</p>
           <p className="text-muted-foreground max-w-sm text-sm">
-            Mientras tanto puedes diseñar con el formulario de la derecha.
+            Mientras tanto puedes diseñar en las pestañas Modelo y Parámetros.
           </p>
         </div>
       ) : fase === "cargando" && vacio ? (
@@ -254,8 +254,8 @@ export function PanelChat(props: {
             <Sparkles className="text-muted-foreground mb-1 size-5" />
             <p className="font-medium">Asistente de diseños</p>
             <p className="text-muted-foreground max-w-sm text-sm">
-              Describe el producto con sus medidas y el material. El diseño aparece a la derecha y lo
-              puedes seguir ajustando aquí o en el formulario.
+              Describe el producto con sus medidas y el material. El diseño aparece en el modelo 3D y lo
+              puedes seguir ajustando aquí o en Parámetros.
             </p>
             {fase === "sin_historial" && (
               <p className="text-muted-foreground max-w-sm text-xs">

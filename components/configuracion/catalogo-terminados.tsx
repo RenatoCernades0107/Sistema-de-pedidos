@@ -20,6 +20,7 @@ import {
 } from "@/lib/terminados/catalogo";
 import { GEOMETRIAS, type Geometria } from "@/lib/terminados/geometria";
 import { cn } from "@/lib/utils";
+import { SinModelo } from "@/components/terminados/sin-modelo";
 import { Button } from "@/components/ui/button";
 import { Campo, Opciones } from "@/components/ui/campo";
 import {
@@ -50,17 +51,22 @@ const num = (s: string) => {
 export function CatalogoTerminados({ catalogo }: { catalogo: Catalogo }) {
   const [tipo, setTipo] = useState(TODOS);
   const [texto, setTexto] = useState("");
+  /** Solo los que el motor de diseños todavía no dibuja: los que conviene modelar. */
+  const [soloSin3D, setSoloSin3D] = useState(false);
   /** El código del producto en edición, o "" para uno nuevo. */
   const [editando, setEditando] = useState<string | null>(null);
 
   const visibles = useMemo(
     () =>
       buscarProductos(
-        catalogo.productos.filter((p) => tipo === TODOS || p.tipo === tipo),
+        catalogo.productos.filter(
+          (p) => (tipo === TODOS || p.tipo === tipo) && (!soloSin3D || (p.activo && !p.plantillaCad)),
+        ),
         texto,
       ),
-    [catalogo, tipo, texto],
+    [catalogo, tipo, texto, soloSin3D],
   );
+  const sin3D = catalogo.productos.filter((p) => p.activo && !p.plantillaCad).length;
   const nombreDeTipo = (codigo: string) => catalogo.tipos.find((x) => x.codigo === codigo)?.nombre ?? codigo;
 
   return (
@@ -87,13 +93,27 @@ export function CatalogoTerminados({ catalogo }: { catalogo: Catalogo }) {
             Nuevo producto
           </Button>
         </div>
-        <Campo grupo label="Tipo" claseEtiqueta="sr-only">
-          <Opciones
-            valores={[tipo]}
-            onToggle={setTipo}
-            opciones={[{ valor: TODOS, label: "Todos" }, ...catalogo.tipos.map((x) => ({ valor: x.codigo, label: x.nombre }))]}
-          />
-        </Campo>
+        <div className="flex flex-wrap items-start gap-3">
+          <Campo grupo label="Tipo" claseEtiqueta="sr-only" className="min-w-0 flex-1">
+            <Opciones
+              valores={[tipo]}
+              onToggle={setTipo}
+              opciones={[{ valor: TODOS, label: "Todos" }, ...catalogo.tipos.map((x) => ({ valor: x.codigo, label: x.nombre }))]}
+            />
+          </Campo>
+          {sin3D > 0 && (
+            <Button
+              type="button"
+              variant={soloSin3D ? "default" : "outline"}
+              size="sm"
+              aria-pressed={soloSin3D}
+              title="Productos activos que todavía no tienen modelo 3D estándar"
+              onClick={() => setSoloSin3D((v) => !v)}
+            >
+              Sin 3D <span className="tnum opacity-70">{sin3D}</span>
+            </Button>
+          )}
+        </div>
 
         <ul className="bg-card divide-y rounded-xl border">
           {visibles.map((p) => (
@@ -103,6 +123,7 @@ export function CatalogoTerminados({ catalogo }: { catalogo: Catalogo }) {
                 <p className="text-sm font-medium">
                   {p.nombre}
                   {!p.activo && <span className="text-muted-foreground ml-2 text-xs font-normal">De baja</span>}
+                  {p.activo && !p.plantillaCad && <SinModelo className="ml-2 align-middle" />}
                 </p>
                 <p className="text-muted-foreground text-xs">
                   {nombreDeTipo(p.tipo)} · {GEOMETRIAS[p.geometria].nombre} · {p.medidas.length}{" "}

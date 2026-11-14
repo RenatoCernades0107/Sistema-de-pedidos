@@ -632,6 +632,8 @@ export interface PropsVisor3D {
   /** Las claves de las caras ya señaladas (`ReferenciaCara.clave`). */
   carasSeleccionadas?: readonly string[];
   alAlternarCara?: (cara: ReferenciaCara) => void;
+  /** Sin la etiqueta de medidas de arriba (cuando quien lo usa ya las muestra). */
+  sinMedidas?: boolean;
   className?: string;
 }
 
@@ -654,6 +656,7 @@ export default function Visor3D({
   alCambiarModoCaras,
   carasSeleccionadas = SIN_CARAS,
   alAlternarCara,
+  sinMedidas = false,
   className,
 }: PropsVisor3D) {
   const seleccionadas = useMemo(() => new Set(carasSeleccionadas), [carasSeleccionadas]);
@@ -718,7 +721,7 @@ export default function Visor3D({
         </div>
       ) : null}
 
-      {medidas && (
+      {medidas && !sinMedidas && (
         <p
           className="bg-background/80 text-foreground/80 pointer-events-none absolute top-2 left-2 rounded-md border px-2 py-1 font-mono text-xs tabular-nums backdrop-blur"
           aria-label={`Medidas totales: ${medida(medidas.x)} por ${medida(medidas.y)} por ${medida(medidas.z)} milímetros`}
