@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { guardarConfigCortes } from "@/app/(app)/configuracion/acciones";
-import type { ConfigCortes } from "@/lib/cortes/config";
+import { FRACCIONES_ESTANDAR, type ConfigCortes } from "@/lib/cortes/config";
 import { Button } from "@/components/ui/button";
 import { Campo } from "@/components/ui/campo";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -23,8 +23,8 @@ interface Borrador {
   laser: { tabla: Fila[]; factorVelocidad: string; overheadPorPieza: string; costoPorMinuto: string; igvPct: string };
   manual: Fila[];
   recargoPct: string;
-  cuartos: boolean;
-  medias: boolean;
+  /** Los nombres de las fracciones estándar encendidas. */
+  fracciones: string[];
   redondearAlSol: boolean;
   corte: { kerfLaser: string; kerfManual: string; margen: string; retazoMin: string };
   servicios: { laser: string; manual: string };
@@ -32,16 +32,16 @@ interface Borrador {
 
 const t = (n: number) => String(n);
 
-/** Las dos fracciones que la pantalla sabe encender y apagar. */
-const CUARTO = { nombre: "1/4", factor: 0.25, formas: [[0.5, 0.5]] as [number, number][] };
-const MEDIA = {
-  nombre: "1/2",
-  factor: 0.5,
-  formas: [
-    [0.5, 1],
-    [1, 0.5],
-  ] as [number, number][],
-};
+/** El texto de cada casilla de fracción, de la más grande a la más chica. */
+const ETIQUETAS_FRACCION: [nombre: string, texto: string][] = [
+  ["3/4", "Tres cuartos"],
+  ["1/2", "Media plancha"],
+  ["1/4", "Cuarto de plancha"],
+  ["1/8", "Octavo de plancha"],
+  ["1/16", "Dieciseisavo de plancha"],
+];
+
+const esEstandar = (factor: number) => FRACCIONES_ESTANDAR.some((f) => Math.abs(f.factor - factor) < 1e-9);
 
 function aBorrador(c: ConfigCortes): Borrador {
   return {
@@ -59,8 +59,9 @@ function aBorrador(c: ConfigCortes): Borrador {
     },
     manual: c.manual.precios.map((p) => ({ mm: t(p.mm), precio: t(p.precio) })),
     recargoPct: t(c.cobro.recargoPct),
-    cuartos: c.cobro.fracciones.some((f) => f.factor === 0.25),
-    medias: c.cobro.fracciones.some((f) => f.factor === 0.5),
+    fracciones: FRACCIONES_ESTANDAR.filter((e) =>
+      c.cobro.fracciones.some((f) => Math.abs(f.factor - e.factor) < 1e-9),
+    ).map((e) => e.nombre),
     redondearAlSol: c.cobro.redondearAlSol,
     corte: {
       kerfLaser: t(c.corte.kerfLaser),
@@ -72,15 +73,16 @@ function aBorrador(c: ConfigCortes): Borrador {
   };
 }
 
-/** Las fracciones que no son cuarto ni media (tiras, por ejemplo) se conservan tal cual. */
+/** Las fracciones que la pantalla no conoce (tiras, por ejemplo) se conservan tal cual. */
 function aConfig(b: Borrador, original: ConfigCortes) {
-  const otras = original.cobro.fracciones.filter((f) => f.factor !== 0.25 && f.factor !== 0.5);
+  const otras = original.cobro.fracciones.filter((f) => !esEstandar(f.factor));
+  const elegidas = FRACCIONES_ESTANDAR.filter((f) => b.fracciones.includes(f.nombre));
   return {
     laser: { ...b.laser, tabla: b.laser.tabla.filter((f) => f.mm.trim() !== "") },
     manual: { precios: b.manual.filter((f) => f.mm.trim() !== "") },
     cobro: {
       recargoPct: b.recargoPct,
-      fracciones: [...(b.cuartos ? [CUARTO] : []), ...(b.medias ? [MEDIA] : []), ...otras],
+      fracciones: [...elegidas, ...otras],
       redondearAlSol: b.redondearAlSol,
     },
     corte: b.corte,
@@ -189,16 +191,25 @@ export function FormConfigCortes({ config }: { config: ConfigCortes }) {
           />
           <Campo grupo label="Fracciones que se venden" className="sm:col-span-2 lg:col-span-3">
             <div className="flex flex-wrap gap-x-5 gap-y-2 pt-1.5">
-              <Casilla
-                marcada={b.medias}
-                alCambiar={(v) => cambiar((p) => ({ ...p, medias: v }))}
-                texto="Media plancha"
-              />
-              <Casilla
-                marcada={b.cuartos}
-                alCambiar={(v) => cambiar((p) => ({ ...p, cuartos: v }))}
-                texto="Cuarto de plancha"
-              />
+              {ETIQUETAS_FRACCION.map(([nombre, texto]) => (
+                <Casilla
+                  key={nombre}
+                  marcada={b.fracciones.includes(nombre)}
+                  alCambiar={(v) =>
+                    cambiar((p) => ({
+                      ...p,
+                      fracciones: v
+                        ? [...p.fracciones.filter((x) => x !== nombre), nombre]
+                        : p.fracciones.filter((x) => x !== nombre),
+                    }))
+                  }
+                  texto={`${texto} (${nombre})`}
+                />
+              ))}
+            </div>
+          </Campo>
+          <Campo grupo label="Redondeo" className="sm:col-span-2 lg:col-span-4">
+            <div className="flex flex-wrap gap-x-5 gap-y-2 pt-1.5">
               <Casilla
                 marcada={b.redondearAlSol}
                 alCambiar={(v) => cambiar((p) => ({ ...p, redondearAlSol: v }))}

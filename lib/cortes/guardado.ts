@@ -214,6 +214,9 @@ export function fraccionEnPalabras(nombre: string): string {
   if (nombre === "1") return "plancha completa";
   if (nombre === "1/2") return "media plancha";
   if (nombre === "1/4") return "un cuarto de plancha";
+  if (nombre === "3/4") return "tres cuartos de plancha";
+  if (nombre === "1/8") return "un octavo de plancha";
+  if (nombre === "1/16") return "un dieciseisavo de plancha";
   return `${nombre} de plancha`;
 }
 
