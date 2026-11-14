@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "motor": "uv run --directory cad uvicorn motor.api:app --port 8001 --reload",
+    "sandbox": "uv run --directory cad uvicorn sandbox.api:app --port 8002 --reload",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
