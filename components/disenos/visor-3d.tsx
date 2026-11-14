@@ -415,6 +415,8 @@ export interface PropsVisor3D {
   alElegirPieza?: (id: string | null) => void;
   /** El color del acrílico elegido; sin él, cristal. */
   tinte?: TinteAcrilico | null;
+  /** Sin la etiqueta de medidas de arriba (cuando quien lo usa ya las muestra). */
+  sinMedidas?: boolean;
   className?: string;
 }
 
@@ -426,6 +428,7 @@ export default function Visor3D({
   alCambiarPieza,
   alElegirPieza,
   tinte = null,
+  sinMedidas = false,
   className,
 }: PropsVisor3D) {
   const { resolvedTheme } = useTheme();
@@ -480,7 +483,7 @@ export default function Visor3D({
         </div>
       ) : null}
 
-      {medidas && (
+      {medidas && !sinMedidas && (
         <p
           className="bg-background/80 text-foreground/80 pointer-events-none absolute top-2 left-2 rounded-md border px-2 py-1 font-mono text-xs tabular-nums backdrop-blur"
           aria-label={`Medidas totales: ${medida(medidas.x)} por ${medida(medidas.y)} por ${medida(medidas.z)} milímetros`}

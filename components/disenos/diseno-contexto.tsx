@@ -63,6 +63,12 @@ export interface EstadoDiseno {
     opciones?: { guardar?: boolean },
   ) => Promise<void>;
 
+  /**
+   * Espera a que termine de guardarse la última versión pedida desde aquí (el
+   * formulario o el material). Antes de usar la versión vigente fuera del diseño.
+   */
+  esperarGuardado: () => Promise<void>;
+
   /* ── Planchas ── */
   /** Los grupos del catálogo con algún formato activo. Vacío si no se pudo leer. */
   catalogo: GrupoPlancha[];
@@ -183,6 +189,11 @@ export function DisenoProvider({
    * respuesta de "120" podría llegar después que la de "1200" y pisarla.
    */
   const turno = useRef(0);
+  /** El último guardado en marcha: `esperarGuardado` lo espera. */
+  const guardado = useRef<Promise<unknown>>(Promise.resolve());
+  const esperarGuardado = useCallback(async () => {
+    await guardado.current.catch(() => {});
+  }, []);
   const enCurso = useRef<AbortController | null>(null);
 
   /** Deja huérfana la llamada en curso: su respuesta, si llega, se descarta. */
@@ -256,13 +267,15 @@ export function DisenoProvider({
           ? (contexto.current.catalogo.find((g) => g.id === elegido.grupoPlanchaId) ?? null)
           : null;
         const { acomodo } = calcularPlanchas(grupo, generado.parametros, generado.piezas, contexto.current.corte);
-        await guardarVersion(
+        const promesa = guardarVersion(
           disenoId,
           generado.plantilla,
           generado.parametros,
           elegido,
           acomodo ? { ...acomodo, kerfMm: contexto.current.corte.kerfMm } : null,
         );
+        guardado.current = promesa;
+        await promesa;
       } catch {
         toast.error("El diseño se generó, pero no se pudo guardar esta versión.");
       }
@@ -291,11 +304,13 @@ export function DisenoProvider({
       if (plantilla === PLANTILLA_LIBRE) {
         const { acomodo } = calcularPlanchas(grupo ?? null, parametros, resultado?.piezas, corte);
         try {
-          const libre = await guardarMaterialDisenoLibre(
+          const promesa = guardarMaterialDisenoLibre(
             disenoId,
             nuevo,
             acomodo ? { ...acomodo, kerfMm: corte.kerfMm } : null,
           );
+          guardado.current = promesa;
+          const libre = await promesa;
           // La versión nueva (mismo código) pasa a ser la vigente: sin volver a ejecutarlo.
           if (libre) {
             setResultado((r) =>
@@ -347,6 +362,7 @@ export function DisenoProvider({
       piezaActiva,
       setPiezaActiva,
       aplicar,
+      esperarGuardado,
       catalogo,
       corte,
       material,
@@ -369,6 +385,7 @@ export function DisenoProvider({
       erroresCampo,
       piezaActiva,
       aplicar,
+      esperarGuardado,
       catalogo,
       corte,
       material,

@@ -20,19 +20,10 @@ const num = (x: number, d = 1) =>
  * Los montos solo los ve Administración (`costos` llega `null` a los demás),
  * como en la ficha de un producto terminado.
  */
-export function PanelCosto() {
-  const {
-    disenoId,
-    resultado,
-    grupo,
-    acomodo,
-    problemasMaterial,
-    costos,
-    plantilla,
-    cargando,
-  } = useDiseno();
-
-  const costo = useMemo(
+/** Lo que cuesta fabricar una unidad del diseño vigente. `null` sin precios, material o acomodo. */
+export function useCostoDiseno() {
+  const { resultado, grupo, acomodo, costos } = useDiseno();
+  return useMemo(
     () =>
       costos && grupo && resultado
         ? costoDiseno({
@@ -45,20 +36,37 @@ export function PanelCosto() {
         : null,
     [costos, grupo, resultado, acomodo],
   );
+}
 
+/**
+ * Por qué el diseño vigente todavía no se puede cotizar ni agregar a un pedido.
+ * `null`: se puede.
+ */
+export function useBloqueoDiseno(): string | null {
+  const { resultado, grupo, problemasMaterial, plantilla } = useDiseno();
   const esLibre = plantilla === PLANTILLA_LIBRE;
   const sinAprobar = esLibre && versionLibre(resultado)?.estado !== "aprobado";
   const errores =
     resultado?.validaciones.some((v) => v.nivel === "error") ?? false;
-  const bloqueo = !grupo
-    ? "Elige el material en la pestaña Planchas."
-    : sinAprobar
-      ? "Un diseño personalizado necesita la aprobación de Administración antes de cotizarse."
-      : errores
-        ? "El diseño tiene errores: corrígelos antes de cotizarlo."
-        : problemasMaterial.length > 0
-          ? "El diseño no entra en el material elegido."
-          : null;
+  return !resultado
+    ? "Elige un modelo o descríbelo en el chat."
+    : !grupo
+      ? "Elige el material en Planchas."
+      : sinAprobar
+        ? "Un diseño personalizado necesita la aprobación de Administración."
+        : errores
+          ? "El diseño tiene errores: corrígelos en Piezas."
+          : problemasMaterial.length > 0
+            ? "El diseño no entra en el material elegido."
+            : null;
+}
+
+export function PanelCosto({
+  sinAgregar = false,
+}: { sinAgregar?: boolean } = {}) {
+  const { disenoId, grupo, costos, cargando } = useDiseno();
+  const costo = useCostoDiseno();
+  const bloqueo = useBloqueoDiseno();
 
   return (
     <div className="flex flex-col gap-4">
@@ -126,29 +134,33 @@ export function PanelCosto() {
         </>
       )}
 
-      <div className="flex flex-wrap items-center gap-2 border-t pt-3">
-        {bloqueo || cargando ? (
-          <Button size="sm" className="gap-1.5" disabled>
-            <FilePlus2 />
-            Agregar a cotización
-          </Button>
-        ) : (
-          <Button
-            size="sm"
-            className="gap-1.5"
-            render={
-              <Link
-                href={`/cotizaciones/nueva?diseno=${encodeURIComponent(disenoId)}`}
-              />
-            }
-            nativeButton={false}
-          >
-            <FilePlus2 />
-            Agregar a cotización
-          </Button>
-        )}
-        {bloqueo && <p className="text-muted-foreground text-xs">{bloqueo}</p>}
-      </div>
+      {!sinAgregar && (
+        <div className="flex flex-wrap items-center gap-2 border-t pt-3">
+          {bloqueo || cargando ? (
+            <Button size="sm" className="gap-1.5" disabled>
+              <FilePlus2 />
+              Agregar a cotización
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              className="gap-1.5"
+              render={
+                <Link
+                  href={`/cotizaciones/nueva?diseno=${encodeURIComponent(disenoId)}`}
+                />
+              }
+              nativeButton={false}
+            >
+              <FilePlus2 />
+              Agregar a cotización
+            </Button>
+          )}
+          {bloqueo && (
+            <p className="text-muted-foreground text-xs">{bloqueo}</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

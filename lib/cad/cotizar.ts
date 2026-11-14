@@ -28,9 +28,20 @@ export interface DisenoParaCotizar {
 const redondear4 = (x: number) =>
   Math.round((x + Number.EPSILON) * 10000) / 10000;
 
+/** Lo que el pedido ya sabe al agregar: cuántas, a cuánto y de qué tipo. */
+export interface ExtrasLineaDiseno {
+  cantidad?: number;
+  /** `null` o sin dar: el sugerido. */
+  precioUnitario?: number | null;
+  nombre?: string | null;
+  tipoCodigo?: string | null;
+}
+
 export function lineaDeDiseno(
   d: DisenoParaCotizar,
+  extras: ExtrasLineaDiseno = {},
 ): Omit<LineaTerminado, "tipo" | "clave"> {
+  const cantidad = extras.cantidad && extras.cantidad > 0 ? Math.floor(extras.cantidad) : 1;
   const areaManualM2 =
     d.areaPiezasMm2 && d.areaPiezasMm2 > 0
       ? Math.max(0.0001, redondear4(d.areaPiezasMm2 / 1e6))
@@ -39,7 +50,7 @@ export function lineaDeDiseno(
     geometria: "manual",
     medidas: {},
     areaManualM2,
-    cantidad: 1,
+    cantidad,
     plancha: null,
     accesorios: [],
     factor: 1,
@@ -49,8 +60,8 @@ export function lineaDeDiseno(
   });
   return {
     productoCodigo: null,
-    tipoCodigo: null,
-    nombre: d.nombre.trim().slice(0, 160) || "Diseño CAD",
+    tipoCodigo: extras.tipoCodigo ?? null,
+    nombre: (extras.nombre ?? d.nombre).trim().slice(0, 160) || "Diseño CAD",
     geometria: "manual",
     medidas: {},
     grupoId: d.grupo?.id ?? null,
@@ -63,8 +74,11 @@ export function lineaDeDiseno(
     disenoVersionId: d.versionId,
     areaManualM2,
     accesorios: [],
-    cantidad: 1,
-    precioUnitario: calculo.precioSugerido,
+    cantidad,
+    precioUnitario:
+      typeof extras.precioUnitario === "number" && extras.precioUnitario >= 0
+        ? Math.round(extras.precioUnitario * 100) / 100
+        : calculo.precioSugerido,
     reservar: false,
     calculo,
   };
