@@ -34,12 +34,15 @@ export type PestanaDiseno = "chat" | "3d" | "modelo" | "parametros" | "piezas" |
  * volver a cargar el modelo.
  *
  * La usan `/disenos/[id]` y el producto terminado de `/pedidos/nuevo`; lo que
- * cambia entre las dos llega por props (la cabecera, la pestaña Modelo, el pie).
+ * cambia entre las dos llega por props (la barra de arriba, la pestaña Modelo, el pie).
  */
 export function VistaDiseno({
   disenoId,
-  cabecera,
-  nombre,
+  volver,
+  titulo,
+  nombreDiseno,
+  extra,
+  nombreModelo,
   avisoMotor,
   modelo,
   pie,
@@ -47,10 +50,15 @@ export function VistaDiseno({
   className,
 }: {
   disenoId: string;
-  /** Lo de la barra de arriba: volver, el título y lo que haga falta. */
-  cabecera: ReactNode;
+  /** El botón de volver de la barra de arriba. */
+  volver: ReactNode;
+  /** El título de la barra. Sin él, el nombre del diseño (que el chat puede poner solo). */
+  titulo?: ReactNode;
+  nombreDiseno?: string;
+  /** Lo que va a la derecha de la barra. */
+  extra?: ReactNode;
   /** El nombre que se ve en el visor. Sin él, el de la plantilla. */
-  nombre?: string | null;
+  nombreModelo?: string | null;
   avisoMotor?: string | null;
   /** El contenido de la pestaña Modelo. Por defecto, las plantillas del motor. */
   modelo?: ReactNode;
@@ -61,6 +69,8 @@ export function VistaDiseno({
   /** El alto. Por defecto, la pantalla menos la cabecera del shell. */
   className?: string;
 }) {
+  // El nombre puede llegar por el chat (el automático del primer mensaje).
+  const [nombre, setNombre] = useState(nombreDiseno ?? "");
   const { plantilla, plantillas, resultado } = useDiseno();
   const resumen = useResumenDiseno();
   // Sin modelo todavía, se arranca eligiéndolo; con uno, conversando.
@@ -86,7 +96,11 @@ export function VistaDiseno({
         className,
       )}
     >
-      <div className="bg-background flex min-h-11 items-center gap-2 border-b px-2 py-1.5">{cabecera}</div>
+      <div className="bg-background flex min-h-11 items-center gap-2 border-b px-2 py-1.5">
+        {volver}
+        <h1 className="min-w-0 flex-1 truncate text-sm font-medium">{titulo ?? nombre}</h1>
+        {extra}
+      </div>
 
       <Tabs
         value={pestana}
@@ -151,7 +165,7 @@ export function VistaDiseno({
               keepMounted
               className="flex min-h-0 flex-1 flex-col data-[hidden]:hidden"
             >
-              <PanelChat disenoId={disenoId} />
+              <PanelChat disenoId={disenoId} onNombre={setNombre} />
             </TabsContent>
             <TabsContent value="modelo" keepMounted className={panel}>
               {plantillas.length === 0 ? (
@@ -191,7 +205,7 @@ export function VistaDiseno({
             en3d ? "block" : "hidden",
           )}
         >
-          <VisorDiseno nombre={nombre} avisoMotor={avisoMotor} />
+          <VisorDiseno nombre={nombreModelo} avisoMotor={avisoMotor} />
         </section>
 
         {pie && <div className="bg-background shrink-0 border-t md:col-start-1 md:row-start-2 md:border-r">{pie}</div>}

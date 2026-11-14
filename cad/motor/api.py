@@ -13,16 +13,16 @@ from __future__ import annotations
 
 import base64
 import hmac
-import logging
 import os
 from typing import Any
 
+import structlog
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import VERSION
+from . import VERSION, bitacora
 from .exportar import (
     SEPARACION_MM,
     ErrorAcomodo,
@@ -38,9 +38,11 @@ from .plantillas import describir, listar, obtener
 from .plantillas.base import Diseno, ErrorParametros
 from .validacion import validar
 
-registro = logging.getLogger("motor.api")
+bitacora.configurar("motor")
+registro = structlog.get_logger("motor.api")
 
 app = FastAPI(title="Motor CAD Plexiacril", version=VERSION, docs_url=None, redoc_url=None, openapi_url=None)
+bitacora.instalar(app)
 
 
 # --------------------------------------------------------------------------
@@ -81,6 +83,8 @@ class EntradaPlancha(BaseModel):
 
     ancho_mm: float = Field(gt=0, le=10000)
     alto_mm: float = Field(gt=0, le=10000)
+    #: Rótulo de la plancha en el DXF («Cristal 3 mm»): solo referencia, no se corta.
+    etiqueta: str | None = Field(None, max_length=120)
     piezas: list[EntradaPiezaPlancha] = Field(default_factory=list)
 
 
@@ -88,6 +92,8 @@ class OpcionesDxfPlanchas(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     kerf_mm: float = Field(0, ge=0, le=5)
+    #: Solo algunas planchas del diseño (un grupo de material y espesor): pueden faltar copias.
+    parcial: bool = False
 
 
 class SolicitudDxfPlanchas(Solicitud):
@@ -105,12 +111,17 @@ def _error(estado: int, codigo: str, mensaje: str, **extra: Any) -> HTTPExceptio
 
 
 @app.exception_handler(RequestValidationError)
-async def _cuerpo_invalido(_: Request, error: RequestValidationError) -> JSONResponse:
+async def _cuerpo_invalido(request: Request, error: RequestValidationError) -> JSONResponse:
     """El cuerpo de la petición no tiene la forma esperada → 422 del contrato."""
     errores = []
     for e in error.errors():
         partes = [str(p) for p in e.get("loc", ()) if p != "body"]
         errores.append({"campo": ".".join(partes), "mensaje": _mensaje_cuerpo(e)})
+    bitacora.anotar_error(
+        request,
+        codigo="parametros_invalidos",
+        errores=[{**err, "tipo": e.get("type")} for err, e in zip(errores, error.errors())],
+    )
     return JSONResponse(
         status_code=422,
         content={
@@ -148,8 +159,8 @@ def _mensaje_cuerpo(e: dict[str, Any]) -> str:
 
 
 @app.exception_handler(Exception)
-async def _fallo(_: Request, error: Exception) -> JSONResponse:
-    registro.exception("Fallo no previsto")
+async def _fallo(request: Request, error: Exception) -> JSONResponse:
+    registro.exception("fallo_no_previsto", metodo=request.method, ruta=request.url.path)
     return JSONResponse(
         status_code=500,
         content={"detail": {"codigo": "geometria", "mensaje": f"Fallo al generar la geometría: {error}"}},
@@ -191,7 +202,7 @@ def _disenar(solicitud: Solicitud) -> Diseno:
     except ErrorParametros as e:
         raise _error(422, "parametros_invalidos", e.mensaje, errores=e.errores) from e
     except Exception as e:
-        registro.exception("Fallo al construir «%s»", solicitud.plantilla)
+        registro.exception("fallo_geometria", plantilla=solicitud.plantilla, parametros=solicitud.parametros)
         raise _error(500, "geometria", f"No se pudo construir la geometría: {e}") from e
 
 
@@ -199,7 +210,7 @@ def _geometria(funcion, *args: Any, **kwargs: Any):
     try:
         return funcion(*args, **kwargs)
     except Exception as e:
-        registro.exception("Fallo de geometría en %s", getattr(funcion, "__name__", funcion))
+        registro.exception("fallo_geometria", funcion=getattr(funcion, "__name__", repr(funcion)))
         raise _error(500, "geometria", f"Fallo al generar la geometría: {e}") from e
 
 
@@ -273,14 +284,18 @@ def dxf_planchas(solicitud: SolicitudDxfPlanchas) -> Response:
             ancho_mm=p.ancho_mm,
             alto_mm=p.alto_mm,
             piezas=[PiezaEnPlancha(pp.id, pp.indice, pp.x_mm, pp.y_mm, pp.rotada) for pp in p.piezas],
+            etiqueta=p.etiqueta,
         )
         for p in solicitud.planchas
     ]
+    parcial = solicitud.opciones.parcial
     try:
-        validar_planchas(diseno, planchas)
+        validar_planchas(diseno, planchas, parcial=parcial)
     except ErrorAcomodo as e:
         raise _error(422, "acomodo_invalido", e.mensaje, errores=e.errores) from e
-    contenido = _geometria(exportar_dxf_planchas, diseno, planchas, kerf_mm=solicitud.opciones.kerf_mm)
+    contenido = _geometria(
+        exportar_dxf_planchas, diseno, planchas, kerf_mm=solicitud.opciones.kerf_mm, parcial=parcial
+    )
     return Response(
         content=contenido,
         media_type="application/dxf",

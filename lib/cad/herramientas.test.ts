@@ -216,7 +216,15 @@ describe("generar_diseno", () => {
     expect(datos.dimensiones_mm).toEqual({ x: 200, y: 150, z: 100 });
     expect(datos.version_guardada).toBe(4);
     expect(datos.total_piezas).toBe(3);
-    expect(datos.piezas[1]).toEqual({ id: "lado", nombre: "Lado", cantidad: 2, espesor_mm: 3, ancho_mm: 200, alto_mm: 97 });
+    expect(datos.piezas[1]).toEqual({
+      id: "lado",
+      nombre: "Lado",
+      cantidad: 2,
+      espesor_mm: 3,
+      ancho_mm: 200,
+      alto_mm: 97,
+      nodos: ["lado_1", "lado_2"],
+    });
     expect(datos.exportable).toBe(true);
   });
 
@@ -480,7 +488,8 @@ describe("elegir_material", () => {
     expect(guardado.material).toEqual({ grupoPlanchaId: "eco-cristal-3", color: null });
     expect(guardado.parametros.espesor).toBe(3);
     expect(guardado.acomodo?.kerfMm).toBe(CONFIG_CORTES_DEFECTO.corte.kerfLaser * 10);
-    expect(guardado.acomodo?.planchas.length).toBeGreaterThan(0);
+    expect(guardado.acomodo?.version).toBe(2);
+    expect(guardado.acomodo?.grupos[0].planchas.length).toBeGreaterThan(0);
 
     const datos = leer(r.contenido);
     expect(datos.material).toBe("Acrílico ECO · Cristal · 3 mm");
@@ -589,11 +598,11 @@ describe("elegir_material", () => {
     const [codigo, material, acomodo] = guardarVersionLibreConMaterial.mock.calls[0] as unknown as [
       string,
       MaterialDiseno,
-      { planchas: unknown[] },
+      { grupos: { planchas: unknown[] }[] },
     ];
     expect(codigo).toBe(CODIGO);
     expect(material).toEqual({ grupoPlanchaId: "mdf-3", color: null });
-    expect(acomodo.planchas).toHaveLength(1);
+    expect(acomodo.grupos[0].planchas).toHaveLength(1);
     expect(r.diseno).toEqual({ plantilla: "libre", parametros: {}, material: { grupoPlanchaId: "mdf-3", color: null } });
     expect(deps.generarDiseno).not.toHaveBeenCalled();
   });
@@ -810,5 +819,65 @@ describe("diseño libre", () => {
     expect(l.ejecutarCodigo).toHaveBeenCalledWith(CODIGO);
     const datos = leer(r.contenido);
     expect(datos).toMatchObject({ plantilla: "libre", estado: "borrador", codigo: CODIGO, dimensiones_mm: { x: 80, y: 100, z: 110 } });
+  });
+});
+
+/* ── Espesor y material por copia ──────────────────────────────────────────── */
+
+describe("espesor y material por copia", () => {
+  const ACTUAL: DisenoActual = {
+    plantilla: "caja",
+    parametros: { largo: 200, espesor: 3, "espesor@lado_2": 5 },
+    version: 3,
+    origen: "formulario",
+  };
+
+  it("generar_diseno conserva los espesores propios en la misma plantilla", async () => {
+    const deps = dependencias({ obtenerDisenoActual: vi.fn(async () => ACTUAL) });
+    await ejecutarHerramienta("generar_diseno", { plantilla: "caja", parametros: { largo: 300 } }, deps);
+    expect(deps.generarDiseno).toHaveBeenCalledWith("caja", { largo: 300, "espesor@lado_2": 5 });
+  });
+
+  it("cambiar_piezas con espesor regenera con la clave por nodo y guarda", async () => {
+    const deps = dependencias({ obtenerDisenoActual: vi.fn(async () => ({ ...ACTUAL, parametros: { largo: 200 } })) });
+    const r = await ejecutarHerramienta("cambiar_piezas", { nodos: ["lado_1"], espesor_mm: 6 }, deps);
+    expect(r.ok).toBe(true);
+    expect(deps.generarDiseno).toHaveBeenCalledWith("caja", { largo: 200, "espesor@lado_1": 6 });
+    expect(deps.guardarVersion).toHaveBeenCalled();
+  });
+
+  it("cambiar_piezas con material lo guarda por copia, sin tocar el espesor", async () => {
+    const deps = dependencias({
+      obtenerDisenoActual: vi.fn(async () => ({ ...ACTUAL, parametros: { largo: 200 } })),
+      obtenerMaterial: vi.fn(async () => ({ grupoPlanchaId: "eco-cristal-3", color: null })),
+      obtenerMaterialesPorCopia: vi.fn(async () => ({})),
+    });
+    const r = await ejecutarHerramienta(
+      "cambiar_piezas",
+      { nodos: ["lado_2"], material: { material: "eco", color: "blanco lechoso" } },
+      deps,
+    );
+    expect(r.ok).toBe(true);
+    expect(deps.generarDiseno).toHaveBeenCalledWith("caja", { largo: 200 });
+    const guardado = vi.mocked(deps.guardarVersion).mock.calls[0][0];
+    expect(guardado.materiales).toEqual({
+      lado_2: { material: "Acrílico ECO", variante: "Blanco", detalle: "Lechoso", color: null },
+    });
+    // Dos planchas: cristal 3 mm para la base y un lado, blanco 3 mm para el otro lado.
+    expect(guardado.acomodo?.grupos.map((g) => g.grupoPlanchaId)).toEqual(["eco-cristal-3", "eco-blanco-3"]);
+    expect(r.diseno?.materiales).toEqual(guardado.materiales);
+  });
+
+  it("cambiar_piezas rechaza nodos que no existen", async () => {
+    const deps = dependencias({ obtenerDisenoActual: vi.fn(async () => ACTUAL) });
+    const r = await ejecutarHerramienta("cambiar_piezas", { nodos: ["tapa"], espesor_mm: 4 }, deps);
+    expect(r.ok).toBe(false);
+    expect(leer(r.contenido).error.codigo).toBe("nodo_desconocido");
+    expect(deps.guardarVersion).not.toHaveBeenCalled();
+  });
+
+  it("cambiar_piezas pide algo que cambiar", async () => {
+    const r = await ejecutarHerramienta("cambiar_piezas", { nodos: ["base"] }, dependencias());
+    expect(leer(r.contenido).error.codigo).toBe("nada_que_cambiar");
   });
 });

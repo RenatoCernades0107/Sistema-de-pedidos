@@ -23,10 +23,22 @@ export interface DisenoParaCotizar {
   areaPiezasMm2: number | null;
   grupo: GrupoPlancha | null;
   color: string | null;
+  /**
+   * Las piezas que van en otra plancha (otro material o espesor por copia): la
+   * línea es del material del diseño y estas quedan anotadas.
+   */
+  otrasPlanchas?: { etiqueta: string; areaPiezasMm2: number }[];
 }
 
 const redondear4 = (x: number) =>
   Math.round((x + Number.EPSILON) * 10000) / 10000;
+
+/** «También en: Acrílico ECO · Rojo · 3 mm (0,012 m²).» */
+function notasDeOtras(otras: DisenoParaCotizar["otrasPlanchas"]): string {
+  if (!otras?.length) return "";
+  const lista = otras.map((o) => `${o.etiqueta} (${redondear4(o.areaPiezasMm2 / 1e6).toLocaleString("es-PE")} m²)`);
+  return `También lleva piezas en: ${lista.join("; ")}.`.slice(0, 500);
+}
 
 /** Lo que el pedido ya sabe al agregar: cuántas, a cuánto y de qué tipo. */
 export interface ExtrasLineaDiseno {
@@ -70,7 +82,7 @@ export function lineaDeDiseno(
     opciones: [],
     opcionesTexto: [],
     texto: "",
-    notas: "",
+    notas: notasDeOtras(d.otrasPlanchas),
     disenoVersionId: d.versionId,
     areaManualM2,
     accesorios: [],

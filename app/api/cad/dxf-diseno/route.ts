@@ -9,7 +9,9 @@
  */
 
 import { z } from "zod";
-import { aPlanchasMotor, type ResultadoAcomodo } from "@/lib/cad/acomodo";
+import { aPlanchasMotor } from "@/lib/cad/acomodo";
+import { leerAcomodoGuardado } from "@/lib/cad/materiales";
+import type { PlanchaAcomodadaCad } from "@/lib/cad/tipos";
 import { deParametros } from "@/lib/cad/disenos-servidor";
 import { exportarDxf, exportarDxfPlanchas } from "@/lib/cad/motor";
 import {
@@ -35,17 +37,20 @@ const cuerpo = z.object({
   version: z.number().int().positive(),
 });
 
-/** El acomodo guardado con la versión, si tiene planchas, y su kerf. */
+/**
+ * Las planchas guardadas con la versión (de todos sus grupos de material y
+ * espesor, cada una rotulada) y su kerf. `null` si no guardó planchas.
+ */
 function conPlanchas(
   guardado: unknown,
-): { acomodo: ResultadoAcomodo; kerf?: { kerf_mm: number } } | null {
-  const acomodo = guardado as (ResultadoAcomodo & { kerfMm?: number }) | null;
-  if (!acomodo || !Array.isArray(acomodo.planchas) || acomodo.planchas.length === 0) {
-    return null;
-  }
+): { planchas: PlanchaAcomodadaCad[]; kerf?: { kerf_mm: number } } | null {
+  const leido = leerAcomodoGuardado(guardado);
+  if (!leido) return null;
   return {
-    acomodo,
-    kerf: typeof acomodo.kerfMm === "number" ? { kerf_mm: acomodo.kerfMm } : undefined,
+    planchas: leido.grupos.flatMap((g) =>
+      aPlanchasMotor(g).map((p) => (g.etiqueta ? { ...p, etiqueta: g.etiqueta } : p)),
+    ),
+    kerf: leido.kerfMm !== null ? { kerf_mm: leido.kerfMm } : undefined,
   };
 }
 
@@ -84,7 +89,7 @@ export async function POST(request: Request) {
       if (guardado) {
         const dxf = await exportarDxfPlanchasLibre(
           v.codigo,
-          aPlanchasMotor(guardado.acomodo),
+          guardado.planchas,
           guardado.kerf,
         );
         return archivo(dxf, "application/dxf", `${nombre}-planchas.dxf`);
@@ -99,12 +104,11 @@ export async function POST(request: Request) {
     const parametros = deParametros(v.parametros);
     const guardado = conPlanchas(v.acomodo);
     if (guardado) {
-      const { acomodo, kerf } = guardado;
       const dxf = await exportarDxfPlanchas(
         v.plantilla,
         parametros,
-        aPlanchasMotor(acomodo),
-        kerf,
+        guardado.planchas,
+        guardado.kerf,
       );
       return archivo(dxf, "application/dxf", `${nombre}-planchas.dxf`);
     }

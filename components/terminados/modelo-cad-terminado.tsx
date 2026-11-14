@@ -158,7 +158,7 @@ export function VisorModeloCad({
             idsPiezas={resultado.piezas.map((p) => p.id)}
             piezaActiva={piezaActiva}
             alCambiarPieza={alCambiarPieza}
-            alElegirPieza={alElegirPieza}
+            alElegirCopia={alElegirPieza ? (c) => alElegirPieza(c?.pieza ?? null) : undefined}
             tinte={tinteDeColor(color)}
             className="h-full w-full"
           />

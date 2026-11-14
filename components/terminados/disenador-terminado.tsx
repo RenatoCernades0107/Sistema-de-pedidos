@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { disenoParaPedido, eliminarDiseno, renombrarDiseno } from "@/app/(app)/disenos/acciones";
 import { lineaDeDiseno } from "@/lib/cad/cotizar";
 import { valoresPorDefecto } from "@/lib/cad/esquema";
+import type { MaterialesPorCopia } from "@/lib/cad/materiales";
 import type { MaterialDiseno, ParametrosCad, PlantillaCad } from "@/lib/cad/tipos";
 import type { GrupoPlancha } from "@/lib/cortes/catalogo";
 import { money } from "@/lib/formato";
@@ -77,7 +78,12 @@ export function DisenadorTerminado({
 }: {
   disenoId: string;
   /** Lo guardado del diseño, al editar una línea. `null`: uno recién creado. */
-  inicial: { plantilla: string | null; parametros: ParametrosCad; material: MaterialDiseno | null } | null;
+  inicial: {
+    plantilla: string | null;
+    parametros: ParametrosCad;
+    material: MaterialDiseno | null;
+    materiales?: MaterialesPorCopia;
+  } | null;
   /** Si el diseño se creó al abrir: al cancelar, se borra. */
   nuevo: boolean;
   datos: DatosDiseno;
@@ -181,26 +187,28 @@ function Contenido({
     <>
       <VistaDiseno
         disenoId={disenoId}
-        nombre={nombre}
+        nombreModelo={nombre}
         avisoMotor={datos.avisoMotor}
         sinAgregarACotizacion
         className="h-dvh md:h-dvh"
-        cabecera={
+        volver={
+          <Button variant="ghost" size="sm" className="text-muted-foreground gap-1.5" onClick={cancelar}>
+            <ArrowLeft />
+            <span className="hidden sm:inline">Volver al pedido</span>
+          </Button>
+        }
+        titulo={
           <>
-            <Button variant="ghost" size="sm" className="text-muted-foreground gap-1.5" onClick={cancelar}>
-              <ArrowLeft />
-              <span className="hidden sm:inline">Volver al pedido</span>
-            </Button>
-            <h1 className="min-w-0 flex-1 truncate text-sm font-medium">
-              {linea ? "Editar producto terminado" : "Producto terminado"}
-              {nombre && <span className="text-muted-foreground font-normal"> · {nombre}</span>}
-            </h1>
-            {cliente && (
-              <span className="text-muted-foreground hidden max-w-64 truncate rounded-full border px-2.5 py-0.5 text-xs md:inline">
-                Pedido de {cliente}
-              </span>
-            )}
+            {linea ? "Editar producto terminado" : "Producto terminado"}
+            {nombre && <span className="text-muted-foreground font-normal"> · {nombre}</span>}
           </>
+        }
+        extra={
+          cliente ? (
+            <span className="text-muted-foreground hidden max-w-64 truncate rounded-full border px-2.5 py-0.5 text-xs md:inline">
+              Pedido de {cliente}
+            </span>
+          ) : null
         }
         modelo={
           <ModeloCatalogo terminados={terminados} productoCodigo={producto?.codigo ?? null} alElegir={setProductoCodigo} />
@@ -436,13 +444,15 @@ function PieTerminado({
       // Un diseño recién creado se llama "Diseño sin nombre": que en /disenos se reconozca.
       if (nuevo) void renombrarDiseno(disenoId, titulo).catch(() => {});
       const grupo = catalogo.find((g) => g.id === r.diseno.grupo?.id) ?? r.diseno.grupo;
+      const base = lineaDeDiseno(
+        { ...r.diseno, grupo },
+        { cantidad: unidades, precioUnitario: precioFinal, nombre: titulo, tipoCodigo: producto?.tipo ?? null },
+      );
       alAgregar({
-        ...lineaDeDiseno(
-          { ...r.diseno, grupo },
-          { cantidad: unidades, precioUnitario: precioFinal, nombre: titulo, tipoCodigo: producto?.tipo ?? null },
-        ),
+        ...base,
         clave: linea?.clave,
-        notas: linea?.notas ?? "",
+        // Las notas de la línea, si ya tenía; si no, las del diseño (otras planchas).
+        notas: linea?.notas || base.notas,
       });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo agregar el producto.");

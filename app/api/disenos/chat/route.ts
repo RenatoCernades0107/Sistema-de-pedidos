@@ -1,7 +1,7 @@
 /**
  * Un turno de conversación con el asistente de diseños, en streaming.
  *
- * `POST { disenoId, mensaje }` → `text/event-stream`. Cada `data:` es un JSON con
+ * `POST { disenoId, mensaje, referencias? }` → `text/event-stream`. Cada `data:` es un JSON con
  * `tipo` (`components/disenos/chat-sse.ts`): el texto según llega, las
  * herramientas que usa, `diseno` cuando generó uno (para que el visor lo
  * muestre), `error` y `fin`.
@@ -32,7 +32,9 @@ import {
   listarMensajes,
   obtenerDiseno,
   obtenerMaterialDiseno,
+  obtenerMaterialesPorCopia,
   obtenerVersionActual,
+  renombrarSiPorDefecto,
   type HerramientaUsada,
 } from "@/lib/cad/disenos-servidor";
 import {
@@ -54,6 +56,8 @@ import {
 } from "@/lib/cad/sandbox";
 import { PLANTILLA_LIBRE } from "@/lib/cad/tipos";
 import { promptDeTurno } from "@/lib/cad/prompt";
+import { NOMBRE_POR_DEFECTO, generarTitulo } from "@/lib/cad/titulo";
+import { esquemaReferencias, mensajeConReferencias } from "@/lib/cad/caras";
 import {
   ErrorLlm,
   LLM_NO_CONFIGURADO,
@@ -81,6 +85,8 @@ const MAX_HISTORIAL = 40;
 const esquemaCuerpo = z.object({
   disenoId: z.uuid(),
   mensaje: z.string().trim().min(1).max(4000),
+  /** Caras del visor 3D que la persona señaló con este mensaje. */
+  referencias: esquemaReferencias.optional(),
 });
 
 function error(mensaje: string, status: number, codigo?: string) {
@@ -109,8 +115,15 @@ function dependenciasLibre(disenoId: string): DependenciasLibre {
       return r;
     },
     guardarVersionLibre: (codigo) => guardarVersionLibre({ disenoId, codigo, origen: "chat" }),
-    guardarVersionLibreConMaterial: (codigo, material, acomodo) =>
-      guardarVersionLibre({ disenoId, codigo, origen: "chat", material, acomodo: acomodo as unknown as Json }),
+    guardarVersionLibreConMaterial: (codigo, material, acomodo, materiales) =>
+      guardarVersionLibre({
+        disenoId,
+        codigo,
+        origen: "chat",
+        material,
+        acomodo: acomodo as unknown as Json,
+        materiales,
+      }),
     renderizarActual: async () => {
       const actual = await disenoActual(disenoId);
       if (actual?.plantilla === PLANTILLA_LIBRE && actual.codigo) {
@@ -141,7 +154,7 @@ function dependencias(disenoId: string, libreActivo: boolean, conPrecios: boolea
     listarPlantillas,
     obtenerPlantilla,
     generarDiseno,
-    guardarVersion: ({ plantilla, parametros, versionPlantilla, material, acomodo }) =>
+    guardarVersion: ({ plantilla, parametros, versionPlantilla, material, acomodo, materiales }) =>
       guardarVersionDiseno({
         disenoId,
         plantilla,
@@ -150,9 +163,11 @@ function dependencias(disenoId: string, libreActivo: boolean, conPrecios: boolea
         origen: "chat",
         material,
         acomodo: acomodo as unknown as Json,
+        materiales,
       }),
     obtenerDisenoActual: () => disenoActual(disenoId),
     obtenerMaterial: () => obtenerMaterialDiseno(disenoId),
+    obtenerMaterialesPorCopia: () => obtenerMaterialesPorCopia(disenoId),
     cargarPlanchas: () => cargarCatalogoPlanchas(true),
     cargarConfigCortes,
     ...(conPrecios ? { cargarPrecios: preciosDePlanchas } : {}),
@@ -177,8 +192,15 @@ export async function POST(request: Request) {
     return error("No se pudo leer el mensaje.", 400);
   }
   const cuerpo = esquemaCuerpo.safeParse(crudo);
-  if (!cuerpo.success) return error("Escribe un mensaje (hasta 4000 caracteres).", 400);
+  if (!cuerpo.success) {
+    const porCaras = cuerpo.error.issues.some((i) => i.path[0] === "referencias");
+    return error(
+      porCaras ? "Las caras señaladas no son válidas. Vuelve a señalarlas." : "Escribe un mensaje (hasta 4000 caracteres).",
+      400,
+    );
+  }
   const { disenoId, mensaje } = cuerpo.data;
+  const referencias = cuerpo.data.referencias ?? [];
 
   if (!llmConfigurado()) return error(LLM_NO_CONFIGURADO, 503, "llm_no_configurado");
 
@@ -189,23 +211,28 @@ export async function POST(request: Request) {
 
   let sistema: string;
   let mensajes: MensajeLlm[];
+  /** Si este es el primer turno de un diseño que aún no tiene nombre. */
+  let ponerTitulo = false;
   try {
-    if (!(await obtenerDiseno(disenoId))) {
+    const diseno = await obtenerDiseno(disenoId);
+    if (!diseno) {
       return error("El diseño ya no está disponible. Recarga la página.", 404);
     }
     // El diseño tal como está AHORA va en las instrucciones de cada turno: así
     // el asistente se entera de lo que se cambió en el formulario. Los turnos
-    // anteriores se reenvían como texto, sin sus herramientas.
+    // anteriores se reenvían como texto, sin sus herramientas pero con las
+    // caras que se señalaron (el modelo las lee como un bloque de texto).
     const [actual, historial] = await Promise.all([
       disenoActual(disenoId),
       listarMensajes(disenoId, MAX_HISTORIAL),
     ]);
+    ponerTitulo = historial.length === 0 && diseno.nombre === NOMBRE_POR_DEFECTO;
     sistema = promptDeTurno(actual, { disenoLibre: libreActivo });
     mensajes = [
       ...historial
         .filter((m) => m.contenido.trim())
-        .map((m): MensajeLlm => ({ rol: m.rol, contenido: m.contenido })),
-      { rol: "usuario", contenido: mensaje },
+        .map((m): MensajeLlm => ({ rol: m.rol, contenido: mensajeConReferencias(m.contenido, m.referencias) })),
+      { rol: "usuario", contenido: mensajeConReferencias(mensaje, referencias) },
     ];
   } catch (e) {
     console.error("[cad] chat: preparar el turno", e);
@@ -214,6 +241,10 @@ export async function POST(request: Request) {
 
   const deps = dependencias(disenoId, libreActivo, perfil.rol === "administracion");
   const inicio = new Date();
+
+  // El título se pide a la vez que la respuesta, para no hacer esperar al
+  // final del turno. Nunca falla: si el modelo no contesta, sale del mensaje.
+  const titulo = ponerTitulo ? generarTitulo(mensaje) : null;
 
   // Dos formas de que quien escucha se vaya: la petición se aborta, o el
   // navegador cancela la lectura. Las dos cortan la llamada al modelo.
@@ -335,9 +366,16 @@ export async function POST(request: Request) {
       }
 
       // Se guarda solo si el turno dejó algo: texto o herramientas usadas.
-      if (texto.trim() || usadas.length > 0) {
+      const guardar = texto.trim() || usadas.length > 0;
+      if (guardar) {
         try {
-          await agregarMensaje({ disenoId, rol: "usuario", contenido: mensaje, creadoEn: inicio.toISOString() });
+          await agregarMensaje({
+            disenoId,
+            rol: "usuario",
+            contenido: mensaje,
+            referencias,
+            creadoEn: inicio.toISOString(),
+          });
           await agregarMensaje({
             disenoId,
             rol: "asistente",
@@ -352,6 +390,17 @@ export async function POST(request: Request) {
             tipo: "error",
             mensaje: "La respuesta no se pudo guardar: al recargar no estará en la conversación.",
           });
+        }
+      }
+
+      // El nombre, como el título de un chat de Claude: solo si el turno quedó
+      // guardado (si no, el diseño sigue siendo un borrador sin tocar).
+      if (titulo && guardar) {
+        try {
+          const nombre = await titulo;
+          if (await renombrarSiPorDefecto(disenoId, nombre)) emitir({ tipo: "nombre", nombre });
+        } catch (e) {
+          console.error("[cad] chat: poner el nombre", e);
         }
       }
 

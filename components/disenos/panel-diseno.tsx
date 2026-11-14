@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Descargas } from "./descargas";
+import { EditorCopia } from "./editor-copia";
 import { DescargasLibre, DisenoLibre, InsigniaLibre } from "./diseno-libre";
 import { useDiseno } from "./diseno-contexto";
 import { FormularioParametros } from "./formulario-parametros";
@@ -189,7 +190,7 @@ export function PestanaPiezas() {
 
 /** Los números que el menú enseña junto a cada pestaña. */
 export function useResumenDiseno() {
-  const { resultado, acomodo, problemasMaterial } = useDiseno();
+  const { resultado, gruposPlanchas, problemasMaterial } = useDiseno();
   const errores = resultado?.validaciones.filter((v) => v.nivel === "error").length ?? 0;
   const avisos = (resultado?.validaciones.length ?? 0) - errores;
   const piezas = resultado?.piezas.reduce((n, p) => n + p.cantidad, 0) ?? 0;
@@ -197,7 +198,7 @@ export function useResumenDiseno() {
     piezas,
     errores,
     avisos,
-    planchas: acomodo?.planchas.length ?? 0,
+    planchas: gruposPlanchas.reduce((n, g) => n + (g.acomodo?.planchas.length ?? 0), 0),
     problemasMaterial: problemasMaterial.length,
   };
 }
@@ -207,9 +208,29 @@ export function useResumenDiseno() {
  * cuánto mide) y las descargas; abajo, el material y "Separar piezas".
  */
 export function VisorDiseno({ nombre, avisoMotor }: { nombre?: string | null; avisoMotor?: string | null }) {
-  const { plantillas, plantilla, resultado, cargando, piezaActiva, setPiezaActiva, tinte, grupo } =
-    useDiseno();
+  const {
+    plantillas,
+    plantilla,
+    resultado,
+    cargando,
+    piezaActiva,
+    setPiezaActiva,
+    tinte,
+    tintes,
+    grupo,
+    copiaActiva,
+    setCopiaActiva,
+    modoCaras,
+    setModoCaras,
+    carasReferidas,
+    alternarCara,
+  } = useDiseno();
   const idsPiezas = useMemo(() => resultado?.piezas.map((p) => p.id) ?? [], [resultado]);
+  const nombresPiezas = useMemo(
+    () => Object.fromEntries(resultado?.piezas.map((p) => [p.id, p.nombre]) ?? []),
+    [resultado],
+  );
+  const clavesCaras = useMemo(() => carasReferidas.map((c) => c.clave), [carasReferidas]);
   const actual = plantillas.find((p) => p.codigo === plantilla) ?? null;
   const esLibre = plantilla === PLANTILLA_LIBRE;
   const piezas = resultado?.piezas.reduce((n, p) => n + p.cantidad, 0) ?? 0;
@@ -226,6 +247,14 @@ export function VisorDiseno({ nombre, avisoMotor }: { nombre?: string | null; av
           piezaActiva={piezaActiva}
           alCambiarPieza={setPiezaActiva}
           tinte={tinte}
+          tintes={tintes}
+          nodoActivo={copiaActiva}
+          alElegirCopia={(c) => setCopiaActiva(c?.nodo ?? null)}
+          nombresPiezas={nombresPiezas}
+          modoCaras={modoCaras}
+          alCambiarModoCaras={setModoCaras}
+          carasSeleccionadas={clavesCaras}
+          alAlternarCara={alternarCara}
           sinMedidas
         />
       ) : cargando ? (
@@ -265,6 +294,7 @@ export function VisorDiseno({ nombre, avisoMotor }: { nombre?: string | null; av
                 </span>
               )}
             </p>
+            {grupo && <p className="text-muted-foreground truncate text-xs">{nombreDeGrupo(grupo)}</p>}
           </div>
           {/* En el celular no caben sobre el modelo: van arriba de la pestaña Piezas. */}
           <div className="bg-background/90 pointer-events-auto ml-auto hidden rounded-lg border p-1 shadow-xs backdrop-blur empty:hidden sm:block">
@@ -273,11 +303,11 @@ export function VisorDiseno({ nombre, avisoMotor }: { nombre?: string | null; av
         </div>
       )}
 
-      {/* Abajo a la izquierda: el material (la derecha es de "Separar piezas"). */}
-      {grupo && (
-        <p className="bg-background/90 text-muted-foreground pointer-events-none absolute bottom-2 left-2 hidden max-w-[45%] truncate rounded-md border px-2 py-1 text-xs backdrop-blur sm:block">
-          {nombreDeGrupo(grupo)}
-        </p>
+      {/* La copia elegida en el modelo: su espesor y material propios. Debajo de la ficha. */}
+      {resultado && !modoCaras && (
+        <div className="pointer-events-none absolute inset-x-0 top-8 bottom-0 [&>*]:pointer-events-auto">
+          <EditorCopia />
+        </div>
       )}
     </div>
   );

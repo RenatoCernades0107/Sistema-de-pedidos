@@ -6,10 +6,11 @@ import { useTheme } from "next-themes";
 import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Edges, Grid, OrbitControls } from "@react-three/drei";
 import { Slider } from "@base-ui/react/slider";
-import { TriangleAlert } from "lucide-react";
+import { MousePointerClick, TriangleAlert } from "lucide-react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { medida, nodoAPieza } from "@/lib/cad/esquema";
+import { describirCara, segmentarCaras, type CaraMalla, type ReferenciaCara } from "@/lib/cad/caras";
+import { copiaDeNodo, medida, numeroDeNodo } from "@/lib/cad/esquema";
 import { cn } from "@/lib/utils";
 
 /**
@@ -22,6 +23,10 @@ import { cn } from "@/lib/utils";
  * Todo se pasa a milímetros al cargar (glTF viene en metros): así la rejilla, la
  * cámara y la lectura de medidas hablan la unidad del taller.
  *
+ * En modo "seleccionar caras" cada clic señala una cara plana (o un canto) de
+ * una pieza para referirla en el chat: las caras se reconstruyen de los
+ * triángulos con `segmentarCaras` (`lib/cad/caras.ts`).
+ *
  * Se carga con `next/dynamic` y `ssr: false` desde `panel-diseno.tsx`: three
  * necesita `window` y un `<canvas>` de verdad.
  */
@@ -31,8 +36,18 @@ interface Instancia {
   clave: string;
   /** El `id` de la pieza en el despiece, o `null` si el nodo no casa con ninguna. */
   pieza: string | null;
+  /** El nombre de la copia en el GLB (`lateral_2`): con él se le cambia espesor o material. */
+  nodo: string;
+  /** La pieza de la plantilla de la que salió (la misma `pieza` si no se separó por espesor). */
+  origen: string | null;
+  espesorMm: number | null;
   geometrias: THREE.BufferGeometry[];
+  /** Las caras de cada geometría y, por triángulo, a cuál pertenece. */
+  caras: { caras: CaraMalla[]; caraDeTriangulo: Int32Array }[];
   centro: THREE.Vector3;
+  /** Qué copia de su pieza de origen es (1…de), por el número del nodo. */
+  copia: number;
+  de: number;
 }
 
 interface Modelo {
@@ -66,16 +81,17 @@ function liberar(raiz: THREE.Object3D) {
 }
 
 /**
- * El nodo que representa a la pieza: el motor crea uno por instancia, pero una
- * pieza con varias primitivas llega como un nodo con mallas hijas. Se sube por
- * los ancestros hasta dar con un nombre que sea de una pieza.
+ * El nodo que representa a la copia de pieza: el motor crea uno por instancia,
+ * pero una pieza con varias primitivas llega como un nodo con mallas hijas. Se
+ * sube por los ancestros hasta dar con uno que sea de una pieza (por sus
+ * `extras`, que three deja en `userData`, o por su nombre).
  */
 function nodoDePieza(malla: THREE.Object3D, ids: readonly string[]) {
   for (let o: THREE.Object3D | null = malla; o; o = o.parent) {
-    const pieza = nodoAPieza(o.name, ids);
-    if (pieza) return { nodo: o, pieza };
+    const copia = copiaDeNodo(o.name, o.userData, ids);
+    if (copia) return { objeto: o, ...copia };
   }
-  return { nodo: malla, pieza: null };
+  return { objeto: malla, pieza: null, nodo: malla.name, origen: null, espesorMm: null };
 }
 
 function armarModelo(escena: THREE.Object3D, ids: readonly string[]): Modelo | null {
@@ -95,24 +111,43 @@ function armarModelo(escena: THREE.Object3D, ids: readonly string[]): Modelo | n
     }
     caja.union(geometria.boundingBox);
 
-    const { nodo, pieza } = nodoDePieza(o, ids);
-    const instancia = porNodo.get(nodo) ?? {
-      clave: nodo.uuid,
+    const { objeto, pieza, nodo, origen, espesorMm } = nodoDePieza(o, ids);
+    const instancia = porNodo.get(objeto) ?? {
+      clave: objeto.uuid,
       pieza,
+      nodo,
+      origen,
+      espesorMm,
       geometrias: [],
+      caras: [],
       centro: new THREE.Vector3(),
+      copia: 1,
+      de: 1,
     };
     instancia.geometrias.push(geometria);
-    porNodo.set(nodo, instancia);
+    porNodo.set(objeto, instancia);
   });
 
   if (caja.isEmpty()) return null;
 
   const instancias = [...porNodo.values()];
+  // Las copias se cuentan por la pieza de origen y en el orden de su número:
+  // «Lateral, copia 2 de 2» sigue siéndolo aunque se haya separado por espesor.
+  const porOrigen = new Map<string, Instancia[]>();
   for (const i of instancias) {
     const propia = new THREE.Box3();
     for (const g of i.geometrias) propia.union(g.boundingBox!);
     propia.getCenter(i.centro);
+    i.caras = i.geometrias.map((g) => segmentarCaras(g.getAttribute("position").array, g.index?.array));
+    const clave = i.origen ?? i.pieza ?? i.clave;
+    porOrigen.set(clave, [...(porOrigen.get(clave) ?? []), i]);
+  }
+  for (const grupo of porOrigen.values()) {
+    grupo.sort((a, b) => numeroDeNodo(a.nodo) - numeroDeNodo(b.nodo));
+    grupo.forEach((i, n) => {
+      i.copia = n + 1;
+      i.de = grupo.length;
+    });
   }
 
   const esfera = caja.getBoundingSphere(new THREE.Sphere());
@@ -245,39 +280,123 @@ function Encuadre({ modelo }: { modelo: Modelo }) {
   return null;
 }
 
+/** Una geometría con solo los triángulos de una cara, para pintarla encima. */
+function geometriaDeCara(geometria: THREE.BufferGeometry, cara: CaraMalla): THREE.BufferGeometry {
+  const origen = geometria.getAttribute("position");
+  const indice = geometria.index;
+  const salida = new Float32Array(cara.triangulos.length * 9);
+  let n = 0;
+  for (const t of cara.triangulos) {
+    for (let k = 0; k < 3; k++) {
+      const v = indice ? indice.getX(t * 3 + k) : t * 3 + k;
+      salida[n++] = origen.getX(v);
+      salida[n++] = origen.getY(v);
+      salida[n++] = origen.getZ(v);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(salida, 3));
+  return g;
+}
+
+/** El resaltado de una cara: una capa opaca encima de sus triángulos. */
+function ResaltadoCara({
+  geometria,
+  cara,
+  color,
+  opacidad,
+}: {
+  geometria: THREE.BufferGeometry;
+  cara: CaraMalla;
+  color: string;
+  opacidad: number;
+}) {
+  const propia = useMemo(() => geometriaDeCara(geometria, cara), [geometria, cara]);
+  useEffect(() => () => propia.dispose(), [propia]);
+  return (
+    <mesh geometry={propia} raycast={() => null} renderOrder={2}>
+      {/* `polygonOffset` la adelanta lo justo para no pelearse con la cara de debajo. */}
+      <meshBasicMaterial
+        color={color}
+        transparent
+        opacity={opacidad}
+        side={THREE.DoubleSide}
+        depthWrite={false}
+        polygonOffset
+        polygonOffsetFactor={-2}
+        polygonOffsetUnits={-4}
+      />
+    </mesh>
+  );
+}
+
+/** Cuánto puede moverse el puntero entre pulsar y soltar para que cuente como clic, no como giro. */
+const ARRASTRE_MAX = 4;
+
 function Pieza({
   instancia,
   desplazamiento,
   activa,
+  elegida,
+  tinte,
   tema,
   alEntrar,
   alSalir,
   alPulsar,
+  modoCaras,
+  clavesCaras,
+  carasSeleccionadas,
+  caraBajoPuntero,
+  alApuntarCara,
+  alPulsarCara,
 }: {
   instancia: Instancia;
   desplazamiento: THREE.Vector3;
   activa: boolean;
+  /** La copia elegida para cambiarle espesor o material. */
+  elegida: boolean;
+  /** El color propio de la copia (su material); sin él, el del tema. */
+  tinte: TinteAcrilico | null;
   tema: Tema;
   alEntrar: () => void;
   alSalir: () => void;
   alPulsar: () => void;
+  modoCaras: boolean;
+  /** La clave de cada cara, por geometría (las mismas que las de `ReferenciaCara`). */
+  clavesCaras: string[][];
+  carasSeleccionadas: ReadonlySet<string>;
+  caraBajoPuntero: string | null;
+  alApuntarCara: (geometria: number, cara: number | null) => void;
+  alPulsarCara: (geometria: number, cara: number) => void;
 }) {
   const parar = (e: ThreeEvent<PointerEvent | MouseEvent>, hacer: () => void) => {
     // Sin esto el rayo atraviesa el acrílico y resalta también la pieza de atrás.
     e.stopPropagation();
     hacer();
   };
+  const caraDe = (g: number, e: ThreeEvent<PointerEvent | MouseEvent>) => {
+    const i = e.faceIndex == null ? -1 : (instancia.caras[g]?.caraDeTriangulo[e.faceIndex] ?? -1);
+    return i >= 0 ? i : null;
+  };
 
   return (
     <group position={desplazamiento}>
-      {instancia.geometrias.map((geometria) => (
+      {instancia.geometrias.map((geometria, g) => (
         <mesh
           key={geometria.uuid}
           geometry={geometria}
           castShadow
-          onPointerOver={(e) => parar(e, alEntrar)}
-          onPointerOut={(e) => parar(e, alSalir)}
-          onClick={(e) => parar(e, alPulsar)}
+          onPointerOver={(e) => parar(e, modoCaras ? () => alApuntarCara(g, caraDe(g, e)) : alEntrar)}
+          onPointerMove={modoCaras ? (e) => parar(e, () => alApuntarCara(g, caraDe(g, e))) : undefined}
+          onPointerOut={(e) => parar(e, modoCaras ? () => alApuntarCara(g, null) : alSalir)}
+          onClick={(e) =>
+            parar(e, () => {
+              if (!modoCaras) return alPulsar();
+              if (e.delta > ARRASTRE_MAX) return;
+              const cara = caraDe(g, e);
+              if (cara !== null) alPulsarCara(g, cara);
+            })
+          }
         >
           {/*
             Transparencia por opacidad y no por `transmission`: un material con
@@ -287,9 +406,11 @@ function Pieza({
             otra según el orden en que se dibujen.
           */}
           <meshPhysicalMaterial
-            color={activa ? tema.activo : tema.acrilico}
+            color={activa || elegida ? tema.activo : (tinte?.color ?? tema.acrilico)}
             transparent
-            opacity={activa ? Math.max(0.7, tema.opacidad) : tema.opacidad}
+            opacity={
+              elegida ? 0.85 : activa ? Math.max(0.7, tinte?.opacidad ?? tema.opacidad) : (tinte?.opacidad ?? tema.opacidad)
+            }
             roughness={0.06}
             metalness={0}
             ior={1.49}
@@ -301,11 +422,29 @@ function Pieza({
           />
           <Edges
             threshold={20}
-            color={activa ? tema.aristaActiva : tema.arista}
-            lineWidth={activa ? 2 : 1}
+            color={activa || elegida ? tema.aristaActiva : tema.arista}
+            lineWidth={elegida ? 3 : activa ? 2 : 1}
           />
         </mesh>
       ))}
+      {instancia.geometrias.flatMap((geometria, g) =>
+        (instancia.caras[g]?.caras ?? []).map((cara, c) => {
+          const clave = clavesCaras[g]?.[c];
+          if (!clave) return null;
+          const elegida = carasSeleccionadas.has(clave);
+          const apuntada = modoCaras && caraBajoPuntero === clave;
+          if (!elegida && !apuntada) return null;
+          return (
+            <ResaltadoCara
+              key={clave}
+              geometria={geometria}
+              cara={cara}
+              color={tema.activo}
+              opacidad={elegida ? 0.85 : 0.4}
+            />
+          );
+        }),
+      )}
     </group>
   );
 }
@@ -315,17 +454,53 @@ function Escena({
   explosion,
   piezaActiva,
   alCambiarPieza,
-  alElegirPieza,
+  nodoActivo,
+  alElegirCopia,
+  tintes,
   tema,
+  nombresPiezas,
+  modoCaras,
+  carasSeleccionadas,
+  alAlternarCara,
 }: {
   modelo: Modelo;
   explosion: number;
   piezaActiva: string | null;
   alCambiarPieza?: (id: string | null) => void;
-  alElegirPieza?: (id: string | null) => void;
+  nodoActivo: string | null;
+  alElegirCopia?: (copia: CopiaElegida) => void;
+  tintes: Readonly<Record<string, TinteAcrilico>>;
   tema: Tema;
+  nombresPiezas: Readonly<Record<string, string>>;
+  modoCaras: boolean;
+  carasSeleccionadas: ReadonlySet<string>;
+  alAlternarCara?: (cara: ReferenciaCara) => void;
 }) {
   const { caja, centro, radio } = modelo;
+  const [caraBajoPuntero, setCaraBajoPuntero] = useState<string | null>(null);
+
+  // Cada cara descrita como irá al chat: la clave sirve también para resaltarla.
+  const referencias = useMemo(
+    () =>
+      modelo.instancias.map((instancia) =>
+        instancia.geometrias.map((geometria, g) =>
+          (instancia.caras[g]?.caras ?? []).map((cara) =>
+            describirCara(cara, geometria.getAttribute("position").array, geometria.index?.array, {
+              id: instancia.pieza,
+              nodo: instancia.nodo,
+              nombre: (instancia.pieza && nombresPiezas[instancia.pieza]) || instancia.pieza || "Pieza",
+              copia: instancia.copia,
+              de: instancia.de,
+            }),
+          ),
+        ),
+      ),
+    [modelo, nombresPiezas],
+  );
+  const claves = useMemo(
+    () => referencias.map((porGeometria) => porGeometria.map((caras) => caras.map((r) => r.clave))),
+    [referencias],
+  );
 
   const desplazamientos = useMemo(
     () =>
@@ -361,12 +536,32 @@ function Escena({
             instancia={instancia}
             desplazamiento={desplazamientos[n]}
             activa={instancia.pieza !== null && instancia.pieza === piezaActiva}
+            elegida={nodoActivo !== null && instancia.nodo === nodoActivo}
+            tinte={tintes[instancia.nodo] ?? null}
             tema={tema}
             alEntrar={() => alCambiarPieza?.(instancia.pieza)}
             alSalir={() => alCambiarPieza?.(null)}
             alPulsar={() => {
               alCambiarPieza?.(instancia.pieza);
-              alElegirPieza?.(instancia.pieza);
+              if (instancia.pieza && alElegirCopia) {
+                alElegirCopia({
+                  nodo: instancia.nodo,
+                  pieza: instancia.pieza,
+                  origen: instancia.origen ?? instancia.pieza,
+                  copia: instancia.copia,
+                  de: instancia.de,
+                  espesorMm: instancia.espesorMm,
+                });
+              }
+            }}
+            modoCaras={modoCaras}
+            clavesCaras={claves[n]}
+            carasSeleccionadas={carasSeleccionadas}
+            caraBajoPuntero={caraBajoPuntero}
+            alApuntarCara={(g, c) => setCaraBajoPuntero(c === null ? null : (claves[n][g]?.[c] ?? null))}
+            alPulsarCara={(g, c) => {
+              const ref = referencias[n][g]?.[c];
+              if (ref) alAlternarCara?.(ref);
             }}
           />
         ))}
@@ -402,6 +597,16 @@ function Escena({
   );
 }
 
+/** La copia de pieza que se tocó en el visor, para cambiarle espesor o material. */
+export interface CopiaElegida {
+  nodo: string;
+  pieza: string;
+  origen: string;
+  copia: number;
+  de: number;
+  espesorMm: number | null;
+}
+
 export interface PropsVisor3D {
   /** `resultado.glb_base64` del motor. */
   glbBase64: string;
@@ -411,14 +616,30 @@ export interface PropsVisor3D {
   idsPiezas: readonly string[];
   piezaActiva?: string | null;
   alCambiarPieza?: (id: string | null) => void;
-  /** Al hacer clic en una pieza (o en el vacío, con `null`), aparte del resaltado por hover. */
-  alElegirPieza?: (id: string | null) => void;
   /** El color del acrílico elegido; sin él, cristal. */
   tinte?: TinteAcrilico | null;
+  /** El color de cada copia con material propio, por nodo. */
+  tintes?: Readonly<Record<string, TinteAcrilico>>;
+  /** La copia elegida (su nodo), que se resalta. */
+  nodoActivo?: string | null;
+  /** Al tocar una pieza fuera del modo caras. Sin él, solo se resalta la pieza. */
+  alElegirCopia?: (copia: CopiaElegida | null) => void;
+  /** El nombre de cada pieza por `id`, para describir las caras ("Base · cara superior"). */
+  nombresPiezas?: Readonly<Record<string, string>>;
+  /** Modo "seleccionar caras". Sin `alCambiarModoCaras` no se ofrece el botón. */
+  modoCaras?: boolean;
+  alCambiarModoCaras?: (activo: boolean) => void;
+  /** Las claves de las caras ya señaladas (`ReferenciaCara.clave`). */
+  carasSeleccionadas?: readonly string[];
+  alAlternarCara?: (cara: ReferenciaCara) => void;
   /** Sin la etiqueta de medidas de arriba (cuando quien lo usa ya las muestra). */
   sinMedidas?: boolean;
   className?: string;
 }
+
+const SIN_NOMBRES: Readonly<Record<string, string>> = {};
+const SIN_CARAS: readonly string[] = [];
+const SIN_TINTES: Readonly<Record<string, TinteAcrilico>> = {};
 
 export default function Visor3D({
   glbBase64,
@@ -426,11 +647,19 @@ export default function Visor3D({
   idsPiezas,
   piezaActiva = null,
   alCambiarPieza,
-  alElegirPieza,
   tinte = null,
+  tintes = SIN_TINTES,
+  nodoActivo = null,
+  alElegirCopia,
+  nombresPiezas = SIN_NOMBRES,
+  modoCaras = false,
+  alCambiarModoCaras,
+  carasSeleccionadas = SIN_CARAS,
+  alAlternarCara,
   sinMedidas = false,
   className,
 }: PropsVisor3D) {
+  const seleccionadas = useMemo(() => new Set(carasSeleccionadas), [carasSeleccionadas]);
   const { resolvedTheme } = useTheme();
   const base: Tema = resolvedTheme === "dark" ? TEMAS.dark : TEMAS.light;
   const tema = useMemo<Tema>(
@@ -458,10 +687,13 @@ export default function Visor3D({
           dpr={[1, 2]}
           camera={{ fov: 35, near: 1, far: 100000, position: [600, 450, 750] }}
           gl={{ antialias: true, alpha: true }}
+          // En modo caras, un clic al vacío no deshace lo señalado.
           onPointerMissed={() => {
+            if (modoCaras) return;
             alCambiarPieza?.(null);
-            alElegirPieza?.(null);
+            alElegirCopia?.(null);
           }}
+          className={modoCaras ? "cursor-crosshair" : undefined}
           aria-label="Vista 3D del diseño"
           role="img"
         >
@@ -470,8 +702,14 @@ export default function Visor3D({
             explosion={explosion}
             piezaActiva={piezaActiva}
             alCambiarPieza={alCambiarPieza}
-            alElegirPieza={alElegirPieza}
+            nodoActivo={nodoActivo}
+            alElegirCopia={alElegirCopia}
+            tintes={tintes}
             tema={tema}
+            nombresPiezas={nombresPiezas}
+            modoCaras={modoCaras}
+            carasSeleccionadas={seleccionadas}
+            alAlternarCara={alAlternarCara}
           />
         </Canvas>
       ) : fallo ? (
@@ -490,6 +728,32 @@ export default function Visor3D({
         >
           {medida(medidas.x)} × {medida(medidas.y)} × {medida(medidas.z)} mm
         </p>
+      )}
+
+      {modelo && alCambiarModoCaras && (
+        <div className="absolute bottom-2 left-2 flex items-center gap-2">
+          <button
+            type="button"
+            aria-pressed={modoCaras}
+            onClick={() => alCambiarModoCaras(!modoCaras)}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium backdrop-blur transition-colors",
+              modoCaras
+                ? "border-primary bg-primary text-primary-foreground"
+                : "bg-background/80 text-foreground/80 hover:text-foreground",
+            )}
+          >
+            <MousePointerClick className="size-3.5" aria-hidden />
+            {modoCaras ? "Listo" : "Seleccionar caras"}
+          </button>
+          {modoCaras && (
+            <span className="bg-background/80 text-muted-foreground hidden rounded-md border px-2 py-1 text-xs backdrop-blur sm:inline">
+              {carasSeleccionadas.length
+                ? `${carasSeleccionadas.length} señalada${carasSeleccionadas.length === 1 ? "" : "s"} para el chat`
+                : "Toca una cara para referirla en el chat"}
+            </span>
+          )}
+        </div>
       )}
 
       {modelo && modelo.instancias.length > 1 && (

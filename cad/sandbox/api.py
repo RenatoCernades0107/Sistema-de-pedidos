@@ -15,25 +15,29 @@ from __future__ import annotations
 import base64
 import binascii
 import hmac
-import logging
 import os
 from pathlib import Path
 from typing import Any
 
+import structlog
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
+from motor import bitacora
+
 from . import VERSION
 from .ejecutor import ejecutar
 from .render import ErrorRender, renderizar_glb
 from .verificador import MAX_CARACTERES
 
-registro = logging.getLogger("sandbox.api")
+bitacora.configurar("sandbox")
+registro = structlog.get_logger("sandbox.api")
 
 app = FastAPI(title="Sandbox CAD Plexiacril", version=VERSION, docs_url=None, redoc_url=None, openapi_url=None)
+bitacora.instalar(app)
 
 #: Raíz de las referencias de VibeCAD que se sirven al LLM.
 RAIZ_REFERENCIAS = (Path(__file__).resolve().parent.parent / "skills" / "vibecad").resolve()
@@ -72,6 +76,8 @@ class EntradaPlancha(BaseModel):
 
     ancho_mm: float = Field(gt=0, le=10000)
     alto_mm: float = Field(gt=0, le=10000)
+    #: Rótulo de la plancha en el DXF («Cristal 3 mm»): solo referencia, no se corta.
+    etiqueta: str | None = Field(None, max_length=120)
     piezas: list[EntradaPiezaPlancha] = Field(default_factory=list, max_length=2000)
 
 
@@ -79,6 +85,8 @@ class OpcionesDxfPlanchas(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     kerf_mm: float = Field(0, ge=0, le=5)
+    #: Solo algunas planchas del diseño (un grupo de material y espesor): pueden faltar copias.
+    parcial: bool = False
 
 
 class SolicitudDxfPlanchas(SolicitudCodigo):
@@ -100,11 +108,16 @@ def _error(estado: int, codigo: str, mensaje: str, **extra: Any) -> HTTPExceptio
 
 
 @app.exception_handler(RequestValidationError)
-async def _cuerpo_invalido(_: Request, error: RequestValidationError) -> JSONResponse:
+async def _cuerpo_invalido(request: Request, error: RequestValidationError) -> JSONResponse:
     errores = [
         {"campo": ".".join(str(p) for p in e.get("loc", ()) if p != "body"), "mensaje": str(e.get("msg", ""))}
         for e in error.errors()
     ]
+    bitacora.anotar_error(
+        request,
+        codigo="parametros_invalidos",
+        errores=[{**err, "tipo": e.get("type")} for err, e in zip(errores, error.errors())],
+    )
     return JSONResponse(
         status_code=422,
         content={
@@ -114,8 +127,8 @@ async def _cuerpo_invalido(_: Request, error: RequestValidationError) -> JSONRes
 
 
 @app.exception_handler(Exception)
-async def _fallo(_: Request, error: Exception) -> JSONResponse:
-    registro.exception("Fallo no previsto")
+async def _fallo(request: Request, error: Exception) -> JSONResponse:
+    registro.exception("fallo_no_previsto", metodo=request.method, ruta=request.url.path)
     return JSONResponse(status_code=500, content={"detail": {"codigo": "interno", "mensaje": "Fallo interno del sandbox."}})
 
 
@@ -180,6 +193,7 @@ async def dxf(solicitud: SolicitudDxf) -> Response:
 async def dxf_planchas(solicitud: SolicitudDxfPlanchas) -> Response:
     opciones = {
         "kerf_mm": solicitud.opciones.kerf_mm,
+        "parcial": solicitud.opciones.parcial,
         "planchas": [p.model_dump() for p in solicitud.planchas],
     }
     r = await run_in_threadpool(ejecutar, solicitud.codigo, "dxf_planchas", opciones)

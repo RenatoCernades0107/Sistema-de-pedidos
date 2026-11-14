@@ -24,7 +24,7 @@ import {
 } from "./optimizador";
 
 export interface Cobro {
-  /** "1/4", "1/2" o "1" para la plancha completa. */
+  /** "1/16", "1/8", "1/4", "1/2", "3/4" o "1" para la plancha completa. */
   nombre: string;
   factor: number;
   /** El pedazo cobrado, anclado en la esquina (0,0) de la plancha. */

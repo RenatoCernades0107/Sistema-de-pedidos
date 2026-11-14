@@ -75,6 +75,8 @@ describe("el corte que se guarda", () => {
     expect(planchasTexto(corte)).toBe("3 planchas de 122×183");
     expect(fraccionEnPalabras("1/2")).toBe("media plancha");
     expect(fraccionEnPalabras("1/4")).toBe("un cuarto de plancha");
+    expect(fraccionEnPalabras("1/8")).toBe("un octavo de plancha");
+    expect(fraccionEnPalabras("3/4")).toBe("tres cuartos de plancha");
     expect(fraccionEnPalabras("1")).toBe("plancha completa");
   });
 

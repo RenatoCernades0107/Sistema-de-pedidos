@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   camposDe,
   completarParametros,
+  copiaDeNodo,
+  numeroDeNodo,
   nodoAPieza,
   nombreArchivo,
   normalizarValor,
@@ -137,5 +139,33 @@ describe("unidadDe y pasoDe", () => {
     expect(pasoDe({ type: "integer", minimum: 0, maximum: 10 })).toBe(1);
     expect(pasoDe({ type: "number", minimum: 2, maximum: 10 })).toBe(0.5);
     expect(pasoDe({ type: "number", minimum: 50, maximum: 1200 })).toBe(1);
+  });
+});
+
+describe("copiaDeNodo", () => {
+  const ids = ["lateral", "lateral__5mm", "base"];
+  it("prefiere los extras del GLB", () => {
+    expect(copiaDeNodo("lateral_2", { pieza: "lateral__5mm", origen: "lateral", nodo: "lateral_2", espesor_mm: 5 }, ids)).toEqual({
+      pieza: "lateral__5mm",
+      nodo: "lateral_2",
+      origen: "lateral",
+      espesorMm: 5,
+    });
+  });
+  it("sin extras, por el nombre", () => {
+    expect(copiaDeNodo("lateral_1", undefined, ids)).toEqual({
+      pieza: "lateral",
+      nodo: "lateral_1",
+      origen: "lateral",
+      espesorMm: null,
+    });
+    expect(copiaDeNodo("otro", {}, ids)).toBeNull();
+  });
+  it("ignora una pieza de los extras que no está en el despiece", () => {
+    expect(copiaDeNodo("base", { pieza: "fantasma" }, ids)?.pieza).toBe("base");
+  });
+  it("número de copia", () => {
+    expect(numeroDeNodo("lateral_2")).toBe(2);
+    expect(numeroDeNodo("base")).toBe(0);
   });
 });

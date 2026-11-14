@@ -170,3 +170,42 @@ export function nodoAPieza(nombre: string, ids: readonly string[]): string | nul
   }
   return mejor;
 }
+
+/** Lo que el motor escribe en los `extras` de cada nodo del GLB (three los deja en `userData`). */
+export interface ExtrasNodo {
+  pieza?: unknown;
+  origen?: unknown;
+  nodo?: unknown;
+  espesor_mm?: unknown;
+}
+
+/**
+ * La copia de pieza que representa un nodo del GLB: su pieza del despiece, su
+ * nombre de nodo, la pieza de la plantilla de la que salió y su espesor. Manda
+ * lo que dicen los `extras` del nodo (una copia con espesor propio es la pieza
+ * `lateral__5mm` aunque el nodo se llame `lateral_2`); sin ellos, el nombre.
+ * `null` si el nodo no es de ninguna pieza.
+ */
+export function copiaDeNodo(
+  nombre: string,
+  extras: ExtrasNodo | null | undefined,
+  ids: readonly string[],
+): { pieza: string; nodo: string; origen: string; espesorMm: number | null } | null {
+  const texto = (v: unknown) => (typeof v === "string" && v ? v : null);
+  const deExtras = texto(extras?.pieza);
+  const pieza = deExtras && ids.includes(deExtras) ? deExtras : nodoAPieza(nombre, ids);
+  if (!pieza) return null;
+  const espesor = extras?.espesor_mm;
+  return {
+    pieza,
+    nodo: texto(extras?.nodo) ?? nombre,
+    origen: texto(extras?.origen) ?? pieza,
+    espesorMm: typeof espesor === "number" && Number.isFinite(espesor) ? espesor : null,
+  };
+}
+
+/** El número de copia que lleva un nombre de nodo (`lateral_2` → 2); 0 si no lleva. */
+export function numeroDeNodo(nodo: string): number {
+  const m = /_(\d+)$/.exec(nodo);
+  return m ? Number(m[1]) : 0;
+}
