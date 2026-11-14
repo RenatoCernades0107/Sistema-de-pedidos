@@ -189,6 +189,32 @@ describe("elección de formato", () => {
     for (let i = 1; i < r.length; i++) expect(r[i].total).toBeGreaterThanOrEqual(r[i - 1].total);
   });
 
+  it("con el criterio de tamaño, va primero la plancha más chica que sirve", () => {
+    const r = compararFormatos(corte([[60, 80, 10]]), formatos, config, [], "tamano");
+    expect(r.map((c) => c.formato.codigo)).toEqual(["F7E030", "F9.5E030", "F20E030"]);
+    const areas = r.map((c) => c.formato.ancho * c.formato.alto);
+    expect(areas).toEqual([...areas].sort((a, b) => a - b));
+  });
+
+  it("con el criterio de tamaño, lo chico gana aunque desperdicie más", () => {
+    // 100 × 110: en 122×183 queda mucho retazo; en 122×244 se aprovecha más.
+    const entrada = corte([[100, 110, 2]]);
+    const porPrecio = compararFormatos(entrada, formatos, config);
+    const porTamano = compararFormatos(entrada, formatos, config, [], "tamano");
+    expect(porTamano[0].formato.codigo).toBe("F7E030");
+    const chico = porTamano.find((c) => c.formato.codigo === "F7E030")!;
+    const otro = porTamano.find((c) => c.formato.codigo === "F9.5E030")!;
+    expect(chico.desperdicioPct).toBeGreaterThan(otro.desperdicioPct);
+    expect(porPrecio).toHaveLength(porTamano.length);
+  });
+
+  it("con el criterio de tamaño, los formatos donde no cabe siguen al final", () => {
+    const r = compararFormatos(corte([[200, 150, 1]]), formatos, config, [], "tamano");
+    expect(r[0].formato.codigo).toBe("F20E030");
+    expect(r[0].problema).toBeNull();
+    expect(r.slice(1).every((c) => c.problema)).toBe(true);
+  });
+
   it("el formato donde una pieza no cabe va al final, con su motivo", () => {
     const r = compararFormatos(corte([[200, 150, 1]]), formatos, config);
     expect(r[0].formato.codigo).toBe("F20E030");

@@ -256,25 +256,45 @@ export function calcularCorte(
   };
 }
 
+/** Cómo se ordenan los formatos: por lo que cuesta el corte, o por lo chico de la plancha. */
+export type CriterioFormato = "precio" | "tamano";
+
+const areaDe = (c: CalculoCorte) => c.formato.ancho * c.formato.alto;
+
 /**
- * El mismo corte sobre cada formato disponible, del más conveniente al menos:
- * primero los que sirven, y entre ellos el más barato; a igual precio, el que
- * menos desperdicia y, a igual desperdicio, la plancha más chica.
+ * El mismo corte sobre cada formato disponible, del más conveniente al menos.
+ * Siempre van primero los que sirven. Entre ellos:
+ *  - "precio" (por defecto): el más barato; a igual precio, el que menos
+ *    desperdicia y, a igual desperdicio, la plancha más chica.
+ *  - "tamano": la plancha más chica, aunque desperdicie más o cueste más —los
+ *    formatos grandes se guardan para los pedidos de medidas grandes—; a igual
+ *    tamaño, el más barato.
  */
 export function compararFormatos(
   entrada: EntradaCorte,
   formatos: FormatoCorte[],
   config: ConfigCortes,
   sobrantes: Contenedor[] = [],
+  criterio: CriterioFormato = "precio",
 ): CalculoCorte[] {
   return formatos
     .map((f) => calcularCorte(entrada, f, config, sobrantes))
-    .sort(
-      (a, b) =>
-        Number(!!a.problema) - Number(!!b.problema) ||
+    .sort((a, b) => {
+      const sirve = Number(!!a.problema) - Number(!!b.problema);
+      if (criterio === "tamano") {
+        return (
+          sirve ||
+          areaDe(a) - areaDe(b) ||
+          a.total - b.total ||
+          a.formato.codigo.localeCompare(b.formato.codigo)
+        );
+      }
+      return (
+        sirve ||
         a.total - b.total ||
         a.desperdicioPct - b.desperdicioPct ||
-        a.formato.ancho * a.formato.alto - b.formato.ancho * b.formato.alto ||
-        a.formato.codigo.localeCompare(b.formato.codigo),
-    );
+        areaDe(a) - areaDe(b) ||
+        a.formato.codigo.localeCompare(b.formato.codigo)
+      );
+    });
 }

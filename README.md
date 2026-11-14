@@ -184,8 +184,10 @@ E2E_URL=https://<dominio>.vercel.app npm run e2e
 - **Cortes en la cotización** (`components/cortes/`): junto al buscador de productos, *Corte a
   medida* abre el editor: material, tipo de corte y piezas. El cálculo corre en el navegador a cada
   tecla sobre todos los formatos de ese material (los precios vienen del índice de productos,
-  `/api/cortes/precios`), se queda con los tres más baratos y solo por esos pregunta el stock a
-  Odoo, una vez (`/api/cortes/stock`); queda elegido el más barato con planchas suficientes. Al
+  `/api/cortes/precios`), se queda con los tres formatos más pequeños en los que caben todas las
+  piezas (aunque desperdicien más: los grandes se guardan para las medidas grandes) y solo por esos
+  pregunta el stock a Odoo, una vez (`/api/cortes/stock`); queda elegido el más pequeño con
+  planchas suficientes. Al
   guardar, el servidor rehace el cálculo (`prepararCorte`) y, si el total ya no coincide con el
   que se mostró, lo rechaza. La línea guarda el cálculo entero en `cotizacion_productos.corte`
   (`lib/cortes/guardado.ts`): es lo que se cotizó, y de ahí sale el plano. A Odoo va como una
