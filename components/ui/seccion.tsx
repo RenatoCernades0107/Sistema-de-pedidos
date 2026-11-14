@@ -27,9 +27,11 @@ export function Seccion({
   return (
     <section
       ref={refSeccion}
-      className={cn("bg-card shadow-card scroll-mt-20 overflow-hidden rounded-xl border", className)}
+      // Sin overflow-hidden: la lista de resultados de un buscador flota fuera de
+      // la sección y quedaría recortada. Las esquinas del encabezado van aparte.
+      className={cn("bg-card shadow-card scroll-mt-20 rounded-xl border", className)}
     >
-      <header className="from-primary/[0.07] flex items-center gap-2.5 border-b bg-gradient-to-r to-transparent px-4 py-3">
+      <header className="from-primary/[0.07] flex items-center gap-2.5 rounded-t-xl border-b bg-gradient-to-r to-transparent px-4 py-3">
         <span
           className={cn(
             "text-2xs grid size-6 shrink-0 place-items-center rounded-full font-semibold transition-colors",
