@@ -69,6 +69,45 @@ export interface ConfigCortes {
   servicios: { laser: string; manual: string };
 }
 
+/**
+ * Las fracciones que Configuración sabe encender y apagar, de la más chica a la
+ * más grande. Cada una se ancla en la esquina de la plancha: lo que queda fuera
+ * vuelve al almacén como sobrante.
+ */
+export const FRACCIONES_ESTANDAR: readonly Fraccion[] = [
+  { nombre: "1/16", factor: 1 / 16, formas: [[0.25, 0.25]] },
+  {
+    nombre: "1/8",
+    factor: 1 / 8,
+    formas: [
+      [0.5, 0.25],
+      [0.25, 0.5],
+    ],
+  },
+  { nombre: "1/4", factor: 1 / 4, formas: [[0.5, 0.5]] },
+  {
+    nombre: "1/2",
+    factor: 1 / 2,
+    formas: [
+      [0.5, 1],
+      [1, 0.5],
+    ],
+  },
+  {
+    nombre: "3/4",
+    factor: 3 / 4,
+    formas: [
+      [0.75, 1],
+      [1, 0.75],
+    ],
+  },
+];
+
+const fraccionEstandar = (nombre: string) => {
+  const f = FRACCIONES_ESTANDAR.find((x) => x.nombre === nombre)!;
+  return { ...f, formas: f.formas.map(([a, b]) => [a, b] as [number, number]) };
+};
+
 export const CONFIG_CORTES_DEFECTO: ConfigCortes = {
   laser: {
     // CO2 de 100–130 W sobre acrílico.
@@ -102,17 +141,8 @@ export const CONFIG_CORTES_DEFECTO: ConfigCortes = {
   },
   cobro: {
     recargoPct: 20,
-    fracciones: [
-      { nombre: "1/4", factor: 0.25, formas: [[0.5, 0.5]] },
-      {
-        nombre: "1/2",
-        factor: 0.5,
-        formas: [
-          [0.5, 1],
-          [1, 0.5],
-        ],
-      },
-    ],
+    // 1/16, 1/8 y 3/4 existen, pero se encienden en Configuración.
+    fracciones: [fraccionEstandar("1/4"), fraccionEstandar("1/2")],
     redondearAlSol: true,
   },
   corte: { kerfLaser: 0, kerfManual: 0, margen: 0, retazoMin: 30 },

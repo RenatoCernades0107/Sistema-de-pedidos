@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { calcularCorte, compararFormatos, filaDe, type EntradaCorte, type FormatoCorte } from "./calcular";
-import { CONFIG_CORTES_DEFECTO, leerConfigCortes, type ConfigCortes } from "./config";
+import { CONFIG_CORTES_DEFECTO, FRACCIONES_ESTANDAR, leerConfigCortes, type ConfigCortes } from "./config";
 import { parametrosLaser, tiempoLaser } from "./laser";
 import { precioManual } from "./manual";
 import { EPS } from "./optimizador";
@@ -88,6 +88,42 @@ describe("qué fracción de la plancha se cobra", () => {
     // 200 + 200 + 200/2 × 1.20
     expect(r.material).toBe(520);
     expect(r.piezas).toBe(10);
+  });
+});
+
+describe("con 1/16, 1/8 y 3/4 encendidas", () => {
+  const todas: ConfigCortes = {
+    ...config,
+    cobro: { ...config.cobro, fracciones: leerConfigCortes({ cobro: { ...config.cobro, fracciones: [...FRACCIONES_ESTANDAR] } }).cobro.fracciones },
+  };
+  const F7: FormatoCorte = { codigo: "F7E030", ancho: 122, alto: 183, precio: 200 };
+
+  it.each([
+    // [pieza, fracción, monto]: 200 × factor × 1.20
+    [[30, 40], "1/16", 15],
+    [[50, 40], "1/8", 30],
+    [[100, 130], "3/4", 180],
+  ] as const)("%j se cobra como %s", ([ancho, alto], nombre, monto) => {
+    const r = calcularCorte(corte([[ancho, alto, 1]]), F7, todas);
+    expect(r.planchas[0].cobro.nombre).toBe(nombre);
+    expect(r.material).toBe(monto);
+  });
+
+  it("se prueban de la más chica a la más grande", () => {
+    expect(todas.cobro.fracciones.map((f) => f.nombre)).toEqual(["1/16", "1/8", "1/4", "1/2", "3/4"]);
+  });
+
+  it("nunca se cobra menos área de la que se usa, y el sobrante queda fuera de lo cobrado", () => {
+    for (const pedido of [[[30, 40, 1]], [[50, 40, 2]], [[100, 130, 1]], [[60, 45, 3]], [[20, 20, 12]]] as [number, number, number][][]) {
+      for (const p of calcularCorte(corte(pedido), F7, todas).planchas) {
+        expect(p.cobro.factor).toBeGreaterThanOrEqual(p.areaUsada / (p.ancho * p.alto) - 1e-9);
+        const suma = p.paneles.reduce((s, x) => s + (x.x2 - x.x1) * (x.y2 - x.y1), 0);
+        expect(suma).toBeCloseTo(p.ancho * p.alto, 4);
+        for (const s of p.paneles.filter((x) => x.sobrante)) {
+          expect(s.x1 >= p.cobro.ancho - EPS || s.y1 >= p.cobro.alto - EPS).toBe(true);
+        }
+      }
+    }
   });
 });
 
