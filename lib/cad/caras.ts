@@ -223,6 +223,8 @@ const vec3 = z.tuple([z.number().finite(), z.number().finite(), z.number().finit
 export const esquemaReferenciaCara = z.object({
   clave: z.string().min(1).max(200),
   pieza: z.string().max(120).nullable(),
+  /** El nombre de la copia en el GLB (`lateral_2`): con él se le cambia espesor o material. */
+  nodo: z.string().max(80).optional(),
   nombrePieza: z.string().min(1).max(120),
   copia: z.number().int().min(1).max(10_000),
   de: z.number().int().min(1).max(10_000),
@@ -304,7 +306,7 @@ export function describirCara(
   cara: CaraMalla,
   posiciones: ArrayLike<number>,
   indice: ArrayLike<number> | null | undefined,
-  pieza: { id: string | null; nombre: string; copia: number; de: number },
+  pieza: { id: string | null; nodo?: string; nombre: string; copia: number; de: number },
 ): ReferenciaCara {
   const puntos: Vec3[] = [];
   for (const t of cara.triangulos) {
@@ -331,6 +333,7 @@ export function describirCara(
   return {
     clave: `${pieza.id ?? pieza.nombre}#${pieza.copia}:${cara.tipo}:${centro.map(r1).join(",")}`,
     pieza: pieza.id,
+    ...(pieza.nodo ? { nodo: pieza.nodo } : {}),
     nombrePieza: pieza.nombre,
     copia: pieza.copia,
     de: pieza.de,
@@ -353,7 +356,9 @@ const tupla = (v: Vec3) => `(${v.map(fmt).join(", ")})`;
 export function referenciasATexto(referencias: readonly ReferenciaCara[]): string {
   if (!referencias.length) return "";
   const lineas = referencias.map((r, i) => {
-    const pieza = r.pieza ? ` (pieza \`${r.pieza}\`${r.de > 1 ? `, copia ${r.copia} de ${r.de}` : ""})` : "";
+    const pieza = r.pieza
+      ? ` (pieza \`${r.pieza}\`${r.de > 1 ? `, copia ${r.copia} de ${r.de}` : ""}${r.nodo ? `, nodo \`${r.nodo}\`` : ""})`
+      : "";
     return (
       `${i + 1}. ${r.etiqueta}${pieza}: ${r.tipo}${r.curva ? " curvo" : ""}, ` +
       `${fmt(r.ancho_mm)} × ${fmt(r.alto_mm)} mm, área ${Math.round(r.area_mm2)} mm²; ` +

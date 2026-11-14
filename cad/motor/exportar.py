@@ -9,7 +9,8 @@ DXF
 Se escribe con ezdxf en **R12 (AC1009) ASCII**, que es lo que RDWorks importa
 con más fiabilidad (y CorelDRAW lo abre sin problema); es el mismo formato de
 `lib/cortes/dxf.ts`. Unidades en mm (`$INSUNITS = 4`). Solo entidades `LINE`,
-`ARC` y `CIRCLE`: las curvas circulares salen como curvas reales; cualquier
+`ARC` y `CIRCLE` (más un `TEXT` por plancha con su rótulo, en la capa PLANCHA,
+en el DXF por plancha): las curvas circulares salen como curvas reales; cualquier
 otra curva (spline, elipse) se aproxima con tramos rectos cortos. La capa y el
 color van también en cada entidad, porque RDWorks agrupa por color.
 
@@ -125,7 +126,12 @@ def exportar_glb(diseno: Diseno, tolerancia: float = 0.05, angular: float = 0.3)
             {
                 "name": inst.nombre,
                 "mesh": len(mallas) - 1,
-                "extras": {"pieza": inst.pieza.id, "espesor_mm": inst.pieza.espesor_mm},
+                "extras": {
+                    "pieza": inst.pieza.id,
+                    "origen": inst.pieza.origen or inst.pieza.id,
+                    "nodo": inst.nombre,
+                    "espesor_mm": inst.pieza.espesor_mm,
+                },
             }
         )
 
@@ -385,6 +391,16 @@ SEPARACION_PLANCHAS_MM = 50.0
 TOLERANCIA_PLANCHA_MM = 0.01
 
 CAPAS_DXF_PLANCHAS = {**CAPAS_DXF, "PLANCHA": 8}
+#: Alto del rótulo de cada plancha en el DXF (mm).
+ALTO_ROTULO_MM = 10.0
+
+
+def _texto_ascii(texto: str) -> str:
+    """R12 en ASCII: sin tildes ni símbolos que RDWorks lea mal."""
+    import unicodedata
+
+    plano = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^A-Za-z0-9 .,()/_-]", "", plano)[:120]
 
 
 @dataclass
@@ -405,6 +421,8 @@ class PlanchaAcomodada:
     ancho_mm: float
     alto_mm: float
     piezas: list[PiezaEnPlancha]
+    #: Texto de referencia junto a la plancha (capa PLANCHA, no se corta): «Cristal 3 mm».
+    etiqueta: str | None = None
 
 
 class ErrorAcomodo(ValueError):
@@ -422,10 +440,12 @@ def _girar(forma: Any, rotada: bool) -> Any:
     return forma.moved(Location((0, 0, 0), (0, 0, 1), 90))
 
 
-def validar_planchas(diseno: Diseno, planchas: list[PlanchaAcomodada]) -> None:
+def validar_planchas(diseno: Diseno, planchas: list[PlanchaAcomodada], parcial: bool = False) -> None:
     """
     Cada copia de cada pieza va exactamente una vez y cae entera dentro de su
-    plancha (con su caja nominal, sin kerf). Lanza `ErrorAcomodo` si no.
+    plancha (con su caja nominal, sin kerf), y en cada plancha todas las piezas
+    son del mismo espesor. Con `parcial` pueden faltar copias (el DXF de un
+    solo grupo de planchas). Lanza `ErrorAcomodo` si no.
     """
     errores: list[dict[str, str]] = []
     piezas = {p.id: p for p in diseno.piezas}
@@ -434,6 +454,12 @@ def validar_planchas(diseno: Diseno, planchas: list[PlanchaAcomodada]) -> None:
         if plancha.ancho_mm <= 0 or plancha.alto_mm <= 0:
             errores.append({"campo": f"planchas.{i}", "mensaje": "La plancha no tiene medidas válidas."})
             continue
+        espesores = {round(piezas[pp.id].espesor_mm, 3) for pp in plancha.piezas if pp.id in piezas}
+        if len(espesores) > 1:
+            lista = ", ".join(f"{e:g}" for e in sorted(espesores))
+            errores.append(
+                {"campo": f"planchas.{i}", "mensaje": f"La plancha {i + 1} mezcla piezas de {lista} mm de espesor."}
+            )
         for j, pp in enumerate(plancha.piezas):
             campo = f"planchas.{i}.piezas.{j}"
             pieza = piezas.get(pp.id)
@@ -461,7 +487,7 @@ def validar_planchas(diseno: Diseno, planchas: list[PlanchaAcomodada]) -> None:
                 errores.append(
                     {"campo": campo, "mensaje": f"La copia {pp.indice} de «{pp.id}» se sale de la plancha {i + 1}."}
                 )
-    for pieza in diseno.piezas:
+    for pieza in [] if parcial else diseno.piezas:
         for indice in range(1, pieza.cantidad + 1):
             if (pieza.id, indice) not in vistas:
                 errores.append({"campo": "planchas", "mensaje": f"Falta colocar la copia {indice} de «{pieza.id}»."})
@@ -469,13 +495,16 @@ def validar_planchas(diseno: Diseno, planchas: list[PlanchaAcomodada]) -> None:
         raise ErrorAcomodo("El acomodo en planchas no es válido.", errores)
 
 
-def exportar_dxf_planchas(diseno: Diseno, planchas: list[PlanchaAcomodada], kerf_mm: float = 0.0) -> bytes:
+def exportar_dxf_planchas(
+    diseno: Diseno, planchas: list[PlanchaAcomodada], kerf_mm: float = 0.0, parcial: bool = False
+) -> bytes:
     """
     DXF R12 con cada plancha dibujada (capa PLANCHA, color 8) y sus piezas en
     el sitio pedido, con los contornos reales (CORTE) y el grabado (GRABADO).
-    Las planchas van una al lado de la otra, separadas 50 mm.
+    Las planchas van una al lado de la otra, separadas 50 mm, cada una con su
+    rótulo debajo («Plancha 1 · Cristal 3 mm», capa PLANCHA: no se corta).
     """
-    validar_planchas(diseno, planchas)
+    validar_planchas(diseno, planchas, parcial=parcial)
     doc = ezdxf.new("R12")
     doc.header["$MEASUREMENT"] = 1
     if "Defpoints" in doc.layers:
@@ -489,11 +518,18 @@ def exportar_dxf_planchas(diseno: Diseno, planchas: list[PlanchaAcomodada], kerf
 
     ox = 0.0
     alto_max = 0.0
-    for plancha in planchas:
+    for n, plancha in enumerate(planchas, start=1):
         w, h = plancha.ancho_mm, plancha.alto_mm
         esquinas = [(ox, 0.0), (ox + w, 0.0), (ox + w, h), (ox, h)]
         for a, b in zip(esquinas, esquinas[1:] + esquinas[:1]):
             msp.add_line(a, b, dxfattribs=atributos_plancha)
+        espesores = sorted({piezas[pp.id].espesor_mm for pp in plancha.piezas})
+        rotulo = plancha.etiqueta or (f"{espesores[0]:g} mm" if espesores else "")
+        texto_rotulo = _texto_ascii(f"Plancha {n}" + (f" - {rotulo}" if rotulo else ""))
+        msp.add_text(
+            texto_rotulo,
+            dxfattribs={**atributos_plancha, "height": ALTO_ROTULO_MM, "insert": (ox, -ALTO_ROTULO_MM * 2)},
+        )
         for pp in plancha.piezas:
             pieza = piezas[pp.id]
             caja = _girar(pieza.contorno, pp.rotada).bounding_box()
@@ -509,5 +545,5 @@ def exportar_dxf_planchas(diseno: Diseno, planchas: list[PlanchaAcomodada], kerf
 
     texto = io.StringIO()
     doc.write(texto)
-    extension = (0.0, 0.0, ox - SEPARACION_PLANCHAS_MM, alto_max) if planchas else None
+    extension = (0.0, -ALTO_ROTULO_MM * 2, ox - SEPARACION_PLANCHAS_MM, alto_max) if planchas else None
     return _cabecera_mm(texto.getvalue(), extension).encode("ascii", errors="replace")

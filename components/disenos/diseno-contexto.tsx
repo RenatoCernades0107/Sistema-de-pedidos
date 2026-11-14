@@ -12,16 +12,20 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { guardarMaterialDisenoLibre, guardarVersion } from "@/app/(app)/disenos/acciones";
-import {
-  acomodar,
-  formatosDeGrupo,
-  PARAMETRO_ESPESOR,
-  piezasQueNoEntran,
-  problemaDeEspesor,
-  type ResultadoAcomodo,
-} from "@/lib/cad/acomodo";
+import { PARAMETRO_ESPESOR } from "@/lib/cad/acomodo";
 import { MAX_REFERENCIAS, type ReferenciaCara } from "@/lib/cad/caras";
 import { tinteDeColor, type TinteAcrilico } from "@/lib/cad/colores";
+import { conEspesor } from "@/lib/cad/espesores";
+import {
+  acomodoParaGuardar,
+  colorDeMaterial,
+  nodosDe,
+  planchasDelDiseno,
+  type CopiaResuelta,
+  type MaterialRef,
+  type MaterialesPorCopia,
+  type PlanchasDeGrupo,
+} from "@/lib/cad/materiales";
 import { colorDe, type GrupoPlancha } from "@/lib/cortes/catalogo";
 import type { ConfigCortes } from "@/lib/cortes/config";
 import type {
@@ -62,6 +66,26 @@ export interface EstadoDiseno {
    * vacían al enviar y cuando cambia la geometría.
    */
   carasReferidas: ReferenciaCara[];
+  /**
+   * La copia de pieza elegida en el visor para cambiarle espesor o material
+   * (su nombre de nodo, `lateral_2`). Se suelta si deja de existir.
+   */
+  copiaActiva: string | null;
+  setCopiaActiva: (nodo: string | null) => void;
+  /**
+   * Cambia el espesor de esas copias (`null`: vuelven al del diseño). Regenera
+   * y guarda una versión. No se ofrece en diseños libres.
+   */
+  cambiarEspesor: (nodos: readonly string[], mm: number | null) => Promise<void>;
+  /**
+   * Cambia el material de esas copias (`null`: vuelven al del diseño). No
+   * regenera: recalcula las planchas y guarda una versión.
+   */
+  cambiarMaterial: (nodos: readonly string[], material: MaterialRef | null) => Promise<void>;
+  /** El material propio de cada copia, por nodo. */
+  materialesPorCopia: MaterialesPorCopia;
+  /** Cada copia con su espesor, su material y su plancha. */
+  copias: CopiaResuelta[];
   /** Agrega la cara o, si ya estaba, la quita. */
   alternarCara: (cara: ReferenciaCara) => void;
   quitarCara: (clave: string) => void;
@@ -92,14 +116,22 @@ export interface EstadoDiseno {
    * código con el material y el acomodo de sus piezas.
    */
   elegirMaterial: (material: MaterialDiseno) => Promise<void>;
-  /** Muestra un material que otro (el chat) ya guardó con la versión. No guarda nada. */
-  mostrarMaterial: (material: MaterialDiseno) => void;
-  /** Las piezas acomodadas en el mejor formato del grupo. `null` sin material o sin diseño. */
-  acomodo: ResultadoAcomodo | null;
-  /** Lo que impide cortar el diseño en el material elegido. Vacío: todo bien. */
+  /**
+   * Muestra un material (y, si vienen, los de cada copia) que otro (el chat) ya
+   * guardó con la versión. No guarda nada.
+   */
+  mostrarMaterial: (material: MaterialDiseno | null, materiales?: MaterialesPorCopia) => void;
+  /**
+   * Los grupos de plancha del diseño (material × espesor), cada uno acomodado
+   * en su mejor formato. Lo normal es uno; vacío sin material o sin diseño.
+   */
+  gruposPlanchas: PlanchasDeGrupo[];
+  /** Lo que impide cortar el diseño en los materiales elegidos. Vacío: todo bien. */
   problemasMaterial: string[];
   /** El color del acrílico para el visor. `null`: cristal. */
   tinte: TinteAcrilico | null;
+  /** El color de cada copia con material propio, por nodo. */
+  tintes: Record<string, TinteAcrilico>;
 
   /* ── Costo ── */
   /**
@@ -114,31 +146,23 @@ export interface CostosDiseno {
   precios: Record<string, number>;
 }
 
-/** Acomodo y problemas de un despiece en un grupo: lo usan la pantalla y el guardado. */
+/** Los grupos de plancha y sus problemas: lo usan la pantalla y el guardado. */
 function calcularPlanchas(
-  grupo: GrupoPlancha | null,
+  catalogo: GrupoPlancha[],
+  material: MaterialDiseno | null,
+  porCopia: MaterialesPorCopia,
   parametros: ParametrosCad,
   piezas: PiezaCad[] | undefined,
   corte: { kerfMm: number; margenMm: number },
-): { acomodo: ResultadoAcomodo | null; problemas: string[] } {
-  if (!grupo) return { acomodo: null, problemas: [] };
-  const problemas: string[] = [];
-  const espesor = problemaDeEspesor(parametros, piezas, grupo);
-  if (espesor) problemas.push(espesor);
-  if (!piezas?.length) return { acomodo: null, problemas };
+) {
+  return planchasDelDiseno({ catalogo, porDefecto: material, porCopia, parametros, piezas, corte });
+}
 
-  const formatos = formatosDeGrupo(grupo);
-  const opciones = { rotable: grupo.rotable, kerfMm: corte.kerfMm, margenMm: corte.margenMm };
-  if (formatos.length === 0) {
-    problemas.push("El material elegido no tiene formatos de plancha activos.");
-    return { acomodo: null, problemas };
-  }
-  for (const p of piezasQueNoEntran(piezas, formatos, opciones)) {
-    problemas.push(
-      `«${p.nombre}» (${Math.round(p.ancho_mm)} × ${Math.round(p.alto_mm)} mm) no entra en ninguna plancha de este material${grupo.rotable ? "" : " (no se puede girar)"}.`,
-    );
-  }
-  return { acomodo: acomodar(piezas, formatos, opciones), problemas };
+/** Solo los materiales de copias que siguen existiendo en el despiece. */
+function podar(porCopia: MaterialesPorCopia, piezas: PiezaCad[] | undefined): MaterialesPorCopia {
+  if (!piezas) return porCopia;
+  const nodos = new Set(piezas.flatMap(nodosDe));
+  return Object.fromEntries(Object.entries(porCopia).filter(([nodo]) => nodos.has(nodo)));
 }
 
 const Contexto = createContext<EstadoDiseno | null>(null);
@@ -168,7 +192,12 @@ export function DisenoProvider({
 }: {
   disenoId: string;
   plantillas: PlantillaCad[];
-  inicial: { plantilla: string | null; parametros: ParametrosCad; material?: MaterialDiseno | null };
+  inicial: {
+    plantilla: string | null;
+    parametros: ParametrosCad;
+    material?: MaterialDiseno | null;
+    materiales?: MaterialesPorCopia;
+  };
   catalogo?: GrupoPlancha[];
   corte?: { kerfMm: number; margenMm: number };
   costos?: CostosDiseno | null;
@@ -202,6 +231,9 @@ export function DisenoProvider({
   const [material, setMaterial] = useState<MaterialDiseno | null>(inicial.material ?? null);
   // `aplicar` guarda con el material vigente sin depender de él (no se recrea).
   const materialRef = useRef(material);
+  const [porCopia, setPorCopia] = useState<MaterialesPorCopia>(inicial.materiales ?? {});
+  const porCopiaRef = useRef(porCopia);
+  const [copiaActiva, setCopiaActiva] = useState<string | null>(null);
   const contexto = useRef({ catalogo, corte });
   useEffect(() => {
     contexto.current = { catalogo, corte };
@@ -275,6 +307,9 @@ export function DisenoProvider({
       setPlantilla(generado.plantilla);
       setParametros(generado.parametros);
       setPiezaActiva(null);
+      // La copia elegida sigue elegida mientras exista (cambiarle el espesor la regenera).
+      const nodos = new Set(generado.piezas.flatMap(nodosDe));
+      setCopiaActiva((actual) => (actual && nodos.has(actual) ? actual : null));
       // La geometría cambió: las caras señaladas ya no son las mismas.
       setCarasReferidas([]);
       setCargando(false);
@@ -284,16 +319,16 @@ export function DisenoProvider({
       try {
         // Se guarda lo que devolvió el motor, ya normalizado, no lo que se escribió.
         const elegido = materialRef.current;
-        const grupo = elegido
-          ? (contexto.current.catalogo.find((g) => g.id === elegido.grupoPlanchaId) ?? null)
-          : null;
-        const { acomodo } = calcularPlanchas(grupo, generado.parametros, generado.piezas, contexto.current.corte);
+        const materiales = podar(porCopiaRef.current, generado.piezas);
+        const { catalogo: cat, corte: c } = contexto.current;
+        const { grupos } = calcularPlanchas(cat, elegido, materiales, generado.parametros, generado.piezas, c);
         await guardarVersion(
           disenoId,
           generado.plantilla,
           generado.parametros,
           elegido,
-          acomodo ? { ...acomodo, kerfMm: contexto.current.corte.kerfMm } : null,
+          acomodoParaGuardar(grupos, c.kerfMm) as unknown as Record<string, unknown> | null,
+          materiales,
         );
       } catch {
         toast.error("El diseño se generó, pero no se pudo guardar esta versión.");
@@ -321,12 +356,14 @@ export function DisenoProvider({
       const grupo = catalogo.find((g) => g.id === nuevo.grupoPlanchaId);
 
       if (plantilla === PLANTILLA_LIBRE) {
-        const { acomodo } = calcularPlanchas(grupo ?? null, parametros, resultado?.piezas, corte);
+        const materiales = porCopiaRef.current;
+        const { grupos } = calcularPlanchas(catalogo, nuevo, materiales, parametros, resultado?.piezas, corte);
         try {
           const libre = await guardarMaterialDisenoLibre(
             disenoId,
             nuevo,
-            acomodo ? { ...acomodo, kerfMm: corte.kerfMm } : null,
+            acomodoParaGuardar(grupos, corte.kerfMm) as unknown as Record<string, unknown> | null,
+            materiales,
           );
           // La versión nueva (mismo código) pasa a ser la vigente: sin volver a ejecutarlo.
           if (libre) {
@@ -353,18 +390,81 @@ export function DisenoProvider({
     [aplicar, catalogo, corte, disenoId, parametros, plantilla, plantillas, resultado],
   );
 
+  const mostrarMaterial = useCallback<EstadoDiseno["mostrarMaterial"]>((nuevo, materiales) => {
+    if (nuevo) {
+      materialRef.current = nuevo;
+      setMaterial(nuevo);
+    }
+    if (materiales) {
+      porCopiaRef.current = materiales;
+      setPorCopia(materiales);
+    }
+  }, []);
+
+  const cambiarEspesor = useCallback<EstadoDiseno["cambiarEspesor"]>(
+    async (nodos, mm) => {
+      if (plantilla === null || plantilla === PLANTILLA_LIBRE || nodos.length === 0) return;
+      await aplicar(plantilla, conEspesor(parametros, nodos, mm));
+    },
+    [aplicar, parametros, plantilla],
+  );
+
+  const cambiarMaterial = useCallback<EstadoDiseno["cambiarMaterial"]>(
+    async (nodos, ref) => {
+      if (plantilla === null || nodos.length === 0) return;
+      const anterior = porCopiaRef.current;
+      const siguiente: MaterialesPorCopia = { ...anterior };
+      for (const nodo of nodos) {
+        if (ref) siguiente[nodo] = ref;
+        else delete siguiente[nodo];
+      }
+      const materiales = podar(siguiente, resultado?.piezas);
+      porCopiaRef.current = materiales;
+      setPorCopia(materiales);
+
+      const { grupos } = calcularPlanchas(catalogo, materialRef.current, materiales, parametros, resultado?.piezas, corte);
+      const acomodo = acomodoParaGuardar(grupos, corte.kerfMm) as unknown as Record<string, unknown> | null;
+      try {
+        if (plantilla === PLANTILLA_LIBRE) {
+          const libre = await guardarMaterialDisenoLibre(disenoId, materialRef.current, acomodo, materiales);
+          if (libre) {
+            setResultado((r) =>
+              r && r.plantilla === PLANTILLA_LIBRE ? ({ ...r, libre } as ResultadoGeneracion & { libre: VersionLibreCad }) : r,
+            );
+          }
+        } else {
+          // El mismo diseño con otro material: no hace falta regenerar.
+          await guardarVersion(disenoId, plantilla, parametros, materialRef.current, acomodo, materiales);
+        }
+      } catch (e) {
+        porCopiaRef.current = anterior;
+        setPorCopia(anterior);
+        toast.error(e instanceof Error ? e.message : "No se pudo guardar el material.");
+      }
+    },
+    [catalogo, corte, disenoId, parametros, plantilla, resultado],
+  );
+
   const grupo = useMemo(
     () => (material ? (catalogo.find((g) => g.id === material.grupoPlanchaId) ?? null) : null),
     [catalogo, material],
   );
   const planchas = useMemo(
-    () => calcularPlanchas(grupo, parametros, resultado?.piezas, corte),
-    [grupo, parametros, resultado, corte],
+    () => calcularPlanchas(catalogo, material, porCopia, parametros, resultado?.piezas, corte),
+    [catalogo, material, porCopia, parametros, resultado, corte],
   );
   const tinte = useMemo(
     () => (grupo ? tinteDeColor(material?.color ?? colorDe(grupo)) : null),
     [grupo, material],
   );
+  const tintes = useMemo(() => {
+    const salida: Record<string, TinteAcrilico> = {};
+    for (const [nodo, ref] of Object.entries(porCopia)) {
+      const t = tinteDeColor(colorDeMaterial(ref));
+      if (t) salida[nodo] = t;
+    }
+    return salida;
+  }, [porCopia]);
 
   const valor = useMemo<EstadoDiseno>(
     () => ({
@@ -380,6 +480,12 @@ export function DisenoProvider({
       setPiezaActiva,
       modoCaras,
       setModoCaras,
+      copiaActiva,
+      setCopiaActiva,
+      cambiarEspesor,
+      cambiarMaterial,
+      materialesPorCopia: porCopia,
+      copias: planchas.copias,
       carasReferidas,
       alternarCara,
       quitarCara,
@@ -390,10 +496,11 @@ export function DisenoProvider({
       material,
       grupo,
       elegirMaterial,
-      mostrarMaterial: setMaterial,
-      acomodo: planchas.acomodo,
+      mostrarMaterial,
+      gruposPlanchas: planchas.grupos,
       problemasMaterial: planchas.problemas,
       tinte,
+      tintes,
       costos,
     }),
     [
@@ -407,6 +514,10 @@ export function DisenoProvider({
       erroresCampo,
       piezaActiva,
       modoCaras,
+      copiaActiva,
+      cambiarEspesor,
+      cambiarMaterial,
+      porCopia,
       carasReferidas,
       alternarCara,
       quitarCara,
@@ -416,8 +527,10 @@ export function DisenoProvider({
       material,
       grupo,
       elegirMaterial,
+      mostrarMaterial,
       planchas,
       tinte,
+      tintes,
       costos,
     ],
   );

@@ -12,6 +12,7 @@
 
 import { clienteServidor } from "@/lib/supabase-servidor";
 import { mensajeDeError } from "@/lib/errores";
+import { leerMateriales, type MaterialesPorCopia } from "./materiales";
 import type { Json } from "@/lib/supabase-tipos";
 import { esquemaReferenciaCara, type ReferenciaCara } from "./caras";
 import type { DisenoCad, MaterialDiseno, ParametrosCad } from "./tipos";
@@ -278,8 +279,10 @@ export async function guardarVersionDiseno(entrada: {
   versionPlantilla?: number | null;
   /** Sin material, la versión hereda el de la anterior (lo hace la base). */
   material?: MaterialDiseno | null;
-  /** Foto del acomodo en planchas (`ResultadoAcomodo` de `lib/cad/acomodo.ts`). */
+  /** Foto del acomodo en planchas (`AcomodoGuardado` de `lib/cad/materiales.ts`). */
   acomodo?: Json | null;
+  /** El material propio de cada copia. Sin él (y sin material), se heredan los de la anterior. */
+  materiales?: MaterialesPorCopia | null;
 }): Promise<{ version: number }> {
   const supabase = await clienteServidor();
   const { data, error } = await supabase.rpc("guardar_version_diseno", {
@@ -291,9 +294,30 @@ export async function guardarVersionDiseno(entrada: {
     p_grupo_plancha_id: entrada.material?.grupoPlanchaId ?? undefined,
     p_color: entrada.material?.color ?? undefined,
     p_acomodo: entrada.acomodo ?? undefined,
+    p_materiales: entrada.materiales ? ({ porCopia: entrada.materiales } as unknown as Json) : undefined,
   });
   if (error) throw new Error(mensajeDeError(error));
   return { version: data };
+}
+
+/** El material propio de cada copia en la versión vigente. Vacío si no hay. */
+export async function obtenerMaterialesPorCopia(disenoId: string): Promise<MaterialesPorCopia> {
+  const supabase = await clienteServidor();
+  const { data: diseno, error } = await supabase
+    .from("cad_disenos")
+    .select("version_actual")
+    .eq("id", disenoId)
+    .maybeSingle();
+  if (error) throw new Error(`No se pudo leer el diseño: ${error.message}`);
+  if (!diseno || diseno.version_actual === 0) return {};
+  const { data, error: errorVersion } = await supabase
+    .from("cad_diseno_versiones")
+    .select("materiales")
+    .eq("diseno_id", disenoId)
+    .eq("version", diseno.version_actual)
+    .maybeSingle();
+  if (errorVersion) throw new Error(`No se pudo leer el material del diseño: ${errorVersion.message}`);
+  return leerMateriales(data?.materiales);
 }
 
 /** El material de la versión vigente de un diseño. `null` si no tiene. */

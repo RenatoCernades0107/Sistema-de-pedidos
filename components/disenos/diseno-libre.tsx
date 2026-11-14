@@ -14,11 +14,11 @@ import { useState } from "react";
 import { BadgeCheck, Box, Code, Download, LayoutGrid, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { aprobarDisenoLibre } from "@/app/(app)/disenos/acciones";
-import { aPlanchasMotor } from "@/lib/cad/acomodo";
 import { PLANTILLA_LIBRE, type ResultadoGeneracion, type VersionLibreCad } from "@/lib/cad/tipos";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useDiseno } from "./diseno-contexto";
+import { bajarDxfPlanchas, guardarArchivo as guardar } from "./dxf-planchas";
 
 /** El resultado de `/api/cad/libre` trae, además, la versión libre. */
 export function versionLibre(resultado: ResultadoGeneracion | null): VersionLibreCad | null {
@@ -102,61 +102,53 @@ export function DisenoLibre() {
   );
 }
 
-function guardar(blob: Blob, nombre: string) {
-  const url = URL.createObjectURL(blob);
-  const enlace = document.createElement("a");
-  enlace.href = url;
-  enlace.download = nombre;
-  document.body.appendChild(enlace);
-  enlace.click();
-  enlace.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
 /** Las descargas de un diseño libre: STEP siempre; DXF y DXF por plancha solo aprobado y sin errores. */
 export function DescargasLibre() {
-  const { resultado, cargando, disenoId, corte, acomodo, problemasMaterial } = useDiseno();
+  const { resultado, cargando, disenoId, corte, gruposPlanchas, problemasMaterial } = useDiseno();
   const [bajando, setBajando] = useState<"dxf" | "step" | "dxf-planchas" | null>(null);
   const libre = versionLibre(resultado);
   if (!resultado || !libre) return null;
 
   const errores = resultado.validaciones.filter((v) => v.nivel === "error").length;
   const sinAprobar = libre.estado !== "aprobado";
-  // El DXF por plancha necesita un material elegido en el que entre todo.
-  const sinPlanchas = !acomodo || acomodo.noCaben.length > 0 || problemasMaterial.length > 0;
+  // El DXF por plancha necesita materiales elegidos en los que entre todo.
+  const sinPlanchas =
+    gruposPlanchas.length === 0 ||
+    gruposPlanchas.some((g) => !g.acomodo || g.acomodo.noCaben.length > 0) ||
+    problemasMaterial.length > 0;
 
   async function descargar(formato: "dxf" | "step" | "dxf-planchas") {
-    if (bajando) return;
+    if (bajando || !resultado) return;
     setBajando(formato);
+    const base = `diseno-personalizado-v${libre?.version ?? ""}`;
+    if (formato === "dxf-planchas") {
+      await bajarDxfPlanchas({
+        resultado,
+        disenoId,
+        grupos: gruposPlanchas,
+        kerfMm: corte.kerfMm,
+        nombre: `${base}-planchas.dxf`,
+      });
+      setBajando(null);
+      return;
+    }
     try {
       // El código no viaja: el servidor lo lee de la versión vigente.
-      const res =
-        formato === "dxf-planchas"
-          ? await fetch("/api/cad/dxf-planchas", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                disenoId,
-                planchas: acomodo ? aPlanchasMotor(acomodo) : [],
-                opciones: { kerf_mm: corte.kerfMm },
-              }),
-            })
-          : await fetch("/api/cad/libre/descarga", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                disenoId,
-                formato,
-                ...(formato === "dxf" ? { opciones: { kerf_mm: corte.kerfMm } } : {}),
-              }),
-            });
+      const res = await fetch("/api/cad/libre/descarga", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          disenoId,
+          formato,
+          ...(formato === "dxf" ? { opciones: { kerf_mm: corte.kerfMm } } : {}),
+        }),
+      });
       if (!res.ok) {
         const cuerpo = (await res.json().catch(() => ({}))) as { error?: string };
         toast.error(cuerpo.error ?? "No se pudo generar el archivo.");
         return;
       }
-      const base = `diseno-personalizado-v${libre?.version ?? ""}`;
-      guardar(await res.blob(), formato === "dxf-planchas" ? `${base}-planchas.dxf` : `${base}.${formato}`);
+      guardar(await res.blob(), `${base}.${formato}`);
     } catch {
       toast.error("No se pudo descargar el archivo. Revisa tu conexión.");
     } finally {
@@ -186,7 +178,7 @@ export function DescargasLibre() {
         {bajando === "dxf" ? <Loader2 className="animate-spin" /> : <Download />}
         DXF
       </Button>
-      {acomodo && (
+      {gruposPlanchas.length > 0 && (
         <Button
           size="sm"
           variant="outline"

@@ -10,7 +10,7 @@ import { MousePointerClick, TriangleAlert } from "lucide-react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { describirCara, segmentarCaras, type CaraMalla, type ReferenciaCara } from "@/lib/cad/caras";
-import { medida, nodoAPieza } from "@/lib/cad/esquema";
+import { copiaDeNodo, medida, numeroDeNodo } from "@/lib/cad/esquema";
 import { cn } from "@/lib/utils";
 
 /**
@@ -36,11 +36,16 @@ interface Instancia {
   clave: string;
   /** El `id` de la pieza en el despiece, o `null` si el nodo no casa con ninguna. */
   pieza: string | null;
+  /** El nombre de la copia en el GLB (`lateral_2`): con él se le cambia espesor o material. */
+  nodo: string;
+  /** La pieza de la plantilla de la que salió (la misma `pieza` si no se separó por espesor). */
+  origen: string | null;
+  espesorMm: number | null;
   geometrias: THREE.BufferGeometry[];
   /** Las caras de cada geometría y, por triángulo, a cuál pertenece. */
   caras: { caras: CaraMalla[]; caraDeTriangulo: Int32Array }[];
   centro: THREE.Vector3;
-  /** Qué copia de su pieza es (1…de), en el orden del GLB. */
+  /** Qué copia de su pieza de origen es (1…de), por el número del nodo. */
   copia: number;
   de: number;
 }
@@ -76,16 +81,17 @@ function liberar(raiz: THREE.Object3D) {
 }
 
 /**
- * El nodo que representa a la pieza: el motor crea uno por instancia, pero una
- * pieza con varias primitivas llega como un nodo con mallas hijas. Se sube por
- * los ancestros hasta dar con un nombre que sea de una pieza.
+ * El nodo que representa a la copia de pieza: el motor crea uno por instancia,
+ * pero una pieza con varias primitivas llega como un nodo con mallas hijas. Se
+ * sube por los ancestros hasta dar con uno que sea de una pieza (por sus
+ * `extras`, que three deja en `userData`, o por su nombre).
  */
 function nodoDePieza(malla: THREE.Object3D, ids: readonly string[]) {
   for (let o: THREE.Object3D | null = malla; o; o = o.parent) {
-    const pieza = nodoAPieza(o.name, ids);
-    if (pieza) return { nodo: o, pieza };
+    const copia = copiaDeNodo(o.name, o.userData, ids);
+    if (copia) return { objeto: o, ...copia };
   }
-  return { nodo: malla, pieza: null };
+  return { objeto: malla, pieza: null, nodo: malla.name, origen: null, espesorMm: null };
 }
 
 function armarModelo(escena: THREE.Object3D, ids: readonly string[]): Modelo | null {
@@ -105,10 +111,13 @@ function armarModelo(escena: THREE.Object3D, ids: readonly string[]): Modelo | n
     }
     caja.union(geometria.boundingBox);
 
-    const { nodo, pieza } = nodoDePieza(o, ids);
-    const instancia = porNodo.get(nodo) ?? {
-      clave: nodo.uuid,
+    const { objeto, pieza, nodo, origen, espesorMm } = nodoDePieza(o, ids);
+    const instancia = porNodo.get(objeto) ?? {
+      clave: objeto.uuid,
       pieza,
+      nodo,
+      origen,
+      espesorMm,
       geometrias: [],
       caras: [],
       centro: new THREE.Vector3(),
@@ -116,23 +125,30 @@ function armarModelo(escena: THREE.Object3D, ids: readonly string[]): Modelo | n
       de: 1,
     };
     instancia.geometrias.push(geometria);
-    porNodo.set(nodo, instancia);
+    porNodo.set(objeto, instancia);
   });
 
   if (caja.isEmpty()) return null;
 
   const instancias = [...porNodo.values()];
-  const copias = new Map<string, number>();
+  // Las copias se cuentan por la pieza de origen y en el orden de su número:
+  // «Lateral, copia 2 de 2» sigue siéndolo aunque se haya separado por espesor.
+  const porOrigen = new Map<string, Instancia[]>();
   for (const i of instancias) {
     const propia = new THREE.Box3();
     for (const g of i.geometrias) propia.union(g.boundingBox!);
     propia.getCenter(i.centro);
     i.caras = i.geometrias.map((g) => segmentarCaras(g.getAttribute("position").array, g.index?.array));
-    const clave = i.pieza ?? i.clave;
-    i.copia = (copias.get(clave) ?? 0) + 1;
-    copias.set(clave, i.copia);
+    const clave = i.origen ?? i.pieza ?? i.clave;
+    porOrigen.set(clave, [...(porOrigen.get(clave) ?? []), i]);
   }
-  for (const i of instancias) i.de = copias.get(i.pieza ?? i.clave) ?? 1;
+  for (const grupo of porOrigen.values()) {
+    grupo.sort((a, b) => numeroDeNodo(a.nodo) - numeroDeNodo(b.nodo));
+    grupo.forEach((i, n) => {
+      i.copia = n + 1;
+      i.de = grupo.length;
+    });
+  }
 
   const esfera = caja.getBoundingSphere(new THREE.Sphere());
   return { instancias, caja, centro: esfera.center, radio: Math.max(esfera.radius, 1) };
@@ -321,6 +337,8 @@ function Pieza({
   instancia,
   desplazamiento,
   activa,
+  elegida,
+  tinte,
   tema,
   alEntrar,
   alSalir,
@@ -335,6 +353,10 @@ function Pieza({
   instancia: Instancia;
   desplazamiento: THREE.Vector3;
   activa: boolean;
+  /** La copia elegida para cambiarle espesor o material. */
+  elegida: boolean;
+  /** El color propio de la copia (su material); sin él, el del tema. */
+  tinte: TinteAcrilico | null;
   tema: Tema;
   alEntrar: () => void;
   alSalir: () => void;
@@ -384,9 +406,11 @@ function Pieza({
             otra según el orden en que se dibujen.
           */}
           <meshPhysicalMaterial
-            color={activa ? tema.activo : tema.acrilico}
+            color={activa || elegida ? tema.activo : (tinte?.color ?? tema.acrilico)}
             transparent
-            opacity={activa ? Math.max(0.7, tema.opacidad) : tema.opacidad}
+            opacity={
+              elegida ? 0.85 : activa ? Math.max(0.7, tinte?.opacidad ?? tema.opacidad) : (tinte?.opacidad ?? tema.opacidad)
+            }
             roughness={0.06}
             metalness={0}
             ior={1.49}
@@ -398,8 +422,8 @@ function Pieza({
           />
           <Edges
             threshold={20}
-            color={activa ? tema.aristaActiva : tema.arista}
-            lineWidth={activa ? 2 : 1}
+            color={activa || elegida ? tema.aristaActiva : tema.arista}
+            lineWidth={elegida ? 3 : activa ? 2 : 1}
           />
         </mesh>
       ))}
@@ -430,6 +454,9 @@ function Escena({
   explosion,
   piezaActiva,
   alCambiarPieza,
+  nodoActivo,
+  alElegirCopia,
+  tintes,
   tema,
   nombresPiezas,
   modoCaras,
@@ -440,6 +467,9 @@ function Escena({
   explosion: number;
   piezaActiva: string | null;
   alCambiarPieza?: (id: string | null) => void;
+  nodoActivo: string | null;
+  alElegirCopia?: (copia: CopiaElegida) => void;
+  tintes: Readonly<Record<string, TinteAcrilico>>;
   tema: Tema;
   nombresPiezas: Readonly<Record<string, string>>;
   modoCaras: boolean;
@@ -457,6 +487,7 @@ function Escena({
           (instancia.caras[g]?.caras ?? []).map((cara) =>
             describirCara(cara, geometria.getAttribute("position").array, geometria.index?.array, {
               id: instancia.pieza,
+              nodo: instancia.nodo,
               nombre: (instancia.pieza && nombresPiezas[instancia.pieza]) || instancia.pieza || "Pieza",
               copia: instancia.copia,
               de: instancia.de,
@@ -505,10 +536,24 @@ function Escena({
             instancia={instancia}
             desplazamiento={desplazamientos[n]}
             activa={instancia.pieza !== null && instancia.pieza === piezaActiva}
+            elegida={nodoActivo !== null && instancia.nodo === nodoActivo}
+            tinte={tintes[instancia.nodo] ?? null}
             tema={tema}
             alEntrar={() => alCambiarPieza?.(instancia.pieza)}
             alSalir={() => alCambiarPieza?.(null)}
-            alPulsar={() => alCambiarPieza?.(instancia.pieza)}
+            alPulsar={() => {
+              alCambiarPieza?.(instancia.pieza);
+              if (instancia.pieza && alElegirCopia) {
+                alElegirCopia({
+                  nodo: instancia.nodo,
+                  pieza: instancia.pieza,
+                  origen: instancia.origen ?? instancia.pieza,
+                  copia: instancia.copia,
+                  de: instancia.de,
+                  espesorMm: instancia.espesorMm,
+                });
+              }
+            }}
             modoCaras={modoCaras}
             clavesCaras={claves[n]}
             carasSeleccionadas={carasSeleccionadas}
@@ -552,6 +597,16 @@ function Escena({
   );
 }
 
+/** La copia de pieza que se tocó en el visor, para cambiarle espesor o material. */
+export interface CopiaElegida {
+  nodo: string;
+  pieza: string;
+  origen: string;
+  copia: number;
+  de: number;
+  espesorMm: number | null;
+}
+
 export interface PropsVisor3D {
   /** `resultado.glb_base64` del motor. */
   glbBase64: string;
@@ -563,6 +618,12 @@ export interface PropsVisor3D {
   alCambiarPieza?: (id: string | null) => void;
   /** El color del acrílico elegido; sin él, cristal. */
   tinte?: TinteAcrilico | null;
+  /** El color de cada copia con material propio, por nodo. */
+  tintes?: Readonly<Record<string, TinteAcrilico>>;
+  /** La copia elegida (su nodo), que se resalta. */
+  nodoActivo?: string | null;
+  /** Al tocar una pieza fuera del modo caras. Sin él, solo se resalta la pieza. */
+  alElegirCopia?: (copia: CopiaElegida | null) => void;
   /** El nombre de cada pieza por `id`, para describir las caras ("Base · cara superior"). */
   nombresPiezas?: Readonly<Record<string, string>>;
   /** Modo "seleccionar caras". Sin `alCambiarModoCaras` no se ofrece el botón. */
@@ -576,6 +637,7 @@ export interface PropsVisor3D {
 
 const SIN_NOMBRES: Readonly<Record<string, string>> = {};
 const SIN_CARAS: readonly string[] = [];
+const SIN_TINTES: Readonly<Record<string, TinteAcrilico>> = {};
 
 export default function Visor3D({
   glbBase64,
@@ -584,6 +646,9 @@ export default function Visor3D({
   piezaActiva = null,
   alCambiarPieza,
   tinte = null,
+  tintes = SIN_TINTES,
+  nodoActivo = null,
+  alElegirCopia,
   nombresPiezas = SIN_NOMBRES,
   modoCaras = false,
   alCambiarModoCaras,
@@ -620,7 +685,11 @@ export default function Visor3D({
           camera={{ fov: 35, near: 1, far: 100000, position: [600, 450, 750] }}
           gl={{ antialias: true, alpha: true }}
           // En modo caras, un clic al vacío no deshace lo señalado.
-          onPointerMissed={() => !modoCaras && alCambiarPieza?.(null)}
+          onPointerMissed={() => {
+            if (modoCaras) return;
+            alCambiarPieza?.(null);
+            alElegirCopia?.(null);
+          }}
           className={modoCaras ? "cursor-crosshair" : undefined}
           aria-label="Vista 3D del diseño"
           role="img"
@@ -630,6 +699,9 @@ export default function Visor3D({
             explosion={explosion}
             piezaActiva={piezaActiva}
             alCambiarPieza={alCambiarPieza}
+            nodoActivo={nodoActivo}
+            alElegirCopia={alElegirCopia}
+            tintes={tintes}
             tema={tema}
             nombresPiezas={nombresPiezas}
             modoCaras={modoCaras}

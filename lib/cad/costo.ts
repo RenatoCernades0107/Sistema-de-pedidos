@@ -27,6 +27,8 @@ export interface CostoDiseno {
   minutosLaser: number;
   /** El corte láser, con IGV si la configuración lo suma. */
   servicio: number;
+  /** El servicio sin el redondeo del total: para sumar varios grupos de plancha. */
+  servicioBruto: number;
   total: number;
   /** Si el costo no se puede usar tal cual, por qué. */
   problema: string | null;
@@ -112,6 +114,7 @@ export function costoDiseno(e: EntradaCostoDiseno): CostoDiseno | null {
     material,
     minutosLaser: laser.segundos / 60,
     servicio: redondear2(total - material),
+    servicioBruto,
     total: redondear2(total),
     problema,
   };

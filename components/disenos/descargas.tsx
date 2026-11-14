@@ -2,26 +2,13 @@
 
 import { useState } from "react";
 import { Box, Download, LayoutGrid, Loader2 } from "lucide-react";
-import { aPlanchasMotor } from "@/lib/cad/acomodo";
 import { toast } from "sonner";
 import { nombreArchivo } from "@/lib/cad/esquema";
 import { Button } from "@/components/ui/button";
 import { useDiseno } from "./diseno-contexto";
+import { bajarDxfPlanchas, guardarArchivo as guardar } from "./dxf-planchas";
 
 type Formato = "dxf" | "step" | "dxf-planchas";
-
-/** Hace que el navegador guarde unos bytes como si se hubiera pulsado un enlace de descarga. */
-function guardar(blob: Blob, nombre: string) {
-  const url = URL.createObjectURL(blob);
-  const enlace = document.createElement("a");
-  enlace.href = url;
-  enlace.download = nombre;
-  document.body.appendChild(enlace);
-  enlace.click();
-  enlace.remove();
-  // En el siguiente ciclo: Safari cancela la descarga si la URL se revoca antes.
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 
 /**
  * Las descargas del diseño vigente: el DXF del despiece para la cortadora y el
@@ -32,7 +19,7 @@ function guardar(blob: Blob, nombre: string) {
  * porque sirve para revisar el modelo, no para cortar.
  */
 export function Descargas() {
-  const { resultado, cargando, acomodo, problemasMaterial, corte } = useDiseno();
+  const { resultado, cargando, gruposPlanchas, problemasMaterial, corte, disenoId } = useDiseno();
   const [bajando, setBajando] = useState<Formato | null>(null);
 
   if (!resultado) return null;
@@ -43,6 +30,12 @@ export function Descargas() {
   async function descargar(formato: Formato) {
     if (!resultado || bajando) return;
     setBajando(formato);
+    if (formato === "dxf-planchas") {
+      const nombre = nombreArchivo(resultado.plantilla, resultado.dimensiones, "dxf").replace(/\.dxf$/, "-planchas.dxf");
+      await bajarDxfPlanchas({ resultado, disenoId, grupos: gruposPlanchas, kerfMm: corte.kerfMm, nombre });
+      setBajando(null);
+      return;
+    }
     try {
       const res = await fetch(`/api/cad/${formato}`, {
         method: "POST",
@@ -50,9 +43,6 @@ export function Descargas() {
         body: JSON.stringify({
           plantilla: resultado.plantilla,
           parametros: resultado.parametros,
-          ...(formato === "dxf-planchas" && acomodo
-            ? { planchas: aPlanchasMotor(acomodo), opciones: { kerf_mm: corte.kerfMm } }
-            : {}),
         }),
       });
       if (!res.ok) {
@@ -60,13 +50,7 @@ export function Descargas() {
         toast.error(cuerpo.error ?? "No se pudo generar el archivo.");
         return;
       }
-      const nombre = nombreArchivo(resultado.plantilla, resultado.dimensiones, "dxf");
-      guardar(
-        await res.blob(),
-        formato === "dxf-planchas"
-          ? nombre.replace(/\.dxf$/, "-planchas.dxf")
-          : nombreArchivo(resultado.plantilla, resultado.dimensiones, formato),
-      );
+      guardar(await res.blob(), nombreArchivo(resultado.plantilla, resultado.dimensiones, formato));
     } catch {
       toast.error("No se pudo descargar el archivo. Revisa tu conexión.");
     } finally {
@@ -74,8 +58,11 @@ export function Descargas() {
     }
   }
 
-  // El DXF por plancha necesita un material elegido en el que entre todo.
-  const sinPlanchas = !acomodo || acomodo.noCaben.length > 0 || problemasMaterial.length > 0;
+  // El DXF por plancha necesita materiales elegidos en los que entre todo.
+  const sinPlanchas =
+    gruposPlanchas.length === 0 ||
+    gruposPlanchas.some((g) => !g.acomodo || g.acomodo.noCaben.length > 0) ||
+    problemasMaterial.length > 0;
 
   // Mientras se regenera, lo que hay en pantalla ya no es lo que se bajaría.
   const ocupado = cargando || bajando !== null;
@@ -113,7 +100,7 @@ export function Descargas() {
         {bajando === "dxf" ? <Loader2 className="animate-spin" /> : <Download />}
         DXF de corte
       </Button>
-      {acomodo && (
+      {gruposPlanchas.length > 0 && (
         <Button
           size="sm"
           variant="outline"

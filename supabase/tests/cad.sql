@@ -31,7 +31,7 @@ begin
   if has_table_privilege('authenticated', 'public.cad_mensajes', 'update') then
     raise exception 'FALLO: un mensaje de la conversación se puede editar';
   end if;
-  if has_function_privilege('anon', 'public.guardar_version_diseno(uuid, text, jsonb, text, integer, uuid, text, jsonb)', 'execute') then
+  if has_function_privilege('anon', 'public.guardar_version_diseno(uuid, text, jsonb, text, integer, uuid, text, jsonb, jsonb)', 'execute') then
     raise exception 'FALLO: anon puede ejecutar guardar_version_diseno';
   end if;
 end $$;
@@ -123,6 +123,37 @@ begin
       perform public.guardar_version_diseno(
         v_diseno.id, 'caja', '{}'::jsonb, 'formulario', null, null, null, '[1]'::jsonb);
       raise exception 'FALLO: se aceptó un acomodo que no es un objeto';
+    exception when check_violation then null; end;
+
+    -- 2.2c El material propio de cada copia: se guarda, se hereda sin material
+    -- y manda cuando se pasa (aunque no se pase material).
+    v_version := public.guardar_version_diseno(
+      v_diseno.id, 'caja', '{"espesor": 3, "espesor@lateral_2": 5}'::jsonb, 'formulario', null,
+      (select id from public.grupos_plancha order by id limit 1), null, null,
+      '{"porCopia": {"lateral_1": {"material": "Acrílico", "variante": "Rojo", "detalle": "", "color": null}}}'::jsonb);
+    select * into v_fila from public.cad_diseno_versiones
+     where diseno_id = v_diseno.id and version = v_version;
+    if v_fila.materiales #>> '{porCopia,lateral_1,variante}' is distinct from 'Rojo'
+       or (v_fila.parametros ->> 'espesor@lateral_2')::numeric <> 5 then
+      raise exception 'FALLO: la versión no guardó el material por copia o el espesor por copia';
+    end if;
+    v_version := public.guardar_version_diseno(v_diseno.id, 'caja', '{"espesor": 3}'::jsonb, 'chat');
+    select * into v_fila from public.cad_diseno_versiones
+     where diseno_id = v_diseno.id and version = v_version;
+    if v_fila.materiales #>> '{porCopia,lateral_1,variante}' is distinct from 'Rojo' then
+      raise exception 'FALLO: la versión siguiente no heredó los materiales por copia';
+    end if;
+    v_version := public.guardar_version_diseno(
+      v_diseno.id, 'caja', '{"espesor": 3}'::jsonb, 'formulario', null, null, null, null, '{"porCopia": {}}'::jsonb);
+    select * into v_fila from public.cad_diseno_versiones
+     where diseno_id = v_diseno.id and version = v_version;
+    if v_fila.materiales -> 'porCopia' <> '{}'::jsonb or v_fila.grupo_plancha_id is null then
+      raise exception 'FALLO: los materiales por copia pasados no mandaron (o se perdió el material)';
+    end if;
+    begin
+      perform public.guardar_version_diseno(
+        v_diseno.id, 'caja', '{}'::jsonb, 'formulario', null, null, null, null, '{"porCopia": [1]}'::jsonb);
+      raise exception 'FALLO: se aceptaron materiales por copia que no son un objeto';
     exception when check_violation then null; end;
   else
     raise notice 'No hay grupos de plancha: se salta la prueba de material';
@@ -269,7 +300,7 @@ begin
   if has_table_privilege('authenticated', 'public.cad_diseno_versiones', 'update') then
     raise exception 'FALLO: una versión se puede actualizar sin pasar por aprobar_version_diseno';
   end if;
-  if has_function_privilege('anon', 'public.guardar_version_diseno_libre(uuid, text, text, uuid, text, jsonb)', 'execute')
+  if has_function_privilege('anon', 'public.guardar_version_diseno_libre(uuid, text, text, uuid, text, jsonb, jsonb)', 'execute')
      or has_function_privilege('anon', 'public.aprobar_version_diseno(uuid, integer)', 'execute') then
     raise exception 'FALLO: anon puede guardar o aprobar diseños libres';
   end if;

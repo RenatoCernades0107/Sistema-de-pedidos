@@ -25,6 +25,7 @@ import {
 } from "@/lib/cad/disenos-servidor";
 import { obtenerPlantilla } from "@/lib/cad/motor";
 import { aprobarVersionLibre, guardarMaterialLibre, obtenerVersionLibre } from "@/lib/cad/libre-servidor";
+import { esquemaMaterialesGuardados, type MaterialesPorCopia } from "@/lib/cad/materiales";
 import type { MaterialDiseno, ParametrosCad, VersionLibreCad } from "@/lib/cad/tipos";
 import type { Json } from "@/lib/supabase-tipos";
 
@@ -47,7 +48,8 @@ const esquemaPlantilla = z
 /** Solo valores planos, como los del esquema del motor (`docs/API_cad.md`). */
 const esquemaParametros = z
   .record(z.string().min(1).max(80), z.union([z.number(), z.boolean(), z.string().max(500)]))
-  .refine((p) => Object.keys(p).length <= 100, "El diseño tiene demasiados parámetros.");
+  // Además de los de la plantilla, un `espesor@<nodo>` por cada copia con espesor propio.
+  .refine((p) => Object.keys(p).length <= 300, "El diseño tiene demasiados parámetros.");
 
 /** Lo validado, o el primer problema dicho en una frase. */
 function validar<T>(esquema: z.ZodType<T>, valor: unknown): T {
@@ -86,9 +88,12 @@ const esquemaAcomodo = z
   .record(z.string(), z.unknown())
   .refine((a) => JSON.stringify(a).length <= 200_000, "El acomodo es demasiado grande.");
 
+/** El material propio de cada copia, por nodo. */
+const esquemaPorCopia = esquemaMaterialesGuardados.shape.porCopia;
+
 /**
  * Una versión nueva desde el formulario. Las del asistente las guarda el chat.
- * Sin `material`, la versión hereda el de la anterior.
+ * Sin `material` ni `materiales`, la versión hereda los de la anterior.
  */
 export async function guardarVersion(
   disenoId: string,
@@ -96,6 +101,7 @@ export async function guardarVersion(
   parametros: ParametrosCad,
   material?: MaterialDiseno | null,
   acomodo?: Record<string, unknown> | null,
+  materiales?: MaterialesPorCopia | null,
 ): Promise<{ version: number }> {
   await exigirCad();
 
@@ -107,7 +113,8 @@ export async function guardarVersion(
     parametros: validar(esquemaParametros, parametros),
     origen: "formulario",
     material: material ? validar(esquemaMaterial, material) : null,
-    acomodo: material && acomodo ? (validar(esquemaAcomodo, acomodo) as Json) : null,
+    acomodo: acomodo ? (validar(esquemaAcomodo, acomodo) as Json) : null,
+    materiales: materiales ? validar(esquemaPorCopia, materiales) : null,
   });
 
   // Hecho a mano sin pasar por el chat: el diseño toma el nombre de la plantilla.
@@ -131,16 +138,18 @@ export async function guardarVersion(
  */
 export async function guardarMaterialDisenoLibre(
   disenoId: string,
-  material: MaterialDiseno,
+  material: MaterialDiseno | null,
   acomodo?: Record<string, unknown> | null,
+  materiales?: MaterialesPorCopia | null,
 ): Promise<VersionLibreCad | null> {
   await exigirCad();
 
   const id = validar(esquemaId, disenoId);
   await guardarMaterialLibre({
     disenoId: id,
-    material: validar(esquemaMaterial, material),
+    material: material ? validar(esquemaMaterial, material) : null,
     acomodo: acomodo ? (validar(esquemaAcomodo, acomodo) as Json) : null,
+    materiales: materiales ? validar(esquemaPorCopia, materiales) : null,
     origen: "formulario",
   });
   return obtenerVersionLibre(id);

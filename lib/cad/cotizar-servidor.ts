@@ -8,6 +8,7 @@ import { clienteServidor } from "@/lib/supabase-servidor";
 import type { GrupoPlancha } from "@/lib/cortes/catalogo";
 import { PLANTILLA_LIBRE } from "./tipos";
 import type { DisenoParaCotizar } from "./cotizar";
+import type { AcomodoGrupoGuardado } from "./materiales";
 
 export type DisenoCotizable =
   | { ok: true; diseno: DisenoParaCotizar }
@@ -46,8 +47,25 @@ export async function disenoParaCotizar(
   }
 
   const acomodo = v.acomodo as { areaPiezasMm2?: unknown } | null;
-  const area =
+  let area =
     typeof acomodo?.areaPiezasMm2 === "number" ? acomodo.areaPiezasMm2 : null;
+  // Con piezas en otras planchas (material o espesor por copia), el área de la
+  // línea es la de la plancha del diseño y las demás se anotan.
+  const otrasPlanchas: { etiqueta: string; areaPiezasMm2: number }[] = [];
+  const v2 = v.acomodo as { version?: unknown; grupos?: unknown } | null;
+  if (v2?.version === 2 && Array.isArray(v2.grupos) && v2.grupos.length > 1) {
+    const grupos = (v2.grupos as AcomodoGrupoGuardado[]).filter((g) => typeof g?.areaPiezasMm2 === "number");
+    const propio =
+      grupos.find((g) => g.grupoPlanchaId === v.grupo_plancha_id && (g.color ?? null) === (v.color ?? null)) ??
+      grupos.find((g) => g.grupoPlanchaId === v.grupo_plancha_id) ??
+      null;
+    if (propio) {
+      area = propio.areaPiezasMm2;
+      for (const g of grupos) {
+        if (g !== propio) otrasPlanchas.push({ etiqueta: g.etiqueta, areaPiezasMm2: g.areaPiezasMm2 });
+      }
+    }
+  }
   return {
     ok: true,
     diseno: {
@@ -58,6 +76,7 @@ export async function disenoParaCotizar(
       areaPiezasMm2: area,
       grupo: catalogo.find((g) => g.id === v.grupo_plancha_id) ?? null,
       color: v.color,
+      ...(otrasPlanchas.length ? { otrasPlanchas } : {}),
     },
   };
 }

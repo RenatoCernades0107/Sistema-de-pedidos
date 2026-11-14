@@ -76,6 +76,8 @@ class EntradaPlancha(BaseModel):
 
     ancho_mm: float = Field(gt=0, le=10000)
     alto_mm: float = Field(gt=0, le=10000)
+    #: Rótulo de la plancha en el DXF («Cristal 3 mm»): solo referencia, no se corta.
+    etiqueta: str | None = Field(None, max_length=120)
     piezas: list[EntradaPiezaPlancha] = Field(default_factory=list, max_length=2000)
 
 
@@ -83,6 +85,8 @@ class OpcionesDxfPlanchas(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     kerf_mm: float = Field(0, ge=0, le=5)
+    #: Solo algunas planchas del diseño (un grupo de material y espesor): pueden faltar copias.
+    parcial: bool = False
 
 
 class SolicitudDxfPlanchas(SolicitudCodigo):
@@ -189,6 +193,7 @@ async def dxf(solicitud: SolicitudDxf) -> Response:
 async def dxf_planchas(solicitud: SolicitudDxfPlanchas) -> Response:
     opciones = {
         "kerf_mm": solicitud.opciones.kerf_mm,
+        "parcial": solicitud.opciones.parcial,
         "planchas": [p.model_dump() for p in solicitud.planchas],
     }
     r = await run_in_threadpool(ejecutar, solicitud.codigo, "dxf_planchas", opciones)

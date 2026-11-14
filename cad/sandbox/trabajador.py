@@ -207,11 +207,13 @@ def main() -> int:
                         )
                         for pp in p.get("piezas") or []
                     ],
+                    etiqueta=str(p["etiqueta"])[:120] if p.get("etiqueta") else None,
                 )
                 for p in opciones.get("planchas") or []
             ]
+            parcial = bool(opciones.get("parcial", False))
             try:
-                validar_planchas(diseno, planchas)
+                validar_planchas(diseno, planchas, parcial=parcial)
             except ErrorAcomodo as e:
                 # No es culpa del código: el acomodo no corresponde a estas piezas.
                 _escribir(
@@ -222,7 +224,9 @@ def main() -> int:
                     }
                 )
                 return 0
-            contenido = exportar_dxf_planchas(diseno, planchas, kerf_mm=float(opciones.get("kerf_mm", 0)))
+            contenido = exportar_dxf_planchas(
+                diseno, planchas, kerf_mm=float(opciones.get("kerf_mm", 0)), parcial=parcial
+            )
             with open("salida.bin", "wb") as f:
                 f.write(contenido)
             _escribir({"ok": True, "nombre": nombre})

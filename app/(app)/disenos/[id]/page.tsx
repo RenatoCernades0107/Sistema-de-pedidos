@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { exigirCad } from "@/lib/sesion";
-import { obtenerDiseno, obtenerMaterialDiseno } from "@/lib/cad/disenos-servidor";
+import { obtenerDiseno, obtenerMaterialDiseno, obtenerMaterialesPorCopia } from "@/lib/cad/disenos-servidor";
 import { cargarCatalogoPlanchas, cargarConfigCortes } from "@/lib/cortes-servidor";
 import type { GrupoPlancha } from "@/lib/cortes/catalogo";
 import { productosPorCodigo } from "@/lib/odoo/catalogos";
@@ -63,10 +63,11 @@ async function catalogo(conPrecios: boolean): Promise<{
 export default async function Page({ params }: PageProps<"/disenos/[id]">) {
   const perfil = await exigirCad();
   const { id } = await params;
-  const [diseno, { plantillas, aviso }, material, planchas] = await Promise.all([
+  const [diseno, { plantillas, aviso }, material, materiales, planchas] = await Promise.all([
     obtenerDiseno(id),
     plantillasDelMotor(),
     obtenerMaterialDiseno(id),
+    obtenerMaterialesPorCopia(id),
     catalogo(perfil.rol === "administracion"),
   ]);
   if (!diseno) notFound();
@@ -75,7 +76,7 @@ export default async function Page({ params }: PageProps<"/disenos/[id]">) {
     <DisenoProvider
       disenoId={diseno.id}
       plantillas={plantillas}
-      inicial={{ plantilla: diseno.plantilla, parametros: diseno.parametros, material }}
+      inicial={{ plantilla: diseno.plantilla, parametros: diseno.parametros, material, materiales }}
       catalogo={planchas.grupos}
       corte={{ kerfMm: planchas.kerfMm, margenMm: planchas.margenMm }}
       costos={planchas.costos}

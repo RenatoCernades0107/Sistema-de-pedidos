@@ -77,11 +77,18 @@ function deClave(k: string): { id: string; indice: number } {
   return { id: k.slice(0, i), indice: Number(k.slice(i + 1)) };
 }
 
+/**
+ * Una pieza para acomodar. `indices`: qué copias de la pieza son (las de un
+ * grupo de plancha cuando las copias van en materiales o espesores distintos);
+ * sin él, de la 1 a `cantidad`.
+ */
+export type PiezaAcomodo = PiezaCad & { indices?: number[] };
+
 /** Cada copia de cada pieza como un rectángulo del optimizador. */
-function copias(piezas: PiezaCad[], rotable: boolean): Pieza[] {
+function copias(piezas: PiezaAcomodo[], rotable: boolean): Pieza[] {
   return piezas.flatMap((p) =>
     Array.from({ length: p.cantidad }, (_, i) => ({
-      id: clave(p.id, i + 1),
+      id: clave(p.id, p.indices?.[i] ?? i + 1),
       ancho: p.ancho_mm,
       alto: p.alto_mm,
       rotable,
@@ -114,7 +121,7 @@ export function piezasQueNoEntran(
 
 /** Acomoda en un formato concreto. */
 export function acomodarEnFormato(
-  piezas: PiezaCad[],
+  piezas: PiezaAcomodo[],
   formato: FormatoAcomodo,
   opciones: OpcionesAcomodo,
 ): ResultadoAcomodo {
@@ -168,7 +175,7 @@ export function acomodarEnFormato(
  * área de plancha y, a igualdad, abre menos planchas. `null` sin formatos.
  */
 export function acomodar(
-  piezas: PiezaCad[],
+  piezas: PiezaAcomodo[],
   formatos: FormatoAcomodo[],
   opciones: OpcionesAcomodo,
 ): ResultadoAcomodo | null {

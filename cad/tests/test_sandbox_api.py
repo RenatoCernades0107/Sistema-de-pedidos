@@ -116,7 +116,7 @@ def test_dxf_planchas():
     doc = ezdxf.read(io.StringIO(r.content.decode("ascii")))
     capas = {e.dxf.layer for e in doc.modelspace()}
     assert {"PLANCHA", "CORTE", "GRABADO"} <= capas
-    assert len([e for e in doc.modelspace() if e.dxf.layer == "PLANCHA"]) == 4
+    assert len([e for e in doc.modelspace() if e.dxf.layer == "PLANCHA" and e.dxftype() == "LINE"]) == 4
 
 
 def test_dxf_planchas_acomodo_invalido():

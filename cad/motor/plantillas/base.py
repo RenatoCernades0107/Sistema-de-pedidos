@@ -21,7 +21,9 @@ Convenciones:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import math
+import re
+from dataclasses import dataclass, field, replace
 from functools import cached_property
 from typing import Any, Callable, ClassVar, Iterable, Sequence
 
@@ -42,6 +44,12 @@ FAMILIAS = (
 
 #: Decimales con los que se informan las medidas (milésima de mm).
 DECIMALES = 3
+
+#: Espesor propio de una copia de pieza: `"espesor@<nodo>": mm` en los parámetros.
+PREFIJO_ESPESOR = "espesor@"
+ESPESOR_MIN = 1.0
+ESPESOR_MAX = 30.0
+_CLAVE_ESPESOR = re.compile(r"^espesor@[a-z0-9_]{1,56}$")
 
 
 def redondear(valor: float) -> float:
@@ -160,10 +168,17 @@ class Pieza:
     ubicaciones: list[Location] = field(default_factory=lambda: [Location()])
     #: Trazos de grabado, en las mismas coordenadas XY del contorno.
     grabado: list[Edge] = field(default_factory=list)
+    #: Nombres de nodo de cada copia, si no son los de siempre (`<id>`, `<id>_<n>`).
+    #: Los lleva una pieza separada por espesor: sus copias conservan el nombre original.
+    nodos: list[str] | None = None
+    #: El id de la pieza de la plantilla de la que salió, si se separó por espesor.
+    origen: str | None = None
 
     def __post_init__(self) -> None:
         if not self.ubicaciones:
             raise ValueError(f"La pieza «{self.id}» no tiene ninguna ubicación.")
+        if self.nodos is not None and len(self.nodos) != len(self.ubicaciones):
+            raise ValueError(f"La pieza «{self.id}» tiene {len(self.ubicaciones)} ubicaciones y {len(self.nodos)} nodos.")
         if self.espesor_mm <= 0:
             raise ValueError(f"La pieza «{self.id}» tiene espesor no positivo.")
         self.contorno = orientar(self.contorno)
@@ -203,7 +218,9 @@ class Pieza:
         return Solid.extrude(self.contorno, Vector(0, 0, self.espesor_mm))
 
     def nombres_nodo(self) -> list[str]:
-        """`<id>` si va una vez; `<id>_<n>` (desde 1) si se repite."""
+        """`<id>` si va una vez; `<id>_<n>` (desde 1) si se repite; o los `nodos` explícitos."""
+        if self.nodos is not None:
+            return list(self.nodos)
         if self.cantidad == 1:
             return [self.id]
         return [f"{self.id}_{n}" for n in range(1, self.cantidad + 1)]
@@ -254,12 +271,130 @@ class Plantilla:
         return p
 
     def disenar(self, parametros: dict[str, Any] | None = None) -> "Diseno":
-        p = self.normalizar(parametros)
-        piezas = self.construir(p)
+        base, espesores = separar_espesores(parametros)
+        p = self.normalizar(base)
+        piezas, aplicados = aplicar_espesores(self.construir(p), espesores)
         ids = [pz.id for pz in piezas]
         if len(set(ids)) != len(ids):
             raise ValueError(f"La plantilla «{self.codigo}» repite ids de pieza: {ids}")
-        return Diseno(plantilla=self, parametros=p, piezas=piezas)
+        return Diseno(plantilla=self, parametros=p, piezas=piezas, espesores=aplicados)
+
+
+# --------------------------------------------------------------------------
+# Espesor por copia
+# --------------------------------------------------------------------------
+
+
+def separar_espesores(parametros: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, float]]:
+    """
+    Separa de los parámetros las claves `espesor@<nodo>` (el espesor propio de
+    una copia de pieza) y las valida. Devuelve (parámetros de la plantilla,
+    {nodo: mm}).
+    """
+    base: dict[str, Any] = {}
+    espesores: dict[str, float] = {}
+    errores: list[dict[str, str]] = []
+    for clave, valor in (parametros or {}).items():
+        if not isinstance(clave, str) or not clave.startswith(PREFIJO_ESPESOR):
+            base[clave] = valor
+            continue
+        if not _CLAVE_ESPESOR.match(clave):
+            errores.append({"campo": clave, "mensaje": "El nombre de la pieza no es válido."})
+            continue
+        if isinstance(valor, bool) or not isinstance(valor, (int, float)) or not math.isfinite(valor):
+            errores.append({"campo": clave, "mensaje": "Debe ser un número."})
+            continue
+        if not ESPESOR_MIN <= valor <= ESPESOR_MAX:
+            errores.append(
+                {"campo": clave, "mensaje": f"El espesor debe estar entre {ESPESOR_MIN:g} y {ESPESOR_MAX:g} mm."}
+            )
+            continue
+        espesores[clave[len(PREFIJO_ESPESOR) :]] = float(valor)
+    if errores:
+        raise ErrorParametros(errores)
+    return base, espesores
+
+
+def _sufijo_espesor(mm: float) -> str:
+    """`5` → `5mm`, `5.5` → `5_5mm`: va en el id de la pieza separada."""
+    return f"{redondear(mm):g}".replace(".", "_").replace("-", "") + "mm"
+
+
+def aplicar_espesores(
+    piezas: list[Pieza], espesores: dict[str, float]
+) -> tuple[list[Pieza], dict[str, float]]:
+    """
+    Aplica el espesor propio de cada copia (por nombre de nodo). Las copias de
+    una pieza que quedan con espesores distintos se separan en piezas aparte
+    (`<id>__5mm`), que conservan los nombres de nodo originales.
+
+    La copia engrosada conserva su cara interior (la que mira al centro del
+    conjunto) y crece hacia fuera; si es perpendicular a esa dirección (un
+    divisor), crece por igual a los dos lados. Las uniones con las piezas
+    vecinas no se reajustan.
+
+    Devuelve las piezas y los espesores que de verdad se aplicaron: los de
+    nodos que ya no existen o iguales al de la plantilla se descartan.
+    """
+    if not espesores:
+        return piezas, {}
+
+    centros: list[Vector] = []
+    for pieza in piezas:
+        x0, y0, x1, y1 = pieza.caja_plana
+        local = ((x0 + x1) / 2, (y0 + y1) / 2, pieza.espesor_mm / 2)
+        centros.extend(Plane(u).from_local_coords(local) for u in pieza.ubicaciones)
+    centro = sum(centros, Vector(0, 0, 0)) / max(len(centros), 1)
+    # La escala del conjunto, para que la tolerancia no dependa del tamaño.
+    radio = max((c - centro).length for c in centros) if centros else 1.0
+    tolerancia = max(radio, 1.0) * 1e-6
+
+    salida: list[Pieza] = []
+    aplicados: dict[str, float] = {}
+    for pieza in piezas:
+        nodos = pieza.nombres_nodo()
+        base = pieza.espesor_mm
+        grupos: dict[float, list[int]] = {}
+        for i, nodo in enumerate(nodos):
+            e = espesores.get(nodo, base)
+            if abs(e - base) < 1e-6:
+                e = base
+            else:
+                aplicados[nodo] = e
+            grupos.setdefault(e, []).append(i)
+        if len(grupos) == 1 and base in grupos:
+            salida.append(pieza)
+            continue
+
+        for n, (e, indices) in enumerate(grupos.items()):
+            ubicaciones = []
+            for i in indices:
+                u = pieza.ubicaciones[i]
+                delta = e - base
+                if abs(delta) > 1e-9:
+                    plano = Plane(u)
+                    x0, y0, x1, y1 = pieza.caja_plana
+                    propio = plano.from_local_coords(((x0 + x1) / 2, (y0 + y1) / 2, base / 2))
+                    hacia_centro = (centro - propio).dot(plano.z_dir)
+                    if hacia_centro > tolerancia:
+                        u = u * Location((0, 0, -delta))
+                    elif abs(hacia_centro) <= tolerancia:
+                        u = u * Location((0, 0, -delta / 2))
+                ubicaciones.append(u)
+            primera = n == 0
+            salida.append(
+                replace(
+                    pieza,
+                    id=pieza.id if primera else f"{pieza.id}__{_sufijo_espesor(e)}",
+                    nombre=pieza.nombre if e == base else f"{pieza.nombre} ({redondear(e):g} mm)",
+                    espesor_mm=e,
+                    ubicaciones=ubicaciones,
+                    nodos=[nodos[i] for i in indices],
+                    origen=pieza.origen or pieza.id,
+                    grabado=list(pieza.grabado),
+                )
+            )
+    return salida, dict(sorted(aplicados.items()))
 
 
 @dataclass
@@ -269,6 +404,8 @@ class Diseno:
     plantilla: Plantilla
     parametros: Parametros
     piezas: list[Pieza]
+    #: Los espesores propios que se aplicaron, por nombre de nodo.
+    espesores: dict[str, float] = field(default_factory=dict)
 
     @cached_property
     def instancias(self) -> list[Instancia]:
@@ -304,12 +441,17 @@ class Diseno:
                 "alto_mm": redondear(p.alto_mm),
                 "area_mm2": redondear(p.area_mm2),
                 "perimetro_mm": redondear(p.perimetro_mm),
+                "nodos": p.nombres_nodo(),
+                "origen": p.origen or p.id,
             }
             for p in self.piezas
         ]
 
     def parametros_normalizados(self) -> dict[str, Any]:
-        return self.parametros.model_dump(mode="json")
+        salida = self.parametros.model_dump(mode="json")
+        for nodo, mm in sorted(self.espesores.items()):
+            salida[f"{PREFIJO_ESPESOR}{nodo}"] = redondear(mm)
+        return salida
 
 
 # --------------------------------------------------------------------------

@@ -171,7 +171,9 @@ export function PanelChat(props: {
               case "diseno":
                 // La ruta ya guardó la versión: aquí solo se muestra.
                 // Si la herramienta eligió material, las pestañas Planchas y Costo lo muestran ya.
-                if (evento.material) mostrarMaterialRef.current(evento.material);
+                if (evento.material || evento.materiales) {
+                  mostrarMaterialRef.current(evento.material ?? null, evento.materiales);
+                }
                 void aplicarRef.current(evento.plantilla, evento.parametros, { guardar: false });
                 break;
               case "nombre":
