@@ -141,15 +141,20 @@ export function PanelChat(props: {
         } else {
           for await (const evento of leerEventos(res.body)) {
             switch (evento.tipo) {
+              case "razonamiento":
+                // Solo pensar no cuenta como "produjo": no se guarda en el servidor.
+                cambiar((m) => ({ ...m, razonamiento: (m.razonamiento ?? "") + evento.delta, pensando: true }));
+                break;
               case "texto":
                 produjo = true;
-                cambiar((m) => ({ ...m, contenido: m.contenido + evento.delta }));
+                cambiar((m) => ({ ...m, contenido: m.contenido + evento.delta, pensando: false }));
                 break;
               case "herramienta":
                 produjo = true;
                 if (evento.estado === "inicio") {
                   cambiar((m) => ({
                     ...m,
+                    pensando: false,
                     actividad: [...m.actividad, { nombre: evento.nombre, estado: "inicio", ok: true, resumen: "" }],
                   }));
                 } else {
@@ -194,10 +199,12 @@ export function PanelChat(props: {
 
       const detenido = control.signal.aborted;
 
+      // Sin texto ni herramientas el turno no se guardó: se quita aunque haya pensado.
       if (produjo) {
         // Lo que quedó a medias se deja, con sus herramientas cerradas.
         cambiar((m) => ({
           ...m,
+          pensando: false,
           actividad: m.actividad.map((a) =>
             a.estado === "inicio" ? { ...a, estado: "fin", ok: false, resumen: "Interrumpido" } : a,
           ),

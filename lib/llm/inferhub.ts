@@ -14,6 +14,10 @@
  * │     `stream: true` con SSE (`data: {...}` y `data: [DONE]`), `tools` y   │
  * │     `tool_calls` que llegan en trozos por `index`, imágenes como partes  │
  * │     `image_url`.                                                         │
+ * │   - el razonamiento ("pensamiento") se pide con `reasoning_effort` y     │
+ * │     llega en `delta.reasoning_content` (o `reasoning` / `thinking`),     │
+ * │     con los bloques firmados en `delta.thinking_blocks`, como lo hacen   │
+ * │     las pasarelas tipo LiteLLM/OpenRouter con modelos de Anthropic.      │
  * │ Si alguna no se cumple, lo que hay que tocar es `cuerpoDePeticion` y     │
  * │ `transmitirChat`; los tipos exportados no cambian.                       │
  * └──────────────────────────────────────────────────────────────────────────┘
@@ -36,9 +40,22 @@ export type LlamadaLlm = {
   argumentos: Record<string, unknown>;
 };
 
+/**
+ * Los bloques de razonamiento tal como los mandó el proveedor (con su firma).
+ * Opacos para la app: solo se devuelven al modelo en el turno siguiente del
+ * bucle de herramientas, que es lo que Anthropic exige con el pensamiento activo.
+ */
+export type BloqueRazonamiento = Record<string, unknown>;
+
 export type MensajeLlm =
   | { rol: "usuario"; contenido: string | ParteLlm[] }
-  | { rol: "asistente"; contenido: string; llamadas?: LlamadaLlm[] }
+  | {
+      rol: "asistente";
+      contenido: string;
+      llamadas?: LlamadaLlm[];
+      /** El razonamiento de ese turno, para devolverlo junto a sus llamadas. */
+      razonamiento?: { texto: string; bloques: BloqueRazonamiento[] };
+    }
   /**
    * El resultado de una llamada, que vuelve al modelo. `imagenes` (URLs o
    * `data:`) son para herramientas que devuelven algo que mirar, como un render.
@@ -57,6 +74,10 @@ export type MotivoFin = "fin" | "herramientas" | "longitud" | "filtro" | "otro";
 
 export type EventoLlm =
   | { tipo: "texto"; delta: string }
+  /** Un trozo más del razonamiento ("pensamiento") del modelo, antes de contestar. */
+  | { tipo: "razonamiento"; delta: string }
+  /** Los bloques de razonamiento firmados, enteros, justo antes de `fin`. */
+  | { tipo: "bloques_razonamiento"; bloques: BloqueRazonamiento[] }
   | {
       tipo: "llamada_herramienta";
       id: string;
@@ -72,6 +93,11 @@ export type PeticionChat = {
   sistema: string;
   mensajes: MensajeLlm[];
   herramientas?: HerramientaLlm[];
+  /**
+   * Pedirle que razone antes de contestar y transmitir ese razonamiento. Lo
+   * activa quien lo va a mostrar (el chat); un título no lo necesita.
+   */
+  razonamiento?: boolean;
   /** Para cortar la respuesta a medias: quien escucha se fue o pulsó "detener". */
   senal?: AbortSignal;
 };
@@ -126,6 +152,9 @@ function mensajeDeCable(m: MensajeLlm): Record<string, unknown> {
         role: "assistant",
         // Un turno que solo pide herramientas no trae texto.
         content: m.contenido || null,
+        ...(m.razonamiento?.bloques.length
+          ? { reasoning_content: m.razonamiento.texto, thinking_blocks: m.razonamiento.bloques }
+          : {}),
         tool_calls: m.llamadas.map((l) => ({
           id: l.id,
           type: "function",
@@ -170,6 +199,17 @@ function mensajesDeCable(mensajes: MensajeLlm[]): Record<string, unknown>[] {
   return salida;
 }
 
+const ESFUERZOS = new Set(["low", "medium", "high"]);
+
+/**
+ * Cuánto razona el modelo cuando se le pide: `INFERHUB_RAZONAMIENTO` = `low`,
+ * `medium` (por defecto) o `high`; `off` lo apaga del todo.
+ */
+function esfuerzoDeRazonamiento(): string | null {
+  const valor = process.env.INFERHUB_RAZONAMIENTO?.trim().toLowerCase() || "medium";
+  return ESFUERZOS.has(valor) ? valor : null;
+}
+
 /** El cuerpo de `POST /chat/completions`. Exportado para poder probarlo. */
 export function cuerpoDePeticion(peticion: PeticionChat, modelo: string): Record<string, unknown> {
   const cuerpo: Record<string, unknown> = {
@@ -177,6 +217,8 @@ export function cuerpoDePeticion(peticion: PeticionChat, modelo: string): Record
     stream: true,
     messages: [{ role: "system", content: peticion.sistema }, ...mensajesDeCable(peticion.mensajes)],
   };
+  const esfuerzo = peticion.razonamiento ? esfuerzoDeRazonamiento() : null;
+  if (esfuerzo) cuerpo.reasoning_effort = esfuerzo;
   if (peticion.herramientas?.length) {
     cuerpo.tools = peticion.herramientas.map((h) => ({
       type: "function",
@@ -335,6 +377,8 @@ export async function* transmitirChat(peticion: PeticionChat): AsyncGenerator<Ev
   // Las herramientas llegan en trozos: el primero trae id y nombre, los
   // siguientes solo más argumentos, y el `index` dice de cuál es cada uno.
   const llamadas = new Map<number, LlamadaEnCurso>();
+  // Los bloques firmados también llegan en trozos: texto y firma por separado.
+  const bloques = new Map<number, BloqueRazonamiento>();
   let motivo: MotivoFin | null = null;
 
   try {
@@ -347,6 +391,10 @@ export async function* transmitirChat(peticion: PeticionChat): AsyncGenerator<Ev
         choices?: {
           delta?: {
             content?: unknown;
+            reasoning_content?: unknown;
+            reasoning?: unknown;
+            thinking?: unknown;
+            thinking_blocks?: ({ index?: number } & Record<string, unknown>)[];
             tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[];
           };
           finish_reason?: string | null;
@@ -370,6 +418,25 @@ export async function* transmitirChat(peticion: PeticionChat): AsyncGenerator<Ev
       if (!opcion) continue;
 
       const delta = opcion.delta;
+      // Cada pasarela lo nombra a su manera; se toma el primero que venga.
+      const pensado = [delta?.reasoning_content, delta?.reasoning, delta?.thinking].find(
+        (v): v is string => typeof v === "string" && v.length > 0,
+      );
+      if (pensado) yield { tipo: "razonamiento", delta: pensado };
+      for (const [i, b] of (Array.isArray(delta?.thinking_blocks) ? delta.thinking_blocks : []).entries()) {
+        if (!b || typeof b !== "object") continue;
+        const indice = typeof b.index === "number" ? b.index : i;
+        const actual = bloques.get(indice) ?? {};
+        for (const [clave, valor] of Object.entries(b)) {
+          if (clave === "index") continue;
+          // Los textos (pensamiento, firma) se van juntando; lo demás se pisa.
+          actual[clave] =
+            typeof valor === "string" && typeof actual[clave] === "string" && clave !== "type"
+              ? actual[clave] + valor
+              : valor;
+        }
+        bloques.set(indice, actual);
+      }
       if (typeof delta?.content === "string" && delta.content) {
         yield { tipo: "texto", delta: delta.content };
       }
@@ -390,6 +457,9 @@ export async function* transmitirChat(peticion: PeticionChat): AsyncGenerator<Ev
 
   const pedidas = [...llamadas.entries()].sort(([a], [b]) => a - b).filter(([, l]) => l.nombre);
   for (const [indice, l] of pedidas) yield cerrarLlamada(l, indice);
+  if (bloques.size > 0) {
+    yield { tipo: "bloques_razonamiento", bloques: [...bloques.entries()].sort(([a], [b]) => a - b).map(([, b]) => b) };
+  }
 
   // Hay proveedores que piden herramientas y aun así cierran con "stop": si
   // pidió alguna, eso es lo que cuenta.
