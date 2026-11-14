@@ -89,6 +89,7 @@ export function VisorModeloCad({
   color,
   piezaActiva,
   alCambiarPieza,
+  alElegirPieza,
   className,
 }: {
   plantilla: string;
@@ -100,6 +101,8 @@ export function VisorModeloCad({
   color?: string | null;
   piezaActiva: string | null;
   alCambiarPieza: (id: string | null) => void;
+  /** Al hacer clic en una pieza del modelo (o en el vacío, con `null`). */
+  alElegirPieza?: (id: string | null) => void;
   className?: string;
 }) {
   const [abriendo, iniciarApertura] = useTransition();
@@ -155,6 +158,7 @@ export function VisorModeloCad({
             idsPiezas={resultado.piezas.map((p) => p.id)}
             piezaActiva={piezaActiva}
             alCambiarPieza={alCambiarPieza}
+            alElegirPieza={alElegirPieza}
             tinte={tinteDeColor(color)}
             className="h-full w-full"
           />

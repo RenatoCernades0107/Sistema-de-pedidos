@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Box, CircleAlert, Info, Plus, Trash2 } from "lucide-react";
 import {
   buscarGrupos,
@@ -43,6 +43,7 @@ import {
 import { cn } from "@/lib/utils";
 import { usePrecios } from "@/components/cortes/editor-corte";
 import { ArmadoCaja } from "@/components/terminados/armado-caja";
+import { SinModelo } from "@/components/terminados/sin-modelo";
 import { CortesTerminado } from "@/components/terminados/cortes-terminado";
 import {
   PiezasModeloCad,
@@ -137,14 +138,33 @@ function useEsAncho() {
   );
 }
 
-/** Marca, en la lista del catálogo, los productos que el motor de diseños todavía no dibuja. */
-function SinModelo() {
+/** Dónde se recuerda la última pestaña abierta, en este navegador. */
+const CLAVE_PESTANA = "editor-terminado:pestana";
+const PESTANAS_GUARDABLES: Pestana[] = ["producto", "piezas", "materiales"];
+
+function pestanaGuardada(): Pestana {
+  try {
+    const v = window.localStorage.getItem(CLAVE_PESTANA) as Pestana | null;
+    return v && PESTANAS_GUARDABLES.includes(v) ? v : "producto";
+  } catch {
+    return "producto";
+  }
+}
+
+function guardarPestana(p: Pestana) {
+  if (!PESTANAS_GUARDABLES.includes(p)) return;
+  try {
+    window.localStorage.setItem(CLAVE_PESTANA, p);
+  } catch {
+    // Sin almacenamiento (ventana privada, bloqueado): no se recuerda y ya.
+  }
+}
+
+/** Un aviso en una pestaña: algo de adentro necesita atención. */
+function Punto({ motivo }: { motivo: string }) {
   return (
-    <span
-      className="text-muted-foreground shrink-0 rounded-full border px-2 py-px text-[11px] font-normal"
-      title="Este producto todavía no cuenta con un modelo 3D estándar."
-    >
-      Sin 3D
+    <span className="bg-destructive inline-block size-1.5 shrink-0 rounded-full" title={motivo}>
+      <span className="sr-only">({motivo})</span>
     </span>
   );
 }
@@ -277,8 +297,16 @@ export function EditorTerminado({
   const modeloCad = useModeloCad(producto?.plantillaCad ?? null, parametrosCad);
   // Mientras el motor no conteste —o si no puede— las piezas son la estimación por forma.
   const conModeloCad = modeloCad.tipo === "listo";
-  const [piezaActiva, setPiezaActiva] = useState<string | null>(null);
-  const [pestana, setPestana] = useState<Pestana>("producto");
+  /** La pieza bajo el mouse (en el 3D o en la tabla) y la que se fijó con un clic en el 3D. */
+  const [piezaHover, setPiezaHover] = useState<string | null>(null);
+  const [piezaFijada, setPiezaFijada] = useState<string | null>(null);
+  const piezaActiva = piezaHover ?? piezaFijada;
+  const [pestana, setPestanaCruda] = useState<Pestana>(pestanaGuardada);
+  const setPestana = useCallback((p: Pestana) => {
+    setPestanaCruda(p);
+    guardarPestana(p);
+  }, []);
+  const panelPiezas = useRef<HTMLDivElement>(null);
   const esAncho = useEsAncho();
   /** Al abrir el buscador de accesorios, el cursor va directo a él. */
   const enfocar = useCallback((el: HTMLInputElement | null) => el?.focus(), []);
@@ -627,13 +655,47 @@ export function EditorTerminado({
       : (calculo.piezas?.reduce((n, p) => n + p.cantidad, 0) ?? 0);
 
   // En pantalla ancha el modelo ya está a la derecha: la pestaña "Modelo" no existe.
-  const pestanaVisible: Pestana = esAncho && pestana === "modelo" ? "producto" : pestana;
+  // Y Piezas y Materiales no se abren sin producto (la guardada puede ser una de ellas).
+  const pestanaVisible: Pestana =
+    (esAncho && pestana === "modelo") || (!conDatos && (pestana === "piezas" || pestana === "materiales"))
+      ? "producto"
+      : pestana;
+
+  /** Por qué Materiales necesita atención, si es que la necesita. */
+  const avisoMateriales = !conDatos
+    ? null
+    : estandar && !grupo
+      ? "Falta elegir el material"
+      : calculo.materiales.length === 0
+        ? "Sin material estimado"
+        : accesorios.some((a) => !(a.cantidad > 0))
+          ? "Un accesorio tiene cantidad cero"
+          : null;
+  const avisoPiezas =
+    modeloCad.tipo === "listo" && modeloCad.resultado.validaciones.some((v) => v.nivel === "error")
+      ? "El diseño tiene errores"
+      : null;
+
+  /** Clic en una pieza del 3D: queda marcada y, si hay lugar, se ve en la pestaña Piezas. */
+  const elegirPieza = useCallback(
+    (id: string | null) => {
+      setPiezaFijada(id);
+      if (id && esAncho) setPestana("piezas");
+    },
+    [esAncho, setPestana],
+  );
+  useEffect(() => {
+    if (!piezaFijada || pestanaVisible !== "piezas") return;
+    panelPiezas.current
+      ?.querySelector(`[data-pieza="${CSS.escape(piezaFijada)}"]`)
+      ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [piezaFijada, pestanaVisible]);
 
   /** Pestaña Piezas: el despiece del motor o, sin él, la estimación por forma. */
   const piezas = (
     <div className="flex flex-col gap-4">
       {conModeloCad ? (
-        <PiezasModeloCad resultado={modeloCad.resultado} piezaActiva={piezaActiva} alCambiarPieza={setPiezaActiva} />
+        <PiezasModeloCad resultado={modeloCad.resultado} piezaActiva={piezaActiva} alCambiarPieza={setPiezaHover} />
       ) : (
         <>
           {modeloCad.tipo === "cargando" && (
@@ -852,7 +914,8 @@ export function EditorTerminado({
       nombre={`${producto.codigo} ${producto.nombre}`}
       color={color || null}
       piezaActiva={piezaActiva}
-      alCambiarPieza={setPiezaActiva}
+      alCambiarPieza={setPiezaHover}
+      alElegirPieza={elegirPieza}
       className="flex-1"
     />
   );
@@ -894,9 +957,11 @@ export function EditorTerminado({
                   {conDatos && totalPiezas > 0 && (
                     <span className="text-muted-foreground tnum font-normal">{totalPiezas}</span>
                   )}
+                  {avisoPiezas && <Punto motivo={avisoPiezas} />}
                 </TabsTrigger>
                 <TabsTrigger value="materiales" disabled={!conDatos}>
                   Materiales
+                  {avisoMateriales && <Punto motivo={avisoMateriales} />}
                 </TabsTrigger>
               </TabsList>
             </div>
@@ -904,7 +969,7 @@ export function EditorTerminado({
               <TabsContent value="producto" keepMounted className="data-[hidden]:hidden">
                 {datos}
               </TabsContent>
-              <TabsContent value="piezas" keepMounted className="data-[hidden]:hidden">
+              <TabsContent value="piezas" keepMounted className="data-[hidden]:hidden" ref={panelPiezas}>
                 {piezas}
               </TabsContent>
               <TabsContent value="materiales" keepMounted className="data-[hidden]:hidden">

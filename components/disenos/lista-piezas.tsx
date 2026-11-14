@@ -64,6 +64,7 @@ export function ListaPiezas({
           return (
             <TableRow
               key={p.id}
+              data-pieza={p.id}
               data-state={activa ? "selected" : undefined}
               aria-selected={activa}
               tabIndex={0}

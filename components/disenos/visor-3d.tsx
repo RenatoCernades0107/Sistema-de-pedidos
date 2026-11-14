@@ -315,12 +315,14 @@ function Escena({
   explosion,
   piezaActiva,
   alCambiarPieza,
+  alElegirPieza,
   tema,
 }: {
   modelo: Modelo;
   explosion: number;
   piezaActiva: string | null;
   alCambiarPieza?: (id: string | null) => void;
+  alElegirPieza?: (id: string | null) => void;
   tema: Tema;
 }) {
   const { caja, centro, radio } = modelo;
@@ -362,7 +364,10 @@ function Escena({
             tema={tema}
             alEntrar={() => alCambiarPieza?.(instancia.pieza)}
             alSalir={() => alCambiarPieza?.(null)}
-            alPulsar={() => alCambiarPieza?.(instancia.pieza)}
+            alPulsar={() => {
+              alCambiarPieza?.(instancia.pieza);
+              alElegirPieza?.(instancia.pieza);
+            }}
           />
         ))}
       </group>
@@ -406,6 +411,8 @@ export interface PropsVisor3D {
   idsPiezas: readonly string[];
   piezaActiva?: string | null;
   alCambiarPieza?: (id: string | null) => void;
+  /** Al hacer clic en una pieza (o en el vacío, con `null`), aparte del resaltado por hover. */
+  alElegirPieza?: (id: string | null) => void;
   /** El color del acrílico elegido; sin él, cristal. */
   tinte?: TinteAcrilico | null;
   className?: string;
@@ -417,6 +424,7 @@ export default function Visor3D({
   idsPiezas,
   piezaActiva = null,
   alCambiarPieza,
+  alElegirPieza,
   tinte = null,
   className,
 }: PropsVisor3D) {
@@ -447,7 +455,10 @@ export default function Visor3D({
           dpr={[1, 2]}
           camera={{ fov: 35, near: 1, far: 100000, position: [600, 450, 750] }}
           gl={{ antialias: true, alpha: true }}
-          onPointerMissed={() => alCambiarPieza?.(null)}
+          onPointerMissed={() => {
+            alCambiarPieza?.(null);
+            alElegirPieza?.(null);
+          }}
           aria-label="Vista 3D del diseño"
           role="img"
         >
@@ -456,6 +467,7 @@ export default function Visor3D({
             explosion={explosion}
             piezaActiva={piezaActiva}
             alCambiarPieza={alCambiarPieza}
+            alElegirPieza={alElegirPieza}
             tema={tema}
           />
         </Canvas>
