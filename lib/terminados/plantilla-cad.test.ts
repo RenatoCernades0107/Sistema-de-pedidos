@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { leerParametrosCad, medidasAParametrosCad, parametrosCadDe } from "./plantilla-cad";
+import { leerParametrosCad, medidasAParametrosCad, medidasDeParametrosCad, parametrosCadDe } from "./plantilla-cad";
 
 describe("medidasAParametrosCad", () => {
   it("una caja de 20 × 15 × 10 cm va al motor en mm", () => {
@@ -50,5 +50,26 @@ describe("leerParametrosCad", () => {
     expect(leerParametrosCad(null)).toBeNull();
     expect(leerParametrosCad([1])).toBeNull();
     expect(leerParametrosCad({ largo: 200, con_tapa: true, x: { y: 1 } })).toEqual({ largo: 200, con_tapa: true });
+  });
+});
+
+describe("medidasDeParametrosCad", () => {
+  it("vuelve de los parámetros del motor (mm) a las medidas del catálogo (cm)", () => {
+    expect(medidasDeParametrosCad("caja", { largo: 300, ancho: 200, alto: 205, espesor: 3, con_tapa: true })).toEqual({
+      m1: 30,
+      m2: 20,
+      m3: 20.5,
+    });
+    expect(medidasDeParametrosCad("letras", { alto_letra: 150 })).toEqual({ altura: 15 });
+  });
+
+  it("es la inversa de medidasAParametrosCad", () => {
+    const medidas = { m1: 25, m2: 20, m3: 15 };
+    expect(medidasDeParametrosCad("display", medidasAParametrosCad("display", medidas))).toEqual(medidas);
+  });
+
+  it("sin plantilla conocida o sin valores, no da medidas", () => {
+    expect(medidasDeParametrosCad("libre", { largo: 300 })).toEqual({});
+    expect(medidasDeParametrosCad("caja", { largo: "300", ancho: 0 })).toEqual({});
   });
 });

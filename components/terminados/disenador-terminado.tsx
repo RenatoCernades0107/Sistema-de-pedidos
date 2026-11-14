@@ -5,7 +5,9 @@ import { createPortal } from "react-dom";
 import { ArrowLeft, Box, Info, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { disenoParaPedido, eliminarDiseno, renombrarDiseno } from "@/app/(app)/disenos/acciones";
-import { lineaDeDiseno } from "@/lib/cad/cotizar";
+import { lineaDeDiseno, type ExtrasLineaDiseno } from "@/lib/cad/cotizar";
+import { CONFIG_CORTES_DEFECTO } from "@/lib/cortes/config";
+import { formatosConPrecio, planchaDeReferencia } from "@/lib/terminados/calcular";
 import { valoresPorDefecto } from "@/lib/cad/esquema";
 import type { MaterialesPorCopia } from "@/lib/cad/materiales";
 import type { MaterialDiseno, ParametrosCad, PlantillaCad } from "@/lib/cad/tipos";
@@ -20,10 +22,10 @@ import {
   type ProductoEstandar,
 } from "@/lib/terminados/catalogo";
 import type { Medidas } from "@/lib/terminados/geometria";
-import { medidasAParametrosCad, parametrosCadDe } from "@/lib/terminados/plantilla-cad";
+import { medidasAParametrosCad, medidasDeParametrosCad, parametrosCadDe } from "@/lib/terminados/plantilla-cad";
 import { cn } from "@/lib/utils";
 import { DisenoProvider, useDiseno, type CostosDiseno } from "@/components/disenos/diseno-contexto";
-import { useBloqueoDiseno, useCostoDiseno } from "@/components/disenos/panel-costo";
+import { useBloqueoDiseno } from "@/components/disenos/panel-costo";
 import { VistaDiseno } from "@/components/disenos/vista-diseno";
 import {
   AlertDialog,
@@ -220,6 +222,7 @@ function Contenido({
             linea={linea}
             producto={producto}
             factor={terminados.tipos.find((t) => t.codigo === producto?.tipo)?.factor ?? 1}
+            config={terminados.config}
             nombre={nombre}
             alCancelar={cancelar}
             alAgregar={alAgregar}
@@ -396,6 +399,7 @@ function PieTerminado({
   linea,
   producto,
   factor,
+  config,
   nombre,
   alCancelar,
   alAgregar,
@@ -405,25 +409,68 @@ function PieTerminado({
   linea: LineaTerminado | null;
   producto: ProductoEstandar | null;
   factor: number;
+  config: CatalogoTerminados["config"];
   nombre: string | null;
   alCancelar: () => void;
   alAgregar: (terminado: TerminadoDeDiseno) => void;
 }) {
-  const { cargando, esperarGuardado, catalogo } = useDiseno();
-  const costo = useCostoDiseno();
+  const { cargando, esperarGuardado, catalogo, costos, grupo, resultado, plantilla, parametros } = useDiseno();
   const bloqueo = useBloqueoDiseno();
   const [cantidad, setCantidad] = useState(linea ? String(linea.cantidad) : "1");
   const [precio, setPrecio] = useState(linea ? String(linea.precioUnitario) : "");
+  const [reservar, setReservar] = useState(linea?.reservar ?? false);
   const [agregando, setAgregando] = useState(false);
 
   const unidades = Math.floor(Number(cantidad) || 0);
-  const costoUnidad = costo ? costo.total : null;
-  const sugerido = costoUnidad !== null ? Math.round(costoUnidad * (factor > 0 ? factor : 1) * 100) / 100 : null;
+
+  /*
+   * El material y el precio sugerido se estiman como los estimará el servidor al
+   * guardar: un producto del catálogo, por su forma y sus medidas; un diseño
+   * propio, por el área de sus piezas. Con la plancha más barata del material.
+   */
+  const extras = useMemo((): ExtrasLineaDiseno => {
+    const precios = new Map(
+      Object.entries(costos?.precios ?? {}).map(([codigo, p]) => [codigo, { productoId: 0, precio: p, nombre: codigo }]),
+    );
+    return {
+      cantidad: unidades,
+      reservar,
+      producto: producto
+        ? { codigo: producto.codigo, tipo: producto.tipo, nombre: producto.nombre, geometria: producto.geometria }
+        : null,
+      medidas: producto && plantilla ? medidasDeParametrosCad(plantilla, parametros) : {},
+      estimacion: {
+        plancha: grupo ? planchaDeReferencia(grupo.formatos, precios) : null,
+        formatos: grupo ? formatosConPrecio(grupo.formatos, precios) : [],
+        configCortes: costos?.config ?? CONFIG_CORTES_DEFECTO,
+        factor,
+        mermaPct: config.mermaPct,
+        anchoDeLetra: config.anchoDeLetra,
+      },
+    };
+  }, [costos, unidades, reservar, producto, plantilla, parametros, grupo, factor, config]);
+
+  const areaPiezasMm2 = resultado?.piezas.reduce((n, p) => n + p.area_mm2 * p.cantidad, 0) ?? null;
+  const previa = useMemo(
+    () =>
+      lineaDeDiseno(
+        { disenoId, nombre: nombre ?? "", version: 0, versionId: "", areaPiezasMm2, grupo, color: null },
+        extras,
+      ).calculo,
+    [disenoId, nombre, areaPiezasMm2, grupo, extras],
+  );
+
+  const costoUnidad = unidades > 0 && previa.costoMaterial > 0 ? Math.round((previa.costoMaterial / unidades) * 100) / 100 : null;
+  const sugerido = previa.precioSugerido > 0 ? previa.precioSugerido : null;
   const precioFinal = precio.trim() === "" ? sugerido : Number(precio.replace(",", "."));
   const precioValido = precioFinal !== null && Number.isFinite(precioFinal) && precioFinal >= 0;
   const margen =
     precioValido && costoUnidad !== null && precioFinal! > 0 ? (precioFinal! - costoUnidad) / precioFinal! : null;
   const subtotal = precioValido ? Math.round(unidades * precioFinal! * 100) / 100 : 0;
+  /** Lo que se reservaría, en palabras: "0.25 plancha F15E004". */
+  const aReservar = previa.materiales
+    .map((m) => `${m.cantidad} ${m.esPlancha ? (m.cantidad === 1 ? "plancha" : "planchas") : (m.unidad ?? "")} ${m.codigo ?? m.nombre}`.trim())
+    .join(", ");
 
   const falta =
     bloqueo ??
@@ -443,10 +490,10 @@ function PieTerminado({
       const titulo = (nombre ?? r.diseno.nombre).trim() || "Producto terminado";
       // Un diseño recién creado se llama "Diseño sin nombre": que en /disenos se reconozca.
       if (nuevo) void renombrarDiseno(disenoId, titulo).catch(() => {});
-      const grupo = catalogo.find((g) => g.id === r.diseno.grupo?.id) ?? r.diseno.grupo;
+      const grupoLinea = catalogo.find((g) => g.id === r.diseno.grupo?.id) ?? r.diseno.grupo;
       const base = lineaDeDiseno(
-        { ...r.diseno, grupo },
-        { cantidad: unidades, precioUnitario: precioFinal, nombre: titulo, tipoCodigo: producto?.tipo ?? null },
+        { ...r.diseno, grupo: grupoLinea },
+        { ...extras, precioUnitario: precioFinal, nombre: titulo, tipoCodigo: producto?.tipo ?? null },
       );
       alAgregar({
         ...base,
@@ -497,7 +544,7 @@ function PieTerminado({
             </button>
           </div>
         </div>
-        <div className={cn(celda, "hidden sm:flex")} title="Material y corte láser de una unidad.">
+        <div className={cn(celda, "hidden sm:flex")} title="El material de una unidad, con su merma.">
           <span className={etiqueta}>Costo/u</span>
           <span className="text-muted-foreground flex h-9 items-center text-sm tabular-nums" data-testid="costo-unidad">
             {costoUnidad !== null ? money(costoUnidad) : "—"}
@@ -507,8 +554,8 @@ function PieTerminado({
           <label htmlFor="terminado-precio" className={etiqueta}>
             Precio unitario
             {sugerido !== null && (
-              <Info className="text-muted-foreground size-3" aria-label={`Sugerido: costo × ${factor}`}>
-                <title>{`Sugerido: ${money(sugerido)} (costo × ${factor})`}</title>
+              <Info className="text-muted-foreground size-3" aria-label={`Sugerido: material × ${factor}`}>
+                <title>{`Sugerido: ${money(sugerido)} (material × ${factor})`}</title>
               </Info>
             )}
           </label>
@@ -540,8 +587,21 @@ function PieTerminado({
           </span>
         </div>
       </div>
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        {falta && <p className="text-muted-foreground mr-auto text-xs">{falta}</p>}
+      <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-2.5">
+        <div className="mr-auto flex min-w-0 flex-col gap-1">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={reservar}
+              onChange={(e) => setReservar(e.target.checked)}
+              className="accent-primary size-4"
+            />
+            Reservar este material en Odoo al confirmar el pedido
+          </label>
+          {(falta || (reservar && aReservar)) && (
+            <p className="text-muted-foreground text-xs">{falta ?? `Se reserva ${aReservar}.`}</p>
+          )}
+        </div>
         <Button type="button" variant="outline" onClick={alCancelar} className="max-sm:flex-1">
           Cancelar
         </Button>

@@ -51,6 +51,20 @@ export function medidasAParametrosCad(plantilla: string, medidas: Medidas): Para
 }
 
 /**
+ * Al revés: las medidas del catálogo (cm) que salen de los parámetros del motor
+ * (mm). Las usa el pedido para vender un diseño como el producto del catálogo
+ * con sus medidas reales (las de la ficha, la hoja de corte y la reserva).
+ */
+export function medidasDeParametrosCad(plantilla: string, parametros: ParametrosCad): Medidas {
+  const salida: Medidas = {};
+  for (const [campo, parametro] of Object.entries(MEDIDAS_DE_PLANTILLA[plantilla] ?? {})) {
+    const v = parametro ? parametros[parametro] : undefined;
+    if (typeof v === "number" && Number.isFinite(v) && v > 0) salida[campo as CampoCm] = Math.round((v / MM_POR_CM) * 10) / 10;
+  }
+  return salida;
+}
+
+/**
  * Los parámetros que se mandan al motor: los guardados del producto, con la
  * medida elegida, el espesor de la plancha y —en letras y letreros— el texto
  * del pedido encima.

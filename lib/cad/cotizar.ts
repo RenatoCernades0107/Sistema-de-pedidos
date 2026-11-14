@@ -11,7 +11,13 @@
 
 import { nombreDeGrupo, type GrupoPlancha } from "@/lib/cortes/catalogo";
 import type { LineaTerminado } from "@/lib/lineas-cotizacion";
-import { calcularTerminado } from "@/lib/terminados/calcular";
+import type { ConfigCortes } from "@/lib/cortes/config";
+import {
+  calcularTerminado,
+  type FormatoTerminado,
+  type PlanchaDeReferencia,
+} from "@/lib/terminados/calcular";
+import type { Geometria, Medidas } from "@/lib/terminados/geometria";
 
 export interface DisenoParaCotizar {
   disenoId: string;
@@ -40,13 +46,34 @@ function notasDeOtras(otras: DisenoParaCotizar["otrasPlanchas"]): string {
   return `También lleva piezas en: ${lista.join("; ")}.`.slice(0, 500);
 }
 
-/** Lo que el pedido ya sabe al agregar: cuántas, a cuánto y de qué tipo. */
+/**
+ * Lo que el pedido ya sabe al agregar: cuántas, a cuánto, si se reserva y, si
+ * el diseño salió de un producto del catálogo, cuál y con qué medidas.
+ */
 export interface ExtrasLineaDiseno {
   cantidad?: number;
   /** `null` o sin dar: el sugerido. */
   precioUnitario?: number | null;
   nombre?: string | null;
   tipoCodigo?: string | null;
+  /**
+   * El producto del catálogo del que sale el diseño. Con él la línea se vende
+   * como ese producto y el material se estima por su forma y `medidas` (su
+   * despiece va a la hoja de corte), como un producto estándar.
+   */
+  producto?: { codigo: string; tipo: string; nombre: string; geometria: Geometria } | null;
+  medidas?: Medidas;
+  /** Reservar el material estimado en Odoo al confirmar el pedido. */
+  reservar?: boolean;
+  /** Con qué se estima el material y el precio sugerido. Sin esto, no hay plancha: costo cero. */
+  estimacion?: {
+    plancha: PlanchaDeReferencia | null;
+    formatos?: FormatoTerminado[];
+    configCortes?: ConfigCortes;
+    factor: number;
+    mermaPct: number;
+    anchoDeLetra: number;
+  };
 }
 
 export function lineaDeDiseno(
@@ -54,28 +81,37 @@ export function lineaDeDiseno(
   extras: ExtrasLineaDiseno = {},
 ): Omit<LineaTerminado, "tipo" | "clave"> {
   const cantidad = extras.cantidad && extras.cantidad > 0 ? Math.floor(extras.cantidad) : 1;
+  const producto = extras.producto ?? null;
+  const medidas = producto ? (extras.medidas ?? {}) : {};
+  const geometria: Geometria = producto ? producto.geometria : "manual";
+  // Un producto del catálogo con medidas se estima por su forma; si no, por el área de las piezas.
+  const porForma = producto !== null && Object.keys(medidas).length > 0;
   const areaManualM2 =
-    d.areaPiezasMm2 && d.areaPiezasMm2 > 0
+    !porForma && d.areaPiezasMm2 && d.areaPiezasMm2 > 0
       ? Math.max(0.0001, redondear4(d.areaPiezasMm2 / 1e6))
       : null;
+  const e = extras.estimacion;
   const calculo = calcularTerminado({
-    geometria: "manual",
-    medidas: {},
+    geometria,
+    medidas,
     areaManualM2,
     cantidad,
-    plancha: null,
+    plancha: e?.plancha ?? null,
     accesorios: [],
-    factor: 1,
+    factor: e?.factor ?? 1,
     extras: [],
-    mermaPct: 0,
-    anchoDeLetra: 0,
+    mermaPct: e?.mermaPct ?? 0,
+    anchoDeLetra: e?.anchoDeLetra ?? 0,
+    formatos: e?.formatos,
+    configCortes: e?.configCortes,
+    espesorMm: d.grupo?.espesorMm,
   });
   return {
-    productoCodigo: null,
-    tipoCodigo: extras.tipoCodigo ?? null,
-    nombre: (extras.nombre ?? d.nombre).trim().slice(0, 160) || "Diseño CAD",
-    geometria: "manual",
-    medidas: {},
+    productoCodigo: producto?.codigo ?? null,
+    tipoCodigo: producto?.tipo ?? extras.tipoCodigo ?? null,
+    nombre: (producto?.nombre ?? extras.nombre ?? d.nombre).trim().slice(0, 160) || "Diseño CAD",
+    geometria,
+    medidas,
     grupoId: d.grupo?.id ?? null,
     materialTexto: d.grupo ? nombreDeGrupo(d.grupo) : "",
     color: d.color,
@@ -91,7 +127,7 @@ export function lineaDeDiseno(
       typeof extras.precioUnitario === "number" && extras.precioUnitario >= 0
         ? Math.round(extras.precioUnitario * 100) / 100
         : calculo.precioSugerido,
-    reservar: false,
+    reservar: extras.reservar ?? false,
     calculo,
   };
 }

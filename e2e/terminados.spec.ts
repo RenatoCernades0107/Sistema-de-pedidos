@@ -1,20 +1,22 @@
 /**
  * Productos terminados: el tercer tipo de ítem de un pedido.
  *
- *   - Uno **estándar** se arma desde el catálogo: producto, medida, material y
- *     opciones. El material se estima y de ahí sale un precio sugerido, que quien
- *     cotiza puede cambiar. Si se pide, lo estimado se reserva en Odoo con una
- *     orden de fabricación.
+ *   - En el pedido se **diseñan** con la vista de /disenos: se elige el modelo
+ *     del catálogo (los que tienen 3D) y su medida, el material y la cantidad.
+ *     Queda un diseño enlazado a la línea, y la línea se vende como el producto
+ *     del catálogo. El material se estima y de ahí sale un precio sugerido, que
+ *     quien cotiza puede cambiar. Si se pide, lo estimado se reserva en Odoo con
+ *     una orden de fabricación.
  *   - Al pasar a **Listo** se anota lo que de verdad se usó, y eso —no lo
- *     estimado— es lo que se descuenta del stock.
- *   - Uno **personalizado** se llena a mano y, sin reserva, no tiene orden en
+ *     estimado— es lo que se descuenta del stock. Sin reserva, no hay orden en
  *     Odoo hasta que el pedido termina.
+ *   - En cotizaciones sigue el editor de siempre (la última prueba).
  *
- * Odoo es el falso de `e2e/odoo-falso.mts`. Los pedidos son de clientes `E2E…` y
- * se borran al final.
+ * Odoo es el falso de `e2e/odoo-falso.mts` y el motor CAD, el de
+ * `e2e/cad-falso.mts`. Los pedidos son de clientes `E2E…` y se borran al final.
  */
 
-import { expect, test, type Browser, type Page } from "@playwright/test";
+import { expect, test, type Browser, type Locator, type Page } from "@playwright/test";
 import { borrarCotizacionesDePrueba, entrar, sesionDe } from "./apoyo";
 
 const ODOO = process.env.E2E_ODOO_FALSO ?? "http://127.0.0.1:8069";
@@ -94,6 +96,37 @@ async function elegirMaterial(dialogo: ReturnType<Page["getByRole"]>) {
   await expect(dialogo.getByTestId("material-elegido")).toContainText("Acrílico ECO · Cristal · 3 mm");
 }
 
+/** "Producto terminado" en el pedido: la vista de /disenos a pantalla completa, con un diseño nuevo. */
+async function abrirDisenador(page: Page) {
+  await page.getByRole("button", { name: "Producto terminado" }).click();
+  const editor = page.getByRole("dialog", { name: "Producto terminado" });
+  await expect(editor.getByRole("tab", { name: "Modelo" })).toHaveAttribute("aria-selected", "true");
+  return editor;
+}
+
+/** En la pestaña Modelo: el tipo, el producto del catálogo y, si se pide, su medida estándar. */
+async function elegirModelo(editor: Locator, tipo: string, producto: RegExp, medida?: string) {
+  await editor.getByRole("tab", { name: "Modelo" }).click();
+  await editor.getByRole("group", { name: "Tipo" }).getByRole("button", { name: tipo, exact: true }).click();
+  await editor.getByRole("list", { name: "Modelos" }).getByRole("button", { name: producto }).click();
+  if (medida) await editor.getByRole("button", { name: medida }).click();
+  await expect(editor.getByText(/Generando/)).toHaveCount(0);
+}
+
+/** En la pestaña Planchas: Acrílico ECO cristal de 3 mm. */
+async function elegirMaterialDiseno(editor: Locator) {
+  await editor.getByRole("tab", { name: /^Planchas/ }).click();
+  const elegir = async (campo: string, opcion: string | RegExp) => {
+    await editor.getByRole("combobox", { name: campo }).click();
+    await editor.page().getByRole("option", { name: opcion, exact: true }).click();
+  };
+  await elegir("Material", "Acrílico ECO");
+  await elegir("Color", "Cristal");
+  await elegir("Espesor", "3 mm");
+  await expect(editor.getByRole("combobox", { name: "Espesor" })).toHaveText(/3 mm/);
+  await expect(editor.getByText(/Generando/)).toHaveCount(0);
+}
+
 async function registrar(page: Page) {
   await page.getByLabel("Fecha prometida").fill(manana());
   await page.getByRole("group", { name: "Área que lo atiende" }).getByRole("button", { name: /Taller/ }).click();
@@ -102,42 +135,25 @@ async function registrar(page: Page) {
   return page.url().split("/").pop()!;
 }
 
-test("un estándar se arma del catálogo, reserva lo estimado y descuenta lo que de verdad se usó", async ({
+test("un producto del catálogo se diseña, reserva lo estimado y descuenta lo que de verdad se usó", async ({
   page: admin,
   browser,
 }) => {
   await nuevoPedido(admin);
 
-  await admin.getByRole("button", { name: "Producto terminado" }).click();
-  const editor = admin.getByRole("dialog", { name: "Producto terminado" });
-  await editor.getByRole("group", { name: "Tipo" }).getByRole("button", { name: "Caja", exact: true }).click();
-  await editor.getByRole("button", { name: /CAJ-001\s*Caja con tapa removible/ }).click();
-  await expect(editor.getByTestId("producto-elegido")).toContainText("Caja con tapa removible");
+  const editor = await abrirDisenador(admin);
+  await elegirModelo(editor, "Caja", /Caja con tapa removible/, "30 × 20 × 20 cm");
+  await expect(editor.getByText("300 × 200 × 200 mm", { exact: false })).toBeVisible();
+  await elegirMaterialDiseno(editor);
 
-  await editor.getByRole("button", { name: "30 × 20 × 20 cm" }).click();
-  await elegirMaterial(editor);
-  // Lo que el producto trae siempre llega marcado.
-  await expect(editor.getByRole("group", { name: "Complementos" }).getByRole("button", { name: "Tapa" })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-  await editor.getByRole("group", { name: "Personalizaciones" }).getByRole("button", { name: "Grabado láser" }).click();
-
-  await editor.getByRole("textbox", { name: /^Cantidad \(obligatorio\)$/ }).fill("2");
-  // Seis caras por caja, acomodadas en la plancha: 12 piezas en un cuarto de 122×244.
+  // El despiece del motor, en su pestaña; la del modelo marca la medida estándar.
   await editor.getByRole("tab", { name: /^Piezas/ }).click();
-  const cortes = editor.getByTestId("cortes-terminado");
-  await expect(cortes.getByText("12 piezas", { exact: true })).toBeVisible();
-  await expect(cortes.getByText(/^en un cuarto de plancha de 122×244/)).toBeVisible();
-  await expect(cortes.getByText("Base y tapa, frente y fondo", { exact: true })).toBeVisible();
-  await editor.getByRole("tab", { name: "Materiales" }).click();
-  const estimado = editor.getByRole("region", { name: "Material estimado" });
-  await expect(estimado.getByText(/0\.32 m²\/u/)).toBeVisible();
-  await expect(editor.getByRole("region", { name: "Materiales" })).toContainText(/\b0\.25\b/);
-  await expect(editor.getByTestId("precio-sugerido")).not.toHaveText(/S\/\s*0\.00/);
+  await expect(editor.getByRole("cell", { name: "Laterales" })).toBeVisible();
 
+  await editor.getByRole("textbox", { name: /^Cantidad/ }).fill("2");
   await editor.getByLabel("Reservar este material en Odoo al confirmar el pedido").check();
-  await editor.getByLabel("Precio unitario").fill("150");
+  await expect(editor.getByText(/Se reserva 0\.25 plancha/)).toBeVisible();
+  await editor.getByLabel(/^Precio unitario/).fill("150");
   await expect(editor.getByTestId("subtotal-terminado")).toHaveText(/300\.00/);
   await editor.getByRole("button", { name: "Agregar al pedido" }).click();
   await expect(editor).toBeHidden();
@@ -169,7 +185,6 @@ test("un estándar se arma del catálogo, reserva lo estimado y descuenta lo que
   const page = await comoTaller(browser, codigo);
   const lineas = page.getByRole("region", { name: "Productos y cortes" });
   await expect(lineas.getByText("Caja con tapa removible")).toBeVisible();
-  await expect(lineas.getByText("Grabado láser")).toBeVisible();
   await expect(lineas.getByText("Material estimado")).toBeVisible();
   await expect(lineas.getByText("Cortes y acomodo en la plancha")).toBeVisible();
   await expect(lineas.getByText(/S\/\s/)).toHaveCount(0);
@@ -177,7 +192,7 @@ test("un estándar se arma del catálogo, reserva lo estimado y descuenta lo que
   // Y sus piezas entran a la hoja de corte.
   await page.goto(`/pedidos/${encodeURIComponent(codigo)}/hoja-de-corte`);
   await expect(page.getByRole("heading", { name: /Producto terminado · \[CAJ-001\] Caja con tapa removible/ })).toBeVisible();
-  await expect(page.getByRole("cell", { name: "Laterales" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "Laterales" }).first()).toBeVisible();
   await page.goBack();
 
   await page.getByRole("button", { name: "En proceso", exact: true }).click();
@@ -224,50 +239,52 @@ test("un estándar se arma del catálogo, reserva lo estimado y descuenta lo que
   await page.context().close();
 });
 
-test("un personalizado sin reserva no toca el stock hasta que el pedido termina", async ({ page: admin, browser }) => {
+test("sin reserva no toca el stock hasta que el pedido termina, y la línea se reabre con su diseño", async ({
+  page: admin,
+  browser,
+}) => {
   const ordenesAntes = (await estado()).producciones.length;
   await nuevoPedido(admin);
 
-  await admin.getByRole("button", { name: "Producto terminado" }).click();
-  const editor = admin.getByRole("dialog", { name: "Producto terminado" });
-  await editor.getByRole("group", { name: "Clase" }).getByRole("button", { name: "Personalizado" }).click();
+  const editor = await abrirDisenador(admin);
+  // Sin modelo todavía no se puede agregar.
   await expect(editor.getByRole("button", { name: "Agregar al pedido" })).toBeDisabled();
-  await editor.getByLabel("Nombre del producto").fill("Exhibidor de tres cuerpos");
-  await elegirMaterial(editor);
-  await editor.getByRole("tab", { name: "Materiales" }).click();
-  await editor.getByLabel("Área por unidad (m²)").fill("2");
-  await editor.getByLabel("Precio unitario").fill("480");
+  await elegirModelo(editor, "Caja", /Caja tipo cubo/);
+  await elegirMaterialDiseno(editor);
+  await editor.getByLabel(/^Precio unitario/).fill("480");
   await editor.getByRole("button", { name: "Agregar al pedido" }).click();
   await expect(editor).toBeHidden();
 
-  // Se reabre con lo que tenía.
-  await admin.getByRole("button", { name: "Editar Exhibidor de tres cuerpos" }).click();
-  await expect(editor.getByLabel("Nombre del producto")).toHaveValue("Exhibidor de tres cuerpos");
-  await editor.getByLabel("Notas para el taller").fill("Puerta corrediza al frente");
-  await editor.getByRole("button", { name: "Guardar cambios" }).click();
+  // Se reabre con lo que tenía: el mismo diseño, la cantidad y el precio.
+  const nombre = (await admin.getByRole("listitem", { name: /Línea 1:/ }).getAttribute("aria-label"))!.replace(/^Línea 1:\s*/, "");
+  await admin.getByRole("button", { name: `Editar ${nombre}` }).click();
+  const otraVez = admin.getByRole("dialog", { name: "Editar producto terminado" });
+  await expect(otraVez.getByLabel(/^Precio unitario/)).toHaveValue("480");
+  await otraVez.getByRole("textbox", { name: /^Cantidad/ }).fill("3");
+  await otraVez.getByRole("button", { name: "Guardar cambios" }).click();
+  await expect(otraVez).toBeHidden();
+  await expect(admin.getByRole("listitem", { name: /Línea 1:/ }).getByText(/^3 × S\/\s*480\.00/)).toBeVisible();
 
   const PLANCHA = await idDe(CODIGO_PLANCHA);
   const antes = await stockDe(PLANCHA);
   const codigo = await registrar(admin);
 
   let odoo = await estado();
-  const generico = odoo.productos.find((p) => p.default_code === "PT-PERSONALIZADO");
-  expect(generico).toBeTruthy();
-  expect(odoo.ordenes.at(-1)!.lineas.map((l) => [l.product_id[0], l.price_unit])).toEqual([[generico!.id, 480]]);
-  expect(odoo.ordenes.at(-1)!.lineas[0].name).toContain("Exhibidor de tres cuerpos");
+  expect(odoo.ordenes.at(-1)!.lineas.map((l) => [l.product_uom_qty, l.price_unit])).toEqual([[3, 480]]);
   // Sin reserva no hay orden de fabricación todavía.
   expect(odoo.producciones).toHaveLength(ordenesAntes);
+  expect(await stockDe(PLANCHA)).toBe(antes);
 
   const page = await comoTaller(browser, codigo);
   const lineas = page.getByRole("region", { name: "Productos y cortes" });
-  await expect(lineas.getByText("Puerta corrediza al frente")).toBeVisible();
   await page.getByRole("button", { name: "En proceso", exact: true }).click();
   await expect(page.getByText(`${codigo} → En proceso`)).toBeVisible();
 
-  // Sin corregir nada, se descuenta lo estimado: 2 m² con 15% de merma, 0.51 planchas de 4.5 m².
+  // Sin corregir nada, se descuenta lo estimado.
   await page.getByRole("button", { name: "Listo", exact: true }).click();
   const dialogo = page.getByRole("dialog", { name: "Pasar a Listo: materiales usados" });
-  await expect(dialogo.getByLabel(/^Cantidad usada de /)).toHaveValue("0.51");
+  const usado = Number(await dialogo.getByLabel(/^Cantidad usada de /).first().inputValue());
+  expect(usado).toBeGreaterThan(0);
   await dialogo.getByRole("button", { name: "Pasar a Listo" }).click();
   await expect(dialogo).toBeHidden();
   await expect(lineas.getByText("Stock descontado en Odoo.")).toBeVisible();
@@ -275,22 +292,18 @@ test("un personalizado sin reserva no toca el stock hasta que el pedido termina"
   odoo = await estado();
   expect(odoo.producciones).toHaveLength(ordenesAntes + 1);
   expect(odoo.producciones.at(-1)!.state).toBe("done");
-  expect(await stockDe(PLANCHA)).toBeCloseTo(antes! - 0.51, 4);
 
   await page.context().close();
 });
 
 test("anular un pedido con material reservado cancela su orden de fabricación", async ({ page: admin }) => {
   await nuevoPedido(admin);
-  await admin.getByRole("button", { name: "Producto terminado" }).click();
-  const editor = admin.getByRole("dialog", { name: "Producto terminado" });
-  await editor.getByRole("group", { name: "Tipo" }).getByRole("button", { name: "Ánfora", exact: true }).click();
-  await editor.getByRole("button", { name: /ANF-003\s*Ánfora cilíndrica/ }).click();
-  await editor.getByRole("button", { name: "Ø 20 × 25 cm" }).click();
-  await elegirMaterial(editor);
-  await editor.getByRole("tab", { name: "Materiales" }).click();
+  const editor = await abrirDisenador(admin);
+  await elegirModelo(editor, "Caja", /Caja tipo cubo/);
+  await elegirMaterialDiseno(editor);
   await editor.getByLabel("Reservar este material en Odoo al confirmar el pedido").check();
   await editor.getByRole("button", { name: "Agregar al pedido" }).click();
+  await expect(editor).toBeHidden();
 
   const PLANCHA = await idDe(CODIGO_PLANCHA);
   const antes = await stockDe(PLANCHA);

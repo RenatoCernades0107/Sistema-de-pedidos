@@ -10,6 +10,10 @@ const PUERTO_ODOO_FALSO = 8069;
 const ODOO_FALSO = `http://127.0.0.1:${PUERTO_ODOO_FALSO}`;
 process.env.E2E_ODOO_FALSO ??= ODOO_FALSO;
 
+/** Dónde escucha el motor CAD falso: los productos terminados se diseñan con él. */
+const PUERTO_CAD_FALSO = 8091;
+const CAD_FALSO = `http://127.0.0.1:${PUERTO_CAD_FALSO}`;
+
 export default defineConfig({
   testDir: "./e2e",
   /* Baja la marca de "cambia tu contraseña" a las tres cuentas del seed. Sin
@@ -47,6 +51,15 @@ export default defineConfig({
       reuseExistingServer: true,
       timeout: 30_000,
     },
+    /* Un motor CAD de mentira (`e2e/cad-falso.mts`): plantillas y despiece sin el
+       servicio Python de `cad/`. */
+    {
+      command: `node e2e/cad-falso.mts`,
+      url: `${CAD_FALSO}/__estado`,
+      env: { CAD_FALSO_PUERTO: String(PUERTO_CAD_FALSO) },
+      reuseExistingServer: true,
+      timeout: 30_000,
+    },
     {
       command: "npm run dev",
       url: process.env.E2E_URL ?? "http://localhost:3000",
@@ -61,6 +74,8 @@ export default defineConfig({
         ODOO_DB: "e2e-odoo-falso",
         ODOO_USERNAME: "e2e@plexiacril.test",
         ODOO_PASSWORD: "clave-del-odoo-falso",
+        CAD_API_BASE_URL: CAD_FALSO,
+        CAD_API_KEY: "",
       },
     },
   ],
