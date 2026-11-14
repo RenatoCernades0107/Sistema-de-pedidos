@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { Check, LoaderCircle, TriangleAlert } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Brain, Check, ChevronRight, LoaderCircle, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TextoAgente } from "@/components/cotizaciones/texto-agente";
 import type { ReferenciaCara } from "@/lib/cad/caras";
@@ -22,6 +22,10 @@ export interface MensajeChat {
   actividad: ActividadChat[];
   /** Las caras del visor que la persona señaló con este mensaje. */
   referencias?: ReferenciaCara[];
+  /** Lo que el modelo pensó en este turno. Solo en vivo: no se guarda. */
+  razonamiento?: string;
+  /** Lo último que llegó fue razonamiento: está pensando ahora mismo. */
+  pensando?: boolean;
 }
 
 /** Cómo se dice cada herramienta mientras corre y cuando acabó. */
@@ -64,6 +68,46 @@ function FichaActividad({ actividad }: { actividad: ActividadChat }) {
   );
 }
 
+/**
+ * El razonamiento del modelo. Abierto mientras piensa —se lee según llega— y
+ * se pliega solo cuando empieza a contestar; se puede volver a abrir.
+ */
+function Razonamiento({ texto, pensando }: { texto: string; pensando: boolean }) {
+  // `null`: la persona no lo ha tocado y manda el estado del turno.
+  const [abiertoAMano, setAbiertoAMano] = useState<boolean | null>(null);
+  const abierto = abiertoAMano ?? pensando;
+  const cajaRef = useRef<HTMLDivElement>(null);
+
+  // Dentro de la caja también se sigue lo último que escribió.
+  useEffect(() => {
+    const caja = cajaRef.current;
+    if (caja && pensando) caja.scrollTop = caja.scrollHeight;
+  }, [texto, pensando]);
+
+  return (
+    <div className="text-muted-foreground min-w-0 text-xs">
+      <button
+        type="button"
+        onClick={() => setAbiertoAMano(!abierto)}
+        aria-expanded={abierto}
+        className="hover:text-foreground flex items-center gap-1.5 transition-colors"
+      >
+        <Brain className={cn("size-3.5 shrink-0", pensando && "animate-pulse")} />
+        <span>{pensando ? "Pensando…" : "Pensamiento"}</span>
+        <ChevronRight className={cn("size-3 shrink-0 transition-transform", abierto && "rotate-90")} />
+      </button>
+      {abierto && (
+        <div
+          ref={cajaRef}
+          className="border-border mt-1.5 max-h-60 overflow-y-auto border-l-2 pl-3 leading-relaxed break-words whitespace-pre-wrap italic"
+        >
+          {texto}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ChatMensajes({
   mensajes,
   enviando,
@@ -83,7 +127,14 @@ export function ChatMensajes({
   // Sigue el texto según llega: el largo del último mensaje cambia con cada trozo.
   useEffect(() => {
     finRef.current?.scrollIntoView({ block: "end" });
-  }, [mensajes.length, ultimo?.contenido.length, ultimo?.actividad.length, enviando, error]);
+  }, [
+    mensajes.length,
+    ultimo?.contenido.length,
+    ultimo?.razonamiento?.length,
+    ultimo?.actividad.length,
+    enviando,
+    error,
+  ]);
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4" aria-live="polite">
@@ -113,6 +164,9 @@ export function ChatMensajes({
 
           return (
             <div key={m.id} className="flex max-w-[85%] min-w-0 flex-col gap-1.5 self-start">
+              {m.razonamiento && (
+                <Razonamiento texto={m.razonamiento} pensando={escribiendo && !!m.pensando} />
+              )}
               {m.actividad.length > 0 && (
                 <ul className="flex flex-wrap gap-1.5">
                   {m.actividad.map((a, j) => (
@@ -126,7 +180,7 @@ export function ChatMensajes({
                   <TextoAgente texto={m.contenido} />
                 </div>
               )}
-              {escribiendo && !m.contenido && !ocupado && (
+              {escribiendo && !m.contenido && !ocupado && !m.razonamiento && (
                 <div className="bg-muted text-muted-foreground self-start rounded-xl px-3.5 py-2 text-sm">
                   Pensando…
                 </div>
