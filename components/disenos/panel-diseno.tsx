@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Descargas } from "./descargas";
+import { EditorCopia } from "./editor-copia";
 import { DescargasLibre, DisenoLibre, InsigniaLibre } from "./diseno-libre";
 import { PLANTILLA_LIBRE } from "@/lib/cad/tipos";
 import { useDiseno } from "./diseno-contexto";
@@ -126,9 +127,12 @@ export function PanelDiseno({ avisoMotor }: { avisoMotor?: string | null }) {
     carasReferidas,
     alternarCara,
     aplicar,
-    acomodo,
+    gruposPlanchas,
     problemasMaterial,
     tinte,
+    tintes,
+    copiaActiva,
+    setCopiaActiva,
   } = useDiseno();
   const [cambiando, setCambiando] = useState(false);
   const [pestana, setPestana] = useState("parametros");
@@ -177,6 +181,9 @@ export function PanelDiseno({ avisoMotor }: { avisoMotor?: string | null }) {
             piezaActiva={piezaActiva}
             alCambiarPieza={setPiezaActiva}
             tinte={tinte}
+            tintes={tintes}
+            nodoActivo={copiaActiva}
+            alElegirCopia={(c) => setCopiaActiva(c?.nodo ?? null)}
             nombresPiezas={nombresPiezas}
             modoCaras={modoCaras}
             alCambiarModoCaras={setModoCaras}
@@ -190,6 +197,7 @@ export function PanelDiseno({ avisoMotor }: { avisoMotor?: string | null }) {
             Todavía no hay un modelo que mostrar.
           </p>
         )}
+        {resultado && !modoCaras && <EditorCopia />}
         {cargando && resultado && (
           <span
             role="status"
@@ -234,8 +242,10 @@ export function PanelDiseno({ avisoMotor }: { avisoMotor?: string | null }) {
               Planchas
               {problemasMaterial.length > 0 ? (
                 <span className="text-destructive tabular-nums">{problemasMaterial.length}</span>
-              ) : acomodo ? (
-                <span className="text-muted-foreground tabular-nums">{acomodo.planchas.length}</span>
+              ) : gruposPlanchas.length > 0 ? (
+                <span className="text-muted-foreground tabular-nums">
+                  {gruposPlanchas.reduce((s, g) => s + (g.acomodo?.planchas.length ?? 0), 0)}
+                </span>
               ) : null}
             </TabsTrigger>
             <TabsTrigger value="costo">Costo</TabsTrigger>

@@ -127,6 +127,7 @@ export type Database = {
           estado: string
           grupo_plancha_id: string | null
           id: string
+          materiales: Json | null
           origen: string
           parametros: Json
           plantilla: string
@@ -145,6 +146,7 @@ export type Database = {
           estado?: string
           grupo_plancha_id?: string | null
           id?: string
+          materiales?: Json | null
           origen: string
           parametros?: Json
           plantilla: string
@@ -163,6 +165,7 @@ export type Database = {
           estado?: string
           grupo_plancha_id?: string | null
           id?: string
+          materiales?: Json | null
           origen?: string
           parametros?: Json
           plantilla?: string
@@ -2152,6 +2155,7 @@ export type Database = {
           p_color?: string
           p_diseno_id: string
           p_grupo_plancha_id?: string
+          p_materiales?: Json
           p_origen?: string
         }
         Returns: number
@@ -2162,6 +2166,7 @@ export type Database = {
           p_color?: string
           p_diseno_id: string
           p_grupo_plancha_id?: string
+          p_materiales?: Json
           p_origen: string
           p_parametros: Json
           p_plantilla: string

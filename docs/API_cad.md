@@ -62,7 +62,9 @@ Salida:
       "ancho_mm": 200,
       "alto_mm": 150,
       "area_mm2": 30000,
-      "perimetro_mm": 700
+      "perimetro_mm": 700,
+      "nodos": ["base"],
+      "origen": "base"
     }
   ],
   "validaciones": [
@@ -73,11 +75,33 @@ Salida:
 
 - `glb_base64`: glTF binario del conjunto armado. Un nodo por instancia de
   pieza, con nombre `<id>` o `<id>_<n>` si la pieza se repite. Unidades y ejes
-  los del estándar glTF (metros, Y arriba).
+  los del estándar glTF (metros, Y arriba). Cada nodo lleva en `extras`
+  `{ pieza, origen, nodo, espesor_mm }`: el `id` de su pieza en el despiece, la
+  pieza de la plantilla de la que salió, su nombre de nodo y su espesor.
 - `piezas`: despiece plano. `ancho_mm` × `alto_mm` es la caja envolvente de la
-  pieza acostada; `cantidad` agrupa las idénticas.
+  pieza acostada; `cantidad` agrupa las idénticas. `nodos`: el nombre en el GLB
+  de cada copia (en el orden de `indice`); `origen`: la pieza de la plantilla.
 - `validaciones`: `nivel` es `"error"` o `"aviso"`. Con algún `error` el diseño
   no se debe exportar a producción.
+
+### Espesor por copia
+Cualquier plantilla acepta, además de sus parámetros, `"espesor@<nodo>": mm`
+(1 a 30): el espesor propio de una copia de pieza, por su nombre de nodo
+(`"espesor@lateral_2": 5`). El motor lo aplica después de construir la
+plantilla:
+
+- La copia conserva su cara interior (la que mira al centro del conjunto) y
+  crece hacia fuera; si es perpendicular a esa dirección (un divisor), crece
+  por igual a los dos lados. Las uniones con las piezas vecinas no se reajustan.
+- Si las copias de una pieza quedan con espesores distintos, se separan en el
+  despiece: las que difieren de la copia 1 forman la pieza `<id>__<e>mm`
+  (`lateral__5mm`, `lateral__5_5mm`), con nombre «Lateral (5 mm)». Los nombres
+  de nodo del GLB no cambian.
+- `parametros` devuelve solo los que se aplicaron: los de nodos que ya no
+  existen o iguales al espesor de la plantilla se descartan.
+- Validaciones: un aviso `espesor_cambiado` por pieza; `dimensiones_no_coinciden`
+  pasa a aviso (el conjunto cambia de medidas a propósito).
+- Un valor fuera de rango o una clave mal formada: 422 con `campo` = la clave.
 
 ## `POST /dxf`
 Entrada: la de `/generar` más `"opciones": { "kerf_mm": 0, "separacion_mm": 5 }`
@@ -92,11 +116,12 @@ catálogo (el acomodo lo calcula la app, `lib/cad/acomodo.ts`). Entrada: la de
 
 ```json
 {
-  "opciones": { "kerf_mm": 0.2 },
+  "opciones": { "kerf_mm": 0.2, "parcial": false },
   "planchas": [
     {
       "ancho_mm": 1220,
       "alto_mm": 1830,
+      "etiqueta": "Acrílico ECO · Cristal · 3 mm",
       "piezas": [ { "id": "base", "indice": 1, "x_mm": 0, "y_mm": 1680, "rotada": false } ]
     }
   ]
@@ -108,6 +133,11 @@ catálogo (el acomodo lo calcula la app, `lib/cad/acomodo.ts`). Entrada: la de
   la pieza ya girada, en coordenadas de la plancha (origen abajo a la
   izquierda, Y hacia arriba, como el DXF).
 - `rotada`: girada 90° en sentido antihorario.
+- `etiqueta` (opcional): el rótulo de la plancha en el DXF (`TEXT` en la capa
+  `PLANCHA`, debajo: «Plancha 1 - …»). Sin ella, el espesor.
+- `parcial`: solo las planchas de un grupo (un material y espesor): pueden
+  faltar copias. Sin él, tienen que estar todas.
+- En una plancha todas las piezas tienen que ser del mismo espesor.
 
 Devuelve `application/dxf` (R12, mm): cada plancha en la capa `PLANCHA`
 (color 8), una al lado de la otra y separadas 50 mm como en

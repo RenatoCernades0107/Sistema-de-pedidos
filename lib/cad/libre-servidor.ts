@@ -13,6 +13,7 @@
 
 import { clienteServidor } from "@/lib/supabase-servidor";
 import { mensajeDeError } from "@/lib/errores";
+import type { MaterialesPorCopia } from "./materiales";
 import type { Json } from "@/lib/supabase-tipos";
 import type { MaterialDiseno, VersionLibreCad } from "./tipos";
 
@@ -68,8 +69,10 @@ export async function guardarVersionLibre(entrada: {
   codigo: string;
   origen?: "chat" | "formulario";
   material?: MaterialDiseno | null;
-  /** Foto del acomodo en planchas (`ResultadoAcomodo` de `lib/cad/acomodo.ts` + `kerfMm`). */
+  /** Foto del acomodo en planchas (`AcomodoGuardado` de `lib/cad/materiales.ts`). */
   acomodo?: Json | null;
+  /** El material propio de cada copia. Sin él (y sin material), se heredan los de la anterior. */
+  materiales?: MaterialesPorCopia | null;
 }): Promise<{ version: number }> {
   const supabase = await clienteServidor();
   const { data, error } = await supabase.rpc("guardar_version_diseno_libre", {
@@ -79,6 +82,7 @@ export async function guardarVersionLibre(entrada: {
     p_grupo_plancha_id: entrada.material?.grupoPlanchaId ?? undefined,
     p_color: entrada.material?.color ?? undefined,
     p_acomodo: entrada.acomodo ?? undefined,
+    p_materiales: entrada.materiales ? ({ porCopia: entrada.materiales } as unknown as Json) : undefined,
   });
   if (error) throw new Error(mensajeDeError(error));
   return { version: data };
@@ -90,8 +94,9 @@ export async function guardarVersionLibre(entrada: {
  */
 export async function guardarMaterialLibre(entrada: {
   disenoId: string;
-  material: MaterialDiseno;
+  material: MaterialDiseno | null;
   acomodo: Json | null;
+  materiales?: MaterialesPorCopia | null;
   origen?: "chat" | "formulario";
 }): Promise<{ version: number }> {
   const libre = await obtenerVersionLibre(entrada.disenoId);
@@ -102,6 +107,7 @@ export async function guardarMaterialLibre(entrada: {
     origen: entrada.origen ?? "formulario",
     material: entrada.material,
     acomodo: entrada.acomodo,
+    materiales: entrada.materiales,
   });
 }
 

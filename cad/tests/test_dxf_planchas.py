@@ -39,7 +39,7 @@ def test_cada_pieza_en_su_sitio_y_planchas_separadas():
     capas = {c.dxf.name: c.dxf.color for c in doc.layers}
     assert capas["PLANCHA"] == 8 and capas["CORTE"] == 1 and capas["GRABADO"] == 3
 
-    marcos = [e for e in doc.modelspace() if e.dxf.layer == "PLANCHA"]
+    marcos = [e for e in doc.modelspace() if e.dxf.layer == "PLANCHA" and e.dxftype() == "LINE"]
     assert len(marcos) == 4 * len(planchas)
     despiece = {pz["id"]: pz for pz in diseno.despiece()}
     for i, plancha in enumerate(planchas):

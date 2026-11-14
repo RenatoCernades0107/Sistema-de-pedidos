@@ -54,6 +54,14 @@ export type PiezaCad = {
   alto_mm: number;
   area_mm2: number;
   perimetro_mm: number;
+  /**
+   * El nombre en el GLB de cada copia (`lateral_1`, `lateral_2`; `base` si va
+   * una vez). Una copia con espesor propio sale como pieza aparte
+   * (`lateral__5mm`) y conserva su nombre de nodo. Motores viejos no lo mandan.
+   */
+  nodos?: string[];
+  /** El id de la pieza de la plantilla de la que salió (el mismo `id` si no se separó). */
+  origen?: string;
 };
 
 export type ValidacionCad = {
@@ -103,10 +111,13 @@ export type PiezaEnPlanchaCad = {
 export type PlanchaAcomodadaCad = {
   ancho_mm: number;
   alto_mm: number;
+  /** Rótulo de la plancha en el DXF («Acrílico ECO · Cristal · 3 mm»). */
+  etiqueta?: string;
   piezas: PiezaEnPlanchaCad[];
 };
 
-export type OpcionesDxfPlanchas = { kerf_mm?: number };
+/** `parcial`: solo las planchas de un grupo (material y espesor): pueden faltar copias. */
+export type OpcionesDxfPlanchas = { kerf_mm?: number; parcial?: boolean };
 
 /** El material elegido para un diseño: un grupo del catálogo y, si pide, un color. */
 export type MaterialDiseno = {

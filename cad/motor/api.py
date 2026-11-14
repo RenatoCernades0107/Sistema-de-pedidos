@@ -83,6 +83,8 @@ class EntradaPlancha(BaseModel):
 
     ancho_mm: float = Field(gt=0, le=10000)
     alto_mm: float = Field(gt=0, le=10000)
+    #: Rótulo de la plancha en el DXF («Cristal 3 mm»): solo referencia, no se corta.
+    etiqueta: str | None = Field(None, max_length=120)
     piezas: list[EntradaPiezaPlancha] = Field(default_factory=list)
 
 
@@ -90,6 +92,8 @@ class OpcionesDxfPlanchas(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     kerf_mm: float = Field(0, ge=0, le=5)
+    #: Solo algunas planchas del diseño (un grupo de material y espesor): pueden faltar copias.
+    parcial: bool = False
 
 
 class SolicitudDxfPlanchas(Solicitud):
@@ -280,14 +284,18 @@ def dxf_planchas(solicitud: SolicitudDxfPlanchas) -> Response:
             ancho_mm=p.ancho_mm,
             alto_mm=p.alto_mm,
             piezas=[PiezaEnPlancha(pp.id, pp.indice, pp.x_mm, pp.y_mm, pp.rotada) for pp in p.piezas],
+            etiqueta=p.etiqueta,
         )
         for p in solicitud.planchas
     ]
+    parcial = solicitud.opciones.parcial
     try:
-        validar_planchas(diseno, planchas)
+        validar_planchas(diseno, planchas, parcial=parcial)
     except ErrorAcomodo as e:
         raise _error(422, "acomodo_invalido", e.mensaje, errores=e.errores) from e
-    contenido = _geometria(exportar_dxf_planchas, diseno, planchas, kerf_mm=solicitud.opciones.kerf_mm)
+    contenido = _geometria(
+        exportar_dxf_planchas, diseno, planchas, kerf_mm=solicitud.opciones.kerf_mm, parcial=parcial
+    )
     return Response(
         content=contenido,
         media_type="application/dxf",

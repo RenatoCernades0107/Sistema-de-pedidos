@@ -13,6 +13,7 @@ import {
   valoresPorDefecto,
   type CampoEsquema,
 } from "@/lib/cad/esquema";
+import { conservarEspesores } from "@/lib/cad/espesores";
 import type { ParametrosCad, PlantillaCad, ValorParametro } from "@/lib/cad/tipos";
 import { Button } from "@/components/ui/button";
 import { Campo } from "@/components/ui/campo";
@@ -69,6 +70,11 @@ function leer(c: CampoEsquema, crudo: string | boolean): { valor?: ValorParametr
 export function FormularioParametros({ plantilla }: { plantilla: PlantillaCad }) {
   const { parametros, aplicar, erroresCampo } = useDiseno();
   const campos = useMemo(() => camposDe(plantilla.esquema), [plantilla.esquema]);
+  // El envío sale de un temporizador: lee los parámetros vigentes, no los de cuando se tecleó.
+  const vigentes = useRef(parametros);
+  useEffect(() => {
+    vigentes.current = parametros;
+  }, [parametros]);
 
   const [borrador, setBorrador] = useState<Borrador>(() => aBorrador(campos, parametros));
   /** Hay un cambio escrito que todavía no se ha mandado al motor. */
@@ -119,7 +125,8 @@ export function FormularioParametros({ plantilla }: { plantilla: PlantillaCad })
       if (error || valor === undefined) return;
       valores[c.clave] = valor;
     }
-    void aplicar(plantilla.codigo, valores);
+    // Los espesores elegidos copia por copia no están en el formulario: se conservan.
+    void aplicar(plantilla.codigo, conservarEspesores(valores, vigentes.current));
   }
 
   function cambiar(clave: string, valor: string | boolean, inmediato = false) {
@@ -166,7 +173,7 @@ export function FormularioParametros({ plantilla }: { plantilla: PlantillaCad })
       <div>
         <Button type="button" variant="ghost" size="sm" className="text-muted-foreground gap-1.5" onClick={restablecer}>
           <RotateCcw />
-          Restablecer valores
+          Restablecer valores y espesores
         </Button>
       </div>
     </form>

@@ -95,12 +95,15 @@ export function archivo(contenido: ArrayBuffer, tipoMime: string, nombre: string
 }
 
 export const cuerpoDxfPlanchas = cuerpoGenerar.extend({
-  opciones: z.object({ kerf_mm: z.number().min(0).max(5).optional() }).optional(),
+  opciones: z
+    .object({ kerf_mm: z.number().min(0).max(5).optional(), parcial: z.boolean().optional() })
+    .optional(),
   planchas: z
     .array(
       z.object({
         ancho_mm: z.number().positive().max(10000),
         alto_mm: z.number().positive().max(10000),
+        etiqueta: z.string().max(120).optional(),
         piezas: z
           .array(
             z.object({

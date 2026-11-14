@@ -32,6 +32,7 @@ import {
   listarMensajes,
   obtenerDiseno,
   obtenerMaterialDiseno,
+  obtenerMaterialesPorCopia,
   obtenerVersionActual,
   renombrarSiPorDefecto,
   type HerramientaUsada,
@@ -114,8 +115,15 @@ function dependenciasLibre(disenoId: string): DependenciasLibre {
       return r;
     },
     guardarVersionLibre: (codigo) => guardarVersionLibre({ disenoId, codigo, origen: "chat" }),
-    guardarVersionLibreConMaterial: (codigo, material, acomodo) =>
-      guardarVersionLibre({ disenoId, codigo, origen: "chat", material, acomodo: acomodo as unknown as Json }),
+    guardarVersionLibreConMaterial: (codigo, material, acomodo, materiales) =>
+      guardarVersionLibre({
+        disenoId,
+        codigo,
+        origen: "chat",
+        material,
+        acomodo: acomodo as unknown as Json,
+        materiales,
+      }),
     renderizarActual: async () => {
       const actual = await disenoActual(disenoId);
       if (actual?.plantilla === PLANTILLA_LIBRE && actual.codigo) {
@@ -146,7 +154,7 @@ function dependencias(disenoId: string, libreActivo: boolean, conPrecios: boolea
     listarPlantillas,
     obtenerPlantilla,
     generarDiseno,
-    guardarVersion: ({ plantilla, parametros, versionPlantilla, material, acomodo }) =>
+    guardarVersion: ({ plantilla, parametros, versionPlantilla, material, acomodo, materiales }) =>
       guardarVersionDiseno({
         disenoId,
         plantilla,
@@ -155,9 +163,11 @@ function dependencias(disenoId: string, libreActivo: boolean, conPrecios: boolea
         origen: "chat",
         material,
         acomodo: acomodo as unknown as Json,
+        materiales,
       }),
     obtenerDisenoActual: () => disenoActual(disenoId),
     obtenerMaterial: () => obtenerMaterialDiseno(disenoId),
+    obtenerMaterialesPorCopia: () => obtenerMaterialesPorCopia(disenoId),
     cargarPlanchas: () => cargarCatalogoPlanchas(true),
     cargarConfigCortes,
     ...(conPrecios ? { cargarPrecios: preciosDePlanchas } : {}),

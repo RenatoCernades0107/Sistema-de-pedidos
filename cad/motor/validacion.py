@@ -6,6 +6,8 @@ Comprobaciones sobre un diseño. Devuelven las `validaciones` del contrato:
   interferencia             error  dos piezas armadas ocupan el mismo volumen
   excede_plancha            error  la pieza no entra en la plancha más grande
   dimensiones_no_coinciden  error  el conjunto armado no mide lo que se pidió
+                                   (aviso si alguna copia tiene espesor propio)
+  espesor_cambiado          aviso  una copia con espesor propio: las uniones no se reajustan
   pared_delgada             aviso  pieza más angosta que dos veces su espesor
   (más los avisos propios de cada plantilla)
 """
@@ -122,12 +124,31 @@ def validar(diseno: Diseno, plancha: tuple[float, float] | None = None) -> list[
         if max(difs) > TOLERANCIA_MEDIDA:
             salida.append(
                 {
-                    "nivel": "error",
+                    # Con espesores propios el conjunto cambia de medidas a propósito.
+                    "nivel": "aviso" if diseno.espesores else "error",
                     "codigo": "dimensiones_no_coinciden",
                     "mensaje": (
                         f"El conjunto armado mide {real['x']:g} × {real['y']:g} × {real['z']:g} mm y se pidió "
                         f"{pedido[0]:g} × {pedido[1]:g} × {pedido[2]:g} mm."
                     ),
+                }
+            )
+
+    if diseno.espesores:
+        for pieza in diseno.piezas:
+            cambiados = [n for n in pieza.nombres_nodo() if n in diseno.espesores]
+            if not cambiados:
+                continue
+            copias = "" if pieza.cantidad == 1 else f" ({len(cambiados)} copia{'s' if len(cambiados) > 1 else ''})"
+            salida.append(
+                {
+                    "nivel": "aviso",
+                    "codigo": "espesor_cambiado",
+                    "mensaje": (
+                        f"«{pieza.nombre}»{copias} es de {pieza.espesor_mm:g} mm, distinto del espesor del diseño: "
+                        "las uniones y las medidas de las piezas vecinas no se reajustan."
+                    ),
+                    "pieza": pieza.id,
                 }
             )
 
