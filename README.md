@@ -11,6 +11,14 @@ npm install
 npm run dev            # http://localhost:3000
 ```
 
+Los servicios de diseños (`cad/`, necesitan [uv](https://docs.astral.sh/uv/); la primera vez, `cd cad && uv sync`),
+cada uno en su terminal y con recarga al editar:
+
+```bash
+npm run motor          # motor CAD, http://localhost:8001
+npm run sandbox        # sandbox de diseño libre, http://localhost:8002
+```
+
 Hace falta un `.env.local` con las variables de [`.env.example`](.env.example). Las dos de Supabase
 son públicas a propósito: la clave publicable viaja al navegador y lo que protege los datos es la
 RLS, no esconderla. Las de Odoo (`ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD`) sí son
