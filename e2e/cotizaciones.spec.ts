@@ -371,10 +371,10 @@ test("un corte a medida se cotiza: calcula las planchas, valida el stock y llega
   await abrirCorte(page, "eco cristal 3", /Acrílico ECO.*Cristal.*3 mm/);
   await escribirPieza(page, 1, "60", "80", "10");
 
-  // Los tres formatos más baratos, y el stock de los tres en una sola consulta.
+  // Los tres formatos más chicos, y el stock de los tres en una sola consulta.
   const formatos = page.getByRole("list", { name: "Formatos de plancha" });
   await expect(formatos.getByRole("button")).toHaveCount(3);
-  await expect(page.getByText("Elegida la más barata con stock.")).toBeVisible();
+  await expect(page.getByText("Elegida la más pequeña con stock.")).toBeVisible();
   const { llamadas } = await estado();
   expect(llamadas.filter((l) => l.modelo === "product.product" && l.metodo === "search_read").length).toBeGreaterThan(0);
 
@@ -422,12 +422,12 @@ test("un corte a medida se cotiza: calcula las planchas, valida el stock y llega
   expect(data!.corte).toMatchObject({ modalidad: "laser", montoMaterial: 520, montoServicio: 25, total: 545 });
 });
 
-test("el formato más barato sin stock no se sugiere, pero se puede elegir; un corte se edita", async ({ page }) => {
+test("el formato más chico sin stock no se sugiere, pero se puede elegir; un corte se edita", async ({ page }) => {
   await entrar(page, "administracion");
   await page.goto("/cotizaciones/nueva");
   await elegirCliente(page, "20123456786", /E2E Corporación Andina SAC/);
 
-  // 145×290 solo entra en 150×300 (sin stock) y en 205×305 (más cara, con stock).
+  // 145×290 solo entra en 150×300 (sin stock) y en 205×305 (más grande, con stock).
   await abrirCorte(page, "eco cristal 3", /Acrílico ECO.*Cristal.*3 mm/);
   await escribirPieza(page, 1, "145", "290", "1");
 

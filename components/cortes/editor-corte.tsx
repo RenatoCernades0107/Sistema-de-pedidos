@@ -160,7 +160,7 @@ function useStock(codigos: string[]) {
  * El cálculo corre aquí mismo, a cada tecla, sobre todos los formatos de plancha
  * de ese material. De ahí salen los tres más convenientes, y solo por esos se le
  * pregunta a Odoo si hay stock —una vez, por los tres—. Queda elegido el más
- * barato que tenga planchas suficientes.
+ * pequeño que tenga planchas suficientes.
  */
 export function EditorCorte({
   catalogo,
@@ -213,6 +213,8 @@ export function EditorCorte({
       formatos,
       config,
       delAlmacen,
+      // La plancha más chica que sirva: las grandes se guardan para las medidas grandes.
+      "tamano",
     );
   }, [grupo, precios, sobrantes, piezas, modalidad, config, conColor, color]);
 
@@ -498,7 +500,7 @@ export function EditorCorte({
                         : falloStock
                           ? "No se pudo validar el stock en Odoo. Puedes elegir igual."
                           : sugerido && !elegidoAMano
-                            ? "Elegida la más barata con stock."
+                            ? "Elegida la más pequeña con stock."
                             : !elegido
                               ? "Ninguna tiene stock suficiente: elige una igual o cambia las piezas."
                               : null}

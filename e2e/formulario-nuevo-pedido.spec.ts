@@ -69,7 +69,7 @@ test("Administración registra un pedido con un producto y un corte, y Odoo lo r
   await page.getByLabel("Ancho de la pieza 1").fill("60");
   await page.getByLabel("Alto de la pieza 1").fill("80");
   await page.getByLabel("Cantidad de la pieza 1").fill("10");
-  await expect(page.getByText("Elegida la más barata con stock.")).toBeVisible();
+  await expect(page.getByText("Elegida la más pequeña con stock.")).toBeVisible();
   await page.getByRole("button", { name: "Agregar corte" }).click();
 
   // Ya no se elige el tipo de pedido: lo dicen las líneas.
