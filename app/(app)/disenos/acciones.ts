@@ -19,6 +19,7 @@ import { mensajeDeError } from "@/lib/errores";
 import {
   crearOReusarBorrador,
   guardarVersionDiseno,
+  listarDisenos,
   listarMensajes,
   obtenerDiseno,
   obtenerMaterialDiseno,
@@ -29,7 +30,7 @@ import {
 import { obtenerPlantilla } from "@/lib/cad/motor";
 import { aprobarVersionLibre, guardarMaterialLibre, obtenerVersionLibre } from "@/lib/cad/libre-servidor";
 import { esquemaMaterialesGuardados, type MaterialesPorCopia } from "@/lib/cad/materiales";
-import type { MaterialDiseno, ParametrosCad, VersionLibreCad } from "@/lib/cad/tipos";
+import { PLANTILLA_LIBRE, type MaterialDiseno, type ParametrosCad, type VersionLibreCad } from "@/lib/cad/tipos";
 import type { Json } from "@/lib/supabase-tipos";
 import { disenoParaCotizar, type DisenoCotizable } from "@/lib/cad/cotizar-servidor";
 import { cargarCatalogoPlanchas } from "@/lib/cortes-servidor";
@@ -235,4 +236,83 @@ export async function abrirDiseno(disenoId: string): Promise<{
   ]);
   if (!diseno) throw new Error(ERROR_SIN_DISENO);
   return { plantilla: diseno.plantilla, parametros: diseno.parametros, material, materiales };
+}
+
+/** Un diseño de "Mis diseños" (pestaña Modelo del pedido). */
+export type DisenoBuscado = {
+  id: string;
+  nombre: string;
+  plantilla: string;
+  parametros: ParametrosCad;
+  actualizadoEn: string;
+};
+
+const POR_PAGINA_MIS_DISENOS = 12;
+
+const esquemaBusqueda = z.object({
+  texto: z.string().max(80, "La búsqueda es demasiado larga.").default(""),
+  pagina: z.number().int().min(1).default(1),
+  excluir: z.uuid().nullish(),
+});
+
+/** Minúsculas y sin tildes, para comparar. */
+const normalizar = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+
+/**
+ * Los diseños guardados que se pueden usar como base de un producto terminado
+ * (con plantilla del motor: los libres no se reaplican), filtrados y paginados.
+ *
+ * El texto se parte en palabras y números: las palabras se buscan en el nombre y
+ * la plantilla; los números ("200x150", "200 150") tienen que estar todos entre
+ * las medidas del diseño. Se filtra en memoria porque las medidas viven en el
+ * JSON de la versión vigente.
+ */
+export async function buscarMisDisenos(entrada: {
+  texto?: string;
+  pagina?: number;
+  excluir?: string | null;
+}): Promise<{ disenos: DisenoBuscado[]; total: number; pagina: number; paginas: number }> {
+  await exigirCad();
+  const { texto, pagina, excluir } = validar(esquemaBusqueda, entrada);
+
+  const limpio = normalizar(texto.trim());
+  const numeros = (limpio.match(/\d+(?:[.,]\d+)?/g) ?? []).map((n) => Number(n.replace(",", ".")));
+  const palabras = limpio
+    .replace(/\d+(?:[.,]\d+)?/g, " ")
+    .split(/[^a-z0-9]+/)
+    .filter((p) => p.length > 0 && p !== "x" && p !== "mm" && p !== "cm");
+
+  const todos = (await listarDisenos()).filter(
+    (d): d is typeof d & { plantilla: string } =>
+      d.plantilla !== null && d.plantilla !== PLANTILLA_LIBRE && d.id !== excluir,
+  );
+
+  const coinciden = todos.filter((d) => {
+    const donde = normalizar(`${d.nombre} ${d.plantilla.replace(/[_-]/g, " ")}`);
+    if (!palabras.every((p) => donde.includes(p))) return false;
+    if (numeros.length === 0) return true;
+    const medidas = Object.values(d.parametros).filter((v): v is number => typeof v === "number");
+    return numeros.every((n) => medidas.some((m) => Math.abs(m - n) < 0.01));
+  });
+
+  const total = coinciden.length;
+  const paginas = Math.max(1, Math.ceil(total / POR_PAGINA_MIS_DISENOS));
+  const actual = Math.min(pagina, paginas);
+  const desde = (actual - 1) * POR_PAGINA_MIS_DISENOS;
+  return {
+    disenos: coinciden.slice(desde, desde + POR_PAGINA_MIS_DISENOS).map((d) => ({
+      id: d.id,
+      nombre: d.nombre,
+      plantilla: d.plantilla,
+      parametros: d.parametros,
+      actualizadoEn: d.actualizado_en,
+    })),
+    total,
+    pagina: actual,
+    paginas,
+  };
 }
