@@ -203,7 +203,9 @@ const ESFUERZOS = new Set(["low", "medium", "high"]);
 
 /**
  * Cuánto razona el modelo cuando se le pide: `INFERHUB_RAZONAMIENTO` = `low`,
- * `medium` (por defecto) o `high`; `off` lo apaga del todo.
+ * `medium` (por defecto) o `high`. Con `off` no se envía el parámetro y manda el
+ * valor por defecto del modelo: en algunos (como claude-opus-5-5) el
+ * pensamiento no se puede apagar, solo bajar con `low`.
  */
 function esfuerzoDeRazonamiento(): string | null {
   const valor = process.env.INFERHUB_RAZONAMIENTO?.trim().toLowerCase() || "medium";
