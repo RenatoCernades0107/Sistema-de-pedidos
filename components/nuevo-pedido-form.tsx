@@ -24,9 +24,7 @@ import {
   agregarProducto,
   cambiarCantidad,
   esCorte,
-  esTerminado,
   ponerCorte,
-  ponerTerminado,
   problemaDeLineas,
   quitarLinea,
   totalReferencial,
@@ -58,9 +56,8 @@ import { tituloCorte } from "@/lib/cortes/guardado";
 import { tituloTerminado } from "@/lib/terminados/guardado";
 import { CorteGuardadoVista } from "@/components/cortes/corte-guardado";
 import { EditorCorte } from "@/components/cortes/editor-corte";
-import { EditorTerminado } from "@/components/terminados/editor-terminado";
-import { DisenadorTerminado, type DatosDiseno } from "@/components/terminados/disenador-terminado";
-import { abrirDiseno, crearDiseno } from "@/app/(app)/disenos/acciones";
+import type { DatosDiseno } from "@/components/terminados/disenador-terminado";
+import { useTerminadosCad } from "@/components/terminados/use-terminados-cad";
 import type { CatalogoTerminados } from "@/lib/terminados/catalogo";
 
 const esquema = esquemaFormNuevoPedido;
@@ -165,45 +162,6 @@ export function NuevoPedidoForm({
   const [cliente, setCliente] = useState<ClienteOdoo | null>(null);
   const [lineas, setLineas] = useState<Linea[]>([]);
   const [corte, setCorte] = useState<{ clave: string | null } | null>(null);
-  /** Un terminado sin diseño (de antes): se edita en el formulario de siempre. */
-  const [terminado, setTerminado] = useState<{ clave: string | null } | null>(null);
-  /** El producto terminado que se está diseñando, a pantalla completa. */
-  const [disenando, setDisenando] = useState<{
-    disenoId: string;
-    nuevo: boolean;
-    inicial: Awaited<ReturnType<typeof abrirDiseno>> | null;
-    clave: string | null;
-  } | null>(null);
-  const [abriendoDiseno, setAbriendoDiseno] = useState(false);
-  /** El diseño de cada línea de terminado, por su clave: para volver a abrirlo al editar. */
-  const [disenosDeLinea, setDisenosDeLinea] = useState<Record<string, string>>({});
-
-  const nuevoTerminado = async () => {
-    if (abriendoDiseno) return;
-    setAbriendoDiseno(true);
-    try {
-      const { id } = await crearDiseno();
-      setDisenando({ disenoId: id, nuevo: true, inicial: null, clave: null });
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "No se pudo empezar el diseño.");
-    } finally {
-      setAbriendoDiseno(false);
-    }
-  };
-
-  const editarTerminado = async (clave: string) => {
-    const disenoId = disenosDeLinea[clave];
-    if (!disenoId) return setTerminado({ clave });
-    if (abriendoDiseno) return;
-    setAbriendoDiseno(true);
-    try {
-      setDisenando({ disenoId, nuevo: false, inicial: await abrirDiseno(disenoId), clave });
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "No se pudo abrir el diseño.");
-    } finally {
-      setAbriendoDiseno(false);
-    }
-  };
   const [resaltada, setResaltada] = useState<string | null>(null);
   const [errorLineas, setErrorLineas] = useState<string | null>(null);
 
@@ -319,6 +277,20 @@ export function NuevoPedidoForm({
     clearTimeout(temporizador.current);
     temporizador.current = setTimeout(() => setResaltada(null), 1200);
   };
+
+  const terminadosCad = useTerminadosCad({
+    lineas,
+    alPoner: (siguientes, clave) => {
+      ponerLineas(siguientes);
+      marcar(clave);
+      requestAnimationFrame(() => buscadorProducto.current?.focus());
+    },
+    catalogo,
+    config,
+    terminados,
+    diseno,
+    cliente: cliente?.nombre,
+  });
 
   const elegirCliente = (c: ClienteOdoo | null) => {
     flushSync(() => setCliente(c));
@@ -582,18 +554,22 @@ export function NuevoPedidoForm({
                   title={catalogo.length === 0 ? "No hay planchas en el catálogo" : undefined}
                 >
                   <Scissors />
-                  Corte<span className="hidden sm:inline"> a medida</span>
+                  <span>
+                    Corte<span className="hidden sm:inline"> a medida</span>
+                  </span>
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
                   className="h-10 shrink-0 gap-1.5"
                   aria-label="Producto terminado"
-                  onClick={() => void nuevoTerminado()}
-                  disabled={abriendoDiseno}
+                  onClick={() => void terminadosCad.nuevo()}
+                  disabled={terminadosCad.abriendo}
                 >
-                  {abriendoDiseno ? <Loader2 className="animate-spin" /> : <Package />}
-                  <span className="hidden sm:inline">Producto </span>terminado
+                  {terminadosCad.abriendo ? <Loader2 className="animate-spin" /> : <Package />}
+                  <span>
+                    <span className="hidden sm:inline">Producto </span>terminado
+                  </span>
                 </Button>
               </div>
               <LineasCotizacion
@@ -607,7 +583,7 @@ export function NuevoPedidoForm({
                   buscadorProducto.current?.focus();
                 }}
                 alEditarCorte={(clave) => setCorte({ clave })}
-                alEditarTerminado={(clave) => void editarTerminado(clave)}
+                alEditarTerminado={(clave) => void terminadosCad.editar(clave)}
                 alTerminar={() => buscadorProducto.current?.focus()}
                 indicaciones={indicaciones}
                 alCambiarIndicaciones={(clave, texto) => setIndicaciones((previas) => ({ ...previas, [clave]: texto }))}
@@ -1220,45 +1196,7 @@ export function NuevoPedidoForm({
         />
       )}
 
-      {disenando && (
-        <DisenadorTerminado
-          key={disenando.disenoId}
-          disenoId={disenando.disenoId}
-          nuevo={disenando.nuevo}
-          inicial={disenando.inicial}
-          datos={diseno}
-          catalogo={catalogo}
-          terminados={terminados}
-          linea={lineas.filter(esTerminado).find((l) => l.clave === disenando.clave) ?? null}
-          cliente={cliente?.nombre}
-          alCerrar={() => setDisenando(null)}
-          alAgregar={(nuevo) => {
-            const { lineas: siguientes, clave } = ponerTerminado(lineas, nuevo);
-            ponerLineas(siguientes);
-            setDisenosDeLinea((d) => ({ ...d, [clave]: disenando.disenoId }));
-            setDisenando(null);
-            marcar(clave);
-            requestAnimationFrame(() => buscadorProducto.current?.focus());
-          }}
-        />
-      )}
-
-      {terminado && (
-        <EditorTerminado
-          catalogo={terminados}
-          planchas={catalogo}
-          configCortes={config}
-          inicial={lineas.filter(esTerminado).find((l) => l.clave === terminado.clave) ?? null}
-          alCerrar={() => setTerminado(null)}
-          alGuardar={(nuevo) => {
-            const { lineas: siguientes, clave } = ponerTerminado(lineas, nuevo);
-            ponerLineas(siguientes);
-            setTerminado(null);
-            marcar(clave);
-            requestAnimationFrame(() => buscadorProducto.current?.focus());
-          }}
-        />
-      )}
+      {terminadosCad.editores}
     </div>
   );
 }
