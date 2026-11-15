@@ -15,7 +15,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Sparkles } from "lucide-react";
+import { Box, Frame, HelpCircle, Layers, Sparkles, type LucideIcon } from "lucide-react";
 import { cargarMensajes } from "@/app/(app)/disenos/acciones";
 import type { ReferenciaCara } from "@/lib/cad/caras";
 import { useDiseno } from "./diseno-contexto";
@@ -23,11 +23,11 @@ import { ChatCompositor } from "./chat-compositor";
 import { ChatMensajes, type MensajeChat } from "./chat-mensajes";
 import { leerEventos } from "./chat-sse";
 
-const SUGERENCIAS = [
-  "Una caja de 20 × 15 × 10 cm en acrílico de 3 mm con tapa",
-  "Un porta afiche A4 vertical para mostrador",
-  "Un alzador de 30 × 20 × 15 cm en acrílico de 5 mm",
-  "¿Qué productos puedes diseñar?",
+const SUGERENCIAS: { texto: string; icono: LucideIcon }[] = [
+  { texto: "Una caja de 20 × 15 × 10 cm en acrílico de 3 mm con tapa", icono: Box },
+  { texto: "Un porta afiche A4 vertical para mostrador", icono: Frame },
+  { texto: "Un alzador de 30 × 20 × 15 cm en acrílico de 5 mm", icono: Layers },
+  { texto: "¿Qué productos puedes diseñar?", icono: HelpCircle },
 ];
 
 const ERROR_RED = "No se pudo hablar con el asistente. Revisa tu conexión e intenta de nuevo.";
@@ -258,8 +258,10 @@ export function PanelChat(props: {
       ) : vacio ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 overflow-y-auto px-6 py-6 text-center">
           <div className="flex flex-col items-center gap-1">
-            <Sparkles className="text-muted-foreground mb-1 size-5" />
-            <p className="font-medium">Asistente de diseños</p>
+            <span className="mb-2 grid size-12 place-items-center rounded-full bg-[#004c8f] text-[#ffc200] shadow-md ring-4 ring-[#004c8f]/10">
+              <Sparkles className="size-5" aria-hidden />
+            </span>
+            <p className="text-base font-semibold">Asistente de diseños</p>
             <p className="text-muted-foreground max-w-sm text-sm">
               Describe el producto con sus medidas y el material. El diseño aparece en el modelo 3D y lo
               puedes seguir ajustando aquí o en Parámetros.
@@ -270,16 +272,20 @@ export function PanelChat(props: {
               </p>
             )}
           </div>
-          <ul className="flex max-w-md flex-wrap justify-center gap-2">
-            {SUGERENCIAS.map((s) => (
-              <li key={s}>
+          <ul className="flex w-full max-w-md flex-col gap-2">
+            {SUGERENCIAS.map(({ texto, icono: Icono }) => (
+              <li key={texto}>
                 <button
                   type="button"
-                  onClick={() => void enviar(s)}
+                  onClick={() => void enviar(texto)}
                   disabled={enviando}
-                  className="hover:bg-muted rounded-full border px-3 py-1.5 text-left text-xs transition-colors disabled:opacity-50"
+                  className="group bg-card flex w-full items-center gap-3 rounded-xl border px-3.5 py-2.5 text-left text-sm shadow-xs transition-colors hover:border-[#004c8f]/50 hover:bg-[#004c8f]/5 disabled:opacity-50 dark:hover:border-sky-300/50 dark:hover:bg-sky-400/5"
                 >
-                  {s}
+                  <Icono
+                    className="text-muted-foreground size-4 shrink-0 transition-colors group-hover:text-[#004c8f] dark:group-hover:text-sky-300"
+                    aria-hidden
+                  />
+                  {texto}
                 </button>
               </li>
             ))}

@@ -30,6 +30,8 @@ const Visor3D = dynamic(() => import("./visor-3d"), {
   ssr: false,
   loading: () => <Skeleton className="h-full w-full rounded-none" />,
 });
+// La escena de muestra antes de que haya un modelo: mientras carga, nada (el fondo basta).
+const EscenaVacia = dynamic(() => import("./escena-vacia"), { ssr: false });
 
 export const FAMILIAS: Record<FamiliaCad, string> = {
   anforas: "Ánforas",
@@ -260,19 +262,30 @@ export function VisorDiseno({ nombre, avisoMotor }: { nombre?: string | null; av
       ) : cargando ? (
         <Skeleton className="h-full w-full rounded-none" />
       ) : (
-        <div className="text-muted-foreground flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
-          {plantillas.length === 0 ? (
+        plantillas.length === 0 ? (
+          <div className="text-muted-foreground flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
             <div className="max-w-sm">
               <AvisoMotor avisoMotor={avisoMotor} />
             </div>
-          ) : (
-            <>
-              <Box className="size-8 opacity-50" aria-hidden />
-              <p className="text-foreground/80 text-sm font-medium">Todavía no hay un modelo que mostrar.</p>
-              <p className="max-w-xs text-xs">Elige uno en la pestaña Modelo o descríbelo en el chat.</p>
-            </>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className="relative h-full bg-[radial-gradient(ellipse_at_50%_40%,rgb(0_76_143/0.08),transparent_70%)] dark:bg-[radial-gradient(ellipse_at_50%_40%,rgb(56_189_248/0.08),transparent_70%)]">
+            <div className="absolute inset-0">
+              <EscenaVacia />
+            </div>
+            <div className="absolute inset-x-0 bottom-8 flex justify-center px-6">
+              <div className="bg-background/85 flex max-w-sm items-center gap-3 rounded-xl border px-4 py-3 text-left shadow-sm backdrop-blur">
+                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-[#004c8f]/10 text-[#004c8f] dark:bg-sky-400/10 dark:text-sky-300">
+                  <Box className="size-5" aria-hidden />
+                </span>
+                <div>
+                  <p className="text-sm font-semibold">Todavía no hay un modelo que mostrar.</p>
+                  <p className="text-muted-foreground text-xs">Elige uno en la pestaña Modelo o descríbelo en el chat.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
       )}
 
       {/* Arriba: qué es y cuánto mide; las descargas. */}
