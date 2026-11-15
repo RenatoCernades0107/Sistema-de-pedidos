@@ -191,7 +191,7 @@ export async function registrarPedido(entrada: unknown): Promise<Resultado> {
   const producto = terminados.length ? (etiquetas.size === 1 ? [...etiquetas][0] : "otro") : null;
   // Media plancha existe; media pieza no. Es la misma regla que el CHECK de `pedidos`.
   const cantidad = admiteDecimales(tipos) ? redondear2(unidades) : Math.max(1, Math.ceil(unidades));
-  const detalle = [detalleDesdeLineas(lineasConIndicaciones), v.notas].filter(Boolean).join("\n\n");
+  const detalle = detalleDesdeLineas(lineasConIndicaciones);
 
   /* Al contado se cobra el total en el acto, a cuenta lo que se haya adelantado, y
      al crédito no entra nada todavía. Lo decide el servidor: el importe cobrado no
@@ -238,6 +238,7 @@ export async function registrarPedido(entrada: unknown): Promise<Resultado> {
     // `crear_pedido` la vincula en la misma transacción, o falla entera.
     p_cotizacion_id: cotizacionId,
     p_indicaciones_lineas: indicacionesLineas,
+    p_notas_entrega: sinValor(v.notasEntrega),
   });
 
   if (error) {
@@ -493,6 +494,7 @@ export async function editarDatos(codigo: string, entrada: unknown): Promise<Res
     direccion_entrega: v.entrega === "domicilio" ? v.direccion : null,
     detalle: v.detalle,
     observaciones: v.observaciones,
+    notas_entrega: v.notasEntrega || null,
     plazo_credito_dias: v.plazoCredito,
   });
 }

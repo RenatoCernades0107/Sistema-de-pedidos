@@ -42,6 +42,8 @@ import { AdjuntosPedido } from "@/components/adjuntos-pedido";
 import { Button } from "@/components/ui/button";
 import { LineasPedido } from "@/components/lineas-pedido";
 import { CompartirMenu } from "@/components/compartir-menu";
+import { ChatPedido } from "@/components/chat-pedido";
+import type { MensajePedido } from "@/lib/chat-pedido";
 import { asuntoSeguimiento, mensajeSeguimiento } from "@/lib/compartir";
 import type { LineaDePedido, OdooDePedido } from "@/lib/pedido-lineas";
 import type { Sobrante } from "@/lib/sobrantes";
@@ -53,8 +55,11 @@ export function DetallePedido({
   retazoMin,
   sobrantes = [],
   tokenSeguimiento = null,
+  chat = null,
 }: {
   codigo: string;
+  /** El chat del equipo. `null` si no se pudo leer. */
+  chat?: { pedidoId: string; usuarioId: string; mensajes: MensajePedido[] } | null;
   /**
    * El permiso del enlace público de seguimiento. Solo llega a quien coordina
    * con el cliente (Administración y Logística); sin él no sale el botón.
@@ -166,7 +171,7 @@ export function DetallePedido({
 
       <Stepper pedido={p} />
 
-      <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
+      <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start 2xl:grid-cols-[minmax(0,1fr)_20rem_22rem]">
         <div className="order-2 flex flex-col gap-4 lg:order-1">
           <Panel
             titulo="Datos del pedido"
@@ -256,6 +261,13 @@ export function DetallePedido({
                   el bloque de datos en vez de vivir tres paneles más abajo. */}
               <Dato etiqueta="Detalle del pedido" ancho bloqueado={!permisos.editarTodo}>
                 {p.detalle || <Vacio />}
+              </Dato>
+              <Dato etiqueta="Notas de la entrega" ancho bloqueado={!permisos.editarTodo}>
+                {p.notasEntrega ? (
+                  <span className="whitespace-pre-line">{p.notasEntrega}</span>
+                ) : (
+                  <Vacio>Sin notas de la entrega</Vacio>
+                )}
               </Dato>
               <Dato etiqueta="Observaciones" ancho bloqueado={!permisos.editarTodo}>
                 {p.observaciones || <Vacio>Sin observaciones</Vacio>}
@@ -452,6 +464,16 @@ export function DetallePedido({
           />
           {permisos.verMontos && <PanelPago pedido={p} />}
         </div>
+
+        {chat && (
+          <ChatPedido
+            pedidoId={chat.pedidoId}
+            codigo={p.codigo}
+            usuarioId={chat.usuarioId}
+            iniciales={chat.mensajes}
+            className="order-3 2xl:sticky 2xl:top-20 2xl:h-[calc(100dvh-6rem)]"
+          />
+        )}
       </div>
     </div>
   );

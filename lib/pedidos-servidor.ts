@@ -126,6 +126,7 @@ export async function cargarPedidos(rol: Rol, usuarioId: string): Promise<Pedido
       responsableId: textoONulo(f.responsable_id),
       detalle: texto(f.detalle),
       observaciones: textoONulo(f.observaciones),
+      notasEntrega: textoONulo(f.notas_entrega),
       numeroComprobante: textoONulo(f.numero_comprobante),
       // Las tres vistas lo traen; el número, solo la de Administración.
       tieneComprobante: Boolean(f.tiene_comprobante),

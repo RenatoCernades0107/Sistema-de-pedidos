@@ -7,14 +7,14 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { AnimatePresence, motion } from "motion/react";
-import { Factory, FileText, Loader2, NotebookPen, Package, Scissors, Store, Upload, X } from "lucide-react";
+import { Factory, FileText, Loader2, NotebookPen, Package, Scissors, Store } from "lucide-react";
 import { toast } from "sonner";
 import { useStore } from "@/lib/store";
 import { subirAdjuntos } from "@/lib/adjuntos-navegador";
-import { ACEPTA, validarArchivo } from "@/lib/adjuntos";
+import { MAX_ARCHIVOS } from "@/lib/adjuntos";
 import { esquemaFormNuevoPedido, FORMATO_DOCUMENTO } from "@/lib/esquemas";
 import { hoy } from "@/lib/fecha";
-import { DOCUMENTOS, METODOS, PAGOS, PLAZOS, sumarDias, type PlazoCredito } from "@/lib/dominio";
+import { DOCUMENTOS, METODOS, PAGOS, PLAZOS, esTerminal, sumarDias, type PlazoCredito } from "@/lib/dominio";
 import { fechaCompleta, money, numero } from "@/lib/formato";
 import type { LineaGuardada } from "@/lib/cotizaciones";
 import type { GrupoPlancha } from "@/lib/cortes/catalogo";
@@ -58,6 +58,7 @@ import { CorteGuardadoVista } from "@/components/cortes/corte-guardado";
 import { EditorCorte } from "@/components/cortes/editor-corte";
 import type { DatosDiseno } from "@/components/terminados/disenador-terminado";
 import { useTerminadosCad } from "@/components/terminados/use-terminados-cad";
+import { ArchivosDeItem } from "@/components/archivos-de-item";
 import type { CatalogoTerminados } from "@/lib/terminados/catalogo";
 
 const esquema = esquemaFormNuevoPedido;
@@ -85,7 +86,7 @@ const ORDEN_ERRORES = [
   "fechaPrometida",
   "abono",
   "plazoCredito",
-  "notas",
+  "notasEntrega",
 ] as const;
 
 /** Las dos respuestas a "¿qué área lo atiende?". */
@@ -102,14 +103,6 @@ interface Item {
   posicion: number;
   nombre: string;
 }
-
-/** Un archivo de diseño por subir y el ítem al que se refiere (`null`: es del pedido entero). */
-interface ArchivoElegido {
-  archivo: File;
-  itemClave: string | null;
-}
-
-const GENERAL = "general";
 
 const ID_FORM = "form-nuevo-pedido";
 
@@ -157,7 +150,7 @@ export function NuevoPedidoForm({
 }) {
   const router = useRouter();
   const volverA = desdeCotizacion ? `/cotizaciones/${desdeCotizacion.id}` : "/pedidos";
-  const { permisos, registrarPedido, trabajadores, ubigeo, pendiente } = useStore();
+  const { permisos, registrarPedido, trabajadores, ubigeo, pendiente, pedidos } = useStore();
 
   const [cliente, setCliente] = useState<ClienteOdoo | null>(null);
   const [lineas, setLineas] = useState<Linea[]>([]);
@@ -171,13 +164,12 @@ export function NuevoPedidoForm({
   const temporizador = useRef<ReturnType<typeof setTimeout>>(undefined);
   const bloqueTrabajo = useRef<HTMLElement>(null);
 
-  /* Los planos se quedan en memoria hasta que el pedido exista: la carpeta del
-     bucket cuelga de su uuid, y el uuid lo pone Postgres al registrarlo. */
-  const [archivos, setArchivos] = useState<ArchivoElegido[]>([]);
+  /* Los archivos de cada ítem, por su clave. Se quedan en memoria hasta que el
+     pedido exista: la carpeta del bucket cuelga de su uuid, y el uuid lo pone
+     Postgres al registrarlo. */
+  const [archivos, setArchivos] = useState<Record<string, File[]>>({});
   /* Las indicaciones de cada ítem para el taller, por su clave. */
   const [indicaciones, setIndicaciones] = useState<Record<string, string>>({});
-  const entradaArchivos = useRef<HTMLInputElement>(null);
-  const [arrastrando, setArrastrando] = useState(false);
   const [conObservaciones, setConObservaciones] = useState(false);
   const [registrado, setRegistrado] = useState(false);
   const refForm = useRef<HTMLFormElement>(null);
@@ -189,21 +181,13 @@ export function NuevoPedidoForm({
      sabe enfocarla cuando falta, y el error quedaría arriba, fuera de la vista. */
   const bloqueDestino = useRef<HTMLDivElement>(null);
 
-  const anadir = (elegidos: File[]) => {
-    const buenos: File[] = [];
-    for (const archivo of elegidos) {
-      const problema = validarArchivo(archivo);
-      if (problema) toast.error("Ese archivo no vale", { description: problema });
-      else buenos.push(archivo);
-    }
-    // Por nombre y tamaño: elegir dos veces la misma carpeta es lo normal.
-    setArchivos((previos) => [
-      ...previos,
-      ...buenos
-        .filter((b) => !previos.some((p) => p.archivo.name === b.name && p.archivo.size === b.size))
-        .map((archivo) => ({ archivo, itemClave: null })),
-    ]);
-  };
+  /* Los pedidos activos de cada responsable del taller: para repartir el trabajo
+     sin cargar siempre al mismo. */
+  const activosPorResponsable = new Map<string, number>();
+  for (const p of pedidos) {
+    if (!p.responsableId || esTerminal(p.estado)) continue;
+    activosPorResponsable.set(p.responsableId, (activosPorResponsable.get(p.responsableId) ?? 0) + 1);
+  }
 
   const form = useForm<Campos>({
     resolver: zodResolver(esquema),
@@ -218,7 +202,7 @@ export function NuevoPedidoForm({
       fechaPrometida: "",
       tipoPago: "a_cuenta",
       metodoPago: "efectivo",
-      notas: "",
+      notasEntrega: "",
       observaciones: "",
     },
   });
@@ -266,9 +250,9 @@ export function NuevoPedidoForm({
   const ponerLineas = (siguientes: Linea[]) => {
     setLineas(siguientes);
     setErrorLineas(null);
-    // Un archivo ligado a un ítem que ya no está pasa a ser del pedido entero.
+    // Los archivos de un ítem que se quitó se van con él.
     setArchivos((previos) =>
-      previos.map((a) => (a.itemClave && !siguientes.some((l) => l.clave === a.itemClave) ? { ...a, itemClave: null } : a)),
+      Object.fromEntries(Object.entries(previos).filter(([clave]) => siguientes.some((l) => l.clave === clave))),
     );
   };
 
@@ -351,7 +335,8 @@ export function NuevoPedidoForm({
           { etiqueta: "Total", valor: money(total) },
         ];
 
-  useAvisoSalida(!registrado && (!!cliente || lineas.length > 0 || archivos.length > 0 || form.formState.isDirty));
+  const hayArchivos = Object.values(archivos).some((a) => a.length > 0);
+  useAvisoSalida(!registrado && (!!cliente || lineas.length > 0 || hayArchivos || form.formState.isDirty));
 
   if (!permisos.crearPedido || !permisos.gestionarCotizaciones) {
     return (
@@ -374,6 +359,15 @@ export function NuevoPedidoForm({
     if (!cliente) buscadorCliente.current?.focus({ preventScroll: true });
     else buscadorProducto.current?.focus({ preventScroll: true });
   };
+
+  /** Los archivos de un ítem, al lado de sus indicaciones. */
+  const pieArchivos = (clave: string, nombre: string) => (
+    <ArchivosDeItem
+      nombre={nombre}
+      archivos={archivos[clave] ?? []}
+      alCambiar={(siguientes) => setArchivos((previos) => ({ ...previos, [clave]: siguientes }))}
+    />
+  );
 
   const onSubmit = form.handleSubmit(
     async (v) => {
@@ -422,8 +416,9 @@ export function NuevoPedidoForm({
           // que se hubiera tecleado antes de cambiar el tipo de pago.
           abonoInicial: v.tipoPago === "credito" ? 0 : Number(v.abono ?? 0),
           metodoPago: v.metodoPago,
-          responsableId: v.responsableId || null,
-          notas: v.notas || null,
+          // El responsable es del taller: si lo atiende la tienda, no hay.
+          responsableId: v.ubicacion === "taller" ? v.responsableId || null : null,
+          notasEntrega: v.notasEntrega || null,
           indicacionesLineas: items.flatMap((i) => {
             const texto = (indicaciones[i.clave] ?? "").trim();
             return texto ? [{ posicion: i.posicion, texto }] : [];
@@ -439,15 +434,12 @@ export function NuevoPedidoForm({
       /* Los planos van después del alta y no antes: hasta aquí no había pedido al
          que colgarlos. Si alguno falla, el pedido ya está registrado y se dice
          cuál faltó; perder el alta por un archivo sería mucho peor. */
-      if (archivos.length > 0) {
-        const { errores } = await subirAdjuntos(
-          resultado.codigo,
-          "diseno",
-          archivos.map((a) => ({
-            archivo: a.archivo,
-            lineaPosicion: items.find((i) => i.clave === a.itemClave)?.posicion ?? null,
-          })),
-        );
+      const porSubir = items.flatMap((i) =>
+        (archivos[i.clave] ?? []).map((archivo) => ({ archivo, lineaPosicion: i.posicion })),
+      );
+      // De a `MAX_ARCHIVOS`, que es lo que acepta cada subida.
+      for (let desde = 0; desde < porSubir.length; desde += MAX_ARCHIVOS) {
+        const { errores } = await subirAdjuntos(resultado.codigo, "diseno", porSubir.slice(desde, desde + MAX_ARCHIVOS));
         for (const error of errores) {
           toast.error("El pedido se registró, pero un archivo no subió", { description: error });
         }
@@ -534,6 +526,7 @@ export function NuevoPedidoForm({
               d={desdeCotizacion}
               indicaciones={indicaciones}
               alCambiarIndicaciones={(clave, texto) => setIndicaciones((previas) => ({ ...previas, [clave]: texto }))}
+              pieExtra={pieArchivos}
             />
           ) : (
             <>
@@ -587,6 +580,7 @@ export function NuevoPedidoForm({
                 alTerminar={() => buscadorProducto.current?.focus()}
                 indicaciones={indicaciones}
                 alCambiarIndicaciones={(clave, texto) => setIndicaciones((previas) => ({ ...previas, [clave]: texto }))}
+                pieExtra={pieArchivos}
               />
             </>
           )}
@@ -614,7 +608,10 @@ export function NuevoPedidoForm({
                       key={valor}
                       type="button"
                       aria-pressed={activo}
-                      onClick={() => form.setValue("ubicacion", valor, { shouldValidate: true })}
+                      onClick={() => {
+                        form.setValue("ubicacion", valor, { shouldValidate: true });
+                        if (valor !== "taller") form.setValue("responsableId", undefined);
+                      }}
                       className={cn(
                         "flex items-center gap-3 rounded-lg border p-3 text-left transition-colors",
                         "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
@@ -642,6 +639,52 @@ export function NuevoPedidoForm({
               </div>
             </Campo>
           </div>
+
+          <AnimatePresence initial={false}>
+            {ubicacion === "taller" && (
+              <Condicional key="responsable" titulo="Porque lo atiende el taller">
+                <Campo
+                  label="Responsable en taller"
+                  ayuda="Junto a cada nombre, los pedidos activos que ya tiene a su cargo. Logística o Administración lo pueden asignar después."
+                >
+                  <Select
+                    value={form.watch("responsableId") ?? "sin"}
+                    onValueChange={(v) => v && form.setValue("responsableId", v === "sin" ? undefined : v)}
+                  >
+                    <SelectTrigger className="bg-card w-full max-w-72">
+                      <SelectValue>
+                        {(() => {
+                          const t = trabajadores.find((t) => t.id === form.watch("responsableId"));
+                          return t ? `${t.nombre} (${activosTexto(activosPorResponsable.get(t.id) ?? 0)})` : "Sin asignar todavía";
+                        })()}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="sin">Sin asignar todavía</SelectItem>
+                      {trabajadores.map((t) => {
+                        const activos = activosPorResponsable.get(t.id) ?? 0;
+                        return (
+                          <SelectItem key={t.id} value={t.id}>
+                            <span className="flex w-full items-center justify-between gap-3">
+                              <span>{t.nombre}</span>
+                              <span
+                                className={cn(
+                                  "tnum rounded-full px-1.5 py-px text-2xs font-medium",
+                                  activos === 0 ? "bg-muted text-muted-foreground" : "bg-primary/10 text-primary",
+                                )}
+                              >
+                                {activosTexto(activos)}
+                              </span>
+                            </span>
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                </Campo>
+              </Condicional>
+            )}
+          </AnimatePresence>
 
           <Campo grupo label="Destino del envío" requerido>
             <Opciones
@@ -881,6 +924,43 @@ export function NuevoPedidoForm({
               </div>
             </div>
           </Campo>
+
+          <Campo
+            label="Notas de la entrega"
+            ayuda="Opcional. Quién lo entrega y cómo se entrega."
+            error={form.formState.errors.notasEntrega?.message}
+          >
+            <Textarea
+              rows={2}
+              placeholder="Ej. lo lleva Juan en la movilidad; entregar en recepción con guía"
+              {...form.register("notasEntrega")}
+            />
+          </Campo>
+
+          {conObservaciones ? (
+            <Campo
+              label="Observaciones internas"
+              ayuda="Notas e incidencias del pedido para la oficina; no son instrucciones de producción."
+            >
+              <Textarea
+                rows={2}
+                autoFocus={!form.getValues("observaciones")}
+                placeholder="Ej. el cliente pasa a revisar la muestra el lunes"
+                {...form.register("observaciones")}
+              />
+            </Campo>
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              className="text-muted-foreground -ml-2 gap-1 self-start"
+              onClick={() => setConObservaciones(true)}
+            >
+              <NotebookPen />
+              Agregar observación interna
+            </Button>
+          )}
         </Seccion>
 
         <Seccion n={3} titulo="Pago" completa={pagoListo}>
@@ -1001,174 +1081,6 @@ export function NuevoPedidoForm({
           )}
         </Seccion>
 
-        <Seccion n={4} titulo="Para el taller" nota="Opcional">
-          <Campo
-            label="Notas para el taller"
-            ayuda="Lo que el taller tiene que saber de todo el pedido: acabados, pegado, cómo se entrega. Lo de un solo ítem va en sus indicaciones."
-            error={form.formState.errors.notas?.message}
-          >
-            <Textarea rows={3} placeholder="Ej. bordes pulidos; entregar con film" {...form.register("notas")} />
-          </Campo>
-
-          <Campo
-            grupo
-            label="Archivos"
-            ayuda="Planos, PDF o imágenes. Hasta 10 MB cada uno. Cada archivo puede ser de un ítem o de todo el pedido."
-          >
-            <div
-              role="button"
-              tabIndex={0}
-              aria-label="Elegir o arrastrar archivos"
-              onClick={() => entradaArchivos.current?.click()}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  entradaArchivos.current?.click();
-                }
-              }}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setArrastrando(true);
-              }}
-              onDragLeave={() => setArrastrando(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setArrastrando(false);
-                anadir(Array.from(e.dataTransfer.files));
-              }}
-              className={cn(
-                "text-muted-foreground flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed p-5 text-center text-sm transition-colors",
-                "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
-                arrastrando
-                  ? "border-primary bg-primary/[0.06] text-primary"
-                  : "hover:border-primary/40 hover:bg-primary/[0.03]",
-              )}
-            >
-              <span className="bg-primary/10 text-primary mb-2 grid size-9 place-items-center rounded-full">
-                <Upload className="size-4" />
-              </span>
-              <span>
-                <span className="text-primary font-medium">Elige archivos</span> o arrástralos aquí
-              </span>
-            </div>
-              <input
-                ref={entradaArchivos}
-                type="file"
-                multiple
-                accept={ACEPTA}
-                className="sr-only"
-                aria-label="Elegir archivos"
-                tabIndex={-1}
-                onChange={(e) => {
-                  anadir(Array.from(e.target.files ?? []));
-                  e.target.value = "";
-                }}
-              />
-
-            {archivos.length > 0 && (
-              <ul className="mt-2 flex flex-col gap-1.5" aria-label="Archivos por subir">
-                {archivos.map((elegido) => (
-                  <li
-                    key={`${elegido.archivo.name}-${elegido.archivo.size}`}
-                    className="bg-muted/60 flex flex-wrap items-center gap-2 rounded-md border py-1 pr-1 pl-2"
-                  >
-                    <FileText className="text-primary size-3.5 shrink-0" />
-                    <span className="min-w-0 flex-1 truncate text-xs">{elegido.archivo.name}</span>
-                    <Select
-                      value={elegido.itemClave ?? GENERAL}
-                      onValueChange={(v) =>
-                        v &&
-                        setArchivos((previos) =>
-                          previos.map((p) => (p === elegido ? { ...p, itemClave: v === GENERAL ? null : v } : p)),
-                        )
-                      }
-                    >
-                      <SelectTrigger
-                        size="sm"
-                        className="bg-card w-52 max-w-full"
-                        aria-label={`¿De qué es ${elegido.archivo.name}?`}
-                      >
-                        <SelectValue>
-                          {elegido.itemClave
-                            ? `Ítem ${items.find((i) => i.clave === elegido.itemClave)?.posicion ?? "?"}`
-                            : "Todo el pedido"}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={GENERAL}>Todo el pedido</SelectItem>
-                        {items.map((i) => (
-                          <SelectItem key={i.clave} value={i.clave}>
-                            Ítem {i.posicion} · {i.nombre}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-6 shrink-0"
-                      aria-label={`Quitar ${elegido.archivo.name}`}
-                      onClick={() => setArchivos((previos) => previos.filter((p) => p !== elegido))}
-                    >
-                      <X className="size-3" />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Campo>
-
-          <Campo
-            label="Responsable en taller"
-            ayuda="Logística o Administración lo pueden asignar después."
-          >
-            <Select
-              value={form.watch("responsableId") ?? "sin"}
-              onValueChange={(v) => v && form.setValue("responsableId", v === "sin" ? undefined : v)}
-            >
-              <SelectTrigger className="w-full max-w-64">
-                <SelectValue>
-                  {trabajadores.find((t) => t.id === form.watch("responsableId"))?.nombre ??
-                    "Sin asignar todavía"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="sin">Sin asignar todavía</SelectItem>
-                {trabajadores.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    {t.nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Campo>
-
-          {conObservaciones ? (
-            <Campo
-              label="Observaciones internas"
-              ayuda="Notas e incidencias del pedido para la oficina; no son instrucciones de producción."
-            >
-              <Textarea
-                rows={2}
-                autoFocus={!form.getValues("observaciones")}
-                placeholder="Ej. el cliente pasa a revisar la muestra el lunes"
-                {...form.register("observaciones")}
-              />
-            </Campo>
-          ) : (
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              className="text-muted-foreground -ml-2 gap-1 self-start"
-              onClick={() => setConObservaciones(true)}
-            >
-              <NotebookPen />
-              Agregar observación interna
-            </Button>
-          )}
-        </Seccion>
       </form>
 
       <BarraEnvio
@@ -1206,10 +1118,12 @@ function DeLaCotizacion({
   d,
   indicaciones,
   alCambiarIndicaciones,
+  pieExtra,
 }: {
   d: DesdeCotizacion;
   indicaciones: Record<string, string>;
   alCambiarIndicaciones: (clave: string, texto: string) => void;
+  pieExtra: (clave: string, nombre: string) => React.ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -1226,11 +1140,14 @@ function DeLaCotizacion({
             <li key={l.posicion} className="px-3 py-3">
               <CorteGuardadoVista corte={l.corte} conPrecios={false} />
               <p className="tnum mt-2 text-right text-sm font-medium">{money(l.importe)}</p>
-              <IndicacionesDeLinea
-                nombre={tituloCorte(l.corte)}
-                valor={indicaciones[String(l.posicion)] ?? ""}
-                alCambiar={(texto) => alCambiarIndicaciones(String(l.posicion), texto)}
-              />
+              <div className="flex flex-wrap items-start gap-x-1">
+                <IndicacionesDeLinea
+                  nombre={tituloCorte(l.corte)}
+                  valor={indicaciones[String(l.posicion)] ?? ""}
+                  alCambiar={(texto) => alCambiarIndicaciones(String(l.posicion), texto)}
+                />
+                {pieExtra(String(l.posicion), tituloCorte(l.corte))}
+              </div>
             </li>
           ) : (
             <li key={l.posicion} className="flex flex-wrap items-start gap-x-4 gap-y-1 px-3 py-2.5">
@@ -1245,12 +1162,13 @@ function DeLaCotizacion({
                 {numero(l.cantidad)} × {money(l.precioUnitario)}
               </p>
               <p className="tnum w-24 text-right text-sm font-medium">{money(l.importe)}</p>
-              <div className="basis-full">
+              <div className="flex basis-full flex-wrap items-start gap-x-1">
                 <IndicacionesDeLinea
                   nombre={l.nombre}
                   valor={indicaciones[String(l.posicion)] ?? ""}
                   alCambiar={(texto) => alCambiarIndicaciones(String(l.posicion), texto)}
                 />
+                {pieExtra(String(l.posicion), l.nombre)}
               </div>
             </li>
           ),
@@ -1264,6 +1182,11 @@ function DeLaCotizacion({
 }
 
 /* ── Piezas del formulario ── */
+
+/** 0 → "sin pedidos activos", 1 → "1 activo", 3 → "3 activos". */
+function activosTexto(n: number) {
+  return n === 0 ? "sin pedidos activos" : n === 1 ? "1 activo" : `${n} activos`;
+}
 
 /** Un campo de dinero con el "S/" delante, como el precio de las líneas. */
 function ConSoles({ children }: { children: React.ReactNode }) {

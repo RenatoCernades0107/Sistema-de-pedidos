@@ -120,6 +120,8 @@ export interface Pedido {
   detalle: string;
   /** Notas e incidencias del pedido. La especificación del trabajo va en `detalle`. */
   observaciones: string | null;
+  /** Quién entrega el pedido y cómo. */
+  notasEntrega?: string | null;
   numeroComprobante: string | null;
   /** Si el pedido ya tiene comprobante. Lo ven los tres roles; el número, solo Admin:
    *  sin esto el taller no puede saber si le dejarán entregar hasta que falle. */

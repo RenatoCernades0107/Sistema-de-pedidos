@@ -172,7 +172,8 @@ export const esquemaFormNuevoPedido = z
     metodoPago,
     abono: z.coerce.number().min(0, "No puede ser negativo").optional(),
     responsableId: z.string().optional(),
-    notas: z.string().trim().max(1000, "Las notas son demasiado largas").optional(),
+    /** Quién entrega el pedido y cómo. */
+    notasEntrega: z.string().trim().max(1000, "Las notas son demasiado largas").optional(),
     observaciones: z.string().trim().optional(),
   })
   .superRefine((v, ctx) => {
@@ -204,6 +205,7 @@ export const esquemaFormDatos = z
     direccion: z.string().trim().optional(),
     detalle: z.string().trim().optional(),
     observaciones: z.string().trim().optional(),
+    notasEntrega: z.string().trim().max(1000, "Las notas de la entrega son demasiado largas").optional(),
     plazoCredito: z.coerce.number().optional(),
   })
   .superRefine((v, ctx) => {
@@ -302,6 +304,7 @@ export const esquemaDatosEditables = z
     direccion: z.string().trim().nullable(),
     detalle: z.string(),
     observaciones: z.string().trim().nullable(),
+    notasEntrega: z.string().trim().max(1000, "Las notas de la entrega son demasiado largas").nullable(),
     plazoCredito: plazoCredito.nullable(),
   })
   .superRefine((v, ctx) => {
@@ -675,8 +678,8 @@ export const esquemaRegistroPedido = z
     responsableId: z.uuid().nullable(),
     // Para dónde va: lo que lo pone en la vista del taller o en la de la tienda.
     ubicacion,
-    /** Las notas generales: lo que el taller tiene que saber y no sale de las líneas. */
-    notas: z.string().trim().max(1000, "Las notas son demasiado largas").nullable(),
+    /** Quién entrega el pedido y cómo (en mano, con movilidad, por agencia…). */
+    notasEntrega: z.string().trim().max(1000, "Las notas de la entrega son demasiado largas").nullable(),
     /** Lo que el taller tiene que saber de cada línea, por su posición (1 = la primera). */
     indicacionesLineas: z
       .array(

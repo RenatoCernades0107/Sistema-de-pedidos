@@ -84,7 +84,9 @@ test("Administración registra un pedido con un producto y un corte, y Odoo lo r
   await expect(page.getByText("Elige si el pedido va para el taller o para la tienda")).toBeVisible();
 
   await page.getByRole("group", { name: "Área que lo atiende" }).getByRole("button", { name: /Taller/ }).click();
-  await page.getByLabel("Notas para el taller").fill("Bordes pulidos");
+  // El responsable solo se elige si lo atiende el taller.
+  await expect(page.getByText("Responsable en taller")).toBeVisible();
+  await page.getByLabel("Notas de la entrega").fill("Lo lleva Juan en la movilidad");
   await page.getByLabel("Abono inicial").fill("100");
   await page.getByRole("button", { name: "Registrar pedido" }).click();
 
@@ -94,6 +96,7 @@ test("Administración registra un pedido con un producto y un corte, y Odoo lo r
   expect(codigo).toMatch(/^P\d{4}-\d{3}$/);
   await expect(page.getByRole("heading", { name: "E2E José Pérez Quispe" })).toBeVisible();
   await expect(page.getByRole("combobox", { name: "Ubicación actual" })).toContainText("En taller");
+  await expect(page.getByText("Lo lleva Juan en la movilidad")).toBeVisible();
   // 665 × 1.18 = 784.70, menos el abono.
   await expect(page.getByText("S/ 684.70").first()).toBeVisible();
 
