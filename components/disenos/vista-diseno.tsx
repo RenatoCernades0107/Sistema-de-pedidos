@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { Box, Calculator, Layers, LayoutGrid, MessageSquare, Puzzle, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useDiseno } from "./diseno-contexto";
@@ -90,6 +91,9 @@ export function VistaDiseno({
 
   const en3d = pestana === "3d";
   const panel = "min-h-0 flex-1 overflow-y-auto px-4 py-4 data-[hidden]:hidden";
+  // La pestaña activa, en el azul de la marca (texto y subrayado).
+  const tab =
+    "px-2.5 data-active:text-[#004c8f] after:bg-[#004c8f] dark:data-active:text-sky-300 dark:after:bg-sky-300";
 
   return (
     <div
@@ -101,9 +105,11 @@ export function VistaDiseno({
       )}
     >
       <MiniaturaDiseno vigenteConFoto={vigenteConFoto} />
-      <div className="bg-background flex min-h-11 items-center gap-2 border-b px-2 py-1.5">
+      <div className="bg-background relative flex min-h-11 items-center gap-2 border-b px-2 py-1.5">
+        {/* Un filete con los colores de la marca. */}
+        <span aria-hidden className="absolute inset-x-0 -bottom-px h-0.5 bg-gradient-to-r from-[#004c8f] via-[#004c8f] to-[#ffc200]" />
         {volver}
-        <h1 className="min-w-0 flex-1 truncate text-sm font-medium">{titulo ?? nombre}</h1>
+        <h1 className="min-w-0 flex-1 truncate text-sm font-semibold">{titulo ?? nombre}</h1>
         {extra}
       </div>
 
@@ -122,19 +128,24 @@ export function VistaDiseno({
         >
           <div className="shrink-0 overflow-x-auto border-b px-2">
             <TabsList variant="line" className="h-11 gap-1">
-              <TabsTrigger value="chat" className="px-2.5">
+              <TabsTrigger value="chat" className={tab}>
+                <MessageSquare aria-hidden className="size-3.5 max-sm:hidden" />
                 Chat
               </TabsTrigger>
-              <TabsTrigger value="3d" className="px-2.5 md:hidden">
+              <TabsTrigger value="3d" className={cn(tab, "md:hidden")}>
+                <Box aria-hidden className="size-3.5 max-sm:hidden" />
                 3D
               </TabsTrigger>
-              <TabsTrigger value="modelo" className="px-2.5">
+              <TabsTrigger value="modelo" className={tab}>
+                <LayoutGrid aria-hidden className="size-3.5 max-sm:hidden" />
                 Modelo
               </TabsTrigger>
-              <TabsTrigger value="parametros" className="px-2.5">
+              <TabsTrigger value="parametros" className={tab}>
+                <SlidersHorizontal aria-hidden className="size-3.5 max-sm:hidden" />
                 Parámetros
               </TabsTrigger>
-              <TabsTrigger value="piezas" className="px-2.5">
+              <TabsTrigger value="piezas" className={tab}>
+                <Puzzle aria-hidden className="size-3.5 max-sm:hidden" />
                 Piezas
                 {resumen.errores > 0 ? (
                   <span className="text-destructive tabular-nums" title="Errores del diseño">
@@ -144,7 +155,8 @@ export function VistaDiseno({
                   <span className="text-muted-foreground font-normal tabular-nums">{resumen.piezas}</span>
                 ) : null}
               </TabsTrigger>
-              <TabsTrigger value="planchas" className="px-2.5">
+              <TabsTrigger value="planchas" className={tab}>
+                <Layers aria-hidden className="size-3.5 max-sm:hidden" />
                 Planchas
                 {resumen.problemasMaterial > 0 ? (
                   <span className="text-destructive tabular-nums">{resumen.problemasMaterial}</span>
@@ -152,7 +164,8 @@ export function VistaDiseno({
                   <span className="text-muted-foreground font-normal tabular-nums">{resumen.planchas}</span>
                 ) : null}
               </TabsTrigger>
-              <TabsTrigger value="costo" className="px-2.5">
+              <TabsTrigger value="costo" className={tab}>
+                <Calculator aria-hidden className="size-3.5 max-sm:hidden" />
                 Costo
               </TabsTrigger>
             </TabsList>
@@ -213,7 +226,7 @@ export function VistaDiseno({
           <VisorDiseno nombre={nombreModelo} avisoMotor={avisoMotor} />
         </section>
 
-        {pie && <div className="bg-background shrink-0 border-t md:col-start-1 md:row-start-2 md:border-r">{pie}</div>}
+        {pie && <div className="shrink-0 border-t md:col-start-1 md:row-start-2 md:border-r">{pie}</div>}
       </Tabs>
     </div>
   );

@@ -47,6 +47,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FondoAcrilico } from "@/components/fondo-acrilico";
 
 export type TerminadoDeDiseno = Omit<LineaTerminado, "tipo" | "clave"> & { clave?: string };
 
@@ -210,7 +211,13 @@ function Contenido({
         titulo={
           <>
             {linea ? "Editar producto terminado" : "Producto terminado"}
-            {nombre && <span className="text-muted-foreground font-normal"> · {nombre}</span>}
+            {/* El separador se sigue leyendo: el título accesible es "Producto terminado · nombre". */}
+            {nombre && <span className="sr-only"> · </span>}
+            {nombre && (
+              <span className="ml-2 rounded-full bg-[#004c8f]/10 px-2 py-0.5 text-xs font-medium text-[#004c8f] dark:bg-sky-400/10 dark:text-sky-300">
+                {nombre}
+              </span>
+            )}
           </>
         }
         extra={
@@ -745,93 +752,110 @@ function PieTerminado({
   };
 
   const celda = "flex flex-col gap-1.5";
-  const etiqueta = "flex h-4 items-center gap-1 text-xs leading-4 font-medium";
+  const etiqueta = "flex h-4 items-center gap-1 text-xs leading-4 font-semibold text-white/90";
 
+  // El mismo azul con planchas del login: el pie se distingue del resto y se lee de un vistazo.
   return (
-    <div className="flex flex-col gap-2.5 px-4 py-3">
-      <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
-        <div className={celda}>
-          <label htmlFor="terminado-cantidad" className={etiqueta}>
-            Cantidad <span className="text-destructive">*</span>
-          </label>
-          <div className="flex h-9 items-center overflow-hidden rounded-lg border">
-            <button
-              type="button"
-              aria-label="Una menos"
-              className="text-muted-foreground hover:bg-muted h-full w-8"
-              onClick={() => setCantidad(String(Math.max(1, unidades - 1)))}
-            >
-              −
-            </button>
-            <input
-              id="terminado-cantidad"
-              inputMode="numeric"
-              value={cantidad}
-              onChange={(e) => setCantidad(e.target.value.replace(/\D/g, ""))}
-              className="w-10 bg-transparent text-center text-sm font-medium tabular-nums outline-none"
+    <div className="relative overflow-hidden bg-[#003a6e] text-white">
+      <FondoAcrilico variante="banda" />
+      <div className="relative flex flex-col gap-2.5 px-4 py-3">
+        <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
+          <div className={celda}>
+            <label htmlFor="terminado-cantidad" className={etiqueta}>
+              Cantidad <span className="text-[#ffc200]">*</span>
+            </label>
+            <div className="text-foreground flex h-9 items-center overflow-hidden rounded-lg border border-white/20 bg-white dark:bg-zinc-900">
+              <button
+                type="button"
+                aria-label="Una menos"
+                className="text-muted-foreground hover:bg-muted h-full w-8"
+                onClick={() => setCantidad(String(Math.max(1, unidades - 1)))}
+              >
+                −
+              </button>
+              <input
+                id="terminado-cantidad"
+                inputMode="numeric"
+                value={cantidad}
+                onChange={(e) => setCantidad(e.target.value.replace(/\D/g, ""))}
+                className="w-10 bg-transparent text-center text-sm font-medium tabular-nums outline-none"
+              />
+              <button
+                type="button"
+                aria-label="Una más"
+                className="text-muted-foreground hover:bg-muted h-full w-8"
+                onClick={() => setCantidad(String(unidades + 1))}
+              >
+                +
+              </button>
+            </div>
+          </div>
+          <div className={cn(celda, "hidden sm:flex")} title="Material y corte láser de una unidad.">
+            <span className={etiqueta}>Costo/u</span>
+            <span className="flex h-9 items-center text-sm text-white/75 tabular-nums" data-testid="costo-unidad">
+              {costoUnidad !== null ? money(costoUnidad) : "—"}
+            </span>
+          </div>
+          <div className={celda}>
+            <label htmlFor="terminado-precio" className={etiqueta}>
+              Precio unitario
+              {sugerido !== null && (
+                <Info className="size-3 text-white/70"aria-label={`Sugerido: costo × ${factor}`}>
+                  <title>{`Sugerido: ${money(sugerido)} (costo × ${factor})`}</title>
+                </Info>
+              )}
+            </label>
+            <Input
+              id="terminado-precio"
+              inputMode="decimal"
+              value={precio}
+              onChange={(e) => setPrecio(e.target.value)}
+              placeholder={sugerido !== null ? String(sugerido) : "0.00"}
+              className={cn(
+                "text-foreground h-9 w-28 border-white/20 bg-white tabular-nums dark:bg-zinc-900",
+                precio.trim() && !precioValido && "border-destructive ring-destructive/40 ring-2",
+              )}
             />
-            <button
-              type="button"
-              aria-label="Una más"
-              className="text-muted-foreground hover:bg-muted h-full w-8"
-              onClick={() => setCantidad(String(unidades + 1))}
+          </div>
+          <div className={cn(celda, "hidden sm:flex")} title="Lo que queda del precio después del costo.">
+            <span className={etiqueta}>Margen</span>
+            <span
+              className={cn(
+                "flex h-9 items-center text-sm font-medium tabular-nums",
+                margen === null ? "font-normal text-white/60" : margen < 0 ? "text-red-300" : "text-emerald-300",
+              )}
+              data-testid="margen-terminado"
             >
-              +
-            </button>
+              {margen === null ? "—" : `${Math.round(margen * 100)}%`}
+            </span>
+          </div>
+          <div className={cn(celda, "ml-auto items-end")}>
+            <span className={etiqueta}>Subtotal</span>
+            <span className="flex h-9 items-center text-2xl font-bold text-white tabular-nums" data-testid="subtotal-terminado">
+              {money(subtotal)}
+            </span>
           </div>
         </div>
-        <div className={cn(celda, "hidden sm:flex")} title="Material y corte láser de una unidad.">
-          <span className={etiqueta}>Costo/u</span>
-          <span className="text-muted-foreground flex h-9 items-center text-sm tabular-nums" data-testid="costo-unidad">
-            {costoUnidad !== null ? money(costoUnidad) : "—"}
-          </span>
-        </div>
-        <div className={celda}>
-          <label htmlFor="terminado-precio" className={etiqueta}>
-            Precio unitario
-            {sugerido !== null && (
-              <Info className="text-muted-foreground size-3" aria-label={`Sugerido: costo × ${factor}`}>
-                <title>{`Sugerido: ${money(sugerido)} (costo × ${factor})`}</title>
-              </Info>
-            )}
-          </label>
-          <Input
-            id="terminado-precio"
-            inputMode="decimal"
-            value={precio}
-            onChange={(e) => setPrecio(e.target.value)}
-            placeholder={sugerido !== null ? String(sugerido) : "0.00"}
-            className={cn("h-9 w-28 tabular-nums", precio.trim() && !precioValido && "border-destructive")}
-          />
-        </div>
-        <div className={cn(celda, "hidden sm:flex")} title="Lo que queda del precio después del costo.">
-          <span className={etiqueta}>Margen</span>
-          <span
-            className={cn(
-              "flex h-9 items-center text-sm font-medium tabular-nums",
-              margen === null ? "text-muted-foreground font-normal" : margen < 0 ? "text-destructive" : "text-st-entregado",
-            )}
-            data-testid="margen-terminado"
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {falta && <p className="mr-auto text-xs text-white/75">{falta}</p>}
+          <Button
+            type="button"
+            variant="outline"
+            onClick={alCancelar}
+            className="border-white/40 bg-transparent text-white hover:bg-white/10 hover:text-white max-sm:flex-1 dark:border-white/40 dark:bg-transparent dark:hover:bg-white/10"
           >
-            {margen === null ? "—" : `${Math.round(margen * 100)}%`}
-          </span>
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            onClick={() => void agregar()}
+            disabled={!!falta || agregando || cargando}
+            className="bg-[#ffc200] font-semibold text-[#00284d] hover:bg-[#ffcf33] disabled:opacity-60 max-sm:flex-1"
+          >
+            {agregando && <Loader2 className="animate-spin" aria-hidden />}
+            {linea ? "Guardar cambios" : "Agregar al pedido"}
+          </Button>
         </div>
-        <div className={cn(celda, "ml-auto items-end")}>
-          <span className={etiqueta}>Subtotal</span>
-          <span className="flex h-9 items-center text-base font-semibold tabular-nums" data-testid="subtotal-terminado">
-            {money(subtotal)}
-          </span>
-        </div>
-      </div>
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        {falta && <p className="text-muted-foreground mr-auto text-xs">{falta}</p>}
-        <Button type="button" variant="outline" onClick={alCancelar} className="max-sm:flex-1">
-          Cancelar
-        </Button>
-        <Button type="button" onClick={() => void agregar()} disabled={!!falta || agregando || cargando} className="max-sm:flex-1">
-          {agregando && <Loader2 className="animate-spin" aria-hidden />}
-          {linea ? "Guardar cambios" : "Agregar al pedido"}
-        </Button>
       </div>
     </div>
   );

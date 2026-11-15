@@ -194,7 +194,7 @@ function useModelo(glbBase64: string, ids: readonly string[]) {
 }
 
 /** Los colores de la escena. three no lee variables CSS: van escritos por tema. */
-const TEMAS = {
+export const TEMAS = {
   light: {
     acrilico: "#cfe9f5",
     arista: "#2f4858",
