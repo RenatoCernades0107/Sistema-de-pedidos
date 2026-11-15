@@ -496,13 +496,13 @@ export function NuevoPedidoForm({
         titulo="Nuevo pedido"
         subtitulo={
           <>
-            Los campos marcados con <span className="text-[#ffc200]">*</span> son obligatorios.
+            Los campos marcados con <span className="text-destructive">*</span> son obligatorios.
           </>
         }
         lateral={
           <div className="text-right">
-            <p className="text-2xs font-medium tracking-[0.08em] text-white/65 uppercase">Código que se generará</p>
-            <p className="tnum mt-1 inline-block rounded-md bg-[#ffc200] px-2 py-0.5 text-sm font-semibold text-[#3b2a00]">
+            <p className="eyebrow">Código que se generará</p>
+            <p className="tnum mt-1 inline-block bg-brand-soft text-brand-foreground rounded-md px-2 py-0.5 text-sm font-semibold">
               {codigoPreview}
             </p>
           </div>
@@ -514,7 +514,7 @@ export function NuevoPedidoForm({
         ref={refForm}
         onSubmit={onSubmit}
         noValidate
-        className="relative -mt-10 flex max-w-3xl flex-col gap-4"
+        className="flex max-w-3xl flex-col gap-4"
         onKeyDown={(e) => {
           // Ctrl/⌘ + Enter registra desde cualquier campo, como en la cotización.
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {

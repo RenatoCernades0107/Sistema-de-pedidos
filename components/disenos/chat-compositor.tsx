@@ -48,7 +48,7 @@ export function ChatCompositor({
   };
 
   return (
-    <div className="border-t p-3">
+    <div className="p-3">
       <div className="mx-auto flex max-w-2xl items-end gap-2">
         <div className="relative min-w-0 flex-1">
           {aliases.size > 0 && (

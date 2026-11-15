@@ -6,6 +6,7 @@ import { exigirCad } from "@/lib/sesion";
 import { obtenerDiseno, obtenerMaterialDiseno, obtenerMaterialesPorCopia } from "@/lib/cad/disenos-servidor";
 import { catalogoParaDiseno, plantillasDelMotor } from "@/lib/cad/pagina-servidor";
 import { DisenoProvider } from "@/components/disenos/diseno-contexto";
+import { BOTON_CABECERA } from "@/components/disenos/estilos";
 import { VistaDiseno } from "@/components/disenos/vista-diseno";
 
 /**
@@ -44,7 +45,7 @@ export default async function Page({ params }: PageProps<"/disenos/[id]">) {
             nativeButton={false}
             variant="ghost"
             size="sm"
-            className="text-muted-foreground gap-1.5"
+            className={BOTON_CABECERA}
           >
             <ArrowLeft />
             <span className="hidden sm:inline">Diseños</span>

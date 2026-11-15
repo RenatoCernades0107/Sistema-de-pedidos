@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, Box, ChevronLeft, ChevronRight, FolderOpen, ImagePlus, Info, Loader2, Search } from "lucide-react";
+import { ArrowLeft, Box, ChevronLeft, ChevronRight, CircleAlert, FolderOpen, ImagePlus, Info, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
 import {
   abrirDiseno,
@@ -33,6 +33,7 @@ import { MEDIDAS_DE_PLANTILLA, medidasAParametrosCad, parametrosCadDe } from "@/
 import { cn } from "@/lib/utils";
 import { DisenoProvider, useDiseno, type CostosDiseno } from "@/components/disenos/diseno-contexto";
 import { useBloqueoDiseno, useCostoDiseno } from "@/components/disenos/panel-costo";
+import { BOTON_CABECERA } from "@/components/disenos/estilos";
 import { VistaDiseno } from "@/components/disenos/vista-diseno";
 import {
   AlertDialog,
@@ -47,7 +48,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FondoAcrilico } from "@/components/fondo-acrilico";
 
 export type TerminadoDeDiseno = Omit<LineaTerminado, "tipo" | "clave"> & { clave?: string };
 
@@ -203,7 +203,7 @@ function Contenido({
         sinAgregarACotizacion
         className="h-dvh md:h-dvh"
         volver={
-          <Button variant="ghost" size="sm" className="text-muted-foreground gap-1.5" onClick={cancelar}>
+          <Button variant="ghost" size="sm" className={BOTON_CABECERA} onClick={cancelar}>
             <ArrowLeft />
             <span className="hidden sm:inline">Volver al pedido</span>
           </Button>
@@ -214,7 +214,7 @@ function Contenido({
             {/* El separador se sigue leyendo: el título accesible es "Producto terminado · nombre". */}
             {nombre && <span className="sr-only"> · </span>}
             {nombre && (
-              <span className="ml-2 rounded-full bg-[#004c8f]/10 px-2 py-0.5 text-xs font-medium text-[#004c8f] dark:bg-sky-400/10 dark:text-sky-300">
+              <span className="ml-2 rounded-full bg-white/15 px-2 py-0.5 text-xs font-medium">
                 {nombre}
               </span>
             )}
@@ -222,7 +222,7 @@ function Contenido({
         }
         extra={
           cliente ? (
-            <span className="text-muted-foreground hidden max-w-64 truncate rounded-full border px-2.5 py-0.5 text-xs md:inline">
+            <span className="text-header-foreground/85 hidden max-w-64 truncate rounded-full border border-white/30 px-2.5 py-0.5 text-xs md:inline">
               Pedido de {cliente}
             </span>
           ) : null
@@ -751,20 +751,26 @@ function PieTerminado({
     }
   };
 
-  const celda = "flex flex-col gap-1.5";
-  const etiqueta = "flex h-4 items-center gap-1 text-xs leading-4 font-semibold text-white/90";
+  const celda = "flex flex-col gap-1";
+  const etiqueta = "text-muted-foreground flex h-4 items-center gap-1 text-xs leading-4 font-medium";
 
-  // El mismo azul con planchas del login: el pie se distingue del resto y se lee de un vistazo.
+  // Una sola fila, blanca. El pie solo ocupa la columna izquierda, así que lo que
+  // se esconde o baja de línea depende de su propio ancho, no del de la ventana.
   return (
-    <div className="relative overflow-hidden bg-[#003a6e] text-white">
-      <FondoAcrilico variante="banda" />
-      <div className="relative flex flex-col gap-2.5 px-4 py-3">
-        <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
+    <div className="@container">
+      <div className="flex flex-col gap-2 px-4 py-3">
+        {falta && (
+          <p className="text-muted-foreground flex items-center gap-1.5 text-xs" role="status">
+            <CircleAlert className="size-3.5 shrink-0" aria-hidden />
+            <span className="truncate">{falta}</span>
+          </p>
+        )}
+        <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
           <div className={celda}>
             <label htmlFor="terminado-cantidad" className={etiqueta}>
-              Cantidad <span className="text-[#ffc200]">*</span>
+              Cantidad <span className="text-destructive">*</span>
             </label>
-            <div className="text-foreground flex h-9 items-center overflow-hidden rounded-lg border border-white/20 bg-white dark:bg-zinc-900">
+            <div className="border-input focus-within:border-ring focus-within:ring-ring/50 flex h-9 items-center overflow-hidden rounded-lg border focus-within:ring-3">
               <button
                 type="button"
                 aria-label="Una menos"
@@ -790,17 +796,11 @@ function PieTerminado({
               </button>
             </div>
           </div>
-          <div className={cn(celda, "hidden sm:flex")} title="Material y corte láser de una unidad.">
-            <span className={etiqueta}>Costo/u</span>
-            <span className="flex h-9 items-center text-sm text-white/75 tabular-nums" data-testid="costo-unidad">
-              {costoUnidad !== null ? money(costoUnidad) : "—"}
-            </span>
-          </div>
           <div className={celda}>
             <label htmlFor="terminado-precio" className={etiqueta}>
               Precio unitario
               {sugerido !== null && (
-                <Info className="size-3 text-white/70"aria-label={`Sugerido: costo × ${factor}`}>
+                <Info className="size-3" aria-label={`Sugerido: costo × ${factor}`}>
                   <title>{`Sugerido: ${money(sugerido)} (costo × ${factor})`}</title>
                 </Info>
               )}
@@ -812,17 +812,27 @@ function PieTerminado({
               onChange={(e) => setPrecio(e.target.value)}
               placeholder={sugerido !== null ? String(sugerido) : "0.00"}
               className={cn(
-                "text-foreground h-9 w-28 border-white/20 bg-white tabular-nums dark:bg-zinc-900",
+                "h-9 w-28 tabular-nums",
                 precio.trim() && !precioValido && "border-destructive ring-destructive/40 ring-2",
               )}
             />
           </div>
-          <div className={cn(celda, "hidden sm:flex")} title="Lo que queda del precio después del costo.">
+          <div className={cn(celda, "hidden @md:flex")} title="Material y corte láser de una unidad.">
+            <span className={etiqueta}>Costo/u</span>
+            <span className="text-muted-foreground flex h-9 items-center text-sm tabular-nums" data-testid="costo-unidad">
+              {costoUnidad !== null ? money(costoUnidad) : "—"}
+            </span>
+          </div>
+          <div className={cn(celda, "hidden @md:flex")} title="Lo que queda del precio después del costo.">
             <span className={etiqueta}>Margen</span>
             <span
               className={cn(
                 "flex h-9 items-center text-sm font-medium tabular-nums",
-                margen === null ? "font-normal text-white/60" : margen < 0 ? "text-red-300" : "text-emerald-300",
+                margen === null
+                  ? "text-muted-foreground font-normal"
+                  : margen < 0
+                    ? "text-destructive"
+                    : "text-st-entregado",
               )}
               data-testid="margen-terminado"
             >
@@ -831,30 +841,26 @@ function PieTerminado({
           </div>
           <div className={cn(celda, "ml-auto items-end")}>
             <span className={etiqueta}>Subtotal</span>
-            <span className="flex h-9 items-center text-2xl font-bold text-white tabular-nums" data-testid="subtotal-terminado">
+            <span className="flex h-9 items-center text-xl font-semibold tabular-nums" data-testid="subtotal-terminado">
               {money(subtotal)}
             </span>
           </div>
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {falta && <p className="mr-auto text-xs text-white/75">{falta}</p>}
-          <Button
-            type="button"
-            variant="outline"
-            onClick={alCancelar}
-            className="border-white/40 bg-transparent text-white hover:bg-white/10 hover:text-white max-sm:flex-1 dark:border-white/40 dark:bg-transparent dark:hover:bg-white/10"
-          >
-            Cancelar
-          </Button>
-          <Button
-            type="button"
-            onClick={() => void agregar()}
-            disabled={!!falta || agregando || cargando}
-            className="bg-[#ffc200] font-semibold text-[#00284d] hover:bg-[#ffcf33] disabled:opacity-60 max-sm:flex-1"
-          >
-            {agregando && <Loader2 className="animate-spin" aria-hidden />}
-            {linea ? "Guardar cambios" : "Agregar al pedido"}
-          </Button>
+          {/* Con poco ancho, los botones bajan a su propia fila y se reparten el espacio. */}
+          <div className="flex basis-full gap-2 @3xl:basis-auto">
+            <Button type="button" variant="outline" size="lg" onClick={alCancelar} className="h-9 flex-1 @3xl:flex-none">
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              size="lg"
+              onClick={() => void agregar()}
+              disabled={!!falta || agregando || cargando}
+              className="h-9 flex-1 font-semibold @3xl:flex-none"
+            >
+              {agregando && <Loader2 className="animate-spin" aria-hidden />}
+              {linea ? "Guardar cambios" : "Agregar al pedido"}
+            </Button>
+          </div>
         </div>
       </div>
     </div>

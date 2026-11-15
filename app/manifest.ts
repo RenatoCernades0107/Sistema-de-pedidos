@@ -16,7 +16,7 @@ export default function manifest(): MetadataRoute.Manifest {
     display: "standalone",
     orientation: "portrait",
     background_color: "#ffffff",
-    theme_color: "#18315a",
+    theme_color: "#004c8f",
     /* Los PNG no son un lujo: iOS no acepta SVG para el icono de la pantalla de
        inicio, y sin instalarla en el iPhone no hay avisos. Los genera
        `node scripts/gen-iconos.cjs` desde icono.svg; no se editan a mano. */
