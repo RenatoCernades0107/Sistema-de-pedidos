@@ -17,6 +17,7 @@ import type { Json } from "@/lib/supabase-tipos";
 import { esquemaReferenciaCara, type ReferenciaCara } from "./caras";
 import type { DisenoCad, MaterialDiseno, ParametrosCad } from "./tipos";
 import { NOMBRE_POR_DEFECTO } from "./titulo";
+import { urlMiniatura } from "./miniatura-url";
 
 export type OrigenVersion = "formulario" | "chat";
 
@@ -101,10 +102,11 @@ interface FilaVersion {
   parametros: Json;
   origen: string;
   creado_en: string;
+  miniatura_path: string | null;
 }
 
 const COLUMNAS_DISENO = "id, nombre, version_actual, creado_en, actualizado_en";
-const COLUMNAS_VERSION = "diseno_id, version, plantilla, version_plantilla, parametros, origen, creado_en";
+const COLUMNAS_VERSION = "diseno_id, version, plantilla, version_plantilla, parametros, origen, creado_en, miniatura_path";
 
 const deDiseno = (d: FilaDiseno, v: FilaVersion | undefined): DisenoCad => ({
   id: d.id,
@@ -113,6 +115,7 @@ const deDiseno = (d: FilaDiseno, v: FilaVersion | undefined): DisenoCad => ({
   plantilla: v?.plantilla ?? null,
   parametros: deParametros(v?.parametros),
   version: v ? v.version : 0,
+  miniatura: urlMiniatura(v?.miniatura_path),
   creado_en: d.creado_en,
   actualizado_en: d.actualizado_en,
 });

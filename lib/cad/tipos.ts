@@ -90,6 +90,8 @@ export type DisenoCad = {
   plantilla: string | null;
   parametros: ParametrosCad;
   version: number;
+  /** La foto PNG de la versión vigente (URL pública). `null` si todavía no tiene. */
+  miniatura: string | null;
   creado_en: string;
   actualizado_en: string;
 };
