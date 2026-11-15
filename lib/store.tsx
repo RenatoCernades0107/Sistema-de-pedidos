@@ -297,6 +297,7 @@ export function StoreProvider({
             direccion: cambios.entrega === "domicilio" ? cambios.direccion : null,
             detalle: cambios.detalle,
             observaciones: cambios.observaciones,
+            notasEntrega: cambios.notasEntrega,
             plazoCredito: cambios.plazoCredito,
           },
         },

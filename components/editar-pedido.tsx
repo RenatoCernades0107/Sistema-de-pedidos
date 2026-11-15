@@ -87,6 +87,7 @@ export function EditarDatos({ pedido: p }: { pedido: Pedido }) {
       direccion: v.entrega === "domicilio" ? (v.direccion ?? null) : null,
       detalle: v.detalle ?? "",
       observaciones: v.observaciones || null,
+      notasEntrega: v.notasEntrega || null,
       plazoCredito:
         p.tipoPago === "credito" ? ((Number(v.plazoCredito) || null) as PlazoCredito | null) : null,
     });
@@ -232,6 +233,14 @@ export function EditarDatos({ pedido: p }: { pedido: Pedido }) {
             />
           </Campo>
 
+          <Campo label="Notas de la entrega" ayuda="Quién lo entrega y cómo.">
+            <Textarea
+              rows={2}
+              placeholder="Ej. lo lleva Juan en la movilidad; entregar en recepción"
+              {...form.register("notasEntrega")}
+            />
+          </Campo>
+
           <DialogFooter>
             <DialogClose render={<Button variant="outline" type="button" />} nativeButton>
               Cancelar
@@ -256,6 +265,7 @@ const valoresDe = (p: Pedido): CamposDatos => ({
   direccion: p.direccion ?? "",
   detalle: p.detalle,
   observaciones: p.observaciones ?? "",
+  notasEntrega: p.notasEntrega ?? "",
   plazoCredito: p.plazoCredito ?? undefined,
 });
 

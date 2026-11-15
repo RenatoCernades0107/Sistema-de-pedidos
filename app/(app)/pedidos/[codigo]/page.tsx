@@ -3,6 +3,8 @@ import { cargarLineasDePedido, cargarOdooDePedido } from "@/lib/pedido-odoo-serv
 import { cargarSobrantesDePedido } from "@/lib/sobrantes-servidor";
 import { clienteServidor } from "@/lib/supabase-servidor";
 import { tokenSeguimiento } from "@/lib/compartir-servidor";
+import { perfilActual } from "@/lib/sesion";
+import { aMensaje, COLUMNAS_MENSAJE } from "@/lib/chat-pedido";
 
 /**
  * El pedido en sí sale del layout, que ya cargó la lista entera. Lo que se lee
@@ -14,7 +16,7 @@ export default async function Page({ params }: PageProps<"/pedidos/[codigo]">) {
   const codigo = decodeURIComponent((await params).codigo);
   const supabase = await clienteServidor();
 
-  const [lineas, odoo, sobrantes, retazo, token] = await Promise.all([
+  const [lineas, odoo, sobrantes, retazo, token, chat] = await Promise.all([
     cargarLineasDePedido(codigo).catch((e) => {
       console.error("[pedidos] líneas", e);
       return null;
@@ -29,6 +31,10 @@ export default async function Page({ params }: PageProps<"/pedidos/[codigo]">) {
     }),
     supabase.rpc("retazo_minimo"),
     tokenSeguimiento(codigo),
+    cargarChat(codigo).catch((e) => {
+      console.error("[pedidos] chat", e);
+      return null;
+    }),
   ]);
 
   return (
@@ -39,6 +45,26 @@ export default async function Page({ params }: PageProps<"/pedidos/[codigo]">) {
       sobrantes={sobrantes}
       retazoMin={retazo.data ?? undefined}
       tokenSeguimiento={token}
+      chat={chat}
     />
   );
+}
+
+/** El chat del pedido: su id (el canal en vivo filtra por él), quién mira y lo ya escrito. */
+async function cargarChat(codigo: string) {
+  const supabase = await clienteServidor();
+  const [perfil, { data: pedido }] = await Promise.all([
+    perfilActual(),
+    supabase.from("pedidos").select("id").eq("codigo", codigo).maybeSingle(),
+  ]);
+  if (!perfil || !pedido) return null;
+
+  const { data, error } = await supabase
+    .from("pedido_mensajes")
+    .select(COLUMNAS_MENSAJE)
+    .eq("pedido_id", pedido.id)
+    .order("creado_en", { ascending: true });
+  if (error) throw new Error(error.message);
+
+  return { pedidoId: pedido.id, usuarioId: perfil.id, mensajes: (data ?? []).map(aMensaje) };
 }

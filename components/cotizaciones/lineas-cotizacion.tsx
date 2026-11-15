@@ -41,6 +41,7 @@ export function LineasCotizacion({
   resaltada,
   indicaciones,
   alCambiarIndicaciones,
+  pieExtra,
 }: {
   lineas: LineaDelFormulario[];
   alCambiar: (clave: string, cambios: Partial<Pick<LineaCotizacion, "cantidad" | "precioUnitario" | "descripcion">>) => void;
@@ -61,14 +62,19 @@ export function LineasCotizacion({
    */
   indicaciones?: Record<string, string>;
   alCambiarIndicaciones?: (clave: string, texto: string) => void;
+  /** Lo que va junto a las indicaciones de cada línea (en el pedido, sus archivos). */
+  pieExtra?: (clave: string, nombre: string) => ReactNode;
 }) {
   const pieDe = (l: LineaDelFormulario, nombre: string) =>
     alCambiarIndicaciones ? (
-      <IndicacionesDeLinea
-        nombre={nombre}
-        valor={indicaciones?.[l.clave] ?? ""}
-        alCambiar={(texto) => alCambiarIndicaciones(l.clave, texto)}
-      />
+      <div className="flex flex-wrap items-start gap-x-1">
+        <IndicacionesDeLinea
+          nombre={nombre}
+          valor={indicaciones?.[l.clave] ?? ""}
+          alCambiar={(texto) => alCambiarIndicaciones(l.clave, texto)}
+        />
+        {pieExtra?.(l.clave, nombre)}
+      </div>
     ) : null;
 
   if (lineas.length === 0) {
@@ -461,7 +467,7 @@ export function IndicacionesDeLinea({
       onChange={(e) => alCambiar(e.target.value)}
       placeholder="Ej. bordes pulidos; entregar con film (solo lo ve el taller)"
       aria-label={`Indicaciones para el taller de ${nombre}`}
-      className="mt-2"
+      className="mt-2 basis-full"
       maxLength={500}
     />
   );

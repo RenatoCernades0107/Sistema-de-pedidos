@@ -954,6 +954,36 @@ export type Database = {
           },
         ]
       }
+      pedido_mensajes: {
+        Row: {
+          autor_id: string
+          autor_nombre: string
+          autor_rol: Database["public"]["Enums"]["rol"] | null
+          creado_en: string
+          id: string
+          pedido_id: string
+          texto: string
+        }
+        Insert: {
+          autor_id?: string
+          autor_nombre?: string
+          autor_rol?: Database["public"]["Enums"]["rol"] | null
+          creado_en?: string
+          id?: string
+          pedido_id: string
+          texto: string
+        }
+        Update: {
+          autor_id?: string
+          autor_nombre?: string
+          autor_rol?: Database["public"]["Enums"]["rol"] | null
+          creado_en?: string
+          id?: string
+          pedido_id?: string
+          texto?: string
+        }
+        Relationships: []
+      }
       pedidos: {
         Row: {
           actualizado_en: string
@@ -974,6 +1004,7 @@ export type Database = {
           monto_total: number
           motivo: string | null
           nombre_cliente: string
+          notas_entrega: string | null
           numero_comprobante: string | null
           observaciones: string | null
           pagado: boolean | null
@@ -1008,6 +1039,7 @@ export type Database = {
           monto_total?: number
           motivo?: string | null
           nombre_cliente: string
+          notas_entrega?: string | null
           numero_comprobante?: string | null
           observaciones?: string | null
           pagado?: boolean | null
@@ -1042,6 +1074,7 @@ export type Database = {
           monto_total?: number
           motivo?: string | null
           nombre_cliente?: string
+          notas_entrega?: string | null
           numero_comprobante?: string | null
           observaciones?: string | null
           pagado?: boolean | null
@@ -1910,6 +1943,7 @@ export type Database = {
           telefono_cliente: string | null
           telefono_persona_recoge: string | null
           tiene_comprobante: boolean | null
+          notas_entrega: string | null
           tipo_documento: Database["public"]["Enums"]["tipo_documento"] | null
           tipo_pago: Database["public"]["Enums"]["tipo_pago"] | null
           tipo_producto_terminado:
@@ -1982,6 +2016,7 @@ export type Database = {
           telefono_cliente: string | null
           telefono_persona_recoge: string | null
           tiene_comprobante: boolean | null
+          notas_entrega: string | null
           tipo_documento: Database["public"]["Enums"]["tipo_documento"] | null
           tipo_producto_terminado:
             | Database["public"]["Enums"]["producto_terminado"]
@@ -2041,6 +2076,7 @@ export type Database = {
           responsable: string | null
           responsable_id: string | null
           tiene_comprobante: boolean | null
+          notas_entrega: string | null
           tipo_producto_terminado:
             | Database["public"]["Enums"]["producto_terminado"]
             | null
@@ -2138,6 +2174,7 @@ export type Database = {
           p_monto_total?: number
           p_nombre_agencia?: string
           p_nombre_cliente: string
+          p_notas_entrega?: string
           p_nombre_persona_recoge?: string
           p_numero_documento?: string
           p_observaciones?: string
