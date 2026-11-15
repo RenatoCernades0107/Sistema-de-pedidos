@@ -4,7 +4,9 @@ import {
   describirCara,
   esquemaReferencias,
   ladoDe,
+  aliasEnTexto,
   mensajeConReferencias,
+  siguienteAlias,
   referenciasATexto,
   segmentarCaras,
   type ReferenciaCara,
@@ -141,5 +143,22 @@ describe("referencias al chat", () => {
     expect(mensajeConReferencias("hola", [])).toBe("hola");
     expect(mensajeConReferencias("hola", null)).toBe("hola");
     expect(mensajeConReferencias("hola", [ref])).toMatch(/^hola\n\n\[Caras señaladas/);
+  });
+
+  it("se describe al modelo con su nombre", () => {
+    expect(referenciasATexto([{ ...ref, alias: "cara2" }])).toContain("@cara2 Lateral (2 de 2) · cara derecha");
+    expect(esquemaReferencias.safeParse([{ ...ref, alias: "cara2" }]).success).toBe(true);
+    expect(esquemaReferencias.safeParse([{ ...ref, alias: "x" }]).success).toBe(false);
+  });
+});
+
+describe("alias @caraN", () => {
+  it("da el primer número libre", () => {
+    expect(siguienteAlias([])).toBe("cara1");
+    expect(siguienteAlias(["cara1", "cara3", undefined])).toBe("cara2");
+  });
+
+  it("lee las menciones del texto sin confundir @cara1 con @cara12", () => {
+    expect([...aliasEnTexto("une @cara1 con @cara12, no cara3")]).toEqual(["cara1", "cara12"]);
   });
 });

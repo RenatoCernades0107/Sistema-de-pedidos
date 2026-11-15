@@ -1,16 +1,19 @@
 "use client";
 
-import type { KeyboardEvent } from "react";
+import { useRef, type KeyboardEvent, type Ref } from "react";
 import { ArrowUp, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { ReferenciaCara } from "@/lib/cad/caras";
-import { ChipCara } from "./chip-cara";
+import { partirMenciones } from "./chip-cara";
 
 /**
  * Donde se escribe. Enter envía y Shift+Enter baja de línea, como en el
  * asistente de cotizaciones. Mientras el asistente contesta, el botón de enviar
  * es el de detener.
+ *
+ * Las caras señaladas en el visor se escriben en el texto como `@cara1`; una
+ * capa detrás del cuadro las resalta.
  */
 export function ChatCompositor({
   texto,
@@ -20,7 +23,7 @@ export function ChatCompositor({
   enviando,
   deshabilitado = false,
   caras = [],
-  onQuitarCara,
+  textareaRef,
 }: {
   texto: string;
   onTexto: (texto: string) => void;
@@ -31,8 +34,11 @@ export function ChatCompositor({
   deshabilitado?: boolean;
   /** Las caras señaladas en el visor que irán con el mensaje. */
   caras?: ReferenciaCara[];
-  onQuitarCara?: (clave: string) => void;
+  textareaRef?: Ref<HTMLTextAreaElement>;
 }) {
+  const capa = useRef<HTMLDivElement>(null);
+  const aliases = new Set(caras.flatMap((c) => (c.alias ? [c.alias] : [])));
+
   const alTeclear = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // `isComposing`: el Enter que confirma una tilde o un carácter compuesto no envía.
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -43,32 +49,44 @@ export function ChatCompositor({
 
   return (
     <div className="border-t p-3">
-      {caras.length > 0 && (
-        <ul className="mx-auto mb-2 flex max-w-2xl flex-wrap gap-1.5" aria-label="Caras que irán con el mensaje">
-          {caras.map((c) => (
-            <li key={c.clave} className="max-w-full">
-              <ChipCara
-                cara={c}
-                alQuitar={onQuitarCara ? () => onQuitarCara(c.clave) : undefined}
-                className="border-amber-500/40 bg-amber-500/10"
-              />
-            </li>
-          ))}
-        </ul>
-      )}
       <div className="mx-auto flex max-w-2xl items-end gap-2">
-        <Textarea
-          value={texto}
-          onChange={(e) => onTexto(e.target.value)}
-          onKeyDown={alTeclear}
-          placeholder={
-            caras.length ? "¿Qué quieres hacer con las caras señaladas?" : "Describe el producto o el cambio que quieres…"
-          }
-          aria-label="Mensaje para el asistente de diseños"
-          disabled={deshabilitado}
-          rows={1}
-          className="max-h-40 min-h-9"
-        />
+        <div className="relative min-w-0 flex-1">
+          {aliases.size > 0 && (
+            <div
+              ref={capa}
+              aria-hidden
+              className="pointer-events-none absolute inset-0 overflow-hidden rounded-lg border border-transparent px-2.5 py-2 text-base break-words whitespace-pre-wrap text-transparent md:text-sm"
+            >
+              {partirMenciones(texto).map((trozo, i) =>
+                typeof trozo === "string" || !aliases.has(trozo.alias) ? (
+                  <span key={i}>{typeof trozo === "string" ? trozo : trozo.texto}</span>
+                ) : (
+                  <mark key={i} className="rounded-sm bg-amber-400/35 text-transparent">
+                    {trozo.texto}
+                  </mark>
+                ),
+              )}
+              {/* Un salto final como el del textarea, para que las alturas coincidan. */}
+              {"\u200b"}
+            </div>
+          )}
+          <Textarea
+            ref={textareaRef}
+            value={texto}
+            onChange={(e) => onTexto(e.target.value)}
+            onKeyDown={alTeclear}
+            onScroll={(e) => {
+              if (capa.current) capa.current.scrollTop = e.currentTarget.scrollTop;
+            }}
+            placeholder={
+              caras.length ? "¿Qué quieres hacer con las caras señaladas?" : "Describe el producto o el cambio que quieres…"
+            }
+            aria-label="Mensaje para el asistente de diseños"
+            disabled={deshabilitado}
+            rows={1}
+            className="relative max-h-40 min-h-9 bg-transparent"
+          />
+        </div>
         {enviando ? (
           <Button size="icon" variant="outline" onClick={onDetener} aria-label="Detener la respuesta">
             <Square className="fill-current" />

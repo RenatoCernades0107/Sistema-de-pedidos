@@ -13,7 +13,7 @@ import {
 import { toast } from "sonner";
 import { guardarMaterialDisenoLibre, guardarVersion } from "@/app/(app)/disenos/acciones";
 import { PARAMETRO_ESPESOR } from "@/lib/cad/acomodo";
-import { MAX_REFERENCIAS, type ReferenciaCara } from "@/lib/cad/caras";
+import { MAX_REFERENCIAS, siguienteAlias, type ReferenciaCara } from "@/lib/cad/caras";
 import { tinteDeColor, type TinteAcrilico } from "@/lib/cad/colores";
 import { conEspesor } from "@/lib/cad/espesores";
 import {
@@ -228,7 +228,8 @@ export function DisenoProvider({
         toast.info(`Puedes señalar hasta ${MAX_REFERENCIAS} caras por mensaje.`);
         return actuales;
       }
-      return [...actuales, cara];
+      // El nombre con que se menciona en el texto del chat: `@cara1`, `@cara2`…
+      return [...actuales, { ...cara, alias: siguienteAlias(actuales.map((c) => c.alias)) }];
     });
   }, []);
   const quitarCara = useCallback(

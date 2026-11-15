@@ -6,9 +6,7 @@ import { espesoresDe, ESPESOR_MAX_MM, ESPESOR_MIN_MM, claveEspesor } from "@/lib
 import { numeroDeNodo } from "@/lib/cad/esquema";
 import {
   espesoresDeMaterial,
-  grupoPara,
   materialesDelCatalogo,
-  mismoMaterial,
   nombreMaterial,
   type MaterialRef,
 } from "@/lib/cad/materiales";
@@ -19,10 +17,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useDiseno } from "./diseno-contexto";
-
-const DEL_DISENO = "__diseno__";
+import { SelectorMaterial } from "./selector-material";
 
 /**
  * La copia de pieza tocada en el visor, con su espesor y su material, que se
@@ -147,8 +143,6 @@ function TarjetaCopia({
     return lista.slice(0, 8);
   }, [material, catalogo]);
 
-  const indiceMaterial = material ? materiales.findIndex((m) => mismoMaterial({ ...m, color: null }, { ...material, color: null })) : -1;
-
   async function hacer(accion: () => Promise<void>) {
     setGuardando(true);
     try {
@@ -161,19 +155,6 @@ function TarjetaCopia({
   function aplicarEspesor(mm: number) {
     if (Math.abs(mm - espesorMm) < 1e-6 && !todas) return;
     void hacer(() => alCambiarEspesor(nodos, mm));
-  }
-
-  function elegirMaterial(v: string | null) {
-    if (v === null) return;
-    if (v === DEL_DISENO) {
-      void hacer(() => alCambiarMaterial(nodos, null));
-      return;
-    }
-    const m = materiales[Number(v)];
-    if (!m) return;
-    void hacer(() =>
-      alCambiarMaterial(nodos, { material: m.material, variante: m.variante, detalle: m.detalle, color: null }),
-    );
   }
 
   const sinPlanchaEnEspesor =
@@ -295,25 +276,32 @@ function TarjetaCopia({
         {materiales.length === 0 ? (
           <p className="text-muted-foreground text-xs">No se pudo leer el catálogo de planchas.</p>
         ) : (
-          <Select value={materialPropio && indiceMaterial >= 0 ? String(indiceMaterial) : DEL_DISENO} onValueChange={elegirMaterial}>
-            <SelectTrigger aria-label="Material de la copia" disabled={ocupado} className="w-full">
-              <SelectValue>
-                {materialPropio && material ? nombreMaterial(material) : material ? `Del diseño (${nombreMaterial(material)})` : "Del diseño (sin elegir)"}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={DEL_DISENO}>Del diseño</SelectItem>
-              {materiales.map((m, i) => {
-                const hay = grupoPara(m, espesorMm, m.grupos) !== null;
-                return (
-                  <SelectItem key={i} value={String(i)}>
-                    {nombreMaterial(m)}
-                    {!hay && <span className="text-muted-foreground ml-1 text-xs">(sin {espesorTexto(espesorMm)})</span>}
-                  </SelectItem>
-                );
-              })}
-            </SelectContent>
-          </Select>
+          <SelectorMaterial
+            materiales={materiales}
+            material={material}
+            espesorMm={espesorMm}
+            deshabilitado={ocupado}
+            alElegir={(m) =>
+              void hacer(() =>
+                alCambiarMaterial(nodos, { material: m.material, variante: m.variante, detalle: m.detalle, color: null }),
+              )
+            }
+          />
+        )}
+        {!materialPropio && (
+          <p className="text-muted-foreground text-xs break-words">
+            {material ? `Del diseño: ${nombreMaterial(material)}.` : "El diseño todavía no tiene material."}
+          </p>
+        )}
+        {(materialPropio || todas) && (
+          <button
+            type="button"
+            className="text-muted-foreground hover:text-foreground self-start text-xs underline-offset-2 hover:underline disabled:opacity-50"
+            disabled={ocupado}
+            onClick={() => void hacer(() => alCambiarMaterial(nodos, null))}
+          >
+            Usar el material del diseño
+          </button>
         )}
         {sinPlanchaEnEspesor && <p className="text-destructive text-xs">{sinPlanchaEnEspesor}</p>}
       </div>
