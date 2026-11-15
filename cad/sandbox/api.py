@@ -87,6 +87,8 @@ class OpcionesDxfPlanchas(BaseModel):
     kerf_mm: float = Field(0, ge=0, le=5)
     #: Solo algunas planchas del diseño (un grupo de material y espesor): pueden faltar copias.
     parcial: bool = False
+    #: Un lote: cuántas unidades del diseño van en las planchas (cada copia, repetida).
+    unidades: int = Field(1, ge=1, le=1000)
 
 
 class SolicitudDxfPlanchas(SolicitudCodigo):
@@ -194,6 +196,7 @@ async def dxf_planchas(solicitud: SolicitudDxfPlanchas) -> Response:
     opciones = {
         "kerf_mm": solicitud.opciones.kerf_mm,
         "parcial": solicitud.opciones.parcial,
+        "unidades": solicitud.opciones.unidades,
         "planchas": [p.model_dump() for p in solicitud.planchas],
     }
     r = await run_in_threadpool(ejecutar, solicitud.codigo, "dxf_planchas", opciones)

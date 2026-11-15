@@ -131,6 +131,7 @@ export function DisenadorTerminado({
         catalogo={catalogo}
         corte={datos.corte}
         costos={datos.costos}
+        unidades={linea?.cantidad ?? 1}
       >
         <Contenido
           disenoId={disenoId}
@@ -699,7 +700,7 @@ function PieTerminado({
   alCancelar: () => void;
   alAgregar: (terminado: TerminadoDeDiseno) => void;
 }) {
-  const { cargando, esperarGuardado, catalogo } = useDiseno();
+  const { cargando, esperarGuardado, catalogo, setUnidades } = useDiseno();
   const costo = useCostoDiseno();
   const bloqueo = useBloqueoDiseno();
   const [cantidad, setCantidad] = useState(linea ? String(linea.cantidad) : "1");
@@ -707,7 +708,15 @@ function PieTerminado({
   const [agregando, setAgregando] = useState(false);
 
   const unidades = Math.floor(Number(cantidad) || 0);
-  const costoUnidad = costo ? costo.total : null;
+  // Planchas, DXF y costo se acomodan para el lote: un poco después de teclear,
+  // para no reacomodar en cada dígito.
+  useEffect(() => {
+    if (unidades < 1) return;
+    const t = setTimeout(() => setUnidades(unidades), 300);
+    return () => clearTimeout(t);
+  }, [unidades, setUnidades]);
+  // El costo/u es el del lote repartido; mientras se acomoda, el que hay.
+  const costoUnidad = costo ? costo.porUnidad : null;
   const sugerido = costoUnidad !== null ? Math.round(costoUnidad * (factor > 0 ? factor : 1) * 100) / 100 : null;
   const precioFinal = precio.trim() === "" ? sugerido : Number(precio.replace(",", "."));
   const precioValido = precioFinal !== null && Number.isFinite(precioFinal) && precioFinal >= 0;

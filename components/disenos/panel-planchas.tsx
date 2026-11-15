@@ -108,6 +108,7 @@ export function PanelPlanchas() {
     cargando,
     piezaActiva,
     setPiezaActiva,
+    unidades,
   } = useDiseno();
   const [colorLibre, setColorLibre] = useState(material?.color ?? "");
 
@@ -237,6 +238,12 @@ export function PanelPlanchas() {
         </ul>
       )}
 
+      {unidades > 1 && gruposPlanchas.length > 0 && (
+        <p className="bg-primary/5 border-primary/20 rounded-lg border px-3 py-2 text-sm" data-testid="lote-planchas">
+          Acomodo para <strong className="tabular-nums">{unidades} unidades</strong> (
+          {n(gruposPlanchas.reduce((s, g) => s + g.copias, 0))} piezas), la cantidad del pie. El DXF baja el lote completo.
+        </p>
+      )}
       {gruposPlanchas.length > 1 && (
         <p className="text-muted-foreground text-sm">
           Las piezas van en {gruposPlanchas.length} tipos de plancha: algunas copias tienen otro espesor o material

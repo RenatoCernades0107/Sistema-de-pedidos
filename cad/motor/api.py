@@ -94,6 +94,8 @@ class OpcionesDxfPlanchas(BaseModel):
     kerf_mm: float = Field(0, ge=0, le=5)
     #: Solo algunas planchas del diseño (un grupo de material y espesor): pueden faltar copias.
     parcial: bool = False
+    #: Un lote: cuántas unidades del diseño van en las planchas (cada copia, repetida).
+    unidades: int = Field(1, ge=1, le=1000)
 
 
 class SolicitudDxfPlanchas(Solicitud):
@@ -289,12 +291,18 @@ def dxf_planchas(solicitud: SolicitudDxfPlanchas) -> Response:
         for p in solicitud.planchas
     ]
     parcial = solicitud.opciones.parcial
+    unidades = solicitud.opciones.unidades
     try:
-        validar_planchas(diseno, planchas, parcial=parcial)
+        validar_planchas(diseno, planchas, parcial=parcial, unidades=unidades)
     except ErrorAcomodo as e:
         raise _error(422, "acomodo_invalido", e.mensaje, errores=e.errores) from e
     contenido = _geometria(
-        exportar_dxf_planchas, diseno, planchas, kerf_mm=solicitud.opciones.kerf_mm, parcial=parcial
+        exportar_dxf_planchas,
+        diseno,
+        planchas,
+        kerf_mm=solicitud.opciones.kerf_mm,
+        parcial=parcial,
+        unidades=unidades,
     )
     return Response(
         content=contenido,

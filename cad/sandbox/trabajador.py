@@ -212,8 +212,9 @@ def main() -> int:
                 for p in opciones.get("planchas") or []
             ]
             parcial = bool(opciones.get("parcial", False))
+            unidades = max(1, int(opciones.get("unidades", 1) or 1))
             try:
-                validar_planchas(diseno, planchas, parcial=parcial)
+                validar_planchas(diseno, planchas, parcial=parcial, unidades=unidades)
             except ErrorAcomodo as e:
                 # No es culpa del código: el acomodo no corresponde a estas piezas.
                 _escribir(
@@ -225,7 +226,11 @@ def main() -> int:
                 )
                 return 0
             contenido = exportar_dxf_planchas(
-                diseno, planchas, kerf_mm=float(opciones.get("kerf_mm", 0)), parcial=parcial
+                diseno,
+                planchas,
+                kerf_mm=float(opciones.get("kerf_mm", 0)),
+                parcial=parcial,
+                unidades=unidades,
             )
             with open("salida.bin", "wb") as f:
                 f.write(contenido)

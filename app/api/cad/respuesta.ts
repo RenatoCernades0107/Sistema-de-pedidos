@@ -96,7 +96,11 @@ export function archivo(contenido: ArrayBuffer, tipoMime: string, nombre: string
 
 export const cuerpoDxfPlanchas = cuerpoGenerar.extend({
   opciones: z
-    .object({ kerf_mm: z.number().min(0).max(5).optional(), parcial: z.boolean().optional() })
+    .object({
+      kerf_mm: z.number().min(0).max(5).optional(),
+      parcial: z.boolean().optional(),
+      unidades: z.number().int().min(1).max(1000).optional(),
+    })
     .optional(),
   planchas: z
     .array(

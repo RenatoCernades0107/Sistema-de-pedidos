@@ -169,7 +169,11 @@ export function resolverCopias(
 }
 
 /** Una pieza del despiece dentro de un grupo: solo sus copias de ese grupo. */
-export type PiezaDeGrupo = PiezaCad & { indices: number[] };
+export type PiezaDeGrupo = PiezaCad & {
+  indices: number[];
+  /** En un lote: cuántas copias tiene la pieza en el despiece de una unidad. */
+  cantidadDespiece?: number;
+};
 
 /** Las copias que van en un mismo grupo de plancha (material, color y espesor). */
 export interface GrupoDelDiseno {
@@ -181,6 +185,8 @@ export interface GrupoDelDiseno {
   etiqueta: string;
   piezas: PiezaDeGrupo[];
   copias: number;
+  /** De cuántas unidades del diseño son las copias (un lote). Sin él, 1. */
+  unidades?: number;
 }
 
 /** Agrupa las copias por plancha, en el orden en que aparecen. Las que no tienen plancha quedan fuera. */
@@ -205,7 +211,7 @@ export function agruparCopias(copias: readonly CopiaResuelta[]): GrupoDelDiseno[
     }
     let p = g.piezas.find((x) => x.id === c.pieza.id);
     if (!p) {
-      p = { ...c.pieza, cantidad: 0, indices: [] };
+      p = { ...c.pieza, cantidad: 0, indices: [], cantidadDespiece: c.pieza.cantidad };
       g.piezas.push(p);
     }
     p.cantidad++;
@@ -234,6 +240,30 @@ export interface PlanchasDelDiseno {
 /** El parámetro `espesor` de las plantillas. */
 const PARAMETRO_ESPESOR = "espesor";
 
+/**
+ * El grupo para un lote de `unidades` del diseño: cada pieza con sus copias
+ * repetidas por unidad. La copia `i` de la unidad `u` (desde 0) lleva el índice
+ * `i + u × cantidad` (la cantidad del despiece), así cada copia del lote tiene
+ * clave propia y el motor recupera la copia real con el módulo.
+ */
+export function grupoParaLote(g: GrupoDelDiseno, unidades: number): GrupoDelDiseno {
+  if (unidades <= 1) return g;
+  return {
+    ...g,
+    unidades,
+    copias: g.copias * unidades,
+    piezas: g.piezas.map((p) => {
+      const base = p.cantidad;
+      const original = cantidadOriginal(p);
+      const indices = Array.from({ length: unidades }, (_, u) => p.indices.map((i) => i + u * original)).flat();
+      return { ...p, cantidad: base * unidades, indices, cantidadDespiece: original };
+    }),
+  };
+}
+
+/** La cantidad de la pieza en el despiece (no la del grupo, que puede tener solo algunas copias). */
+const cantidadOriginal = (p: PiezaDeGrupo) => p.cantidadDespiece ?? p.cantidad;
+
 function nombreCopia(c: CopiaResuelta): string {
   const n = /_(\d+)$/.exec(c.nodo);
   return n && c.nodo !== c.pieza.id ? `«${c.pieza.nombre}» (copia ${n[1]})` : `«${c.pieza.nombre}»`;
@@ -251,8 +281,11 @@ export function planchasDelDiseno(entrada: {
   parametros: ParametrosCad;
   piezas: readonly PiezaCad[] | undefined;
   corte: { kerfMm: number; margenMm: number };
+  /** Cuántas unidades del diseño se cortan juntas (la cantidad del pedido). Por defecto, 1. */
+  unidades?: number;
 }): PlanchasDelDiseno {
   const { catalogo, porDefecto, porCopia, parametros, corte } = entrada;
+  const unidades = Math.max(1, Math.floor(entrada.unidades ?? 1));
   const problemas: string[] = [];
   const grupoDefecto = porDefecto ? (catalogo.find((g) => g.id === porDefecto.grupoPlanchaId) ?? null) : null;
 
@@ -276,7 +309,8 @@ export function planchasDelDiseno(entrada: {
   }
 
   const varios = new Set(copias.filter((c) => c.grupo).map((c) => `${c.grupo!.id}|${c.material?.color ?? ""}`)).size > 1;
-  const grupos = agruparCopias(copias).map((g): PlanchasDeGrupo => {
+  const grupos = agruparCopias(copias).map((g0): PlanchasDeGrupo => {
+    const g = grupoParaLote(g0, unidades);
     const propios: string[] = [];
     const formatos = formatosDeGrupo(g.grupo);
     const opciones = { rotable: g.grupo.rotable, kerfMm: corte.kerfMm, margenMm: corte.margenMm };

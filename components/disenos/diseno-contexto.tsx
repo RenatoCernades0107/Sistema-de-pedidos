@@ -135,6 +135,12 @@ export interface EstadoDiseno {
   gruposPlanchas: PlanchasDeGrupo[];
   /** Lo que impide cortar el diseño en los materiales elegidos. Vacío: todo bien. */
   problemasMaterial: string[];
+  /**
+   * Cuántas unidades del diseño se cortan juntas (la cantidad del pedido o la
+   * cotización). Planchas, DXF y costo son del lote; lo guardado, de una unidad.
+   */
+  unidades: number;
+  setUnidades: (n: number) => void;
   /** El color del acrílico para el visor. `null`: cristal. */
   tinte: TinteAcrilico | null;
   /** El color de cada copia con material propio, por nodo. */
@@ -161,8 +167,9 @@ function calcularPlanchas(
   parametros: ParametrosCad,
   piezas: PiezaCad[] | undefined,
   corte: { kerfMm: number; margenMm: number },
+  unidades = 1,
 ) {
-  return planchasDelDiseno({ catalogo, porDefecto: material, porCopia, parametros, piezas, corte });
+  return planchasDelDiseno({ catalogo, porDefecto: material, porCopia, parametros, piezas, corte, unidades });
 }
 
 /** Solo los materiales de copias que siguen existiendo en el despiece. */
@@ -195,6 +202,7 @@ export function DisenoProvider({
   catalogo = SIN_CATALOGO,
   corte = SIN_KERF,
   costos = null,
+  unidades: unidadesIniciales = 1,
   children,
 }: {
   disenoId: string;
@@ -208,8 +216,12 @@ export function DisenoProvider({
   catalogo?: GrupoPlancha[];
   corte?: { kerfMm: number; margenMm: number };
   costos?: CostosDiseno | null;
+  /** Las unidades del lote al abrir (la cantidad de la línea). */
+  unidades?: number;
   children: ReactNode;
 }) {
+  const [unidades, setUnidadesCrudas] = useState(() => Math.max(1, Math.floor(unidadesIniciales)));
+  const setUnidades = useCallback((n: number) => setUnidadesCrudas(Math.max(1, Math.floor(n) || 1)), []);
   const [plantilla, setPlantilla] = useState(inicial.plantilla);
   const [parametros, setParametros] = useState(inicial.parametros);
   const [resultado, setResultado] = useState<ResultadoGeneracion | null>(null);
@@ -472,8 +484,8 @@ export function DisenoProvider({
     [catalogo, material],
   );
   const planchas = useMemo(
-    () => calcularPlanchas(catalogo, material, porCopia, parametros, resultado?.piezas, corte),
-    [catalogo, material, porCopia, parametros, resultado, corte],
+    () => calcularPlanchas(catalogo, material, porCopia, parametros, resultado?.piezas, corte, unidades),
+    [catalogo, material, porCopia, parametros, resultado, corte, unidades],
   );
   const tinte = useMemo(
     () => (grupo ? tinteDeColor(material?.color ?? colorDe(grupo)) : null),
@@ -522,6 +534,8 @@ export function DisenoProvider({
       mostrarMaterial,
       gruposPlanchas: planchas.grupos,
       problemasMaterial: planchas.problemas,
+      unidades,
+      setUnidades,
       tinte,
       tintes,
       costos,
@@ -553,6 +567,8 @@ export function DisenoProvider({
       elegirMaterial,
       mostrarMaterial,
       planchas,
+      unidades,
+      setUnidades,
       tinte,
       tintes,
       costos,

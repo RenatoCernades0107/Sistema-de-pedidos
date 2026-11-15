@@ -408,7 +408,7 @@ class PiezaEnPlancha:
     """Dónde va una copia de una pieza: la esquina inferior izquierda de su caja."""
 
     id: str
-    #: Qué copia de la pieza es, de 1 a `cantidad`.
+    #: Qué copia de la pieza es, de 1 a `cantidad` (× `unidades` en un lote).
     indice: int
     x_mm: float
     y_mm: float
@@ -440,13 +440,17 @@ def _girar(forma: Any, rotada: bool) -> Any:
     return forma.moved(Location((0, 0, 0), (0, 0, 1), 90))
 
 
-def validar_planchas(diseno: Diseno, planchas: list[PlanchaAcomodada], parcial: bool = False) -> None:
+def validar_planchas(
+    diseno: Diseno, planchas: list[PlanchaAcomodada], parcial: bool = False, unidades: int = 1
+) -> None:
     """
     Cada copia de cada pieza va exactamente una vez y cae entera dentro de su
     plancha (con su caja nominal, sin kerf), y en cada plancha todas las piezas
     son del mismo espesor. Con `parcial` pueden faltar copias (el DXF de un
-    solo grupo de planchas). Lanza `ErrorAcomodo` si no.
+    solo grupo de planchas). Con `unidades` > 1 es un lote: cada pieza tiene
+    `cantidad × unidades` copias. Lanza `ErrorAcomodo` si no.
     """
+    unidades = max(1, int(unidades))
     errores: list[dict[str, str]] = []
     piezas = {p.id: p for p in diseno.piezas}
     vistas: dict[tuple[str, int], int] = {}
@@ -466,9 +470,10 @@ def validar_planchas(diseno: Diseno, planchas: list[PlanchaAcomodada], parcial: 
             if pieza is None:
                 errores.append({"campo": campo, "mensaje": f"El diseño no tiene la pieza «{pp.id}»."})
                 continue
-            if not 1 <= pp.indice <= pieza.cantidad:
+            copias = pieza.cantidad * unidades
+            if not 1 <= pp.indice <= copias:
                 errores.append(
-                    {"campo": campo, "mensaje": f"«{pp.id}» tiene {pieza.cantidad} copia(s); no existe la {pp.indice}."}
+                    {"campo": campo, "mensaje": f"«{pp.id}» tiene {copias} copia(s); no existe la {pp.indice}."}
                 )
                 continue
             clave = (pp.id, pp.indice)
@@ -488,7 +493,7 @@ def validar_planchas(diseno: Diseno, planchas: list[PlanchaAcomodada], parcial: 
                     {"campo": campo, "mensaje": f"La copia {pp.indice} de «{pp.id}» se sale de la plancha {i + 1}."}
                 )
     for pieza in [] if parcial else diseno.piezas:
-        for indice in range(1, pieza.cantidad + 1):
+        for indice in range(1, pieza.cantidad * unidades + 1):
             if (pieza.id, indice) not in vistas:
                 errores.append({"campo": "planchas", "mensaje": f"Falta colocar la copia {indice} de «{pieza.id}»."})
     if errores:
@@ -496,7 +501,11 @@ def validar_planchas(diseno: Diseno, planchas: list[PlanchaAcomodada], parcial: 
 
 
 def exportar_dxf_planchas(
-    diseno: Diseno, planchas: list[PlanchaAcomodada], kerf_mm: float = 0.0, parcial: bool = False
+    diseno: Diseno,
+    planchas: list[PlanchaAcomodada],
+    kerf_mm: float = 0.0,
+    parcial: bool = False,
+    unidades: int = 1,
 ) -> bytes:
     """
     DXF R12 con cada plancha dibujada (capa PLANCHA, color 8) y sus piezas en
@@ -504,7 +513,7 @@ def exportar_dxf_planchas(
     Las planchas van una al lado de la otra, separadas 50 mm, cada una con su
     rótulo debajo («Plancha 1 · Cristal 3 mm», capa PLANCHA: no se corta).
     """
-    validar_planchas(diseno, planchas, parcial=parcial)
+    validar_planchas(diseno, planchas, parcial=parcial, unidades=unidades)
     doc = ezdxf.new("R12")
     doc.header["$MEASUREMENT"] = 1
     if "Defpoints" in doc.layers:
