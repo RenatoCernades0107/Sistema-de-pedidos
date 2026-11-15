@@ -4,7 +4,6 @@ import { cargarSobrantesDePedido } from "@/lib/sobrantes-servidor";
 import { clienteServidor } from "@/lib/supabase-servidor";
 import { tokenSeguimiento } from "@/lib/compartir-servidor";
 import { perfilActual } from "@/lib/sesion";
-import { aMensaje, COLUMNAS_MENSAJE } from "@/lib/chat-pedido";
 
 /**
  * El pedido en sí sale del layout, que ya cargó la lista entera. Lo que se lee
@@ -50,21 +49,11 @@ export default async function Page({ params }: PageProps<"/pedidos/[codigo]">) {
   );
 }
 
-/** El chat del pedido: su id (el canal en vivo filtra por él), quién mira y lo ya escrito. */
+/**
+ * El chat del pedido. PROVISORIO mientras se pasa al chat unificado
+ * (`lib/chat/tipos.ts`, migración 20261129000100): `pedido_mensajes` ya no existe.
+ */
 async function cargarChat(codigo: string) {
-  const supabase = await clienteServidor();
-  const [perfil, { data: pedido }] = await Promise.all([
-    perfilActual(),
-    supabase.from("pedidos").select("id").eq("codigo", codigo).maybeSingle(),
-  ]);
-  if (!perfil || !pedido) return null;
-
-  const { data, error } = await supabase
-    .from("pedido_mensajes")
-    .select(COLUMNAS_MENSAJE)
-    .eq("pedido_id", pedido.id)
-    .order("creado_en", { ascending: true });
-  if (error) throw new Error(error.message);
-
-  return { pedidoId: pedido.id, usuarioId: perfil.id, mensajes: (data ?? []).map(aMensaje) };
+  void codigo;
+  return null;
 }

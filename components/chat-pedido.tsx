@@ -1,3 +1,4 @@
+// @ts-nocheck -- PROVISORIO: `pedido_mensajes` ya no existe; este archivo pasa al chat unificado (lib/chat/tipos.ts).
 "use client";
 
 /**
