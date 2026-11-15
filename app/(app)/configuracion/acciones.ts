@@ -17,6 +17,7 @@ import { CLAVE_CONFIG_CORTES, cargarCatalogoPlanchas } from "@/lib/cortes-servid
 import { esquemaConfigCortes } from "@/lib/cortes/config";
 import { CLAVE_CONFIG_TERMINADOS } from "@/lib/terminados-servidor";
 import { esquemaConfigTerminados } from "@/lib/terminados/config";
+import { CLAVE_CONFIG_COTIZACIONES, esquemaConfigCotizaciones } from "@/lib/cotizaciones-config";
 import { productosPorCodigo } from "@/lib/odoo/catalogos";
 import { ErrorOdoo, ODOO_NO_CONFIGURADO, odooConfigurado } from "@/lib/odoo/rpc";
 import type { Json } from "@/lib/supabase-tipos";
@@ -441,4 +442,20 @@ export async function guardarProductoTerminado(entrada: unknown): Promise<Result
 
   refresh();
   return { ok: true, codigo };
+}
+
+/** Cuántos días vale una cotización: lo que dice el PDF que recibe el cliente. */
+export async function guardarConfigCotizaciones(entrada: unknown): Promise<Resultado> {
+  await exigirAdmin();
+  const datos = esquemaConfigCotizaciones.safeParse(entrada);
+  if (!datos.success) return fallo(datos.error.issues[0]?.message ?? "Los datos no son válidos.");
+
+  const supabase = await clienteServidor();
+  const { error } = await supabase
+    .from("configuracion")
+    .upsert({ clave: CLAVE_CONFIG_COTIZACIONES, valor: datos.data as unknown as Json }, { onConflict: "clave" });
+  if (error) return fallo(mensajeDeError(error));
+
+  refresh();
+  return { ok: true };
 }

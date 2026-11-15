@@ -2,6 +2,7 @@ import { DetallePedido } from "@/components/detalle-pedido";
 import { cargarLineasDePedido, cargarOdooDePedido } from "@/lib/pedido-odoo-servidor";
 import { cargarSobrantesDePedido } from "@/lib/sobrantes-servidor";
 import { clienteServidor } from "@/lib/supabase-servidor";
+import { tokenSeguimiento } from "@/lib/compartir-servidor";
 
 /**
  * El pedido en sí sale del layout, que ya cargó la lista entera. Lo que se lee
@@ -13,7 +14,7 @@ export default async function Page({ params }: PageProps<"/pedidos/[codigo]">) {
   const codigo = decodeURIComponent((await params).codigo);
   const supabase = await clienteServidor();
 
-  const [lineas, odoo, sobrantes, retazo] = await Promise.all([
+  const [lineas, odoo, sobrantes, retazo, token] = await Promise.all([
     cargarLineasDePedido(codigo).catch((e) => {
       console.error("[pedidos] líneas", e);
       return null;
@@ -27,6 +28,7 @@ export default async function Page({ params }: PageProps<"/pedidos/[codigo]">) {
       return [];
     }),
     supabase.rpc("retazo_minimo"),
+    tokenSeguimiento(codigo),
   ]);
 
   return (
@@ -36,6 +38,7 @@ export default async function Page({ params }: PageProps<"/pedidos/[codigo]">) {
       odoo={odoo}
       sobrantes={sobrantes}
       retazoMin={retazo.data ?? undefined}
+      tokenSeguimiento={token}
     />
   );
 }

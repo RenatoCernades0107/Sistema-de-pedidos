@@ -2,7 +2,8 @@
  * Un turno de conversación con el asistente de diseños, en streaming.
  *
  * `POST { disenoId, mensaje, referencias? }` → `text/event-stream`. Cada `data:` es un JSON con
- * `tipo` (`components/disenos/chat-sse.ts`): el texto según llega, las
+ * `tipo` (`components/disenos/chat-sse.ts`): el razonamiento del modelo y el
+ * texto según llegan, las
  * herramientas que usa, `diseno` cuando generó uno (para que el visor lo
  * muestre), `error` y `fin`.
  *
@@ -63,6 +64,7 @@ import {
   LLM_NO_CONFIGURADO,
   llmConfigurado,
   transmitirChat,
+  type BloqueRazonamiento,
   type LlamadaLlm,
   type MensajeLlm,
 } from "@/lib/llm/inferhub";
@@ -267,6 +269,8 @@ export async function POST(request: Request) {
       };
 
       let texto = "";
+      /** Si alguna vuelta anterior ya razonó: la siguiente va en párrafo aparte. */
+      let yaPenso = false;
       const usadas: HerramientaUsada[] = [];
       const escribir = (delta: string) => {
         texto += delta;
@@ -276,15 +280,26 @@ export async function POST(request: Request) {
       try {
         for (let vuelta = 0; ; vuelta++) {
           let textoDeVuelta = "";
+          let pensadoDeVuelta = "";
+          let bloquesDeVuelta: BloqueRazonamiento[] = [];
           const llamadas: (LlamadaLlm & { argumentosInvalidos?: string })[] = [];
 
           for await (const evento of transmitirChat({
             sistema,
             mensajes,
             herramientas,
+            razonamiento: true,
             senal: corte.signal,
           })) {
-            if (evento.tipo === "texto") {
+            if (evento.tipo === "razonamiento") {
+              // Se muestra en vivo; no se guarda con la conversación.
+              if (!pensadoDeVuelta && yaPenso) emitir({ tipo: "razonamiento", delta: "\n\n" });
+              pensadoDeVuelta += evento.delta;
+              yaPenso = true;
+              emitir({ tipo: "razonamiento", delta: evento.delta });
+            } else if (evento.tipo === "bloques_razonamiento") {
+              bloquesDeVuelta = evento.bloques;
+            } else if (evento.tipo === "texto") {
               // Lo que escribe después de usar herramientas va en párrafo aparte.
               if (!textoDeVuelta && texto && !texto.endsWith("\n")) escribir("\n\n");
               textoDeVuelta += evento.delta;
@@ -311,6 +326,7 @@ export async function POST(request: Request) {
             rol: "asistente",
             contenido: textoDeVuelta,
             llamadas: llamadas.map(({ id, nombre, argumentos }) => ({ id, nombre, argumentos })),
+            ...(bloquesDeVuelta.length ? { razonamiento: { texto: pensadoDeVuelta, bloques: bloquesDeVuelta } } : {}),
           });
 
           for (const llamada of llamadas) {

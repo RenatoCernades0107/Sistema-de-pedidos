@@ -3,7 +3,7 @@
 import { useCallback, useRef, useState, useTransition } from "react";
 import { flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Package, Scissors } from "lucide-react";
+import { Loader2, Package, Scissors } from "lucide-react";
 import { toast } from "sonner";
 import { crearCotizacion } from "@/app/(app)/cotizaciones/acciones";
 import { CANALES, type Canal } from "@/lib/cotizaciones";
@@ -25,7 +25,8 @@ import {
 import type { GrupoPlancha } from "@/lib/cortes/catalogo";
 import type { ConfigCortes } from "@/lib/cortes/config";
 import { EditorCorte } from "@/components/cortes/editor-corte";
-import { EditorTerminado } from "@/components/terminados/editor-terminado";
+import type { DatosDiseno } from "@/components/terminados/disenador-terminado";
+import { useTerminadosCad } from "@/components/terminados/use-terminados-cad";
 import type { CatalogoTerminados } from "@/lib/terminados/catalogo";
 import type { ClienteOdoo, ProductoOdoo } from "@/lib/odoo/tipos";
 import { Button } from "@/components/ui/button";
@@ -53,26 +54,28 @@ export function FormCotizacion({
   catalogo,
   config,
   terminados,
+  diseno,
   lineaInicial = null,
 }: {
   catalogo: GrupoPlancha[];
   config: ConfigCortes;
   /** El catálogo de productos terminados. */
   terminados: CatalogoTerminados;
-  /** Un producto terminado con el que arrancar (p. ej. desde un diseño CAD); se abre en su editor. */
-  lineaInicial?: Omit<LineaTerminado, "tipo" | "clave"> | null;
+  /** Para diseñar los productos terminados con el motor CAD, como en el nuevo pedido. */
+  diseno: DatosDiseno;
+  /**
+   * Un diseño CAD con el que arrancar (desde «Agregar a cotización» en
+   * `/disenos`): entra como línea, y el lápiz vuelve a abrir el diseño.
+   */
+  lineaInicial?: { linea: Omit<LineaTerminado, "tipo" | "clave">; disenoId: string } | null;
 }) {
   const router = useRouter();
   const [canal, setCanal] = useState<Canal>("tienda");
   const [cliente, setCliente] = useState<ClienteOdoo | null>(null);
-  const [arranque] = useState(() => (lineaInicial ? ponerTerminado([], lineaInicial) : null));
+  const [arranque] = useState(() => (lineaInicial ? ponerTerminado([], lineaInicial.linea) : null));
   const [lineas, setLineas] = useState<Linea[]>(arranque?.lineas ?? []);
   /** El editor de corte: cerrado, abierto para uno nuevo, o editando el de esa clave. */
   const [corte, setCorte] = useState<{ clave: string | null } | null>(null);
-  /** Lo mismo, para el editor de producto terminado. */
-  const [terminado, setTerminado] = useState<{ clave: string | null } | null>(
-    arranque ? { clave: arranque.clave } : null,
-  );
   const [notas, setNotas] = useState("");
   const [resaltada, setResaltada] = useState<string | null>(null);
   const [pendiente, iniciar] = useTransition();
@@ -91,6 +94,22 @@ export function FormCotizacion({
     clearTimeout(temporizador.current);
     temporizador.current = setTimeout(() => setResaltada(null), 1200);
   };
+
+  const terminadosCad = useTerminadosCad({
+    lineas,
+    alPoner: (siguientes, clave) => {
+      setLineas(siguientes);
+      marcar(clave);
+      // De vuelta al buscador: lo siguiente es otro producto o crear.
+      requestAnimationFrame(() => buscadorProducto.current?.focus());
+    },
+    catalogo,
+    config,
+    terminados,
+    diseno,
+    cliente: cliente?.nombre,
+    enlazadas: arranque && lineaInicial ? { [arranque.clave]: lineaInicial.disenoId } : undefined,
+  });
 
   const elegirCliente = (c: ClienteOdoo | null) => {
     flushSync(() => setCliente(c));
@@ -183,7 +202,12 @@ export function FormCotizacion({
       />
 
       <div className="relative -mt-10 flex max-w-3xl flex-col gap-4">
-        <Seccion n={1} titulo="Cliente" completa={!!cliente}>
+        <Seccion
+          n={1}
+          titulo="Cliente y productos"
+          completa={!!cliente && lineas.length > 0 && !problemaLineas}
+          nota={lineas.length ? `${lineas.length} ${lineas.length === 1 ? "línea" : "líneas"}` : undefined}
+        >
           <Campo grupo label="Canal" ayuda="De dónde llegó el pedido de cotización.">
             <Opciones
               valores={[canal]}
@@ -198,18 +222,10 @@ export function FormCotizacion({
             autoFocus
           />
           {intentado && !cliente && (
-            <p role="alert" className="text-destructive text-sm">
+            <p role="alert" className="text-destructive -mt-2 text-sm">
               Elige el cliente.
             </p>
           )}
-        </Seccion>
-
-        <Seccion
-          n={2}
-          titulo="Productos"
-          completa={lineas.length > 0 && !problemaLineas}
-          nota={lineas.length ? `${lineas.length} ${lineas.length === 1 ? "línea" : "líneas"}` : undefined}
-        >
           {/* En una sola fila siempre: si el botón bajara de línea, la lista de
               resultados del buscador lo taparía. */}
           <div className="flex items-start gap-2">
@@ -226,17 +242,22 @@ export function FormCotizacion({
               title={catalogo.length === 0 ? "No hay planchas en el catálogo" : undefined}
             >
               <Scissors />
-              Corte<span className="hidden sm:inline"> a medida</span>
+              <span>
+                Corte<span className="hidden sm:inline"> a medida</span>
+              </span>
             </Button>
             <Button
               type="button"
               variant="outline"
               className="h-10 shrink-0 gap-1.5"
               aria-label="Producto terminado"
-              onClick={() => setTerminado({ clave: null })}
+              onClick={() => void terminadosCad.nuevo()}
+              disabled={terminadosCad.abriendo}
             >
-              <Package />
-              <span className="hidden sm:inline">Producto </span>terminado
+              {terminadosCad.abriendo ? <Loader2 className="animate-spin" /> : <Package />}
+              <span>
+                <span className="hidden sm:inline">Producto </span>terminado
+              </span>
             </Button>
           </div>
           <LineasCotizacion
@@ -250,7 +271,7 @@ export function FormCotizacion({
               buscadorProducto.current?.focus();
             }}
             alEditarCorte={(clave) => setCorte({ clave })}
-            alEditarTerminado={(clave) => setTerminado({ clave })}
+            alEditarTerminado={(clave) => void terminadosCad.editar(clave)}
             alTerminar={() => buscadorProducto.current?.focus()}
           />
           {intentado && problemaLineas && (
@@ -260,7 +281,7 @@ export function FormCotizacion({
           )}
         </Seccion>
 
-        <Seccion n={3} titulo="Notas" nota="Opcional">
+        <Seccion n={2} titulo="Notas" nota="Opcional">
           <Campo label="Notas internas" ayuda="Quedan en el sistema; no salen en la cotización de Odoo.">
             <Textarea
               rows={2}
@@ -290,22 +311,7 @@ export function FormCotizacion({
         />
       )}
 
-      {terminado && (
-        <EditorTerminado
-          catalogo={terminados}
-          planchas={catalogo}
-          configCortes={config}
-          inicial={lineas.filter(esTerminado).find((l) => l.clave === terminado.clave) ?? null}
-          alCerrar={() => setTerminado(null)}
-          alGuardar={(nuevo) => {
-            const { lineas: siguientes, clave } = ponerTerminado(lineas, nuevo);
-            setLineas(siguientes);
-            setTerminado(null);
-            marcar(clave);
-            requestAnimationFrame(() => buscadorProducto.current?.focus());
-          }}
-        />
-      )}
+      {terminadosCad.editores}
 
       <BarraEnvio
         resumen={[

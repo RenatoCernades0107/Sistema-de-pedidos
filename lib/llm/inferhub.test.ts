@@ -434,3 +434,77 @@ describe("errores", () => {
     expect((error as Error).name).toBe("AbortError");
   });
 });
+
+/* ── El razonamiento ───────────────────────────────────────────────────────── */
+
+describe("razonamiento", () => {
+  it("solo lo pide si la petición lo activa, con el esfuerzo del entorno", () => {
+    expect(cuerpoDePeticion(PETICION, "m").reasoning_effort).toBeUndefined();
+    expect(cuerpoDePeticion({ ...PETICION, razonamiento: true }, "m").reasoning_effort).toBe("medium");
+    vi.stubEnv("INFERHUB_RAZONAMIENTO", "HIGH");
+    expect(cuerpoDePeticion({ ...PETICION, razonamiento: true }, "m").reasoning_effort).toBe("high");
+    vi.stubEnv("INFERHUB_RAZONAMIENTO", "off");
+    expect(cuerpoDePeticion({ ...PETICION, razonamiento: true }, "m").reasoning_effort).toBeUndefined();
+  });
+
+  it("transmite el razonamiento según llega, con cualquiera de sus nombres", async () => {
+    fetchFalso.mockResolvedValue(
+      respuestaSse([
+        sse(
+          delta({ reasoning_content: "Mido " }),
+          delta({ reasoning: "la caja" }),
+          delta({ thinking: "." }),
+          delta({ content: "Listo" }, "stop"),
+          "[DONE]",
+        ),
+      ]),
+    );
+    expect(await todos({ ...PETICION, razonamiento: true })).toEqual([
+      { tipo: "razonamiento", delta: "Mido " },
+      { tipo: "razonamiento", delta: "la caja" },
+      { tipo: "razonamiento", delta: "." },
+      { tipo: "texto", delta: "Listo" },
+      { tipo: "fin", motivo: "fin" },
+    ]);
+  });
+
+  it("junta los bloques firmados y los devuelve con las llamadas del turno", async () => {
+    fetchFalso.mockResolvedValue(
+      respuestaSse([
+        sse(
+          delta({ thinking_blocks: [{ type: "thinking", thinking: "Uso " }] }),
+          delta({ thinking_blocks: [{ type: "thinking", thinking: "la plantilla" }] }),
+          delta({ thinking_blocks: [{ type: "thinking", signature: "abc" }] }),
+          delta({ tool_calls: [{ index: 0, id: "c1", function: { name: "listar_plantillas", arguments: "" } }] }, "tool_calls"),
+          "[DONE]",
+        ),
+      ]),
+    );
+    const eventos = await todos({ ...PETICION, razonamiento: true });
+    const bloques = eventos.find((e) => e.tipo === "bloques_razonamiento");
+    expect(bloques).toEqual({
+      tipo: "bloques_razonamiento",
+      bloques: [{ type: "thinking", thinking: "Uso la plantilla", signature: "abc" }],
+    });
+    expect(eventos.at(-1)).toEqual({ tipo: "fin", motivo: "herramientas" });
+
+    const cuerpo = cuerpoDePeticion(
+      {
+        ...PETICION,
+        mensajes: [
+          ...PETICION.mensajes,
+          {
+            rol: "asistente",
+            contenido: "",
+            llamadas: [{ id: "c1", nombre: "listar_plantillas", argumentos: {} }],
+            razonamiento: { texto: "Uso la plantilla", bloques: (bloques as { bloques: Record<string, unknown>[] }).bloques },
+          },
+        ],
+      },
+      "m",
+    );
+    const asistente = (cuerpo.messages as Record<string, unknown>[])[2];
+    expect(asistente.reasoning_content).toBe("Uso la plantilla");
+    expect(asistente.thinking_blocks).toEqual([{ type: "thinking", thinking: "Uso la plantilla", signature: "abc" }]);
+  });
+});

@@ -22,6 +22,8 @@ import { fechaHora, money, numero } from "@/lib/formato";
 import { Button } from "@/components/ui/button";
 import { TerminadoGuardadoVista } from "@/components/terminados/terminado-guardado";
 import { CorteGuardadoVista } from "@/components/cortes/corte-guardado";
+import { CompartirMenu } from "@/components/compartir-menu";
+import { asuntoCotizacion, mensajeCotizacion, nombreArchivoCotizacion, textoCotizacion } from "@/lib/compartir";
 import { CodigoProducto } from "./buscador-producto";
 import { CanalBadge, EstadoSincronizacion } from "./estado-cotizacion";
 
@@ -30,12 +32,15 @@ export function DetalleCotizacion({
   enlaceOdoo,
   puedeAsistente,
   puedeCrearPedido,
+  validezDias,
 }: {
   cotizacion: Cotizacion;
   /** Calculado en el servidor: la URL de Odoo no viaja en el bundle. */
   enlaceOdoo: string | null;
   puedeAsistente: boolean;
   puedeCrearPedido: boolean;
+  /** La validez que va en el PDF y en el texto (de /configuracion). */
+  validezDias: number;
 }) {
   const router = useRouter();
   const [reintentando, iniciar] = useTransition();
@@ -87,6 +92,16 @@ export function DetalleCotizacion({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {c.tokenPublico && (
+            <CompartirMenu
+              ruta={`/c/${c.tokenPublico}/pdf`}
+              mensaje={(url) => mensajeCotizacion(c, url)}
+              asunto={asuntoCotizacion(c)}
+              telefono={c.cliente.telefono}
+              esPdf
+              texto={{ contenido: textoCotizacion(c, validezDias), nombre: nombreArchivoCotizacion(c, "txt") }}
+            />
+          )}
           {enlaceOdoo && c.odooOrderId && (
             <Button
               render={<a href={enlaceOdoo} target="_blank" rel="noreferrer" />}

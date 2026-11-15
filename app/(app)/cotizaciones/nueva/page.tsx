@@ -8,13 +8,16 @@ import { FormCotizacion } from "@/components/cotizaciones/form-cotizacion";
 import { AvisoOdoo } from "@/components/cotizaciones/aviso-odoo";
 import { lineaDeDiseno } from "@/lib/cad/cotizar";
 import { disenoParaCotizar } from "@/lib/cad/cotizar-servidor";
+import { catalogoParaDiseno, plantillasDelMotor } from "@/lib/cad/pagina-servidor";
 
 /**
  * `?diseno=<id>`: viene de «Agregar a cotización» en `/disenos`. La cotización
  * arranca con ese diseño (su versión vigente) como producto terminado.
+ *
+ * Los productos terminados se diseñan con el motor CAD, como en `/pedidos/nuevo`.
  */
 export default async function Page({ searchParams }: PageProps<"/cotizaciones/nueva">) {
-  await exigirCotizaciones();
+  const perfil = await exigirCotizaciones();
   const disenoParam = (await searchParams).diseno;
   const disenoId = typeof disenoParam === "string" && /^[0-9a-f-]{36}$/i.test(disenoParam) ? disenoParam : null;
 
@@ -33,10 +36,12 @@ export default async function Page({ searchParams }: PageProps<"/cotizaciones/nu
 
   // Para los cortes a medida: qué planchas hay y cómo se cobra. El cálculo corre
   // en el navegador mientras se escribe; al guardar lo rehace el servidor.
-  const [catalogo, config, terminados] = await Promise.all([
+  const [catalogo, config, terminados, { plantillas, aviso }, planchas] = await Promise.all([
     cargarCatalogoPlanchas(true),
     cargarConfigCortes(),
     cargarCatalogoTerminados(true),
+    plantillasDelMotor(),
+    catalogoParaDiseno(perfil.rol === "administracion"),
   ]);
 
   const desdeDiseno = disenoId ? await disenoParaCotizar(disenoId, catalogo) : null;
@@ -52,7 +57,17 @@ export default async function Page({ searchParams }: PageProps<"/cotizaciones/nu
         catalogo={catalogo}
         config={config}
         terminados={terminados}
-        lineaInicial={desdeDiseno?.ok ? lineaDeDiseno(desdeDiseno.diseno) : null}
+        diseno={{
+          plantillas,
+          avisoMotor: aviso,
+          corte: { kerfMm: planchas.kerfMm, margenMm: planchas.margenMm },
+          costos: planchas.costos,
+        }}
+        lineaInicial={
+          desdeDiseno?.ok
+            ? { linea: lineaDeDiseno(desdeDiseno.diseno), disenoId: desdeDiseno.diseno.disenoId }
+            : null
+        }
       />
     </>
   );

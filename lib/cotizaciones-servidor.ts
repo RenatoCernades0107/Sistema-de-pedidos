@@ -39,12 +39,17 @@ import { producirCortes, reservarTerminados } from "./produccion-servidor";
 import { leerTerminado } from "./terminados/guardado";
 import { areaPiezasM2, lineasCorteAMedida, materialOdoo } from "./sobrantes";
 import type { ClienteOdoo } from "./odoo/tipos";
+import {
+  CLAVE_CONFIG_COTIZACIONES,
+  leerConfigCotizaciones,
+  type ConfigCotizaciones,
+} from "./cotizaciones-config";
 
 const COLUMNAS = `
   id, canal, odoo_partner_id, cliente_nombre, cliente_documento, cliente_telefono,
   odoo_order_id, odoo_order_name, sincronizacion, error_sincronizacion,
   monto_sin_impuestos, monto_impuestos, monto_total, notas, chat_agente_id, creado_en,
-  confirmada_en_odoo, error_confirmacion,
+  confirmada_en_odoo, error_confirmacion, token_publico,
   creador:usuarios!cotizaciones_creado_por_fkey ( nombre ),
   pedido:pedidos!cotizaciones_pedido_id_fkey ( codigo ),
   cotizacion_productos ( posicion, odoo_product_id, producto_nombre, producto_codigo,
@@ -52,7 +57,7 @@ const COLUMNAS = `
                          odoo_produccion_id )
 `;
 
-interface Fila {
+export interface Fila {
   id: string;
   canal: Canal;
   odoo_partner_id: number;
@@ -71,6 +76,7 @@ interface Fila {
   creado_en: string;
   confirmada_en_odoo: boolean;
   error_confirmacion: string | null;
+  token_publico?: string | null;
   creador: { nombre: string } | { nombre: string }[] | null;
   pedido: { codigo: string } | { codigo: string }[] | null;
   cotizacion_productos: {
@@ -92,7 +98,7 @@ interface Fila {
 /** PostgREST devuelve `numeric` como número, pero con decimales largos puede venir como texto. */
 const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
 
-function deFila(f: Fila): Cotizacion {
+export function deFila(f: Fila): Cotizacion {
   const creador = Array.isArray(f.creador) ? f.creador[0] : f.creador;
   const pedido = Array.isArray(f.pedido) ? f.pedido[0] : f.pedido;
   return {
@@ -118,6 +124,7 @@ function deFila(f: Fila): Cotizacion {
     pedido: pedido ? { codigo: pedido.codigo } : null,
     confirmadaEnOdoo: f.confirmada_en_odoo,
     errorConfirmacion: f.error_confirmacion,
+    tokenPublico: f.token_publico ?? null,
     lineas: [...(f.cotizacion_productos ?? [])]
       .sort((a, b) => a.posicion - b.posicion)
       .map((l) => ({
@@ -165,6 +172,17 @@ export async function leerCotizacion(id: string): Promise<Cotizacion | null> {
 
 /** La misma, una vez por petición: para las páginas, que la piden desde varios sitios. */
 export const cargarCotizacion = cache(leerCotizacion);
+
+/** Lo que Administración ajustó de las cotizaciones, completado con los defectos. */
+export const cargarConfigCotizaciones = cache(async (): Promise<ConfigCotizaciones> => {
+  const supabase = await clienteServidor();
+  const { data } = await supabase
+    .from("configuracion")
+    .select("valor")
+    .eq("clave", CLAVE_CONFIG_COTIZACIONES)
+    .maybeSingle();
+  return leerConfigCotizaciones(data?.valor ?? null);
+});
 
 /* ── Sugerencias ───────────────────────────────────────────────────────────── */
 

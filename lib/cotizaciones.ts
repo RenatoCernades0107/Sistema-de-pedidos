@@ -83,6 +83,8 @@ export interface Cotizacion {
   confirmadaEnOdoo: boolean;
   /** Por qué no se pudo confirmar en Odoo, hasta que se reintente. */
   errorConfirmacion: string | null;
+  /** El permiso del enlace público al PDF (`/c/<token>/pdf`). */
+  tokenPublico: string | null;
 }
 
 /** El nombre con que se muestra: la referencia de Odoo o, mientras no la hay, una provisional. */

@@ -6,20 +6,23 @@ import { CatalogoTerminados } from "@/components/configuracion/catalogo-terminad
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CatalogoPlanchas } from "@/components/configuracion/catalogo-planchas";
 import { FormConfigCortes } from "@/components/configuracion/config-cortes";
+import { FormConfigCotizaciones } from "@/components/configuracion/config-cotizaciones";
+import { cargarConfigCotizaciones } from "@/lib/cotizaciones-servidor";
 
 /**
  * Lo que Administración ajusta sin tocar código: cómo se calcula y se cobra un
- * corte, y qué planchas existen.
+ * corte, qué planchas existen y cuántos días vale una cotización.
  *
  * No es un `Alcance` de `/pedidos`: aquí no se filtran pedidos. Se entra por el
  * menú de herramientas, y solo Administración la ve.
  */
 export default async function Page() {
   await exigirAdmin();
-  const [config, grupos, terminados] = await Promise.all([
+  const [config, grupos, terminados, configCotizaciones] = await Promise.all([
     cargarConfigCortes(),
     cargarCatalogoPlanchas(),
     cargarCatalogoTerminados(),
+    cargarConfigCotizaciones(),
   ]);
   const formatos = grupos.reduce((n, g) => n + g.formatos.length, 0);
 
@@ -46,12 +49,18 @@ export default async function Page() {
             Productos terminados
             <span className="text-muted-foreground tnum text-xs">{terminados.productos.length}</span>
           </TabsTrigger>
+          <TabsTrigger value="cotizaciones" className="px-3">
+            Cotizaciones
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="cortes">
           <FormConfigCortes config={config} />
         </TabsContent>
         <TabsContent value="terminados">
           <CatalogoTerminados catalogo={terminados} />
+        </TabsContent>
+        <TabsContent value="cotizaciones">
+          <FormConfigCotizaciones config={configCotizaciones} />
         </TabsContent>
         <TabsContent value="planchas">
           <CatalogoPlanchas grupos={grupos} odooConectado={odooConfigurado()} />

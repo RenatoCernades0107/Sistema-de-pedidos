@@ -11,6 +11,8 @@ import type { MaterialesPorCopia } from "@/lib/cad/materiales";
 import type { MaterialDiseno, ParametrosCad } from "@/lib/cad/tipos";
 
 export type EventoChat =
+  /** Un trozo más del razonamiento del modelo (lo que "piensa" antes de contestar). */
+  | { tipo: "razonamiento"; delta: string }
   /** Un trozo más del texto de la respuesta. */
   | { tipo: "texto"; delta: string }
   /** El asistente empezó o terminó de usar una herramienta. */
@@ -30,7 +32,7 @@ export type EventoChat =
   | { tipo: "error"; mensaje: string }
   | { tipo: "fin" };
 
-const TIPOS: ReadonlySet<string> = new Set(["texto", "herramienta", "diseno", "nombre", "error", "fin"]);
+const TIPOS: ReadonlySet<string> = new Set(["razonamiento", "texto", "herramienta", "diseno", "nombre", "error", "fin"]);
 
 /** Un evento, como va por el cable. */
 export const serializarEvento = (evento: EventoChat): string => `data: ${JSON.stringify(evento)}\n\n`;

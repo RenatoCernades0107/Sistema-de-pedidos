@@ -405,6 +405,7 @@ export type Database = {
           pedido_id: string | null
           sincronizacion: Database["public"]["Enums"]["sincronizacion_odoo"]
           stock_descontado: boolean
+          token_publico: string
         }
         Insert: {
           actualizado_en?: string
@@ -432,6 +433,7 @@ export type Database = {
           pedido_id?: string | null
           sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
           stock_descontado?: boolean
+          token_publico?: string
         }
         Update: {
           actualizado_en?: string
@@ -459,6 +461,7 @@ export type Database = {
           pedido_id?: string | null
           sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
           stock_descontado?: boolean
+          token_publico?: string
         }
         Relationships: [
           {
@@ -983,6 +986,7 @@ export type Database = {
             | Database["public"]["Enums"]["producto_terminado"]
             | null
           tipos_pedido: Database["public"]["Enums"]["tipo_pedido"][]
+          token_seguimiento: string
           ubicacion_actual: Database["public"]["Enums"]["ubicacion"]
         }
         Insert: {
@@ -1016,6 +1020,7 @@ export type Database = {
             | Database["public"]["Enums"]["producto_terminado"]
             | null
           tipos_pedido: Database["public"]["Enums"]["tipo_pedido"][]
+          token_seguimiento?: string
           ubicacion_actual?: Database["public"]["Enums"]["ubicacion"]
         }
         Update: {
@@ -1049,6 +1054,7 @@ export type Database = {
             | Database["public"]["Enums"]["producto_terminado"]
             | null
           tipos_pedido?: Database["public"]["Enums"]["tipo_pedido"][]
+          token_seguimiento?: string
           ubicacion_actual?: Database["public"]["Enums"]["ubicacion"]
         }
         Relationships: [
@@ -2095,6 +2101,7 @@ export type Database = {
       auditoria_texto: { Args: { campo: string; valor: Json }; Returns: string }
       auth_rol: { Args: never; Returns: Database["public"]["Enums"]["rol"] }
       corte_sin_precios: { Args: { c: Json }; Returns: Json }
+      cotizacion_publica: { Args: { p_token: string }; Returns: Json }
       crear_cotizacion: {
         Args: {
           p_canal?: Database["public"]["Enums"]["canal_cotizacion"]
@@ -2235,11 +2242,13 @@ export type Database = {
         Returns: undefined
       }
       retazo_minimo: { Args: never; Returns: number }
+      seguimiento_pedido: { Args: { p_token: string }; Returns: Json }
       soltar_sobrantes_de_pedido: {
         Args: { p_codigo: string; p_consumir: boolean; p_posicion?: number }
         Returns: number
       }
       terminado_sin_precios: { Args: { t: Json }; Returns: Json }
+      token_seguimiento: { Args: { p_codigo: string }; Returns: string }
       texto_notificacion: {
         Args: {
           p_codigo: string
