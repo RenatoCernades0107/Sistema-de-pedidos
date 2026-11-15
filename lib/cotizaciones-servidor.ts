@@ -39,6 +39,11 @@ import { producirCortes, reservarTerminados } from "./produccion-servidor";
 import { leerTerminado } from "./terminados/guardado";
 import { areaPiezasM2, lineasCorteAMedida, materialOdoo } from "./sobrantes";
 import type { ClienteOdoo } from "./odoo/tipos";
+import {
+  CLAVE_CONFIG_COTIZACIONES,
+  leerConfigCotizaciones,
+  type ConfigCotizaciones,
+} from "./cotizaciones-config";
 
 const COLUMNAS = `
   id, canal, odoo_partner_id, cliente_nombre, cliente_documento, cliente_telefono,
@@ -167,6 +172,17 @@ export async function leerCotizacion(id: string): Promise<Cotizacion | null> {
 
 /** La misma, una vez por petición: para las páginas, que la piden desde varios sitios. */
 export const cargarCotizacion = cache(leerCotizacion);
+
+/** Lo que Administración ajustó de las cotizaciones, completado con los defectos. */
+export const cargarConfigCotizaciones = cache(async (): Promise<ConfigCotizaciones> => {
+  const supabase = await clienteServidor();
+  const { data } = await supabase
+    .from("configuracion")
+    .select("valor")
+    .eq("clave", CLAVE_CONFIG_COTIZACIONES)
+    .maybeSingle();
+  return leerConfigCotizaciones(data?.valor ?? null);
+});
 
 /* ── Sugerencias ───────────────────────────────────────────────────────────── */
 

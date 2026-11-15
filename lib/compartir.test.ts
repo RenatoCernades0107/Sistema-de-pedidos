@@ -12,6 +12,7 @@ import {
 } from "./compartir";
 import { aWinAnsi, generarPdfCotizacion } from "./pdf-cotizacion";
 import type { Cotizacion, LineaGuardada } from "./cotizaciones";
+import { esquemaConfigCotizaciones, leerConfigCotizaciones } from "./cotizaciones-config";
 
 const linea = (l: Partial<LineaGuardada>): LineaGuardada => ({
   posicion: 1,
@@ -118,6 +119,19 @@ describe("textoCotizacion", () => {
     expect(t).toMatch(/TOTAL: S\/\s?400\.00/);
   });
 
+  it("dice hasta cuándo vale: 15 días por defecto, o lo configurado", () => {
+    // Emitida el 14/11 a las 10:30 de Lima.
+    expect(textoCotizacion(cotizacion())).toContain("Cotización válida por 15 días (hasta el 29/11/2026).");
+    expect(textoCotizacion(cotizacion(), 1)).toContain("Cotización válida por 1 día (hasta el 15/11/2026).");
+  });
+
+  it("la fecha de emisión es la de Lima, no la de UTC", () => {
+    // 02:00 UTC del 15/11 son las 21:00 del 14/11 en Lima.
+    const t = textoCotizacion(cotizacion({ creadoEn: "2026-11-15T02:00:00Z" }), 7);
+    expect(t).toContain("Fecha: 14/11/2026");
+    expect(t).toContain("(hasta el 21/11/2026)");
+  });
+
   it("no filtra las notas internas", () => {
     expect(textoCotizacion(cotizacion())).not.toContain("No mostrar esto");
   });
@@ -161,10 +175,30 @@ describe("PDF", () => {
     const muchas = Array.from({ length: 40 }, (_, i) =>
       linea({ posicion: i + 1, descripcion: "Una descripción larga ".repeat(8) }),
     );
-    const bytes = await generarPdfCotizacion(cotizacion({ lineas: muchas }), logo);
+    const bytes = await generarPdfCotizacion(cotizacion({ lineas: muchas }), logo, { validezDias: 30 });
     expect(new TextDecoder().decode(bytes.slice(0, 5))).toBe("%PDF-");
     const { PDFDocument } = await import("pdf-lib");
     const doc = await PDFDocument.load(bytes);
     expect(doc.getPageCount()).toBeGreaterThan(1);
+  });
+});
+
+describe("leerConfigCotizaciones", () => {
+  it("sin nada guardado, 15 días", () => {
+    expect(leerConfigCotizaciones(null)).toEqual({ validezDias: 15 });
+    expect(leerConfigCotizaciones({})).toEqual({ validezDias: 15 });
+  });
+
+  it("respeta lo guardado y descarta lo que no sirve", () => {
+    expect(leerConfigCotizaciones({ validezDias: 30 })).toEqual({ validezDias: 30 });
+    expect(leerConfigCotizaciones({ validezDias: "7" })).toEqual({ validezDias: 7 });
+    expect(leerConfigCotizaciones({ validezDias: 0 })).toEqual({ validezDias: 15 });
+    expect(leerConfigCotizaciones({ validezDias: 2.5 })).toEqual({ validezDias: 15 });
+    expect(leerConfigCotizaciones({ validezDias: "nada" })).toEqual({ validezDias: 15 });
+  });
+
+  it("el esquema del formulario rechaza fuera de rango", () => {
+    expect(esquemaConfigCotizaciones.safeParse({ validezDias: "400" }).success).toBe(false);
+    expect(esquemaConfigCotizaciones.safeParse({ validezDias: "20" }).data).toEqual({ validezDias: 20 });
   });
 });

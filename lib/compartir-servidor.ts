@@ -9,18 +9,23 @@ import { clienteServidor } from "./supabase-servidor";
 import { deFila, type Fila } from "./cotizaciones-servidor";
 import { leerSeguimiento, type Seguimiento } from "./seguimiento";
 import type { Cotizacion } from "./cotizaciones";
+import { leerConfigCotizaciones } from "./cotizaciones-config";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** La cotización del enlace, o `null` si el token no es de ninguna. */
-export async function cotizacionPorToken(token: string): Promise<Cotizacion | null> {
+/** La cotización del enlace y su validez en días, o `null` si el token no es de ninguna. */
+export async function cotizacionPorToken(
+  token: string,
+): Promise<{ cotizacion: Cotizacion; validezDias: number } | null> {
   // Un token mal formado haría fallar el cast a uuid de Postgres: es un 404.
   if (!UUID.test(token)) return null;
   const supabase = await clienteServidor();
   const { data, error } = await supabase.rpc("cotizacion_publica", { p_token: token });
   if (error) throw new Error(`No se pudo leer la cotización: ${error.message}`);
   if (!data || typeof data !== "object") return null;
-  return deFila(data as unknown as Fila);
+  // Los días los pone la función: el cliente no puede leer `configuracion`.
+  const { validezDias } = leerConfigCotizaciones({ validezDias: (data as Record<string, unknown>).validez_dias });
+  return { cotizacion: deFila(data as unknown as Fila), validezDias };
 }
 
 /** El pedido del enlace, o `null` si el token no es de ninguno. Una vez por petición. */

@@ -14,6 +14,7 @@ import { descripcionDeTerminado, tituloTerminado, type TerminadoGuardado } from 
 import { referenciaDe, sumaLineas, type Cotizacion } from "./cotizaciones";
 import { fechaCompleta, money, numero } from "./formato";
 import { diaEnLima } from "./fecha";
+import { textoValidez, VALIDEZ_POR_DEFECTO } from "./cotizaciones-config";
 
 export const EMPRESA = "Plexiacril";
 
@@ -101,7 +102,7 @@ export const nombreArchivoCotizacion = (c: Pick<Cotizacion, "id" | "odooOrderNam
 export const asuntoCotizacion = (c: ParaCompartir) => `Cotización ${referenciaDe(c)} — ${EMPRESA}`;
 
 /** La cotización entera en texto: para descargar como .txt o pegar en un correo. */
-export function textoCotizacion(c: ParaCompartir): string {
+export function textoCotizacion(c: ParaCompartir, validezDias = VALIDEZ_POR_DEFECTO): string {
   const renglones: string[] = [
     `${EMPRESA.toUpperCase()} — Acrílicos de calidad`,
     `Cotización ${referenciaDe(c)}`,
@@ -128,6 +129,7 @@ export function textoCotizacion(c: ParaCompartir): string {
   } else {
     renglones.push(`TOTAL: ${money(sumaLineas(c.lineas))}`);
   }
+  renglones.push("", textoValidez(c.creadoEn, validezDias));
   return renglones.join("\n");
 }
 

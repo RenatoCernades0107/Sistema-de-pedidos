@@ -23,14 +23,15 @@ const leerLogo = () =>
 export async function GET(request: NextRequest, ctx: RouteContext<"/c/[token]/pdf">) {
   const { token } = await ctx.params;
 
-  const cotizacion = await cotizacionPorToken(token).catch((e) => {
+  const leida = await cotizacionPorToken(token).catch((e) => {
     console.error("[cotizacion publica]", e);
     return undefined;
   });
-  if (cotizacion === undefined) return new Response("No se pudo generar la cotización.", { status: 500 });
-  if (!cotizacion) return new Response("Este enlace no corresponde a ninguna cotización.", { status: 404 });
+  if (leida === undefined) return new Response("No se pudo generar la cotización.", { status: 500 });
+  if (!leida) return new Response("Este enlace no corresponde a ninguna cotización.", { status: 404 });
 
-  const pdf = await generarPdfCotizacion(cotizacion, await leerLogo());
+  const { cotizacion, validezDias } = leida;
+  const pdf = await generarPdfCotizacion(cotizacion, await leerLogo(), { validezDias });
   const nombre = nombreArchivoCotizacion(cotizacion, "pdf");
   const disposicion = request.nextUrl.searchParams.has("descargar") ? "attachment" : "inline";
 

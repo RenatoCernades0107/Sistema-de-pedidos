@@ -13,6 +13,7 @@ import { referenciaDe, sumaLineas, type Cotizacion } from "./cotizaciones";
 import { describirLinea, EMPRESA } from "./compartir";
 import { fechaCompleta, money } from "./formato";
 import { diaEnLima } from "./fecha";
+import { textoValidez, VALIDEZ_POR_DEFECTO } from "./cotizaciones-config";
 
 type ParaPdf = Pick<
   Cotizacion,
@@ -97,7 +98,11 @@ const COL = {
 };
 const ANCHO_DESC = COL.cant - COL.desc - 12;
 
-export async function generarPdfCotizacion(c: ParaPdf, logoPng?: Uint8Array | null): Promise<Uint8Array> {
+export async function generarPdfCotizacion(
+  c: ParaPdf,
+  logoPng?: Uint8Array | null,
+  { validezDias = VALIDEZ_POR_DEFECTO }: { validezDias?: number } = {},
+): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   const referencia = referenciaDe(c);
   pdf.setTitle(aWinAnsi(`Cotización ${referencia}`));
@@ -237,6 +242,14 @@ export async function generarPdfCotizacion(c: ParaPdf, logoPng?: Uint8Array | nu
       y -= 17;
     }
   }
+
+  /* Validez, debajo de los totales. */
+  if (y < MARGEN + 40) {
+    pagina = pdf.addPage(A4);
+    y = A4[1] - MARGEN;
+  }
+  y -= 8;
+  escribir(textoValidez(c.creadoEn, validezDias), MARGEN, y, { fuente: negrita, tamano: 9, color: AZUL });
 
   /* Pie de cada hoja. */
   const hojas = pdf.getPages();

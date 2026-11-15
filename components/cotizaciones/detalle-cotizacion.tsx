@@ -32,12 +32,15 @@ export function DetalleCotizacion({
   enlaceOdoo,
   puedeAsistente,
   puedeCrearPedido,
+  validezDias,
 }: {
   cotizacion: Cotizacion;
   /** Calculado en el servidor: la URL de Odoo no viaja en el bundle. */
   enlaceOdoo: string | null;
   puedeAsistente: boolean;
   puedeCrearPedido: boolean;
+  /** La validez que va en el PDF y en el texto (de /configuracion). */
+  validezDias: number;
 }) {
   const router = useRouter();
   const [reintentando, iniciar] = useTransition();
@@ -96,7 +99,7 @@ export function DetalleCotizacion({
               asunto={asuntoCotizacion(c)}
               telefono={c.cliente.telefono}
               esPdf
-              texto={{ contenido: textoCotizacion(c), nombre: nombreArchivoCotizacion(c, "txt") }}
+              texto={{ contenido: textoCotizacion(c, validezDias), nombre: nombreArchivoCotizacion(c, "txt") }}
             />
           )}
           {enlaceOdoo && c.odooOrderId && (
