@@ -1,7 +1,7 @@
 "use client";
 
 import type { TinteAcrilico } from "@/lib/cad/colores";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "next-themes";
 import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Edges, Grid, OrbitControls } from "@react-three/drei";
@@ -45,6 +45,8 @@ interface Instancia {
   /** Las caras de cada geometría y, por triángulo, a cuál pertenece. */
   caras: { caras: CaraMalla[]; caraDeTriangulo: Int32Array }[];
   centro: THREE.Vector3;
+  /** El tamaño de su caja envolvente, en mm. */
+  tamano: THREE.Vector3;
   /** Qué copia de su pieza de origen es (1…de), por el número del nodo. */
   copia: number;
   de: number;
@@ -121,6 +123,7 @@ function armarModelo(escena: THREE.Object3D, ids: readonly string[]): Modelo | n
       geometrias: [],
       caras: [],
       centro: new THREE.Vector3(),
+      tamano: new THREE.Vector3(),
       copia: 1,
       de: 1,
     };
@@ -138,6 +141,7 @@ function armarModelo(escena: THREE.Object3D, ids: readonly string[]): Modelo | n
     const propia = new THREE.Box3();
     for (const g of i.geometrias) propia.union(g.boundingBox!);
     propia.getCenter(i.centro);
+    propia.getSize(i.tamano);
     i.caras = i.geometrias.map((g) => segmentarCaras(g.getAttribute("position").array, g.index?.array));
     const clave = i.origen ?? i.pieza ?? i.clave;
     porOrigen.set(clave, [...(porOrigen.get(clave) ?? []), i]);
@@ -152,6 +156,17 @@ function armarModelo(escena: THREE.Object3D, ids: readonly string[]): Modelo | n
 
   const esfera = caja.getBoundingSphere(new THREE.Sphere());
   return { instancias, caja, centro: esfera.center, radio: Math.max(esfera.radius, 1) };
+}
+
+/**
+ * Largo, ancho y espesor de una pieza, en mm. El espesor es el que declara el
+ * motor; sin él, el lado más corto de la caja (una plancha es lo más fina que
+ * mide). Largo y ancho son los otros dos lados, de mayor a menor.
+ */
+export function medidasDePieza(tamano: { x: number; y: number; z: number }, espesorMm: number | null) {
+  const lados = [tamano.x, tamano.y, tamano.z].sort((a, b) => b - a);
+  const [largo, ancho, menor] = lados;
+  return { largo, ancho, espesor: espesorMm ?? menor };
 }
 
 /** Carga el GLB y devuelve el modelo armado. Libera las geometrías al cambiar o salir. */
@@ -462,6 +477,7 @@ function Escena({
   modoCaras,
   carasSeleccionadas,
   alAlternarCara,
+  alApuntarInstancia,
 }: {
   modelo: Modelo;
   explosion: number;
@@ -475,6 +491,8 @@ function Escena({
   modoCaras: boolean;
   carasSeleccionadas: ReadonlySet<string>;
   alAlternarCara?: (cara: ReferenciaCara) => void;
+  /** La pieza bajo el puntero (o la que se tocó, en pantallas táctiles). */
+  alApuntarInstancia?: (instancia: Instancia | null) => void;
 }) {
   const { caja, centro, radio } = modelo;
   const [caraBajoPuntero, setCaraBajoPuntero] = useState<string | null>(null);
@@ -539,10 +557,17 @@ function Escena({
             elegida={nodoActivo !== null && instancia.nodo === nodoActivo}
             tinte={tintes[instancia.nodo] ?? null}
             tema={tema}
-            alEntrar={() => alCambiarPieza?.(instancia.pieza)}
-            alSalir={() => alCambiarPieza?.(null)}
+            alEntrar={() => {
+              alCambiarPieza?.(instancia.pieza);
+              alApuntarInstancia?.(instancia);
+            }}
+            alSalir={() => {
+              alCambiarPieza?.(null);
+              alApuntarInstancia?.(null);
+            }}
             alPulsar={() => {
               alCambiarPieza?.(instancia.pieza);
+              alApuntarInstancia?.(instancia);
               if (instancia.pieza && alElegirCopia) {
                 alElegirCopia({
                   nodo: instancia.nodo,
@@ -669,6 +694,44 @@ export default function Visor3D({
   const { modelo, fallo } = useModelo(glbBase64, idsPiezas);
   const [explosion, setExplosion] = useState(0);
 
+  // La ficha de la pieza apuntada. Con ratón sigue al puntero (se mueve por el
+  // DOM, sin re-render en cada movimiento); al tocar queda fija arriba a la
+  // derecha, porque en táctil no hay "pasar por encima" y el dedo la taparía.
+  const [apuntada, setApuntada] = useState<Instancia | null>(null);
+  const [tactil, setTactil] = useState(false);
+  const contenedor = useRef<HTMLDivElement>(null);
+  const ficha = useRef<HTMLDivElement>(null);
+  const puntero = useRef({ x: 0, y: 0 });
+
+  const colocarFicha = () => {
+    const el = ficha.current;
+    const caja = contenedor.current;
+    if (!el || !caja) return;
+    const margen = 8;
+    const separacion = 14;
+    let x = puntero.current.x + separacion;
+    let y = puntero.current.y + separacion;
+    if (x + el.offsetWidth > caja.clientWidth - margen) x = puntero.current.x - separacion - el.offsetWidth;
+    if (y + el.offsetHeight > caja.clientHeight - margen) y = puntero.current.y - separacion - el.offsetHeight;
+    el.style.transform = `translate(${Math.max(margen, x)}px, ${Math.max(margen, y)}px)`;
+  };
+
+  // Recién montada, la ficha ya mide: se coloca junto al puntero antes de pintarse.
+  useLayoutEffect(() => {
+    if (apuntada && !tactil) colocarFicha();
+  });
+
+  // En modo caras manda la cara, no la pieza; y una pieza de un modelo anterior ya no existe.
+  const fichaVisible = apuntada && !modoCaras && modelo?.instancias.includes(apuntada) ? apuntada : null;
+  const datosFicha = fichaVisible
+    ? {
+        nombre:
+          (fichaVisible.pieza && nombresPiezas[fichaVisible.pieza]) || fichaVisible.pieza || "Pieza",
+        copia: fichaVisible.de > 1 ? `${fichaVisible.copia} de ${fichaVisible.de}` : null,
+        ...medidasDePieza(fichaVisible.tamano, fichaVisible.espesorMm),
+      }
+    : null;
+
   // Si el motor no manda medidas se leen de la geometría. glTF lleva Y arriba:
   // el alto del diseño es la Y del modelo y el fondo, su Z.
   const medidas = useMemo(() => {
@@ -679,7 +742,17 @@ export default function Visor3D({
   }, [dimensiones, modelo]);
 
   return (
-    <div className={cn("relative h-full min-h-0 w-full overflow-hidden", className)}>
+    <div
+      ref={contenedor}
+      className={cn("relative h-full min-h-0 w-full overflow-hidden", className)}
+      onPointerDown={(e) => setTactil(e.pointerType !== "mouse")}
+      onPointerMove={(e) => {
+        if (e.pointerType === "mouse" && tactil) setTactil(false);
+        const r = e.currentTarget.getBoundingClientRect();
+        puntero.current = { x: e.clientX - r.left, y: e.clientY - r.top };
+        if (ficha.current && !tactil) colocarFicha();
+      }}
+    >
       {modelo ? (
         <Canvas
           shadows
@@ -689,6 +762,7 @@ export default function Visor3D({
           gl={{ antialias: true, alpha: true }}
           // En modo caras, un clic al vacío no deshace lo señalado.
           onPointerMissed={() => {
+            setApuntada(null);
             if (modoCaras) return;
             alCambiarPieza?.(null);
             alElegirCopia?.(null);
@@ -710,6 +784,11 @@ export default function Visor3D({
             modoCaras={modoCaras}
             carasSeleccionadas={seleccionadas}
             alAlternarCara={alAlternarCara}
+            // En táctil la ficha se queda con lo último que se tocó: el
+            // "salir" que llega al levantar el dedo no la borra.
+            alApuntarInstancia={(i) => {
+              if (i || !tactil) setApuntada(i);
+            }}
           />
         </Canvas>
       ) : fallo ? (
@@ -728,6 +807,26 @@ export default function Visor3D({
         >
           {medida(medidas.x)} × {medida(medidas.y)} × {medida(medidas.z)} mm
         </p>
+      )}
+
+      {datosFicha && (
+        <div
+          ref={ficha}
+          role="status"
+          className={cn(
+            "bg-background/90 text-foreground pointer-events-none absolute z-10 rounded-md border px-2 py-1.5 text-xs shadow-sm backdrop-blur",
+            tactil ? "top-2 right-2" : "top-0 left-0",
+          )}
+        >
+          <p className="font-medium">
+            {datosFicha.nombre}
+            {datosFicha.copia && <span className="text-muted-foreground font-normal"> · {datosFicha.copia}</span>}
+          </p>
+          <p className="text-foreground/80 font-mono tabular-nums">
+            {medida(datosFicha.largo)} × {medida(datosFicha.ancho)} mm
+          </p>
+          <p className="text-muted-foreground font-mono tabular-nums">espesor {medida(datosFicha.espesor)} mm</p>
+        </div>
       )}
 
       {modelo && alCambiarModoCaras && (
