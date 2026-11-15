@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { Brain, Check, ChevronRight, LoaderCircle, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TextoAgente } from "@/components/cotizaciones/texto-agente";
-import type { ReferenciaCara } from "@/lib/cad/caras";
-import { ChipCara } from "./chip-cara";
+import { aliasEnTexto, type ReferenciaCara } from "@/lib/cad/caras";
+import { ChipCara, TextoConCaras } from "./chip-cara";
 
 /** Una herramienta que el asistente está usando o ya usó en un turno. */
 export interface ActividadChat {
@@ -38,6 +38,13 @@ const ETIQUETAS: Record<string, { enCurso: string; hecho: string }> = {
 };
 
 const OTRA = { enCurso: "Trabajando…", hecho: "Hecho" };
+
+/** Las caras de un mensaje que no se mencionan con `@caraN` en su texto. */
+function sueltas(m: MensajeChat) {
+  if (!m.referencias?.length) return [];
+  const mencionadas = aliasEnTexto(m.contenido);
+  return m.referencias.filter((r) => !r.alias || !mencionadas.has(r.alias));
+}
 
 function FichaActividad({ actividad }: { actividad: ActividadChat }) {
   const etiqueta = ETIQUETAS[actividad.nombre] ?? OTRA;
@@ -146,9 +153,10 @@ export function ChatMensajes({
           if (m.rol === "usuario") {
             return (
               <div key={m.id} className="flex max-w-[85%] min-w-0 flex-col items-end gap-1.5 self-end">
-                {m.referencias && m.referencias.length > 0 && (
+                {/* Las caras sin `@caraN` en el texto (mensajes de antes) siguen como fichas. */}
+                {sueltas(m).length > 0 && (
                   <ul className="flex flex-wrap justify-end gap-1.5" aria-label="Caras señaladas">
-                    {m.referencias.map((r) => (
+                    {sueltas(m).map((r) => (
                       <li key={r.clave} className="max-w-full">
                         <ChipCara cara={r} className="text-muted-foreground" />
                       </li>
@@ -156,7 +164,7 @@ export function ChatMensajes({
                   </ul>
                 )}
                 <div className="bg-primary text-primary-foreground max-w-full min-w-0 rounded-xl px-3.5 py-2 text-sm break-words whitespace-pre-wrap">
-                  {m.contenido}
+                  <TextoConCaras texto={m.contenido} caras={m.referencias ?? []} />
                 </div>
               </div>
             );

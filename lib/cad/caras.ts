@@ -237,11 +237,30 @@ export const esquemaReferenciaCara = z.object({
   alto_mm: z.number().finite().min(0),
   area_mm2: z.number().finite().min(0),
   etiqueta: z.string().min(1).max(200),
+  /** Cómo se nombra en el texto del mensaje, sin la arroba: `cara1` → `@cara1`. */
+  alias: z
+    .string()
+    .regex(/^cara\d{1,3}$/)
+    .optional(),
 });
 
 export type ReferenciaCara = z.infer<typeof esquemaReferenciaCara>;
 
 export const MAX_REFERENCIAS = 12;
+
+/** Las menciones `@caraN` de un texto. */
+export const PATRON_ALIAS = /@(cara\d{1,3})\b/g;
+
+/** Los alias (`cara1`…) que aparecen como `@caraN` en el texto. */
+export const aliasEnTexto = (texto: string) => new Set([...texto.matchAll(PATRON_ALIAS)].map((m) => m[1]));
+
+/** El primer alias libre: `cara1`, `cara2`… */
+export function siguienteAlias(usados: Iterable<string | undefined>): string {
+  const ocupados = new Set(usados);
+  let n = 1;
+  while (ocupados.has(`cara${n}`)) n++;
+  return `cara${n}`;
+}
 export const esquemaReferencias = z.array(esquemaReferenciaCara).max(MAX_REFERENCIAS);
 
 /** glTF (Y arriba) → producto (Z arriba). El motor hace (x, y, z) → (x, z, −y). */
@@ -356,11 +375,12 @@ const tupla = (v: Vec3) => `(${v.map(fmt).join(", ")})`;
 export function referenciasATexto(referencias: readonly ReferenciaCara[]): string {
   if (!referencias.length) return "";
   const lineas = referencias.map((r, i) => {
+    const nombre = r.alias ? `@${r.alias}` : `${i + 1}.`;
     const pieza = r.pieza
       ? ` (pieza \`${r.pieza}\`${r.de > 1 ? `, copia ${r.copia} de ${r.de}` : ""}${r.nodo ? `, nodo \`${r.nodo}\`` : ""})`
       : "";
     return (
-      `${i + 1}. ${r.etiqueta}${pieza}: ${r.tipo}${r.curva ? " curvo" : ""}, ` +
+      `${nombre} ${r.etiqueta}${pieza}: ${r.tipo}${r.curva ? " curvo" : ""}, ` +
       `${fmt(r.ancho_mm)} × ${fmt(r.alto_mm)} mm, área ${Math.round(r.area_mm2)} mm²; ` +
       `centro ${tupla(r.centro)}; normal ${tupla(r.normal.map((n) => Math.round(n * 100) / 100 + 0) as Vec3)}`
     );
