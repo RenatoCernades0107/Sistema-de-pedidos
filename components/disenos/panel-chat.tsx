@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Box, Frame, HelpCircle, Layers, Sparkles, type LucideIcon } from "lucide-react";
 import { cargarMensajes } from "@/app/(app)/disenos/acciones";
-import type { ReferenciaCara } from "@/lib/cad/caras";
+import { aliasEnTexto, type ReferenciaCara } from "@/lib/cad/caras";
 import { useDiseno } from "./diseno-contexto";
 import { ChatCompositor } from "./chat-compositor";
 import { ChatMensajes, type MensajeChat } from "./chat-mensajes";
@@ -59,6 +59,53 @@ export function PanelChat(props: {
   const [pendiente, setPendiente] = useState<{ mensaje: string; referencias: ReferenciaCara[] } | null>(null);
   /** Falta la clave del modelo: no es algo que se arregle reintentando. */
   const [sinConfigurar, setSinConfigurar] = useState<string | null>(null);
+
+  const cuadro = useRef<HTMLTextAreaElement>(null);
+
+  /*
+   * Las caras señaladas se escriben en el texto como `@cara1`: la que se señala
+   * en el visor entra donde está el cursor, y la que se quita sale del texto.
+   */
+  const previas = useRef<ReferenciaCara[]>([]);
+  useEffect(() => {
+    const antes = new Set(previas.current.map((c) => c.alias));
+    const ahora = new Set(carasReferidas.map((c) => c.alias));
+    previas.current = carasReferidas;
+    const nuevas = carasReferidas.flatMap((c) => (c.alias && !antes.has(c.alias) ? [c.alias] : []));
+    const quitadas = [...antes].filter((a): a is string => !!a && !ahora.has(a));
+    if (!nuevas.length && !quitadas.length) return;
+
+    const el = cuadro.current;
+    let cursor: number | null = null;
+    setTexto((actual) => {
+      let t = actual;
+      for (const a of quitadas) t = t.replace(new RegExp(`[ \\t]?@${a}\\b`, "g"), "");
+      const presentes = aliasEnTexto(t);
+      const faltan = nuevas.filter((a) => !presentes.has(a));
+      if (!faltan.length) return t;
+      const pos = Math.min(el?.selectionStart ?? t.length, t.length);
+      const antesDe = t.slice(0, pos);
+      const despues = t.slice(pos);
+      const menciones = faltan.map((a) => `@${a}`).join(" ");
+      const izq = antesDe && !/\s$/.test(antesDe) ? " " : "";
+      const der = despues.startsWith(" ") ? "" : " ";
+      cursor = pos + izq.length + menciones.length + der.length;
+      return antesDe + izq + menciones + der + despues;
+    });
+    // El cursor queda tras la mención, para seguir escribiendo.
+    requestAnimationFrame(() => {
+      if (cursor !== null && el) el.setSelectionRange(cursor, cursor);
+    });
+  }, [carasReferidas]);
+
+  /** Lo que se escribe. Borrar un `@caraN` a mano quita esa cara. */
+  const alEscribir = (nuevo: string) => {
+    setTexto(nuevo);
+    const presentes = aliasEnTexto(nuevo);
+    for (const c of carasReferidas) {
+      if (c.alias && !presentes.has(c.alias)) quitarCara(c.clave);
+    }
+  };
 
   const enCurso = useRef<AbortController | null>(null);
   // `aplicar` puede cambiar de identidad entre renders; el turno en marcha usa la vigente.
@@ -229,7 +276,9 @@ export function PanelChat(props: {
   const enviarTexto = () => {
     if (!texto.trim() || enviando) return;
     const mensaje = texto;
-    const referencias = carasReferidas;
+    // Solo van las caras que siguen mencionadas en el texto.
+    const mencionadas = aliasEnTexto(mensaje);
+    const referencias = carasReferidas.filter((c) => !c.alias || mencionadas.has(c.alias));
     setTexto("");
     // Lo señalado se va con este mensaje; el visor sale del modo selección.
     setCarasReferidas([]);
@@ -302,13 +351,13 @@ export function PanelChat(props: {
 
       <ChatCompositor
         texto={texto}
-        onTexto={setTexto}
+        onTexto={alEscribir}
         onEnviar={enviarTexto}
         onDetener={detener}
         enviando={enviando}
         deshabilitado={sinConfigurar !== null}
         caras={carasReferidas}
-        onQuitarCara={quitarCara}
+        textareaRef={cuadro}
       />
     </section>
   );
