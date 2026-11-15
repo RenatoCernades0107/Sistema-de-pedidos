@@ -87,7 +87,10 @@ export interface ProductoEstandar {
   /** Se fabrica a medida: las medidas listadas son solo una referencia. */
   aMedida: boolean;
   contactoAlimentario: string | null;
+  /** Foto de referencia del producto (de la web). */
   imagenUrl: string | null;
+  /** La foto PNG de su modelo 3D (URL pública), para las tarjetas. `null` si todavía no tiene. */
+  miniatura: string | null;
   notas: string | null;
   geometria: Geometria;
   activo: boolean;

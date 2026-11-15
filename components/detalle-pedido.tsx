@@ -41,6 +41,8 @@ import { RegistrarAbono } from "@/components/registrar-abono";
 import { AdjuntosPedido } from "@/components/adjuntos-pedido";
 import { Button } from "@/components/ui/button";
 import { LineasPedido } from "@/components/lineas-pedido";
+import { CompartirMenu } from "@/components/compartir-menu";
+import { asuntoSeguimiento, mensajeSeguimiento } from "@/lib/compartir";
 import type { LineaDePedido, OdooDePedido } from "@/lib/pedido-lineas";
 import type { Sobrante } from "@/lib/sobrantes";
 
@@ -50,8 +52,14 @@ export function DetallePedido({
   odoo = null,
   retazoMin,
   sobrantes = [],
+  tokenSeguimiento = null,
 }: {
   codigo: string;
+  /**
+   * El permiso del enlace público de seguimiento. Solo llega a quien coordina
+   * con el cliente (Administración y Logística); sin él no sale el botón.
+   */
+  tokenSeguimiento?: string | null;
   /** El lado mínimo de un sobrante (de la configuración de cortes). */
   retazoMin?: number;
   /** Los sobrantes que este pedido devolvió al almacén. */
@@ -102,25 +110,36 @@ export function DetallePedido({
         Volver a la lista
       </Button>
 
-      <header className="mb-5">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-primary text-base font-semibold tracking-tight tabular-nums">
-            {p.codigo}
-          </span>
-          {p.esProvincia && (
-            <span className="text-st-en_transito bg-st-en_transito-soft ring-st-en_transito/25 rounded-full px-2 py-0.5 text-2xs font-semibold tracking-wide ring-1 ring-inset">
-              PROVINCIA
+      <header className="mb-5 flex flex-wrap items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-primary text-base font-semibold tracking-tight tabular-nums">
+              {p.codigo}
             </span>
-          )}
-          <EstadoBadge estado={p.estado} size="sm" />
+            {p.esProvincia && (
+              <span className="text-st-en_transito bg-st-en_transito-soft ring-st-en_transito/25 rounded-full px-2 py-0.5 text-2xs font-semibold tracking-wide ring-1 ring-inset">
+                PROVINCIA
+              </span>
+            )}
+            <EstadoBadge estado={p.estado} size="sm" />
+          </div>
+          {/* Sin el cliente, el título es el trabajo: es lo que el taller
+              necesita leer primero y el código ya está justo encima. */}
+          <h1 className="mt-1 text-xl font-semibold tracking-tight">
+            {permisos.verCliente
+              ? p.cliente
+              : `${etiquetaTipos(p.tipos)}${p.producto ? ` · ${PRODUCTOS[p.producto]}` : ""}`}
+          </h1>
         </div>
-        {/* Sin el cliente, el título es el trabajo: es lo que el taller
-            necesita leer primero y el código ya está justo encima. */}
-        <h1 className="mt-1 text-xl font-semibold tracking-tight">
-          {permisos.verCliente
-            ? p.cliente
-            : `${etiquetaTipos(p.tipos)}${p.producto ? ` · ${PRODUCTOS[p.producto]}` : ""}`}
-        </h1>
+        {tokenSeguimiento && permisos.verTelefonoCliente && (
+          <CompartirMenu
+            etiqueta="Compartir seguimiento"
+            ruta={`/seguimiento/${tokenSeguimiento}`}
+            mensaje={(url) => mensajeSeguimiento(p.cliente, p.codigo, url)}
+            asunto={asuntoSeguimiento(p.codigo)}
+            telefono={p.telefonoCliente}
+          />
+        )}
       </header>
 
       {(p.estado === "observado" || p.estado === "anulado") && p.motivo && (

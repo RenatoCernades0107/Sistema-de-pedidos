@@ -1,15 +1,24 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, Box, Info, Loader2 } from "lucide-react";
+import { ArrowLeft, Box, ChevronLeft, ChevronRight, FolderOpen, ImagePlus, Info, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
-import { disenoParaPedido, eliminarDiseno, renombrarDiseno } from "@/app/(app)/disenos/acciones";
+import {
+  abrirDiseno,
+  buscarMisDisenos,
+  disenoParaPedido,
+  eliminarDiseno,
+  renombrarDiseno,
+  type DisenoBuscado,
+} from "@/app/(app)/disenos/acciones";
+import { guardarMiniaturaProducto } from "@/app/(app)/disenos/miniaturas-acciones";
 import { lineaDeDiseno } from "@/lib/cad/cotizar";
 import { valoresPorDefecto } from "@/lib/cad/esquema";
 import type { MaterialesPorCopia } from "@/lib/cad/materiales";
-import type { MaterialDiseno, ParametrosCad, PlantillaCad } from "@/lib/cad/tipos";
+import type { MaterialDiseno, ParametrosCad, PlantillaCad, ResultadoGeneracion } from "@/lib/cad/tipos";
 import type { GrupoPlancha } from "@/lib/cortes/catalogo";
+import { momentoEnLima } from "@/lib/fecha";
 import { money } from "@/lib/formato";
 import type { LineaTerminado } from "@/lib/lineas-cotizacion";
 import {
@@ -20,7 +29,7 @@ import {
   type ProductoEstandar,
 } from "@/lib/terminados/catalogo";
 import type { Medidas } from "@/lib/terminados/geometria";
-import { medidasAParametrosCad, parametrosCadDe } from "@/lib/terminados/plantilla-cad";
+import { MEDIDAS_DE_PLANTILLA, medidasAParametrosCad, parametrosCadDe } from "@/lib/terminados/plantilla-cad";
 import { cn } from "@/lib/utils";
 import { DisenoProvider, useDiseno, type CostosDiseno } from "@/components/disenos/diseno-contexto";
 import { useBloqueoDiseno, useCostoDiseno } from "@/components/disenos/panel-costo";
@@ -37,6 +46,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FondoAcrilico } from "@/components/fondo-acrilico";
 
 export type TerminadoDeDiseno = Omit<LineaTerminado, "tipo" | "clave"> & { clave?: string };
@@ -218,7 +228,12 @@ function Contenido({
           ) : null
         }
         modelo={
-          <ModeloCatalogo terminados={terminados} productoCodigo={producto?.codigo ?? null} alElegir={setProductoCodigo} />
+          <ModeloCatalogo
+            disenoId={disenoId}
+            terminados={terminados}
+            productoCodigo={producto?.codigo ?? null}
+            alElegir={setProductoCodigo}
+          />
         }
         pie={
           <PieTerminado
@@ -258,14 +273,19 @@ function Contenido({
  * Pestaña Modelo del pedido: los productos del catálogo que el motor dibuja
  * (los demás no se ofrecen), por tipo, con sus medidas estándar.
  */
+/** El valor del selector de tipo que abre los diseños guardados. */
+const MIS_DISENOS = "__mis-disenos__";
+
 function ModeloCatalogo({
+  disenoId,
   terminados,
   productoCodigo,
   alElegir,
 }: {
+  disenoId: string;
   terminados: CatalogoTerminados;
   productoCodigo: string | null;
-  alElegir: (codigo: string) => void;
+  alElegir: (codigo: string | null) => void;
 }) {
   const { plantillas, parametros, plantilla, aplicar, cargando, grupo } = useDiseno();
 
@@ -276,19 +296,70 @@ function ModeloCatalogo({
   const tipos = terminados.tipos.filter((t) => conModelo.some((p) => p.tipo === t.codigo));
 
   const elegido = conModelo.find((p) => p.codigo === productoCodigo) ?? null;
-  const [tipo, setTipo] = useState<string | null>(elegido?.tipo ?? tipos[0]?.codigo ?? null);
+  const [tipo, setTipo] = useState<string>(elegido?.tipo ?? tipos[0]?.codigo ?? MIS_DISENOS);
+  const opciones = [
+    ...tipos.map((t) => ({ valor: t.codigo, nombre: t.nombre })),
+    { valor: MIS_DISENOS, nombre: "Mis diseños" },
+  ];
   const delTipo = conModelo.filter((p) => p.tipo === tipo);
 
   const esquemaDe = (codigo: string) => plantillas.find((p) => p.codigo === codigo)?.esquema;
 
-  const elegirProducto = (p: ProductoEstandar) => {
-    if (!p.plantillaCad) return;
-    alElegir(p.codigo);
+  /** Los parámetros del producto en su primera medida estándar: con los que abre y con los que se fotografía. */
+  const parametrosIniciales = (p: ProductoEstandar & { plantillaCad: string }): ParametrosCad => {
     const primera = p.medidas[0];
     const params = parametrosCadDe(p, primera ? medidasDeFila(primera, p.geometria) : {}, {
       espesorMm: grupo?.espesorMm,
     });
-    void aplicar(p.plantillaCad, { ...valoresPorDefecto(esquemaDe(p.plantillaCad)), ...params });
+    return { ...valoresPorDefecto(esquemaDe(p.plantillaCad)), ...params };
+  };
+
+  const elegirProducto = (p: ProductoEstandar) => {
+    if (!p.plantillaCad) return;
+    alElegir(p.codigo);
+    void aplicar(p.plantillaCad, parametrosIniciales({ ...p, plantillaCad: p.plantillaCad }));
+  };
+
+  // Las fotos que se van sacando aquí, por código, para verlas sin recargar.
+  const [fotos, setFotos] = useState<Record<string, string>>({});
+  const fotoDe = (p: ProductoEstandar) => fotos[p.codigo] ?? p.miniatura;
+  const sinFoto = conModelo.filter((p) => !fotoDe(p));
+  const [fotografiando, setFotografiando] = useState<{ hechas: number; total: number } | null>(null);
+
+  /**
+   * Saca la foto de cada producto que no tiene: lo genera con el motor en su
+   * primera medida estándar (sin tocar el diseño abierto) y guarda el PNG. Uno
+   * por uno, para no saturar el motor.
+   */
+  const generarFotos = async () => {
+    const pendientes = sinFoto;
+    setFotografiando({ hechas: 0, total: pendientes.length });
+    const { renderizarMiniatura } = await import("@/lib/cad/miniatura");
+    let fallidas = 0;
+    for (const [i, p] of pendientes.entries()) {
+      try {
+        const plantillaCad = p.plantillaCad!;
+        const r = await fetch("/api/cad/generar", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ plantilla: plantillaCad, parametros: parametrosIniciales({ ...p, plantillaCad }) }),
+        });
+        if (!r.ok) throw new Error(`El motor respondió ${r.status}.`);
+        const resultado = (await r.json()) as ResultadoGeneracion;
+        const form = new FormData();
+        form.set("codigo", p.codigo);
+        form.set("archivo", await renderizarMiniatura(resultado.glb_base64), "miniatura.png");
+        const url = await guardarMiniaturaProducto(form);
+        setFotos((f) => ({ ...f, [p.codigo]: url }));
+      } catch (e) {
+        fallidas++;
+        console.error(`[terminados] miniatura de ${p.codigo}`, e);
+      }
+      setFotografiando({ hechas: i + 1, total: pendientes.length });
+    }
+    setFotografiando(null);
+    if (fallidas > 0) toast.error(`No se pudo sacar la foto de ${fallidas} producto${fallidas === 1 ? "" : "s"}.`);
+    else toast.success("Miniaturas listas.");
   };
 
   const elegirMedida = (p: ProductoEstandar, m: MedidaEstandar) => {
@@ -307,90 +378,302 @@ function ModeloCatalogo({
         })?.id
       : undefined;
 
-  if (conModelo.length === 0) {
-    return (
-      <p className="text-muted-foreground text-sm">
-        Ningún producto del catálogo tiene modelo 3D todavía. Descríbelo en el chat: el asistente elige la plantilla.
-      </p>
-    );
-  }
-
   return (
     <div className="flex flex-col gap-5">
-      <p className="text-muted-foreground text-sm">
-        Elige el modelo y su medida estándar. Luego lo ajustas en Parámetros o en el chat.
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <p className="text-muted-foreground min-w-0 flex-1 text-sm">
+          Elige el modelo y su medida estándar, o parte de uno de tus diseños. Luego lo ajustas en Parámetros o en el
+          chat.
+        </p>
+        {tipo !== MIS_DISENOS && (sinFoto.length > 0 || fotografiando) && (
+          <Button type="button" variant="outline" size="sm" onClick={generarFotos} disabled={fotografiando !== null}>
+            {fotografiando ? <Loader2 className="animate-spin" aria-hidden /> : <ImagePlus aria-hidden />}
+            {fotografiando
+              ? `Generando miniaturas ${fotografiando.hechas}/${fotografiando.total}`
+              : `Generar miniaturas (${sinFoto.length})`}
+          </Button>
+        )}
+      </div>
 
-      <div role="group" aria-label="Tipo" className="flex flex-wrap gap-1.5">
-        {tipos.map((t) => (
+      {/* En celular, un desplegable; desde sm, botones del mismo ancho que llenan la fila. */}
+      <Select value={tipo} onValueChange={(v) => v && setTipo(v)}>
+        <SelectTrigger className="h-9 w-full sm:hidden" aria-label="Tipo">
+          <SelectValue>{opciones.find((o) => o.valor === tipo)?.nombre}</SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {opciones.map((o) => (
+            <SelectItem key={o.valor} value={o.valor}>
+              {o.nombre}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <div
+        role="group"
+        aria-label="Tipo"
+        className="hidden grid-cols-[repeat(auto-fit,minmax(7.5rem,1fr))] gap-1.5 sm:grid"
+      >
+        {opciones.map((o) => (
           <button
-            key={t.codigo}
+            key={o.valor}
             type="button"
-            aria-pressed={t.codigo === tipo}
-            onClick={() => setTipo(t.codigo)}
+            aria-pressed={o.valor === tipo}
+            onClick={() => setTipo(o.valor)}
             className={cn(
-              "rounded-lg border px-3 py-1.5 text-sm transition-colors",
-              t.codigo === tipo ? "bg-primary border-primary text-primary-foreground font-medium" : "bg-card hover:bg-muted",
+              "flex h-9 w-full min-w-0 items-center justify-center gap-1.5 rounded-lg border px-3 text-sm transition-colors",
+              o.valor === tipo ? "bg-primary border-primary text-primary-foreground font-medium" : "bg-card hover:bg-muted",
             )}
           >
-            {t.nombre}
+            {o.valor === MIS_DISENOS && <FolderOpen className="size-4 shrink-0" aria-hidden />}
+            <span className="truncate">{o.nombre}</span>
           </button>
         ))}
       </div>
 
-      <ul className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3" aria-label="Modelos">
-        {delTipo.map((p) => {
-          const actual = p.codigo === elegido?.codigo && p.plantillaCad === plantilla;
-          return (
-            <li key={p.codigo}>
-              <button
-                type="button"
-                disabled={cargando}
-                aria-pressed={actual}
-                onClick={() => elegirProducto(p)}
-                className={cn(
-                  "bg-card hover:border-primary/40 focus-visible:ring-ring flex h-full w-full flex-col overflow-hidden rounded-xl border text-left transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:opacity-60",
-                  actual && "border-primary ring-primary/20 ring-2",
-                )}
-              >
-                <span className="from-muted/40 to-muted grid h-20 place-items-center bg-gradient-to-b">
-                  <Box className={cn("size-8", actual ? "text-primary" : "text-muted-foreground/70")} aria-hidden />
-                </span>
-                <span className="px-3 py-2">
-                  <span className="block text-sm font-medium">{p.nombre}</span>
-                  <span className="text-muted-foreground block font-mono text-xs">{p.codigo}</span>
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-
-      {elegido && elegido.plantillaCad === plantilla && elegido.medidas.length > 0 && (
-        <div>
-          <p className="mb-1.5 text-xs font-medium">Medida estándar</p>
-          <div className="flex flex-wrap gap-1.5">
-            {elegido.medidas.map((m) => {
-              const on = medidaActual(elegido) === m.id;
+      {tipo === MIS_DISENOS ? (
+        <MisDisenos disenoId={disenoId} alElegir={() => alElegir(null)} />
+      ) : conModelo.length === 0 ? (
+        <p className="text-muted-foreground text-sm">
+          Ningún producto del catálogo tiene modelo 3D todavía. Descríbelo en el chat: el asistente elige la plantilla.
+        </p>
+      ) : (
+        <>
+          <ul className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3" aria-label="Modelos">
+            {delTipo.map((p) => {
+              const actual = p.codigo === elegido?.codigo && p.plantillaCad === plantilla;
               return (
-                <button
-                  key={m.id}
-                  type="button"
-                  disabled={cargando}
-                  aria-pressed={on}
-                  onClick={() => elegirMedida(elegido, m)}
-                  className={cn(
-                    "rounded-lg border px-3 py-1.5 text-sm tabular-nums transition-colors disabled:opacity-60",
-                    on ? "bg-primary border-primary text-primary-foreground font-medium" : "bg-card hover:bg-muted",
-                  )}
-                >
-                  {textoDeMedidaEstandar(m)}
-                </button>
+                <li key={p.codigo}>
+                  <button
+                    type="button"
+                    disabled={cargando}
+                    aria-pressed={actual}
+                    onClick={() => elegirProducto(p)}
+                    className={cn(
+                      "bg-card hover:border-primary/40 focus-visible:ring-ring flex h-full w-full flex-col overflow-hidden rounded-xl border text-left transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:opacity-60",
+                      actual && "border-primary ring-primary/20 ring-2",
+                    )}
+                  >
+                    <span className="from-muted/40 to-muted grid h-28 place-items-center overflow-hidden bg-gradient-to-b">
+                      {fotoDe(p) ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- PNG chico ya del tamaño justo; no pasa por el optimizador.
+                        <img src={fotoDe(p)!} alt="" loading="lazy" className="h-full w-full object-contain p-1" />
+                      ) : (
+                        <Box className={cn("size-8", actual ? "text-primary" : "text-muted-foreground/70")} aria-hidden />
+                      )}
+                    </span>
+                    <span className="px-3 py-2">
+                      <span className="block text-sm font-medium">{p.nombre}</span>
+                      <span className="text-muted-foreground block font-mono text-xs">{p.codigo}</span>
+                    </span>
+                  </button>
+                </li>
               );
             })}
-          </div>
-          <p className="text-muted-foreground mt-1.5 text-xs">¿Otra medida? Cámbiala en Parámetros o pídesela al chat.</p>
+          </ul>
+
+          {elegido && elegido.plantillaCad === plantilla && elegido.medidas.length > 0 && (
+            <div>
+              <p className="mb-1.5 text-xs font-medium">Medida estándar</p>
+              <div className="flex flex-wrap gap-1.5">
+                {elegido.medidas.map((m) => {
+                  const on = medidaActual(elegido) === m.id;
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      disabled={cargando}
+                      aria-pressed={on}
+                      onClick={() => elegirMedida(elegido, m)}
+                      className={cn(
+                        "rounded-lg border px-3 py-1.5 text-sm tabular-nums transition-colors disabled:opacity-60",
+                        on ? "bg-primary border-primary text-primary-foreground font-medium" : "bg-card hover:bg-muted",
+                      )}
+                    >
+                      {textoDeMedidaEstandar(m)}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-muted-foreground mt-1.5 text-xs">¿Otra medida? Cámbiala en Parámetros o pídesela al chat.</p>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/** "300 × 200 × 150 mm": las medidas principales de la plantilla, si las tiene. */
+function resumenMedidas(plantilla: string, parametros: ParametrosCad): string | null {
+  const valores = Object.values(MEDIDAS_DE_PLANTILLA[plantilla] ?? {})
+    .map((n) => (n ? parametros[n] : undefined))
+    .filter((v): v is number => typeof v === "number");
+  return valores.length > 0 ? `${valores.join(" × ")} mm` : null;
+}
+
+/**
+ * Los diseños guardados, para partir de uno: se copian su plantilla, sus
+ * medidas y su material al diseño del pedido. El original no se toca.
+ */
+function MisDisenos({ disenoId, alElegir }: { disenoId: string; alElegir: () => void }) {
+  const { plantillas, aplicar, mostrarMaterial, cargando } = useDiseno();
+  const [texto, setTexto] = useState("");
+  const [busqueda, setBusqueda] = useState("");
+  const [pagina, setPagina] = useState(1);
+  // Lo último que llegó, con la consulta que lo pidió: si ya no es la vigente, se está leyendo.
+  const [datos, setDatos] = useState<{
+    clave: string;
+    disenos: DisenoBuscado[];
+    total: number;
+    paginas: number;
+  } | null>(null);
+  const [elegido, setElegido] = useState<string | null>(null);
+  const [abriendo, setAbriendo] = useState<string | null>(null);
+  const pedido = useRef(0);
+  const clave = `${pagina}|${busqueda}`;
+  const leyendo = datos?.clave !== clave;
+
+  // La búsqueda espera a que se deje de escribir; una nueva vuelve a la primera página.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setBusqueda(texto.trim());
+      setPagina(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [texto]);
+
+  useEffect(() => {
+    // Solo vale la última respuesta: las anteriores llegan tarde y se ignoran.
+    const este = ++pedido.current;
+    const consulta = `${pagina}|${busqueda}`;
+    buscarMisDisenos({ texto: busqueda, pagina, excluir: disenoId })
+      .then((r) => {
+        if (este === pedido.current) setDatos({ ...r, clave: consulta });
+      })
+      .catch((e) => {
+        if (este !== pedido.current) return;
+        toast.error(e instanceof Error ? e.message : "No se pudieron leer tus diseños.");
+        // Sin esto quedaría "leyendo" para siempre: se deja lo anterior como vigente.
+        setDatos((d) => (d ? { ...d, clave: consulta } : { clave: consulta, disenos: [], total: 0, paginas: 1 }));
+      });
+  }, [busqueda, pagina, disenoId]);
+
+  const usar = async (d: DisenoBuscado) => {
+    if (cargando || abriendo) return;
+    setAbriendo(d.id);
+    try {
+      const base = await abrirDiseno(d.id);
+      if (!base.plantilla) throw new Error("Ese diseño no tiene modelo todavía.");
+      // El material primero, sin guardar: `aplicar` guarda la versión nueva con él.
+      mostrarMaterial(base.material, base.materiales);
+      alElegir();
+      await aplicar(base.plantilla, base.parametros);
+      setElegido(d.id);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo usar ese diseño.");
+    } finally {
+      setAbriendo(null);
+    }
+  };
+
+  const nombrePlantilla = (codigo: string) => plantillas.find((p) => p.codigo === codigo)?.nombre ?? codigo;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="relative">
+        <Search
+          className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2"
+          aria-hidden
+        />
+        <Input
+          type="search"
+          value={texto}
+          onChange={(e) => setTexto(e.target.value)}
+          placeholder="Buscar por nombre o medidas (200x150)"
+          aria-label="Buscar en mis diseños"
+          maxLength={80}
+          className="h-8 pl-8 text-sm"
+        />
+      </div>
+
+      {datos === null ? (
+        <div className="text-muted-foreground flex items-center gap-2 py-6 text-sm">
+          <Loader2 className="size-4 animate-spin" aria-hidden /> Cargando tus diseños…
         </div>
+      ) : datos.disenos.length === 0 ? (
+        <p className="text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm">
+          {busqueda ? "No hay diseños que coincidan." : "Todavía no tienes diseños guardados con modelo."}
+        </p>
+      ) : (
+        <ul
+          className={cn("grid gap-2 transition-opacity sm:grid-cols-2", leyendo && "opacity-60")}
+          aria-label="Mis diseños"
+          aria-busy={leyendo}
+        >
+          {datos.disenos.map((d) => {
+            const medidas = resumenMedidas(d.plantilla, d.parametros);
+            const actual = elegido === d.id;
+            return (
+              <li key={d.id}>
+                <button
+                  type="button"
+                  disabled={cargando || !!abriendo}
+                  aria-pressed={actual}
+                  onClick={() => void usar(d)}
+                  className={cn(
+                    "bg-card hover:border-primary/40 focus-visible:ring-ring flex h-full w-full items-start gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:opacity-60",
+                    actual && "border-primary ring-primary/20 ring-2",
+                  )}
+                >
+                  {abriendo === d.id ? (
+                    <Loader2 className="text-primary mt-0.5 size-4 shrink-0 animate-spin" aria-hidden />
+                  ) : (
+                    <Box
+                      className={cn("mt-0.5 size-4 shrink-0", actual ? "text-primary" : "text-muted-foreground/70")}
+                      aria-hidden
+                    />
+                  )}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{d.nombre}</span>
+                    <span className="text-muted-foreground block truncate text-xs">
+                      {nombrePlantilla(d.plantilla)}
+                      {medidas && <span className="tabular-nums"> · {medidas}</span>}
+                    </span>
+                    <span className="text-muted-foreground/80 block truncate text-xs">
+                      {momentoEnLima(d.actualizadoEn)}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {datos && datos.paginas > 1 && (
+        <nav aria-label="Páginas" className="flex items-center justify-between gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={pagina <= 1 || leyendo}
+            onClick={() => setPagina((p) => Math.max(1, p - 1))}
+          >
+            <ChevronLeft /> Anterior
+          </Button>
+          <span className="text-muted-foreground text-xs tabular-nums">
+            Página {pagina} de {datos.paginas} · {datos.total} diseños
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={pagina >= datos.paginas || leyendo}
+            onClick={() => setPagina((p) => Math.min(datos.paginas, p + 1))}
+          >
+            Siguiente <ChevronRight />
+          </Button>
+        </nav>
       )}
     </div>
   );

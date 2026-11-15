@@ -120,7 +120,14 @@ export function ListaDisenos({
                 key={d.id}
                 className="bg-card hover:border-primary/40 group relative flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors"
               >
-                <Box className="text-muted-foreground size-4 shrink-0" aria-hidden />
+                <span className="from-muted/40 to-muted grid h-12 w-[4.8rem] shrink-0 place-items-center overflow-hidden rounded-md bg-gradient-to-b">
+                  {d.miniatura ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- PNG chico ya del tamaño justo; no pasa por el optimizador.
+                    <img src={d.miniatura} alt="" loading="lazy" className="h-full w-full object-contain" />
+                  ) : (
+                    <Box className="text-muted-foreground size-4" aria-hidden />
+                  )}
+                </span>
                 {enEdicion ? (
                   <form
                     className="flex min-w-0 flex-1 items-center gap-1.5"

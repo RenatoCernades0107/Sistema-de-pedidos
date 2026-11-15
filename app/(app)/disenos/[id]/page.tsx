@@ -37,6 +37,7 @@ export default async function Page({ params }: PageProps<"/disenos/[id]">) {
         disenoId={diseno.id}
         avisoMotor={aviso}
         nombreDiseno={diseno.nombre}
+        vigenteConFoto={diseno.miniatura !== null}
         volver={
           <Button
             render={<Link href="/disenos" />}

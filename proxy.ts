@@ -13,6 +13,13 @@ import { createServerClient } from "@supabase/ssr";
 
 const PUBLICAS = ["/login"];
 
+/**
+ * Lo que ve el cliente, que no tiene cuenta: el PDF de su cotización y el
+ * seguimiento de su pedido. El permiso es el token de la URL. A diferencia del
+ * login, quien tiene sesión también entra (para revisar el enlace que manda).
+ */
+const ABIERTAS = ["/c", "/seguimiento"];
+
 export async function proxy(request: NextRequest) {
   let respuesta = NextResponse.next({ request });
 
@@ -46,8 +53,9 @@ export async function proxy(request: NextRequest) {
 
   const ruta = request.nextUrl.pathname;
   const esPublica = PUBLICAS.some((p) => ruta === p || ruta.startsWith(`${p}/`));
+  const esAbierta = ABIERTAS.some((p) => ruta === p || ruta.startsWith(`${p}/`));
 
-  if (!user && !esPublica) {
+  if (!user && !esPublica && !esAbierta) {
     const login = request.nextUrl.clone();
     login.pathname = "/login";
     // Para devolver a la persona a donde iba, en vez de a la vista por defecto.
