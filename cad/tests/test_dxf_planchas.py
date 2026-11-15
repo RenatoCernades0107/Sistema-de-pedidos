@@ -20,11 +20,11 @@ cliente = TestClient(app, raise_server_exceptions=False)
 PARAMETROS = {"largo": 200, "ancho": 150, "alto": 100, "espesor": 3, "tipo_union": "a_tope"}
 
 
-def en_filas(diseno, ancho_plancha=1220.0, alto_plancha=1830.0, rotar=False, sep=10.0):
+def en_filas(diseno, ancho_plancha=1220.0, alto_plancha=1830.0, rotar=False, sep=10.0, unidades=1):
     """Un acomodo simple: una copia tras otra en una columna, en planchas de 2 piezas."""
     planchas: list[PlanchaAcomodada] = []
     for pz in diseno.despiece():
-        for indice in range(1, pz["cantidad"] + 1):
+        for indice in range(1, pz["cantidad"] * unidades + 1):
             if not planchas or len(planchas[-1].piezas) == 2:
                 planchas.append(PlanchaAcomodada(ancho_plancha, alto_plancha, []))
             y = 0.0 if not planchas[-1].piezas else 600.0
@@ -87,6 +87,25 @@ def test_valida_faltantes_repetidas_y_fuera():
     with pytest.raises(ErrorAcomodo) as e:
         validar_planchas(diseno, fuera)
     assert any("se sale" in x["mensaje"] for x in e.value.errores)
+
+
+def test_lote_de_unidades():
+    diseno = disenar_caja(PARAMETROS)
+    lote = en_filas(diseno, unidades=3)
+    validar_planchas(diseno, lote, unidades=3)
+    doc = leer_dxf(exportar_dxf_planchas(diseno, lote, unidades=3))
+    marcos = [e for e in doc.modelspace() if e.dxf.layer == "PLANCHA" and e.dxftype() == "LINE"]
+    assert len(marcos) == 4 * len(lote)
+
+    # Sin decir que es un lote, las copias de más no existen.
+    with pytest.raises(ErrorAcomodo) as e:
+        validar_planchas(diseno, lote)
+    assert any("no existe" in x["mensaje"] for x in e.value.errores)
+
+    # Y en un lote, falta lo que no se puso de las otras unidades.
+    with pytest.raises(ErrorAcomodo) as e:
+        validar_planchas(diseno, en_filas(diseno), unidades=2)
+    assert any("Falta colocar" in x["mensaje"] for x in e.value.errores)
 
 
 def _cuerpo(planchas):

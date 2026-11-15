@@ -206,3 +206,43 @@ describe("costo por grupos", () => {
     expect(c.material).toBe(directo.material);
   });
 });
+
+describe("lote de unidades", () => {
+  const entrada = {
+    catalogo: CATALOGO,
+    porDefecto: CRISTAL_3,
+    porCopia: {},
+    parametros: {},
+    piezas: [pieza("base", 1, 3), pieza("lado", 2, 3)],
+    corte: CORTE,
+  };
+
+  it("repite las copias por unidad con índices propios", () => {
+    const r = planchasDelDiseno({ ...entrada, unidades: 3 });
+    const [g] = r.grupos;
+    expect(g.copias).toBe(9);
+    expect(g.piezas.map((p) => [p.id, p.cantidad, p.indices])).toEqual([
+      ["base", 3, [1, 2, 3]],
+      ["lado", 6, [1, 2, 3, 4, 5, 6]],
+    ]);
+    const colocadas = g.acomodo!.planchas.flatMap((p) => p.piezas.map((c) => `${c.id}#${c.indice}`));
+    expect(new Set(colocadas).size).toBe(9);
+    // Las copias del visor siguen siendo las de una unidad.
+    expect(r.copias).toHaveLength(3);
+  });
+
+  it("solo las copias del grupo, saltando por la cantidad del despiece", () => {
+    const r = planchasDelDiseno({ ...entrada, porCopia: { lado_2: ROJO }, unidades: 2 });
+    const rojo = r.grupos.find((g) => g.grupo.id === "rojo-3")!;
+    expect(rojo.piezas.map((p) => p.indices)).toEqual([[2, 4]]);
+  });
+
+  it("el costo del lote es al menos el de una unidad", () => {
+    const precios = { "C-cristal-3": 200 };
+    const base = { precios, config: CONFIG_CORTES_DEFECTO };
+    const uno = costoPorGrupos(planchasDelDiseno(entrada).grupos, costoDiseno, base)!;
+    const cinco = costoPorGrupos(planchasDelDiseno({ ...entrada, unidades: 5 }).grupos, costoDiseno, base)!;
+    expect(cinco.total).toBeGreaterThanOrEqual(uno.total);
+    expect(cinco.total / 5).toBeLessThanOrEqual(uno.total + 1e-9);
+  });
+});

@@ -118,8 +118,11 @@ export type PlanchaAcomodadaCad = {
   piezas: PiezaEnPlanchaCad[];
 };
 
-/** `parcial`: solo las planchas de un grupo (material y espesor): pueden faltar copias. */
-export type OpcionesDxfPlanchas = { kerf_mm?: number; parcial?: boolean };
+/**
+ * `parcial`: solo las planchas de un grupo (material y espesor): pueden faltar copias.
+ * `unidades`: un lote; cada pieza tiene `cantidad × unidades` copias.
+ */
+export type OpcionesDxfPlanchas = { kerf_mm?: number; parcial?: boolean; unidades?: number };
 
 /** El material elegido para un diseño: un grupo del catálogo y, si pide, un color. */
 export type MaterialDiseno = {

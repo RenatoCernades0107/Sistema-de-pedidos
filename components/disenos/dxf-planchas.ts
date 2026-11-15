@@ -39,7 +39,13 @@ export async function bajarDxfPlanchas(entrada: {
 }): Promise<boolean> {
   const { resultado, disenoId, grupos, kerfMm, parcial } = entrada;
   const libre = resultado.plantilla === PLANTILLA_LIBRE;
-  const opciones = { kerf_mm: kerfMm, ...(parcial ? { parcial: true } : {}) };
+  // Un lote (la cantidad del pedido): el motor repite cada copia por unidad.
+  const unidades = Math.max(1, ...grupos.map((g) => g.unidades ?? 1));
+  const opciones = {
+    kerf_mm: kerfMm,
+    ...(parcial ? { parcial: true } : {}),
+    ...(unidades > 1 ? { unidades } : {}),
+  };
   try {
     const res = await fetch("/api/cad/dxf-planchas", {
       method: "POST",

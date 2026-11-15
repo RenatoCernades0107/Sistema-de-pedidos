@@ -15,21 +15,21 @@ const num = (x: number, d = 1) =>
   x.toLocaleString("es-PE", { maximumFractionDigits: d });
 
 /**
- * Lo que cuesta fabricar una unidad del diseño vigente: un costo por grupo de
- * plancha (material × espesor), sumado. `null` sin precios o sin diseño.
+ * Lo que cuesta fabricar el lote del diseño vigente (`unidades` copias del
+ * diseño acomodadas juntas): un costo por grupo de plancha (material ×
+ * espesor), sumado. `porUnidad` es el total repartido entre las unidades.
+ * `null` sin precios o sin diseño.
  */
 export function useCostoDiseno() {
-  const { resultado, gruposPlanchas, costos } = useDiseno();
-  return useMemo(
-    () =>
-      costos && resultado
-        ? costoPorGrupos(gruposPlanchas, costoDiseno, {
-            precios: costos.precios,
-            config: costos.config,
-          })
-        : null,
-    [costos, resultado, gruposPlanchas],
-  );
+  const { resultado, gruposPlanchas, costos, unidades } = useDiseno();
+  return useMemo(() => {
+    if (!costos || !resultado) return null;
+    const c = costoPorGrupos(gruposPlanchas, costoDiseno, {
+      precios: costos.precios,
+      config: costos.config,
+    });
+    return c ? { ...c, unidades, porUnidad: Math.round((c.total / unidades) * 100) / 100 } : null;
+  }, [costos, resultado, gruposPlanchas, unidades]);
 }
 
 /**
@@ -117,10 +117,17 @@ export function PanelCosto({
               </dd>
             </div>
             <div className="bg-card rounded-lg border px-3 py-2">
-              <dt className="text-muted-foreground text-xs">Total</dt>
+              <dt className="text-muted-foreground text-xs">
+                {costo.unidades > 1 ? `Total (${costo.unidades} u)` : "Total"}
+              </dt>
               <dd className="font-semibold tabular-nums">
                 {soles(costo.total)}
               </dd>
+              {costo.unidades > 1 && (
+                <dd className="text-muted-foreground text-xs tabular-nums">
+                  {soles(costo.porUnidad)} por unidad
+                </dd>
+              )}
             </div>
           </dl>
           {costo.grupos.length > 1 && (
