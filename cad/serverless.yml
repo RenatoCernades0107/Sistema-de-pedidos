@@ -37,7 +37,6 @@ params:
     sandboxSubnetIdA: ""
     sandboxSubnetIdB: ""
     sandboxSecurityGroupId: ""
-    sandboxConcurrency: 5
 
 functions:
   motor:
@@ -59,7 +58,10 @@ functions:
     memorySize: 2048
     timeout: 30
     ephemeralStorageSize: 1024
-    reservedConcurrency: ${param:sandboxConcurrency}
+    # Sin `reservedConcurrency` a propósito: AWS exige dejar al menos 10 ejecuciones
+    # sin reservar, y una cuenta nueva tiene un límite total de 10, así que
+    # cualquier reserva hace fallar el despliegue. Cuando la cuota de Lambda de la
+    # cuenta suba (Service Quotas), añadir `reservedConcurrency: 5` para acotar el coste.
     url: true
     # Rol propio: solo puede escribir sus logs. El rol compartido del provider
     # NO se usa aquí.

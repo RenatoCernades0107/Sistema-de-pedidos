@@ -133,7 +133,7 @@ su Function URL (`authType: NONE`; la propia app exige `X-API-Key`):
 | Función | Imagen | Memoria / timeout | Notas |
 | --- | --- | --- | --- |
 | `motor` | `Dockerfile` (`motor.api`) | 2048 MB / 60 s | rol por defecto (solo logs) |
-| `sandbox` | `sandbox/Dockerfile` (`sandbox.api`) | 2048 MB / 30 s | concurrencia reservada (5), rol propio solo con logs + ENI de VPC, en VPC sin NAT |
+| `sandbox` | `sandbox/Dockerfile` (`sandbox.api`) | 2048 MB / 30 s | sin concurrencia reservada (ver «Compromisos»), rol propio solo con logs + ENI de VPC, en VPC sin NAT |
 
 **Requisitos:** Serverless Framework (v3 o v4) con credenciales de AWS, Docker
 (construye y sube las imágenes a ECR), y en la región:
@@ -171,8 +171,12 @@ curl https://<MotorUrl>/salud
 **Compromisos:**
 
 - Function URL pública + clave en cabecera: simple y sin API Gateway, pero no
-  hay límite de tasa ni WAF; la concurrencia reservada del sandbox acota el
-  gasto. Para más control, poner CloudFront/API Gateway delante.
+  hay límite de tasa ni WAF. Para más control, poner CloudFront/API Gateway delante.
+- Sin concurrencia reservada en el sandbox: AWS exige dejar al menos 10
+  ejecuciones sin reservar y una cuenta nueva tiene un límite total de 10, así
+  que reservar cualquier cantidad hace fallar el despliegue. Con ese límite de
+  cuenta el gasto ya queda acotado; si la cuota sube, añadir
+  `reservedConcurrency: 5` a la función `sandbox`.
 - Las claves se leen de SSM **al desplegar** y quedan como variables de
   entorno (cifradas en reposo, visibles para quien lea la configuración de la
   función). Rotar = actualizar SSM y volver a desplegar.
