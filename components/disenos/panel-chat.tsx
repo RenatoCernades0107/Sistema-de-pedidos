@@ -258,7 +258,7 @@ export function PanelChat(props: {
       ) : vacio ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 overflow-y-auto px-6 py-6 text-center">
           <div className="flex flex-col items-center gap-1">
-            <span className="mb-2 grid size-12 place-items-center rounded-full bg-[#004c8f] text-[#ffc200] shadow-md ring-4 ring-[#004c8f]/10">
+            <span className="mb-2 grid size-12 place-items-center bg-primary/10 text-primary rounded-full">
               <Sparkles className="size-5" aria-hidden />
             </span>
             <p className="text-base font-semibold">Asistente de diseños</p>
@@ -279,10 +279,10 @@ export function PanelChat(props: {
                   type="button"
                   onClick={() => void enviar(texto)}
                   disabled={enviando}
-                  className="group bg-card flex w-full items-center gap-3 rounded-xl border px-3.5 py-2.5 text-left text-sm shadow-xs transition-colors hover:border-[#004c8f]/50 hover:bg-[#004c8f]/5 disabled:opacity-50 dark:hover:border-sky-300/50 dark:hover:bg-sky-400/5"
+                  className="group bg-card flex w-full items-center gap-3 rounded-xl border px-3.5 py-2.5 text-left text-sm shadow-xs transition-colors hover:border-primary/50 hover:bg-primary/5 disabled:opacity-50"
                 >
                   <Icono
-                    className="text-muted-foreground size-4 shrink-0 transition-colors group-hover:text-[#004c8f] dark:group-hover:text-sky-300"
+                    className="text-muted-foreground size-4 shrink-0 transition-colors group-hover:text-primary"
                     aria-hidden
                   />
                   {texto}

@@ -240,7 +240,7 @@ export function VisorDiseno({ nombre, avisoMotor }: { nombre?: string | null; av
   const mm = (x: number) => Math.round(x);
 
   return (
-    <div className="relative h-full min-h-0 w-full overflow-hidden bg-gradient-to-b from-muted/30 to-muted/70">
+    <div className="relative h-full min-h-0 w-full bg-muted/40 overflow-hidden">
       {resultado ? (
         <Visor3D
           glbBase64={resultado.glb_base64}
@@ -269,13 +269,13 @@ export function VisorDiseno({ nombre, avisoMotor }: { nombre?: string | null; av
             </div>
           </div>
         ) : (
-          <div className="relative h-full bg-[radial-gradient(ellipse_at_50%_40%,rgb(0_76_143/0.08),transparent_70%)] dark:bg-[radial-gradient(ellipse_at_50%_40%,rgb(56_189_248/0.08),transparent_70%)]">
+          <div className="relative h-full">
             <div className="absolute inset-0">
               <EscenaVacia />
             </div>
             <div className="absolute inset-x-0 bottom-8 flex justify-center px-6">
               <div className="bg-background/85 flex max-w-sm items-center gap-3 rounded-xl border px-4 py-3 text-left shadow-sm backdrop-blur">
-                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-[#004c8f]/10 text-[#004c8f] dark:bg-sky-400/10 dark:text-sky-300">
+                <span className="grid size-9 shrink-0 place-items-center bg-primary/10 text-primary rounded-lg">
                   <Box className="size-5" aria-hidden />
                 </span>
                 <div>

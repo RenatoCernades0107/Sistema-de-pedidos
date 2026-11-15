@@ -92,8 +92,7 @@ export function VistaDiseno({
   const en3d = pestana === "3d";
   const panel = "min-h-0 flex-1 overflow-y-auto px-4 py-4 data-[hidden]:hidden";
   // La pestaña activa, en el azul de la marca (texto y subrayado).
-  const tab =
-    "px-2.5 data-active:text-[#004c8f] after:bg-[#004c8f] dark:data-active:text-sky-300 dark:after:bg-sky-300";
+  const tab = "px-2.5 data-active:text-primary after:bg-primary dark:data-active:text-primary";
 
   return (
     <div
@@ -105,9 +104,8 @@ export function VistaDiseno({
       )}
     >
       <MiniaturaDiseno vigenteConFoto={vigenteConFoto} />
-      <div className="bg-background relative flex min-h-11 items-center gap-2 border-b px-2 py-1.5">
-        {/* Un filete con los colores de la marca. */}
-        <span aria-hidden className="absolute inset-x-0 -bottom-px h-0.5 bg-gradient-to-r from-[#004c8f] via-[#004c8f] to-[#ffc200]" />
+      {/* La cabecera es el único bloque de color: el resto de la pantalla es blanco. */}
+      <div className="bg-header text-header-foreground flex min-h-11 items-center gap-2 px-2 py-1.5">
         {volver}
         <h1 className="min-w-0 flex-1 truncate text-sm font-semibold">{titulo ?? nombre}</h1>
         {extra}
@@ -122,7 +120,7 @@ export function VistaDiseno({
         <section
           aria-label="Diseño"
           className={cn(
-            "bg-background flex min-h-0 flex-col md:col-start-1 md:row-start-1 md:flex-1 md:border-r",
+            "bg-card flex min-h-0 flex-col md:col-start-1 md:row-start-1 md:flex-1 md:border-r",
             en3d ? "flex-none" : "flex-1",
           )}
         >
@@ -226,7 +224,7 @@ export function VistaDiseno({
           <VisorDiseno nombre={nombreModelo} avisoMotor={avisoMotor} />
         </section>
 
-        {pie && <div className="shrink-0 border-t md:col-start-1 md:row-start-2 md:border-r">{pie}</div>}
+        {pie && <div className="bg-card shrink-0 border-t md:col-start-1 md:row-start-2 md:border-r">{pie}</div>}
       </Tabs>
     </div>
   );

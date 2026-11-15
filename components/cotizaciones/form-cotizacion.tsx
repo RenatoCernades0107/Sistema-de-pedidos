@@ -192,16 +192,16 @@ export function FormCotizacion({
         titulo="Nueva cotización"
         subtitulo="Se crea también en Odoo."
         lateral={
-          <p className="hidden text-xs text-white/70 md:block">
+          <p className="text-muted-foreground hidden text-xs md:block">
             Crear sin soltar el teclado:{" "}
-            <kbd className="rounded border border-white/25 bg-white/10 px-1 py-px font-mono text-2xs text-white">Ctrl</kbd>{" "}
+            <kbd className="kbd">Ctrl</kbd>{" "}
             +{" "}
-            <kbd className="rounded border border-white/25 bg-white/10 px-1 py-px font-mono text-2xs text-white">Enter</kbd>
+            <kbd className="kbd">Enter</kbd>
           </p>
         }
       />
 
-      <div className="relative -mt-10 flex max-w-3xl flex-col gap-4">
+      <div className="flex max-w-3xl flex-col gap-4">
         <Seccion
           n={1}
           titulo="Cliente y productos"

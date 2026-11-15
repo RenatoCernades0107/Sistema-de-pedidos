@@ -42,7 +42,7 @@ export function ChatCompositor({
   };
 
   return (
-    <div className="border-t p-3">
+    <div className="p-3">
       {caras.length > 0 && (
         <ul className="mx-auto mb-2 flex max-w-2xl flex-wrap gap-1.5" aria-label="Caras que irán con el mensaje">
           {caras.map((c) => (
