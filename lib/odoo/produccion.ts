@@ -30,7 +30,7 @@ import {
   productoSobrante,
   type MaterialDeSobrante,
 } from "./sobrantes";
-import { camposExistentes, ejecutar, ErrorOdoo, registrarReinicio, texto } from "./rpc";
+import { camposExistentes, ejecutar, ErrorOdoo, idDe, registrarReinicio, texto, valoresAlmacenable } from "./rpc";
 
 type Fila = Record<string, unknown>;
 
@@ -40,20 +40,23 @@ export const PREFIJO_CORTE = "CAM-";
 
 let uomM2: Promise<number> | null = null;
 let ubicacionProduccion: Promise<number> | null = null;
-let ubicacionStock: Promise<number> | null = null;
 const productosCorte = new Map<string, Promise<number>>();
 
 function olvidarTodo() {
   uomM2 = null;
   ubicacionProduccion = null;
-  ubicacionStock = null;
   productosCorte.clear();
 }
 
 registrarReinicio(olvidarTodo);
 
-/** Como en los sobrantes: si Odoo dice que algo ya no existe, se olvida lo aprendido y se reintenta una vez. */
-async function alDia<T>(fn: () => Promise<T>): Promise<T> {
+/**
+ * Como en los sobrantes: si Odoo dice que algo ya no existe (el producto Corte a
+ * medida o Sobrante de un material, que la app recuerda), se olvida lo aprendido
+ * y se reintenta una vez, lo que lo vuelve a crear. Lo usa también la venta, que
+ * lleva el producto Corte a medida.
+ */
+export async function alDia<T>(fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (e) {
@@ -88,33 +91,30 @@ export function unidadM2(): Promise<number> {
   return uomM2;
 }
 
-async function ubicacionDe(uso: "production" | "internal"): Promise<number> {
-  if (uso === "internal") {
-    const almacenes = await ejecutar<Fila[]>("stock.warehouse", "search_read", [[]], {
-      fields: ["lot_stock_id"],
-      limit: 1,
-    });
-    const id = Array.isArray(almacenes[0]?.lot_stock_id) ? (almacenes[0].lot_stock_id as [number])[0] : null;
-    if (id) return id;
-  }
-  const [id] = await ejecutar<number[]>("stock.location", "search", [[["usage", "=", uso]]], { limit: 1 });
-  if (!id) throw new ErrorOdoo(`Odoo no tiene una ubicación de ${uso === "production" ? "producción" : "stock"}.`);
+/** La ubicación virtual de producción: adonde van los materiales y de donde sale lo fabricado. */
+async function leerUbicacionProduccion(): Promise<number> {
+  const [id] = await ejecutar<number[]>("stock.location", "search", [[["usage", "=", "production"]]], { limit: 1 });
+  if (!id) throw new ErrorOdoo("Odoo no tiene una ubicación de producción.");
   return id;
 }
 
 const produccion = () =>
-  (ubicacionProduccion ??= recordar(ubicacionDe("production"), () => (ubicacionProduccion = null)));
-const stock = () => (ubicacionStock ??= recordar(ubicacionDe("internal"), () => (ubicacionStock = null)));
+  (ubicacionProduccion ??= recordar(leerUbicacionProduccion(), () => (ubicacionProduccion = null)));
 
-async function valoresAlmacenable(): Promise<Record<string, unknown>> {
-  const [storable, detailed] = await Promise.all([
-    camposExistentes("product.template", ["is_storable"]),
-    camposExistentes("product.template", ["detailed_type"]),
-  ]);
-  if (storable.length) return { type: "consu", is_storable: true };
-  if (detailed.length) return { detailed_type: "product" };
-  return { type: "product" };
+/**
+ * Dónde trabaja una orden. Se corta o se fabrica en un almacén (el taller, o la
+ * tienda para un corte manual), y lo producido queda en el almacén de donde sale
+ * la venta: así la entrega lo encuentra.
+ */
+export interface DondeProducir {
+  /** La ubicación de stock del almacén donde se produce: de ahí salen los materiales. */
+  ubicacionOrigen: number;
+  /** La del almacén de donde sale la venta: ahí queda lo producido. */
+  ubicacionDestino: number;
+  /** La operación de fabricación del almacén donde se produce (`manu_type_id`). */
+  tipoOperacion: number | null;
 }
+
 
 /**
  * El producto "Corte a medida" de un material: almacenable, en m², vendible.
@@ -169,6 +169,7 @@ export interface ProduccionNueva {
   sobrantesPrevistos: { areaM2: number }[];
   /** Los lotes de los sobrantes del almacén que el corte consume. */
   consumidos?: number[];
+  donde: DondeProducir;
 }
 
 export interface ProduccionCreada {
@@ -202,14 +203,16 @@ async function crear(p: ProduccionNueva): Promise<ProduccionCreada> {
   }
 
   await asegurarCamposDeLote();
-  const [corteId, sobranteId, uom, origenProduccion, destinoStock, conCosto] = await Promise.all([
+  const [corteId, sobranteId, uom, origenProduccion, conCosto] = await Promise.all([
     productoCorte(p.material),
     productoSobrante(p.material),
     unidadM2(),
     produccion(),
-    stock(),
     camposExistentes("stock.move", ["cost_share"]).then((c) => c.length > 0),
   ]);
+  // Las planchas y los sobrantes que usa salen de donde se corta; los sobrantes
+  // previstos vuelven ahí mismo (al cerrar se corrige si alguno va a otro almacén).
+  const deStock = p.donde.ubicacionOrigen;
   const planchaUom = await uomDe(p.planchaId);
   const sobranteUom = await uomDe(sobranteId);
 
@@ -224,7 +227,7 @@ async function crear(p: ProduccionNueva): Promise<ProduccionCreada> {
       product_id: p.planchaId,
       product_uom_qty: p.planchas,
       product_uom: planchaUom,
-      location_id: destinoStock,
+      location_id: deStock,
       location_dest_id: origenProduccion,
     },
     "Planchas del corte",
@@ -240,7 +243,7 @@ async function crear(p: ProduccionNueva): Promise<ProduccionCreada> {
               product_uom_qty: p.sobrantesPrevistos.length,
               product_uom: sobranteUom,
               location_id: origenProduccion,
-              location_dest_id: destinoStock,
+              location_dest_id: deStock,
               ...(conCosto ? { cost_share: parteSobrantes } : {}),
             },
             "Sobrantes del corte",
@@ -261,7 +264,7 @@ async function crear(p: ProduccionNueva): Promise<ProduccionCreada> {
               product_id: sobranteId,
               product_uom_qty: consumidos.length,
               product_uom: sobranteUom,
-              location_id: destinoStock,
+              location_id: deStock,
               location_dest_id: origenProduccion,
             },
             "Sobrantes que usa el corte",
@@ -276,8 +279,9 @@ async function crear(p: ProduccionNueva): Promise<ProduccionCreada> {
       product_qty: Math.round(p.areaM2 * 10000) / 10000,
       product_uom_id: uom,
       origin: p.origen,
-      location_src_id: destinoStock,
-      location_dest_id: destinoStock,
+      ...(p.donde.tipoOperacion ? { picking_type_id: p.donde.tipoOperacion } : {}),
+      location_src_id: deStock,
+      location_dest_id: p.donde.ubicacionDestino,
       move_raw_ids: [...(p.planchas > 0 ? [[0, 0, crudo]] : []), ...crudoSobrantes],
       ...(subproductos.length ? { move_byproduct_ids: subproductos } : {}),
     },
@@ -300,6 +304,10 @@ export interface SobranteReal {
   largo: number;
   ancho: number;
   nota: string | null;
+  /** La ubicación de stock del almacén al que fue (`lot_stock_id`). */
+  ubicacionId: number;
+  /** Su material. Si falta, el de la orden (`Cierre.material`). */
+  material?: MaterialDeSobrante;
 }
 
 export interface Cierre {
@@ -309,70 +317,32 @@ export interface Cierre {
   planchas: number;
   /** Los lotes de los sobrantes del almacén que se consumieron. */
   consumidos?: number[];
-  /** Los pedazos que de verdad se guardaron, con su medida real. */
+  /** Los pedazos que de verdad se guardaron, con su medida real y su almacén. */
   sobrantes: SobranteReal[];
 }
 
+const campoCantidad = async () => {
+  const [picked, nuevo] = await Promise.all([
+    camposExistentes("stock.move", ["picked"]).then((x) => x.length > 0),
+    camposExistentes("stock.move.line", ["quantity"]).then((x) => x.length > 0),
+  ]);
+  return { picked, campoMov: picked ? "quantity" : "quantity_done", campoLinea: nuevo ? "quantity" : "qty_done" };
+};
+
 /**
- * Cierra la orden con lo real: las planchas consumidas, los m² producidos y un
- * lote por sobrante guardado. Devuelve el id del lote de cada sobrante. Se puede
- * repetir: una orden ya cerrada no se toca, y solo se devuelven sus lotes.
+ * Los lotes de los sobrantes, con sus medidas: así la línea del movimiento solo
+ * los nombra. Se puede repetir: un lote que ya existe se actualiza.
  */
-export function cerrarProduccion(id: number, c: Cierre): Promise<Map<string, number>> {
-  return alDia(() => cerrar(id, c));
-}
-
-async function cerrar(id: number, c: Cierre): Promise<Map<string, number>> {
-  const [mo] = await ejecutar<Fila[]>("mrp.production", "read", [[id]], {
-    fields: ["state", "product_qty", "move_raw_ids", "move_byproduct_ids"],
-  });
-  if (!mo) throw new ErrorOdoo("La orden de fabricación ya no existe en Odoo.");
-  const estado = texto(mo.state);
-  if (estado === "cancel") throw new ErrorOdoo("La orden de fabricación está cancelada en Odoo.");
-
+async function lotesDeSobrantes(sobrantes: (SobranteReal & { productoId: number })[]): Promise<Map<string, number>> {
+  const lotes = new Map<string, number>();
+  if (sobrantes.length === 0) return lotes;
   await asegurarCamposDeLote();
   const modeloLote = await modeloDeLote();
-  const lotes = new Map<string, number>();
-
-  const sobranteId = await productoSobrante(c.material);
-  const leerSubproductos = async () => {
-    const [actual] = await ejecutar<Fila[]>("mrp.production", "read", [[id]], { fields: ["move_byproduct_ids"] });
-    const ids = (actual?.move_byproduct_ids as number[]) ?? [];
-    const movs = ids.length
-      ? await ejecutar<Fila[]>("stock.move", "read", [ids], { fields: ["product_id", "location_id", "location_dest_id"] })
-      : [];
-    return movs.filter((m) => Array.isArray(m.product_id) && (m.product_id as [number])[0] === sobranteId);
-  };
-  let movsSub = estado === "done" ? [] : await leerSubproductos();
-
-  /* Quedó un pedazo que el cálculo no previó: se agrega el subproducto a la
-     orden, que todavía está abierta. */
-  if (estado !== "done" && c.sobrantes.length && movsSub.length === 0) {
-    const [desde, hacia, uom] = await Promise.all([produccion(), stock(), uomDe(sobranteId)]);
-    await ejecutar("mrp.production", "write", [
-      [id],
-      {
-        move_byproduct_ids: [
-          [
-            0,
-            0,
-            await movimiento(
-              { product_id: sobranteId, product_uom_qty: c.sobrantes.length, product_uom: uom, location_id: desde, location_dest_id: hacia },
-              "Sobrantes del corte",
-            ),
-          ],
-        ],
-      },
-    ]);
-    movsSub = await leerSubproductos();
-  }
-
-  // Los lotes primero, con sus medidas: así la línea del movimiento solo los nombra.
-  for (const s of c.sobrantes) {
+  for (const s of sobrantes) {
     const [previo] = await ejecutar<number[]>(
       modeloLote,
       "search",
-      [[["name", "=", s.nombre], ["product_id", "=", sobranteId]]],
+      [[["name", "=", s.nombre], ["product_id", "=", s.productoId]]],
       { limit: 1 },
     );
     const valores = { x_largo: s.largo, x_ancho: s.ancho, ...(s.nota ? { note: s.nota } : {}) };
@@ -380,17 +350,136 @@ async function cerrar(id: number, c: Cierre): Promise<Map<string, number>> {
       await ejecutar(modeloLote, "write", [[previo], valores]);
       lotes.set(s.nombre, previo);
     } else {
-      lotes.set(s.nombre, await ejecutar<number>(modeloLote, "create", [{ name: s.nombre, product_id: sobranteId, ...valores }]));
+      lotes.set(s.nombre, await ejecutar<number>(modeloLote, "create", [{ name: s.nombre, product_id: s.productoId, ...valores }]));
     }
   }
+  return lotes;
+}
+
+/**
+ * Los sobrantes como subproductos de una orden abierta: un movimiento por
+ * material y almacén de destino, y una línea por lote. Los movimientos previstos
+ * se reutilizan (y se les cambia el destino si el pedazo fue a otro almacén); los
+ * que faltan se agregan; los previstos que sobran quedan sin nada y Odoo los
+ * cancela al cerrar.
+ */
+async function subproductosALaOrden(
+  id: number,
+  sobrantes: (SobranteReal & { productoId: number })[],
+  lotes: Map<string, number>,
+  nombreMovimiento: string,
+) {
+  const { picked, campoLinea } = await campoCantidad();
+  const leer = async () => {
+    const [actual] = await ejecutar<Fila[]>("mrp.production", "read", [[id]], { fields: ["move_byproduct_ids"] });
+    const ids = (actual?.move_byproduct_ids as number[]) ?? [];
+    return ids.length
+      ? await ejecutar<Fila[]>("stock.move", "read", [ids], { fields: ["product_id", "location_id", "location_dest_id"] })
+      : [];
+  };
+
+  const grupos = new Map<string, (SobranteReal & { productoId: number })[]>();
+  for (const s of sobrantes) {
+    const clave = `${s.productoId}:${s.ubicacionId}`;
+    grupos.set(clave, [...(grupos.get(clave) ?? []), s]);
+  }
+
+  let movs = await leer();
+  const usados = new Set<number>();
+  for (const piezas of grupos.values()) {
+    const { productoId, ubicacionId } = piezas[0];
+    const delProducto = movs.filter((m) => idDe(m.product_id) === productoId && !usados.has(m.id as number));
+    let mov: Fila | undefined = delProducto.find((m) => idDe(m.location_dest_id) === ubicacionId) ?? delProducto[0];
+    if (mov && idDe(mov.location_dest_id) !== ubicacionId) {
+      await ejecutar("stock.move", "write", [[mov.id], { location_dest_id: ubicacionId }]);
+      mov = { ...mov, location_dest_id: [ubicacionId, ""] };
+    }
+    if (!mov) {
+      const [desde, uom] = await Promise.all([produccion(), uomDe(productoId)]);
+      await ejecutar("mrp.production", "write", [
+        [id],
+        {
+          move_byproduct_ids: [
+            [
+              0,
+              0,
+              await movimiento(
+                { product_id: productoId, product_uom_qty: piezas.length, product_uom: uom, location_id: desde, location_dest_id: ubicacionId },
+                nombreMovimiento,
+              ),
+            ],
+          ],
+        },
+      ]);
+      const antes = new Set(movs.map((m) => m.id as number));
+      movs = await leer();
+      mov = movs.find((m) => !antes.has(m.id as number) && idDe(m.product_id) === productoId);
+      if (!mov) throw new ErrorOdoo("Odoo no agregó el subproducto de los sobrantes a la orden.");
+    }
+    usados.add(mov.id as number);
+
+    for (const s of piezas) {
+      await ejecutar("stock.move.line", "create", [
+        {
+          move_id: mov.id,
+          product_id: productoId,
+          lot_id: lotes.get(s.nombre),
+          location_id: idDe(mov.location_id),
+          location_dest_id: ubicacionId,
+          [campoLinea]: 1,
+          ...(picked ? { picked: true } : {}),
+        },
+      ]);
+    }
+    // Hasta la 16 la cantidad hecha sale de las líneas; desde la 17 se marca `picked`.
+    if (picked) await ejecutar("stock.move", "write", [[mov.id], { picked: true }]);
+  }
+}
+
+/** Con el material de cada sobrante resuelto a su producto Sobrante. */
+async function conProducto(sobrantes: SobranteReal[], porDefecto: MaterialDeSobrante | null) {
+  const salida: (SobranteReal & { productoId: number })[] = [];
+  for (const s of sobrantes) {
+    const material = s.material ?? porDefecto;
+    if (!material) throw new ErrorOdoo(`El sobrante ${s.nombre} no dice de qué material es.`);
+    salida.push({ ...s, productoId: await productoSobrante(material) });
+  }
+  return salida;
+}
+
+async function marcarHecha(id: number) {
+  const r = await ejecutar("mrp.production", "button_mark_done", [[id]], {
+    context: { skip_consumption: true, skip_backorder: true, mo_ids_to_backorder: [], skip_immediate: true },
+  });
+  if (typeof r === "object" && r !== null && "res_model" in r) {
+    throw new ErrorOdoo("Odoo pidió confirmar algo más para cerrar la orden de fabricación. Ciérrala desde Odoo.");
+  }
+}
+
+/**
+ * Cierra la orden con lo real: las planchas consumidas, los m² producidos y un
+ * lote por sobrante guardado, en el almacén al que fue. Devuelve el id del lote
+ * de cada sobrante. Se puede repetir: una orden ya cerrada no se toca, y solo se
+ * devuelven sus lotes.
+ */
+export function cerrarProduccion(id: number, c: Cierre): Promise<Map<string, number>> {
+  return alDia(() => cerrar(id, c));
+}
+
+async function cerrar(id: number, c: Cierre): Promise<Map<string, number>> {
+  const [mo] = await ejecutar<Fila[]>("mrp.production", "read", [[id]], {
+    fields: ["state", "product_qty", "move_raw_ids"],
+  });
+  if (!mo) throw new ErrorOdoo("La orden de fabricación ya no existe en Odoo.");
+  const estado = texto(mo.state);
+  if (estado === "cancel") throw new ErrorOdoo("La orden de fabricación está cancelada en Odoo.");
+
+  const sobranteId = await productoSobrante(c.material);
+  const sobrantes = await conProducto(c.sobrantes, c.material);
+  const lotes = await lotesDeSobrantes(sobrantes);
   if (estado === "done") return lotes;
 
-  const [picked, nuevo] = await Promise.all([
-    camposExistentes("stock.move", ["picked"]).then((x) => x.length > 0),
-    camposExistentes("stock.move.line", ["quantity"]).then((x) => x.length > 0),
-  ]);
-  const campoMov = picked ? "quantity" : "quantity_done";
-  const campoLinea = nuevo ? "quantity" : "qty_done";
+  const { picked, campoMov, campoLinea } = await campoCantidad();
 
   // Lo consumido: las planchas nuevas por cantidad, y los sobrantes lote por lote.
   const crudos = ((mo.move_raw_ids as number[]) ?? []).length
@@ -400,21 +489,19 @@ async function cerrar(id: number, c: Cierre): Promise<Map<string, number>> {
     : [];
   const consumidos = c.consumidos ?? [];
   for (const m of crudos) {
-    const producto = Array.isArray(m.product_id) ? (m.product_id as [number])[0] : null;
+    const producto = idDe(m.product_id);
     if (producto !== sobranteId) {
       await ejecutar("stock.move", "write", [[m.id], { [campoMov]: c.planchas, ...(picked ? { picked: c.planchas > 0 } : {}) }]);
       continue;
     }
-    const desde = Array.isArray(m.location_id) ? (m.location_id as [number])[0] : null;
-    const hacia = Array.isArray(m.location_dest_id) ? (m.location_dest_id as [number])[0] : null;
     for (const lote of consumidos) {
       await ejecutar("stock.move.line", "create", [
         {
           move_id: m.id,
           product_id: sobranteId,
           lot_id: lote,
-          location_id: desde,
-          location_dest_id: hacia,
+          location_id: idDe(m.location_id),
+          location_dest_id: idDe(m.location_dest_id),
           [campoLinea]: 1,
           ...(picked ? { picked: true } : {}),
         },
@@ -425,32 +512,9 @@ async function cerrar(id: number, c: Cierre): Promise<Map<string, number>> {
 
   // Lo producido: los m² de la orden, y una línea por sobrante con su lote.
   await ejecutar("mrp.production", "write", [[id], { qty_producing: mo.product_qty }]);
-  const sub = movsSub[0];
-  if (sub) {
-    const desde = Array.isArray(sub.location_id) ? (sub.location_id as [number])[0] : null;
-    const hacia = Array.isArray(sub.location_dest_id) ? (sub.location_dest_id as [number])[0] : null;
-    for (const s of c.sobrantes) {
-      await ejecutar("stock.move.line", "create", [
-        {
-          move_id: sub.id,
-          product_id: sobranteId,
-          lot_id: lotes.get(s.nombre),
-          location_id: desde,
-          location_dest_id: hacia,
-          [campoLinea]: 1,
-          ...(picked ? { picked: true } : {}),
-        },
-      ]);
-    }
-    if (picked) await ejecutar("stock.move", "write", [[sub.id], { picked: c.sobrantes.length > 0 }]);
-  }
+  if (sobrantes.length) await subproductosALaOrden(id, sobrantes, lotes, "Sobrantes del corte");
 
-  const r = await ejecutar("mrp.production", "button_mark_done", [[id]], {
-    context: { skip_consumption: true, skip_backorder: true, mo_ids_to_backorder: [], skip_immediate: true },
-  });
-  if (typeof r === "object" && r !== null && "res_model" in r) {
-    throw new ErrorOdoo("Odoo pidió confirmar algo más para cerrar la orden de fabricación. Ciérrala desde Odoo.");
-  }
+  await marcarHecha(id);
   return lotes;
 }
 
@@ -519,6 +583,7 @@ export interface FabricacionNueva {
   cantidad: number;
   /** Lo que se prevé consumir: es lo que la orden reserva al confirmarse. */
   componentes: Componente[];
+  donde: DondeProducir;
 }
 
 async function movimientoCrudo(c: Componente, desde: number, hacia: number) {
@@ -550,7 +615,8 @@ export function crearFabricacion(p: FabricacionNueva): Promise<ProduccionCreada>
       return { id: previas[0].id as number, nombre: texto(previas[0].name) ?? `#${previas[0].id}` };
     }
 
-    const [aProduccion, deStock, uom] = await Promise.all([produccion(), stock(), uomDe(p.productoId)]);
+    const deStock = p.donde.ubicacionOrigen;
+    const [aProduccion, uom] = await Promise.all([produccion(), uomDe(p.productoId)]);
     const crudos = [];
     for (const c of p.componentes) {
       if (c.cantidad > 0) crudos.push([0, 0, await movimientoCrudo(c, deStock, aProduccion)]);
@@ -562,8 +628,9 @@ export function crearFabricacion(p: FabricacionNueva): Promise<ProduccionCreada>
         product_qty: p.cantidad,
         product_uom_id: uom,
         origin: p.origen,
+        ...(p.donde.tipoOperacion ? { picking_type_id: p.donde.tipoOperacion } : {}),
         location_src_id: deStock,
-        location_dest_id: deStock,
+        location_dest_id: p.donde.ubicacionDestino,
         move_raw_ids: crudos,
       },
     ]);
@@ -576,22 +643,29 @@ export function crearFabricacion(p: FabricacionNueva): Promise<ProduccionCreada>
 /**
  * Cierra la orden de un producto terminado con lo que de verdad se usó: cada
  * material consume su cantidad real, lo previsto que no se usó consume cero, y
- * lo que se usó sin estar previsto se agrega. Se puede repetir: una orden ya
- * cerrada no se toca.
+ * lo que se usó sin estar previsto se agrega. Los pedazos de plancha que
+ * quedaron vuelven como sobrantes, cada uno a su almacén. Devuelve el id del
+ * lote de cada sobrante. Se puede repetir: una orden ya cerrada no se toca.
  */
-export function cerrarFabricacion(id: number, usados: Componente[]): Promise<void> {
+export function cerrarFabricacion(
+  id: number,
+  usados: Componente[],
+  sobrantesReales: SobranteReal[] = [],
+): Promise<Map<string, number>> {
   return alDia(async () => {
     const leer = async () => {
       const [mo] = await ejecutar<Fila[]>("mrp.production", "read", [[id]], {
-        fields: ["state", "product_qty", "move_raw_ids"],
+        fields: ["state", "product_qty", "move_raw_ids", "location_src_id"],
       });
       return mo;
     };
     let mo = await leer();
     if (!mo) throw new ErrorOdoo("La orden de fabricación ya no existe en Odoo.");
     const estado = texto(mo.state);
-    if (estado === "done") return;
     if (estado === "cancel") throw new ErrorOdoo("La orden de fabricación está cancelada en Odoo.");
+    const sobrantes = await conProducto(sobrantesReales, null);
+    const lotes = await lotesDeSobrantes(sobrantes);
+    if (estado === "done") return lotes;
 
     const leerCrudos = async (ids: number[]) =>
       ids.length ? await ejecutar<Fila[]>("stock.move", "read", [ids], { fields: ["product_id"] }) : [];
@@ -601,7 +675,9 @@ export function cerrarFabricacion(id: number, usados: Componente[]): Promise<voi
     const previstos = new Set(crudos.map(productoDe));
     const nuevos = usados.filter((u) => u.cantidad > 0 && !previstos.has(u.productoId));
     if (nuevos.length) {
-      const [aProduccion, deStock] = await Promise.all([produccion(), stock()]);
+      const aProduccion = await produccion();
+      const deStock = idDe(mo.location_src_id);
+      if (!deStock) throw new ErrorOdoo("La orden de fabricación no dice de qué almacén consume.");
       const agregar = [];
       for (const c of nuevos) agregar.push([0, 0, await movimientoCrudo(c, deStock, aProduccion)]);
       await ejecutar("mrp.production", "write", [[id], { move_raw_ids: agregar }]);
@@ -622,11 +698,8 @@ export function cerrarFabricacion(id: number, usados: Componente[]): Promise<voi
     }
 
     await ejecutar("mrp.production", "write", [[id], { qty_producing: mo!.product_qty }]);
-    const r = await ejecutar("mrp.production", "button_mark_done", [[id]], {
-      context: { skip_consumption: true, skip_backorder: true, mo_ids_to_backorder: [], skip_immediate: true },
-    });
-    if (typeof r === "object" && r !== null && "res_model" in r) {
-      throw new ErrorOdoo("Odoo pidió confirmar algo más para cerrar la orden de fabricación. Ciérrala desde Odoo.");
-    }
+    if (sobrantes.length) await subproductosALaOrden(id, sobrantes, lotes, "Sobrantes del producto terminado");
+    await marcarHecha(id);
+    return lotes;
   });
 }

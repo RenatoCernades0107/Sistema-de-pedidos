@@ -85,6 +85,8 @@ export interface Cotizacion {
   errorConfirmacion: string | null;
   /** El permiso del enlace público al PDF (`/c/<token>/pdf`). */
   tokenPublico: string | null;
+  /** El almacén del que sale la venta. `null`: el que diga la regla (`tipoDeDespacho`). */
+  almacenDespachoId: string | null;
 }
 
 /** El nombre con que se muestra: la referencia de Odoo o, mientras no la hay, una provisional. */

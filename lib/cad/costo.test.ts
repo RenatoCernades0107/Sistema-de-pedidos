@@ -33,7 +33,6 @@ const grupo = {
       codigo: "F20E001",
       anchoCm: 305,
       largoCm: 205,
-      skuCompartido: false,
       porVerificar: false,
       nota: null,
       activo: true,

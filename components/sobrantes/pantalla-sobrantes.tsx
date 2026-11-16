@@ -4,8 +4,10 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CircleAlert, MapPin, Plus, Printer, RefreshCw, RotateCw, Search } from "lucide-react";
-import * as acciones from "@/app/(app)/sobrantes/acciones";
+import { CircleAlert, MapPin, Pencil, Plus, Printer, RefreshCw, RotateCw, Search, Warehouse } from "lucide-react";
+import * as acciones from "@/app/(app)/almacen/acciones";
+import type { Almacen } from "@/lib/almacenes";
+import { money } from "@/lib/formato";
 import { compactar } from "@/lib/busqueda-inteligente";
 import { fechaCompleta } from "@/lib/formato";
 import { diaEnLima } from "@/lib/fecha";
@@ -22,12 +24,21 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Opciones } from "@/components/ui/campo";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DialogoPrecio, type PermisosAlmacen } from "@/components/almacen/comun";
 import { DialogoRegistrarSobrante, DialogoUbicacion } from "./dialogos-sobrante";
+
+const TODOS = "__todos";
 
 type Vista = "disponibles" | "todos";
 
 /** Lo que la búsqueda entiende: palabras (material, código, ubicación) y una medida "60x80". */
-function filtrar(sobrantes: Sobrante[], texto: string, vista: Vista): { lista: Sobrante[]; medida: boolean } {
+function filtrar(
+  sobrantes: Sobrante[],
+  texto: string,
+  vista: Vista,
+  almacenId: string | null,
+): { lista: Sobrante[]; medida: boolean } {
   const pieza = leerMedidaBuscada(texto);
   const palabras = texto
     .replace(/(\d+(?:[.,]\d+)?)\s*[x×*]\s*(\d+(?:[.,]\d+)?)/i, " ")
@@ -37,8 +48,9 @@ function filtrar(sobrantes: Sobrante[], texto: string, vista: Vista): { lista: S
 
   const lista = sobrantes.filter((s) => {
     if (vista === "disponibles" && s.estado !== "disponible" && s.estado !== "reservado") return false;
+    if (almacenId && s.almacenId !== almacenId) return false;
     if (pieza && !cabeEn(s, pieza)) return false;
-    const donde = compactar(`${s.codigo} ${s.material} ${s.ubicacion ?? ""}`);
+    const donde = compactar(`${s.codigo} ${s.material} ${s.almacen} ${s.ubicacion ?? ""}`);
     return palabras.every((p) => donde.includes(p));
   });
   // Con una medida, primero el que conviene usar: el más chico donde cabe.
@@ -46,27 +58,42 @@ function filtrar(sobrantes: Sobrante[], texto: string, vista: Vista): { lista: S
 }
 
 /**
- * Los sobrantes del almacén: buscar uno para una pieza, registrar los que se
- * miden, imprimir su etiqueta y mantener la lista de acuerdo con Odoo.
+ * Los sobrantes, en la pestaña del almacén: buscar uno para una pieza (en todos
+ * los almacenes o en uno), registrar los que se miden, imprimir su etiqueta y
+ * mantener la lista de acuerdo con Odoo.
  */
 export function PantallaSobrantes({
   sobrantes,
   catalogo,
+  almacenes,
+  precios,
+  permisos,
   odooConectado,
 }: {
   sobrantes: Sobrante[];
   catalogo: GrupoPlancha[];
+  almacenes: Almacen[];
+  /** El precio de venta de cada uno, por su código (para quien lo ve). */
+  precios: Record<string, number | null>;
+  permisos: PermisosAlmacen;
   odooConectado: boolean;
 }) {
   const router = useRouter();
   const [texto, setTexto] = useState("");
   const [vista, setVista] = useState<Vista>("disponibles");
+  const [almacenId, setAlmacenId] = useState<string | null>(null);
   const [registrando, setRegistrando] = useState(false);
   const [moviendo, setMoviendo] = useState<Sobrante | null>(null);
+  const [preciando, setPreciando] = useState<Sobrante | null>(null);
   const [sincronizando, iniciarSincronizacion] = useTransition();
   const [reintentando, iniciarReintento] = useTransition();
 
-  const { lista, medida } = useMemo(() => filtrar(sobrantes, texto, vista), [sobrantes, texto, vista]);
+  const { lista, medida } = useMemo(
+    () => filtrar(sobrantes, texto, vista, almacenId),
+    [sobrantes, texto, vista, almacenId],
+  );
+  const conSobrantes = almacenes.filter((a) => a.activo || sobrantes.some((s) => s.almacenId === a.id));
+  const elegido = almacenes.find((a) => a.id === almacenId) ?? null;
   const enAlmacen = sobrantes.filter((s) => s.estado === "disponible" || s.estado === "reservado").length;
 
   const sincronizar = () =>
@@ -98,41 +125,33 @@ export function PantallaSobrantes({
     });
 
   return (
-    <div className="px-4 py-5 md:px-6 md:py-6">
-      <header className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl font-semibold tracking-tight">Sobrantes</h1>
-          <p className="text-muted-foreground mt-0.5 text-sm">
-            Los pedazos de plancha que quedan en el almacén. Busca por material o por la medida que necesitas
-            (<span className="font-mono">60x80</span>) y aparecen primero los que conviene usar.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            onClick={sincronizar}
-            disabled={!odooConectado || sincronizando}
-            className="gap-1.5"
-          >
-            <RefreshCw className={cn("size-4", sincronizando && "animate-spin")} />
-            {sincronizando ? "Sincronizando…" : "Sincronizar con Odoo"}
-          </Button>
-          <Button onClick={() => setRegistrando(true)} className="gap-1.5">
-            <Plus className="size-4" />
-            Registrar sobrante
-          </Button>
-        </div>
-      </header>
-
-      {!odooConectado && (
-        <p className="border-st-observado/25 bg-st-observado-soft mb-4 flex gap-2 rounded-xl border p-3 text-sm">
-          <CircleAlert className="text-st-observado mt-0.5 size-4 shrink-0" />
-          Falta conectar Odoo: los sobrantes se registran aquí, pero su lote en Odoo se crea cuando esté conectado.
+    <div>
+      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start">
+        <p className="text-muted-foreground min-w-0 flex-1 text-sm">
+          Los pedazos de plancha que quedan en cada almacén. Busca por material o por la medida que necesitas
+          (<span className="font-mono">60x80</span>) y aparecen primero los que conviene usar.
         </p>
-      )}
+        {permisos.gestionarStock && (
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={sincronizar}
+              disabled={!odooConectado || sincronizando}
+              className="gap-1.5"
+            >
+              <RefreshCw className={cn("size-4", sincronizando && "animate-spin")} />
+              {sincronizando ? "Sincronizando…" : "Sincronizar con Odoo"}
+            </Button>
+            <Button onClick={() => setRegistrando(true)} className="gap-1.5">
+              <Plus className="size-4" />
+              Registrar sobrante
+            </Button>
+          </div>
+        )}
+      </div>
 
       <div className="mb-3 flex flex-wrap items-center gap-3">
-        <div className="relative min-w-60 flex-1">
+        <div className="relative min-w-0 flex-1 sm:min-w-60">
           <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
           <Input
             aria-label="Buscar sobrante"
@@ -142,6 +161,19 @@ export function PantallaSobrantes({
             className="pl-9"
           />
         </div>
+        <Select value={almacenId ?? TODOS} onValueChange={(v) => setAlmacenId(v === TODOS || !v ? null : v)}>
+          <SelectTrigger aria-label="Almacén" className="w-full sm:w-52">
+            <SelectValue>{elegido ? elegido.nombre : "Todos los almacenes"}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={TODOS}>Todos los almacenes</SelectItem>
+            {conSobrantes.map((a) => (
+              <SelectItem key={a.id} value={a.id}>
+                {a.nombre}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Opciones
           valores={[vista]}
           onToggle={(v) => setVista(v as Vista)}
@@ -174,10 +206,21 @@ export function PantallaSobrantes({
                   {s.estandar && (
                     <span className="bg-muted rounded px-1.5 py-0.5 text-2xs font-medium">Estándar</span>
                   )}
+                  <span className="text-foreground flex items-center gap-1 font-medium">
+                    <Warehouse className="size-3" />
+                    {s.almacen}
+                  </span>
                   <span className="flex items-center gap-1">
                     <MapPin className="size-3" />
                     {s.ubicacion ?? "Sin ubicación"}
                   </span>
+                  {permisos.verPrecios && (
+                    <span className="tnum" title={s.precioVenta === null ? "Calculado: costo de su parte de la plancha por el factor" : "Fijado por Administración"}>
+                      {precios[s.codigo] === null || precios[s.codigo] === undefined
+                        ? "Sin precio"
+                        : `${money(precios[s.codigo]!)}${s.precioVenta === null ? " (calculado)" : ""}`}
+                    </span>
+                  )}
                   <span>Desde el {fechaCompleta(diaEnLima(s.creadoEn))}</span>
                 </p>
               </div>
@@ -190,7 +233,7 @@ export function PantallaSobrantes({
                     title={s.errorSincronizacion ?? undefined}
                   >
                     <CircleAlert className="size-3.5" />
-                    {s.origen === "corte"
+                    {s.origen === "corte" || s.origen === "terminado"
                       ? `Entra a Odoo al cerrar la producción de ${s.nacioEn ?? "su pedido"}`
                       : s.sincronizacion === "error"
                         ? "No está en Odoo"
@@ -200,7 +243,11 @@ export function PantallaSobrantes({
               </div>
 
               <div className="ml-auto flex flex-wrap gap-1">
-                {s.sincronizacion === "error" && s.origen !== "corte" && (s.estado === "disponible" || s.estado === "reservado") && (
+                {permisos.gestionarStock &&
+                  s.sincronizacion === "error" &&
+                  s.origen !== "corte" &&
+                  s.origen !== "terminado" &&
+                  (s.estado === "disponible" || s.estado === "reservado") && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -212,7 +259,19 @@ export function PantallaSobrantes({
                     Reintentar
                   </Button>
                 )}
-                {(s.estado === "disponible" || s.estado === "reservado") && (
+                {permisos.editarPrecios && (s.estado === "disponible" || s.estado === "reservado") && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => setPreciando(s)}
+                    aria-label={`Cambiar el precio de ${s.codigo}`}
+                  >
+                    <Pencil className="size-3.5" />
+                    Precio
+                  </Button>
+                )}
+                {permisos.gestionarStock && (s.estado === "disponible" || s.estado === "reservado") && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -247,6 +306,7 @@ export function PantallaSobrantes({
         abierto={registrando}
         alCambiar={setRegistrando}
         catalogo={catalogo}
+        almacenes={almacenes}
         alRegistrar={(codigo) => {
           setTexto("");
           setVista("disponibles");
@@ -257,6 +317,16 @@ export function PantallaSobrantes({
         }}
       />
       <DialogoUbicacion sobrante={moviendo} alCerrar={() => setMoviendo(null)} />
+      {preciando && (
+        <DialogoPrecio
+          titulo={`Precio de ${preciando.codigo}`}
+          descripcion={`${preciando.material} · ${medidaSobrante(preciando)} cm. Vacío: el calculado, que es el costo de su parte de la plancha por el factor de la configuración.`}
+          actual={preciando.precioVenta}
+          permiteVaciar
+          alGuardar={(precio) => acciones.fijarPrecioSobrante({ codigo: preciando.codigo, precio })}
+          alCerrar={() => setPreciando(null)}
+        />
+      )}
     </div>
   );
 }

@@ -10,6 +10,7 @@ import {
   normalizarMedidas,
   notaDeLote,
   ordenDeUso,
+  precioDeSobrante,
   sobrantesDeCorte,
   areaPiezasM2,
   lineasCorteAMedida,
@@ -70,10 +71,25 @@ describe("ordenDeUso", () => {
 });
 
 describe("materialDeSobrante", () => {
-  it("con el color de la pieza cuando el grupo lo comparte", () => {
-    const g = { material: "Acrílico ECO", variante: "Colores", detalle: "", espesorMm: 3 };
-    expect(materialDeSobrante(g, "rojo")).toBe("Acrílico ECO · Colores (rojo) · 3 mm");
-    expect(materialDeSobrante({ ...g, variante: "Cristal" }, null)).toBe("Acrílico ECO · Cristal · 3 mm");
+  it("material, color y espesor del grupo", () => {
+    const g = { material: "Acrílico ECO", variante: "Colores", detalle: "Negro", espesorMm: 3 };
+    expect(materialDeSobrante(g)).toBe("Acrílico ECO · Colores negro · 3 mm");
+    expect(materialDeSobrante({ ...g, variante: "Cristal", detalle: "" })).toBe("Acrílico ECO · Cristal · 3 mm");
+  });
+});
+
+describe("precioDeSobrante", () => {
+  const formato = { anchoCm: 122, largoCm: 183, costo: 200 };
+  it("el fijado por Administración manda", () => {
+    expect(precioDeSobrante({ largo: 100, ancho: 50, precioVenta: 30 }, formato, 1.5)).toBe(30);
+  });
+  it("si no, el costo de su parte de la plancha por el factor", () => {
+    // Media plancha: 100 de costo, por 1.5.
+    expect(precioDeSobrante({ largo: 183, ancho: 61, precioVenta: null }, formato, 1.5)).toBe(150);
+  });
+  it("sin costo en Odoo no hay precio que proponer", () => {
+    expect(precioDeSobrante({ largo: 183, ancho: 61, precioVenta: null }, { ...formato, costo: 0 }, 1.5)).toBeNull();
+    expect(precioDeSobrante({ largo: 183, ancho: 61, precioVenta: null }, null, 1.5)).toBeNull();
   });
 });
 
@@ -87,7 +103,7 @@ describe("lo que va a Odoo", () => {
     rotable: true,
     sobrantesActivo: true,
     formatos: [
-      { id: "f", codigo: "F7E072", anchoCm: 122, largoCm: 183, skuCompartido: false, porVerificar: false, nota: null, activo: true },
+      { id: "f", codigo: "F7E072", anchoCm: 122, largoCm: 183, porVerificar: false, nota: null, activo: true },
     ],
   };
 
@@ -96,12 +112,12 @@ describe("lo que va a Odoo", () => {
     expect(materialOdoo({ ...grupo, formatos: [] })).toBeNull();
   });
 
-  it("la nota del lote lleva la ubicación y el color, y se lee de vuelta", () => {
-    expect(notaDeLote({ ubicacion: "Rack 2", color: "rojo" })).toBe("Rack 2 · Color: rojo");
-    expect(notaDeLote({ ubicacion: null, color: null })).toBeNull();
-    expect(leerNotaDeLote("Rack 2 · Color: rojo")).toEqual({ ubicacion: "Rack 2", color: "rojo" });
-    expect(leerNotaDeLote("Color: azul")).toEqual({ ubicacion: null, color: "azul" });
-    expect(leerNotaDeLote("Estante bajo")).toEqual({ ubicacion: "Estante bajo", color: null });
+  it("la nota del lote es la ubicación, y las viejas con color se leen sin él", () => {
+    expect(notaDeLote({ ubicacion: "Rack 2" })).toBe("Rack 2");
+    expect(notaDeLote({ ubicacion: null })).toBeNull();
+    expect(leerNotaDeLote("Rack 2 · Color: rojo")).toBe("Rack 2");
+    expect(leerNotaDeLote("Color: azul")).toBeNull();
+    expect(leerNotaDeLote("Estante bajo")).toBe("Estante bajo");
   });
 });
 

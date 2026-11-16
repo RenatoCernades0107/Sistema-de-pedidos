@@ -1,6 +1,8 @@
 import { DetallePedido } from "@/components/detalle-pedido";
 import { cargarLineasDePedido, cargarOdooDePedido } from "@/lib/pedido-odoo-servidor";
 import { cargarSobrantesDePedido } from "@/lib/sobrantes-servidor";
+import { cargarAlmacenes } from "@/lib/almacenes-servidor";
+import { cargarCatalogoPlanchas } from "@/lib/cortes-servidor";
 import { clienteServidor } from "@/lib/supabase-servidor";
 import { tokenSeguimiento } from "@/lib/compartir-servidor";
 import { perfilActual } from "@/lib/sesion";
@@ -16,7 +18,7 @@ export default async function Page({ params }: PageProps<"/pedidos/[codigo]">) {
   const codigo = decodeURIComponent((await params).codigo);
   const supabase = await clienteServidor();
 
-  const [lineas, odoo, sobrantes, retazo, token, chat] = await Promise.all([
+  const [lineas, odoo, sobrantes, retazo, token, chat, almacenes, catalogo] = await Promise.all([
     cargarLineasDePedido(codigo).catch((e) => {
       console.error("[pedidos] líneas", e);
       return null;
@@ -35,6 +37,15 @@ export default async function Page({ params }: PageProps<"/pedidos/[codigo]">) {
       console.error("[pedidos] chat", e);
       return null;
     }),
+    // Al pasar a Listo se dice a qué almacén se fue cada sobrante, y de qué material es.
+    cargarAlmacenes().catch((e) => {
+      console.error("[pedidos] almacenes", e);
+      return [];
+    }),
+    cargarCatalogoPlanchas(true).catch((e) => {
+      console.error("[pedidos] catálogo", e);
+      return [];
+    }),
   ]);
 
   return (
@@ -44,6 +55,8 @@ export default async function Page({ params }: PageProps<"/pedidos/[codigo]">) {
       odoo={odoo}
       sobrantes={sobrantes}
       retazoMin={retazo.data ?? undefined}
+      almacenes={almacenes}
+      catalogo={catalogo}
       tokenSeguimiento={token}
       chat={chat}
     />

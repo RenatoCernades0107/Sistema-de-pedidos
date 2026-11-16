@@ -20,7 +20,7 @@
 
 import { z } from "zod";
 import { palabras } from "@/lib/busqueda-inteligente";
-import { colorDe, espesorTexto, pideColor, type GrupoPlancha } from "@/lib/cortes/catalogo";
+import { colorDe, espesorTexto, type GrupoPlancha } from "@/lib/cortes/catalogo";
 import type { ConfigCortes } from "@/lib/cortes/config";
 import type { HerramientaLlm } from "@/lib/llm/inferhub";
 import { PARAMETRO_ESPESOR, type ResultadoAcomodo } from "./acomodo";
@@ -664,9 +664,9 @@ function exactos<T>(candidatos: T[], texto: (c: T) => string, buscado: string | 
 }
 
 /**
- * El grupo del catálogo que nombra la persona. Un color que no es el de ningún
- * grupo vale si el único grupo de ese material y espesor tiene el código
- * compartido entre colores (`pideColor`): ahí el color se guarda aparte.
+ * El grupo del catálogo que nombra la persona. Cada color tiene su grupo (y su
+ * código en Odoo): un color que no es el de ningún grupo no existe, y se le
+ * ofrecen los que hay.
  */
 function resolverGrupo(
   catalogo: PlanchaCatalogo[],
@@ -681,16 +681,11 @@ function resolverGrupo(
   );
 
   let candidatos = color ? base.filter((g) => coincide(textoColor(g), color)) : base;
-  if (color && candidatos.length === 0) {
-    const compartidos = base.filter(pideColor);
-    if (compartidos.length === 1) return { grupo: compartidos[0], color };
-    return { candidatos: compartidos.length > 0 ? compartidos : base };
-  }
+  if (color && candidatos.length === 0) return { candidatos: base };
   candidatos = exactos(candidatos, textoColor, color);
   candidatos = exactos(candidatos, (g) => g.material, pedido.material);
   if (candidatos.length !== 1) return { candidatos };
-  const grupo = candidatos[0];
-  return { grupo, color: color && pideColor(grupo) ? color : null };
+  return { grupo: candidatos[0], color: null };
 }
 
 const opcionDeGrupo = (g: PlanchaCatalogo) => ({
@@ -917,9 +912,7 @@ function resolverMaterial(
   const distintos = new Map<string, PlanchaCatalogo>();
   for (const g of r.candidatos) distintos.set(`${g.material}|${g.variante}|${g.detalle}`.toLowerCase(), g);
   if (distintos.size !== 1) return { candidatos: [...distintos.values()] };
-  const g = [...distintos.values()][0];
-  const color = pedido.color?.trim() && pideColor(g) ? pedido.color.trim() : null;
-  return { ref: materialDeGrupo(g, color) };
+  return { ref: materialDeGrupo([...distintos.values()][0], null) };
 }
 
 async function cambiarPiezas(args: unknown, deps: DependenciasCad): Promise<ResultadoHerramienta> {

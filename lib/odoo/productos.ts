@@ -3,7 +3,7 @@
  */
 
 import type { Lote } from "./clientes";
-import { camposExistentes, ejecutar, nombreDe, terminosOdoo, texto } from "./rpc";
+import { camposExistentes, ejecutar, ErrorOdoo, idDe, nombreDe, terminosOdoo, texto, valoresAlmacenable } from "./rpc";
 import type { ProductoOdoo } from "./tipos";
 
 const MODELO = "product.product";
@@ -175,6 +175,91 @@ export async function stockPorCodigo(codigos: string[]): Promise<Map<string, num
     // Dos productos con el mismo código: su stock se suma.
     const previo = mapa.get(codigo);
     mapa.set(codigo, cantidad === null ? (previo ?? null) : (previo ?? 0) + cantidad);
+  }
+  return mapa;
+}
+
+/* ── Crear productos y cambiar su precio ──────────────────────────────────── */
+
+/**
+ * El siguiente código libre con ese prefijo, siguiendo el correlativo que ya
+ * tiene Odoo: tras ACC054 viene ACC055, tras PEG019 viene PEG020. El ancho del
+ * número es el más largo que ya se usa (o `ancho`, si no hay ninguno).
+ */
+export function siguienteDe(prefijo: string, existentes: string[], ancho = 3): string {
+  const patron = new RegExp(`^${prefijo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\d+)$`);
+  let mayor = 0;
+  let digitos = ancho;
+  for (const c of existentes) {
+    const m = patron.exec(c);
+    if (!m) continue;
+    mayor = Math.max(mayor, Number(m[1]));
+    digitos = Math.max(digitos, m[1].length);
+  }
+  return `${prefijo}${String(mayor + 1).padStart(digitos, "0")}`;
+}
+
+/** Los códigos con ese prefijo que hay en Odoo, archivados incluidos. */
+export async function codigosConPrefijo(prefijo: string): Promise<string[]> {
+  const filas = await ejecutar<Fila[]>(
+    MODELO,
+    "search_read",
+    [[["default_code", "=like", `${prefijo}%`], ["active", "in", [true, false]]]],
+    { fields: ["default_code"] },
+  );
+  return filas.map((f) => texto(f.default_code)).filter((c): c is string => !!c);
+}
+
+export interface ProductoNuevo {
+  nombre: string;
+  codigo: string;
+  /** Precio de venta. */
+  precio: number;
+}
+
+/**
+ * Crea un producto almacenable y vendible, en unidades. Si ya hay uno con ese
+ * código, lo devuelve: un reintento no duplica.
+ */
+export async function crearProductoAlmacenable(p: ProductoNuevo): Promise<ProductoOdoo> {
+  const buscar = async () =>
+    ejecutar<Fila[]>(MODELO, "search_read", [[["default_code", "=", p.codigo]]], { fields: await campos(), limit: 1 });
+  const [previo] = await buscar();
+  if (previo) return deProducto(previo);
+  await ejecutar("product.template", "create", [
+    {
+      name: p.nombre.trim().toUpperCase(),
+      default_code: p.codigo,
+      list_price: p.precio,
+      sale_ok: true,
+      purchase_ok: true,
+      ...(await valoresAlmacenable()),
+    },
+  ]);
+  const [creado] = await buscar();
+  if (!creado) throw new ErrorOdoo(`Odoo creó el producto ${p.codigo} pero no lo devolvió.`);
+  return deProducto(creado);
+}
+
+/** Cambia el precio de venta de un producto (vive en su plantilla). Devuelve el producto al día. */
+export async function cambiarPrecio(productoId: number, precio: number): Promise<ProductoOdoo> {
+  const [f] = await ejecutar<Fila[]>(MODELO, "read", [[productoId]], { fields: ["product_tmpl_id"] });
+  if (!f) throw new ErrorOdoo("Ese producto ya no existe en Odoo.");
+  const plantilla = idDe(f.product_tmpl_id) ?? productoId;
+  await ejecutar("product.template", "write", [[plantilla], { list_price: precio }]);
+  const [leido] = await leerProductos([productoId]);
+  if (!leido) throw new ErrorOdoo("Odoo cambió el precio pero no devolvió el producto.");
+  return leido;
+}
+
+/** El costo de cada producto (`standard_price`), por id. */
+export async function costosPorId(ids: number[]): Promise<Map<number, number>> {
+  const mapa = new Map<number, number>();
+  if (ids.length === 0) return mapa;
+  if ((await camposExistentes(MODELO, ["standard_price"])).length === 0) return mapa;
+  const filas = await ejecutar<Fila[]>(MODELO, "read", [[...new Set(ids)]], { fields: ["standard_price"] });
+  for (const f of filas) {
+    if (typeof f.standard_price === "number") mapa.set(f.id as number, f.standard_price);
   }
   return mapa;
 }

@@ -68,7 +68,7 @@ test("un número que no sirve se rechaza diciendo cuál", async ({ page }) => {
   await expect(page.getByText("Corte láser, fila 2: la velocidad no es un valor válido.")).toBeVisible();
 });
 
-test("el catálogo se filtra y el piloto de sobrantes se enciende por grupo", async ({ page }) => {
+test("el catálogo se filtra, sin código compartido ni piloto: todos registran sobrantes", async ({ page }) => {
   await entrar(page, "administracion");
   await page.goto("/configuracion");
   await page.getByRole("tab", { name: /Planchas/ }).click();
@@ -78,27 +78,12 @@ test("el catálogo se filtra y el piloto de sobrantes se enciende por grupo", as
   await expect(fila).toBeVisible();
   await expect(fila).toContainText("122×183");
   await expect(page.getByRole("row").filter({ hasText: "F7E004" })).toHaveCount(0);
-
-  const sobrantes = page.getByRole("checkbox", { name: "Acrílico ECO · Cristal · 3 mm: registrar sobrantes" });
-  await expect(sobrantes).not.toBeChecked();
-  await sobrantes.click();
-  await expect(sobrantes).toBeChecked();
+  // Ya no hay interruptor de sobrantes: van para todos.
+  await expect(page.getByRole("checkbox", { name: /registrar sobrantes/ })).toHaveCount(0);
 
   const supabase = await sesionDe("administracion");
-  const leer = async () =>
-    (
-      await supabase
-        .from("grupos_plancha")
-        .select("sobrantes_activo")
-        .match({ material: "Acrílico ECO", variante: "Cristal", detalle: "", espesor_mm: 3 })
-        .single()
-    ).data?.sobrantes_activo;
-  await expect.poll(leer).toBe(true);
-
-  // Como estaba.
-  await sobrantes.click();
-  await expect(sobrantes).not.toBeChecked();
-  await expect.poll(leer).toBe(false);
+  const { data } = await supabase.from("grupos_plancha").select("id").eq("sobrantes_activo", false);
+  expect(data).toEqual([]);
 });
 
 for (const rol of ["logistica", "operaciones"] as const) {

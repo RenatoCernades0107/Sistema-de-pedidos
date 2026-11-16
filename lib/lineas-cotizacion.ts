@@ -12,6 +12,7 @@
  */
 
 import type { CalculoCorte, Modalidad, PiezaPedida } from "./cortes/calcular";
+import type { LugarCorte } from "./cortes/guardado";
 import type { Accesorio, CalculoTerminado } from "./terminados/calcular";
 import type { Geometria, Medidas } from "./terminados/geometria";
 
@@ -44,11 +45,13 @@ export interface LineaCorte {
   /** El grupo del catálogo de planchas: material, color y espesor. */
   grupoId: string;
   material: string;
-  /** El color con que se muestra y se guarda; si el código es de varios, el que se pidió. */
+  /** El color con que se muestra y se guarda: el del grupo. */
   color: string;
   espesorMm: number;
   rotable: boolean;
   modalidad: Modalidad;
+  /** Dónde se corta: el láser, siempre en el taller; un manual, en el taller o la tienda. */
+  lugar: LugarCorte;
   piezas: PiezaPedida[];
   /**
    * El cálculo sobre el formato elegido. Es lo que se enseña mientras se arma;
@@ -70,7 +73,7 @@ export interface LineaTerminado {
   /** El grupo del catálogo de planchas, y cómo se lee. */
   grupoId: string | null;
   materialTexto: string;
-  /** Solo si el código de la plancha es de varios colores: cuál se pidió. */
+  /** El color del material elegido (el del grupo). */
   color: string | null;
   /** Los ids de las opciones elegidas, y sus nombres para mostrarlas. */
   opciones: number[];

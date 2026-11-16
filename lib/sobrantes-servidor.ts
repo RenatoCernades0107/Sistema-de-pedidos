@@ -7,8 +7,9 @@
  * servidor.
  */
 
+import { cargarAlmacenes, odooDeAlmacenId } from "./almacenes-servidor";
 import { cargarCatalogoPlanchas } from "./cortes-servidor";
-import { pideColor, type GrupoPlancha } from "./cortes/catalogo";
+import type { GrupoPlancha } from "./cortes/catalogo";
 import { mensajeDeError } from "./errores";
 import type { NuevoSobrante } from "./esquemas";
 import { ErrorOdoo, ODOO_NO_CONFIGURADO, odooConfigurado } from "./odoo/rpc";
@@ -34,9 +35,10 @@ import {
 import { clienteServidor } from "./supabase-servidor";
 
 const COLUMNAS = `
-  id, codigo, grupo_id, color, largo_cm, ancho_cm, ubicacion, estado, estandar, origen,
+  id, codigo, grupo_id, largo_cm, ancho_cm, almacen_id, ubicacion, precio_venta, estado, estandar, origen,
   odoo_lot_id, sincronizacion, error_sincronizacion, creado_en, linea_posicion,
   grupo:grupos_plancha ( material, variante, detalle, espesor_mm ),
+  almacen:almacenes ( nombre ),
   nacio:pedidos!sobrantes_pedido_id_fkey ( codigo ),
   reserva:pedidos!sobrantes_reserva_pedido_id_fkey ( codigo )
 `;
@@ -45,10 +47,11 @@ interface Fila {
   id: string;
   codigo: string;
   grupo_id: string;
-  color: string | null;
   largo_cm: number;
   ancho_cm: number;
+  almacen_id: string;
   ubicacion: string | null;
+  precio_venta: number | null;
   estado: EstadoSobrante;
   estandar: boolean;
   origen: string;
@@ -58,6 +61,7 @@ interface Fila {
   creado_en: string;
   linea_posicion: number | null;
   grupo: { material: string; variante: string; detalle: string; espesor_mm: number } | null;
+  almacen: { nombre: string } | null;
   nacio: { codigo: string } | null;
   reserva: { codigo: string } | null;
 }
@@ -71,15 +75,14 @@ function deFila(f: Fila): Sobrante {
     codigo: f.codigo,
     grupoId: f.grupo_id,
     material: g
-      ? materialDeSobrante(
-          { material: g.material, variante: g.variante, detalle: g.detalle, espesorMm: Number(g.espesor_mm) },
-          f.color,
-        )
+      ? materialDeSobrante({ material: g.material, variante: g.variante, detalle: g.detalle, espesorMm: Number(g.espesor_mm) })
       : "(material borrado)",
-    color: f.color,
     largo: Number(f.largo_cm),
     ancho: Number(f.ancho_cm),
+    almacenId: f.almacen_id,
+    almacen: uno(f.almacen)?.nombre ?? "(almacén borrado)",
     ubicacion: f.ubicacion,
+    precioVenta: f.precio_venta === null ? null : Number(f.precio_venta),
     estado: f.estado,
     estandar: f.estandar,
     pedido: uno(f.reserva)?.codigo ?? null,
@@ -105,31 +108,32 @@ export interface SobranteDisponible {
   codigo: string;
   largo: number;
   ancho: number;
-  color: string | null;
   estandar: boolean;
   creadoEn: string;
 }
 
 /**
- * Los sobrantes de un material que se pueden usar en un corte: disponibles y ya
- * en Odoo (con su lote), en el orden en que conviene usarlos.
+ * Los sobrantes de un material que se pueden usar en un corte: disponibles, ya
+ * en Odoo (con su lote) y en el almacén donde se corta, en el orden en que
+ * conviene usarlos. No se trae un pedazo de un almacén a otro para unas piezas.
  */
-export async function sobrantesDisponibles(grupoId: string): Promise<SobranteDisponible[]> {
+export async function sobrantesDisponibles(grupoId: string, almacenId: string | null): Promise<SobranteDisponible[]> {
   const supabase = await clienteServidor();
-  const { data, error } = await supabase
+  let consulta = supabase
     .from("sobrantes")
-    .select("codigo, largo_cm, ancho_cm, color, estandar, creado_en")
+    .select("codigo, largo_cm, ancho_cm, estandar, creado_en")
     .eq("grupo_id", grupoId)
     .eq("estado", "disponible")
     .eq("sincronizacion", "sincronizada")
     .not("odoo_lot_id", "is", null);
+  if (almacenId) consulta = consulta.eq("almacen_id", almacenId);
+  const { data, error } = await consulta;
   if (error) throw new Error(`No se pudieron leer los sobrantes: ${error.message}`);
   return ordenDeUso(
     (data ?? []).map((f) => ({
       codigo: f.codigo,
       largo: Number(f.largo_cm),
       ancho: Number(f.ancho_cm),
-      color: f.color,
       estandar: f.estandar,
       creadoEn: f.creado_en,
     })),
@@ -145,7 +149,7 @@ export async function cargarSobrantesDePedido(codigoPedido: string): Promise<Sob
     .from("sobrantes")
     .select(COLUMNAS)
     .eq("pedido_id", pedido.id)
-    .eq("origen", "corte")
+    .in("origen", ["corte", "terminado"])
     .neq("estado", "baja")
     .order("codigo");
   if (error) throw new Error(`No se pudieron leer los sobrantes del pedido: ${error.message}`);
@@ -177,9 +181,9 @@ export async function llevarAOdoo(codigo: string): Promise<{ ok: true } | { ok: 
   const s = await cargarSobrante(codigo);
   if (!s) return { ok: false, error: "Ese sobrante ya no existe." };
   if (s.sincronizacion === "sincronizada" && s.odooLotId) return { ok: true };
-  /* Uno que salió de un corte entra a Odoo por la orden de fabricación de su
-     pedido, al cerrarla: crearlo aquí lo pondría dos veces en el stock. */
-  if (s.origen === "corte") {
+  /* Uno que salió de un pedido entra a Odoo por la orden de fabricación de su
+     línea, al cerrarla: crearlo aquí lo pondría dos veces en el stock. */
+  if (s.origen === "corte" || s.origen === "terminado") {
     return {
       ok: false,
       error: `Este sobrante entra a Odoo al cerrar la producción de ${s.nacioEn ? `el pedido ${s.nacioEn}` : "su pedido"}: reintenta desde el pedido.`,
@@ -205,12 +209,14 @@ export async function llevarAOdoo(codigo: string): Promise<{ ok: true } | { ok: 
   }
 
   try {
+    const almacen = await odooDeAlmacenId(s.almacenId);
     const loteId = await crearLoteSobrante({
       material,
       nombre: s.codigo,
       largo: s.largo,
       ancho: s.ancho,
       nota: notaDeLote(s),
+      ubicacionId: almacen.ubicacionId,
     });
     const error = await anotar({ odoo_lot_id: loteId, sincronizacion: "sincronizada", error_sincronizacion: null });
     if (error) return { ok: false, error: `El lote se creó en Odoo, pero no se pudo anotar aquí: ${mensajeDeError(error)}` };
@@ -232,7 +238,8 @@ export async function registrarSobrante(v: NuevoSobrante): Promise<ResultadoRegi
   const supabase = await clienteServidor();
   const grupo = (await cargarCatalogoPlanchas()).find((g) => g.id === v.grupoId);
   if (!grupo) return { ok: false, error: "Ese material ya no está en el catálogo. Vuelve a elegirlo." };
-  if (pideColor(grupo) && !v.color) return { ok: false, error: "Escribe el color de la pieza: este material comparte código entre colores." };
+  const almacen = (await cargarAlmacenes()).find((a) => a.id === v.almacenId && a.activo);
+  if (!almacen) return { ok: false, error: "Ese almacén ya no está activo. Vuelve a elegirlo." };
 
   const { largo, ancho } = normalizarMedidas(v.largo, v.ancho);
   const { data: minimo } = await supabase.rpc("retazo_minimo");
@@ -250,9 +257,9 @@ export async function registrarSobrante(v: NuevoSobrante): Promise<ResultadoRegi
     .from("sobrantes")
     .insert({
       grupo_id: grupo.id,
-      color: pideColor(grupo) ? v.color : null,
       largo_cm: largo,
       ancho_cm: ancho,
+      almacen_id: almacen.id,
       ubicacion: v.ubicacion,
       estandar: esEstandar({ largo, ancho }, grupo.formatos),
       origen: "manual",
@@ -274,14 +281,14 @@ export async function moverSobrante(codigo: string, ubicacion: string | null) {
     .from("sobrantes")
     .update({ ubicacion })
     .eq("codigo", codigo)
-    .select("odoo_lot_id, color")
+    .select("odoo_lot_id")
     .maybeSingle();
   if (error) return { ok: false as const, error: mensajeDeError(error) };
   if (!data) return { ok: false as const, error: "Ese sobrante ya no existe." };
 
   if (data.odoo_lot_id && odooConfigurado()) {
     try {
-      await anotarLote(data.odoo_lot_id, notaDeLote({ ubicacion, color: data.color }));
+      await anotarLote(data.odoo_lot_id, notaDeLote({ ubicacion }));
     } catch (e) {
       return { ok: true as const, aviso: `Se movió aquí, pero no en la nota del lote de Odoo: ${mensajeOdoo(e, "mover")}` };
     }
@@ -313,7 +320,7 @@ export async function sincronizarSobrantes(): Promise<ResumenSincronizacion> {
 
   const todos = await cargarSobrantes();
   const sinLote = todos.filter(
-    (x) => x.origen !== "corte" && x.sincronizacion !== "sincronizada" && (x.estado === "disponible" || x.estado === "reservado"),
+    (x) => x.origen !== "corte" && x.origen !== "terminado" && x.sincronizacion !== "sincronizada" && (x.estado === "disponible" || x.estado === "reservado"),
   );
   for (const s of sinLote) {
     const r = await llevarAOdoo(s.codigo);
@@ -338,6 +345,8 @@ export async function sincronizarSobrantes(): Promise<ResumenSincronizacion> {
   }
 
   const catalogo = await cargarCatalogoPlanchas();
+  const almacenes = await cargarAlmacenes();
+  const almacenDe = new Map(almacenes.filter((a) => a.odooUbicacionId).map((a) => [a.odooUbicacionId!, a]));
   const grupoDe = new Map<string, GrupoPlancha>();
   for (const g of catalogo) {
     const m = materialOdoo(g);
@@ -354,14 +363,18 @@ export async function sincronizarSobrantes(): Promise<ResumenSincronizacion> {
       resumen.problemas.push(`${l.nombre}: el lote no tiene largo y ancho en Odoo.`);
       continue;
     }
+    const almacen = l.ubicacionId ? almacenDe.get(l.ubicacionId) : undefined;
+    if (!almacen) {
+      resumen.problemas.push(`${l.nombre}: está en una ubicación de Odoo que no es de ningún almacén de la app.`);
+      continue;
+    }
     const medidas = normalizarMedidas(l.largo, l.ancho);
-    const nota = leerNotaDeLote(l.nota);
     const datos = {
       grupo_id: grupo.id,
-      color: pideColor(grupo) ? nota.color : null,
       largo_cm: medidas.largo,
       ancho_cm: medidas.ancho,
-      ubicacion: nota.ubicacion,
+      almacen_id: almacen.id,
+      ubicacion: leerNotaDeLote(l.nota),
       estandar: esEstandar(medidas, grupo.formatos),
       odoo_lot_id: l.loteId,
       sincronizacion: "sincronizada" as const,

@@ -11,8 +11,6 @@ export interface FormatoPlancha {
   codigo: string;
   anchoCm: number;
   largoCm: number;
-  /** Un solo código en Odoo para todos los colores: el stock no es por color. */
-  skuCompartido: boolean;
   /** El código o la medida están por confirmar contra Odoo. */
   porVerificar: boolean;
   nota: string | null;
@@ -52,9 +50,6 @@ export const nombreDeGrupo = (g: Pick<GrupoPlancha, "material" | "variante" | "d
 /** "122×183". */
 export const medidaDe = (f: Pick<FormatoPlancha, "anchoCm" | "largoCm">) =>
   `${String(+f.anchoCm.toFixed(2))}×${String(+f.largoCm.toFixed(2))}`;
-
-/** Si en el grupo algún formato comparte código entre colores. */
-export const pideColor = (g: Pick<GrupoPlancha, "formatos">) => g.formatos.some((f) => f.skuCompartido);
 
 /** Los grupos que coinciden con lo escrito ("eco cristal 3"): cada palabra, en cualquier orden. */
 export function buscarGrupos<G extends Pick<GrupoPlancha, "material" | "variante" | "detalle" | "espesorMm">>(

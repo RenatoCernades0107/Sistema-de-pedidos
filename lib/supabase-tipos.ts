@@ -39,6 +39,38 @@ export type Database = {
   }
   public: {
     Tables: {
+      accesorios: {
+        Row: {
+          activo: boolean
+          categoria_id: string
+          codigo_odoo: string
+          creado_en: string
+          id: string
+        }
+        Insert: {
+          activo?: boolean
+          categoria_id: string
+          codigo_odoo: string
+          creado_en?: string
+          id?: string
+        }
+        Update: {
+          activo?: boolean
+          categoria_id?: string
+          codigo_odoo?: string
+          creado_en?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "accesorios_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_accesorio"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       adjuntos: {
         Row: {
           creado_en: string
@@ -114,6 +146,48 @@ export type Database = {
           },
         ]
       }
+      almacenes: {
+        Row: {
+          activo: boolean
+          codigo: string
+          creado_en: string
+          error_sincronizacion: string | null
+          id: string
+          nombre: string
+          odoo_ubicacion_id: number | null
+          odoo_warehouse_id: number | null
+          orden: number
+          sincronizacion: Database["public"]["Enums"]["sincronizacion_odoo"]
+          tipo: string
+        }
+        Insert: {
+          activo?: boolean
+          codigo: string
+          creado_en?: string
+          error_sincronizacion?: string | null
+          id?: string
+          nombre: string
+          odoo_ubicacion_id?: number | null
+          odoo_warehouse_id?: number | null
+          orden?: number
+          sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
+          tipo?: string
+        }
+        Update: {
+          activo?: boolean
+          codigo?: string
+          creado_en?: string
+          error_sincronizacion?: string | null
+          id?: string
+          nombre?: string
+          odoo_ubicacion_id?: number | null
+          odoo_warehouse_id?: number | null
+          orden?: number
+          sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
+          tipo?: string
+        }
+        Relationships: []
+      }
       cad_diseno_versiones: {
         Row: {
           acomodo: Json | null
@@ -177,10 +251,10 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "cad_diseno_versiones_grupo_plancha_id_fkey"
-            columns: ["grupo_plancha_id"]
+            foreignKeyName: "cad_diseno_versiones_aprobado_por_fkey"
+            columns: ["aprobado_por"]
             isOneToOne: false
-            referencedRelation: "grupos_plancha"
+            referencedRelation: "usuarios"
             referencedColumns: ["id"]
           },
           {
@@ -195,6 +269,13 @@ export type Database = {
             columns: ["diseno_id"]
             isOneToOne: false
             referencedRelation: "cad_disenos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cad_diseno_versiones_grupo_plancha_id_fkey"
+            columns: ["grupo_plancha_id"]
+            isOneToOne: false
+            referencedRelation: "grupos_plancha"
             referencedColumns: ["id"]
           },
         ]
@@ -271,6 +352,27 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      categorias_accesorio: {
+        Row: {
+          id: string
+          nombre: string
+          orden: number
+          prefijo: string
+        }
+        Insert: {
+          id?: string
+          nombre: string
+          orden?: number
+          prefijo: string
+        }
+        Update: {
+          id?: string
+          nombre?: string
+          orden?: number
+          prefijo?: string
+        }
+        Relationships: []
       }
       configuracion: {
         Row: {
@@ -376,11 +478,19 @@ export type Database = {
             referencedRelation: "cotizaciones"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "cotizacion_productos_diseno_version_id_fkey"
+            columns: ["diseno_version_id"]
+            isOneToOne: false
+            referencedRelation: "cad_diseno_versiones"
+            referencedColumns: ["id"]
+          },
         ]
       }
       cotizaciones: {
         Row: {
           actualizado_en: string
+          almacen_despacho_id: string | null
           anulada_en_odoo: boolean
           canal: Database["public"]["Enums"]["canal_cotizacion"]
           chat_agente_id: string | null
@@ -409,6 +519,7 @@ export type Database = {
         }
         Insert: {
           actualizado_en?: string
+          almacen_despacho_id?: string | null
           anulada_en_odoo?: boolean
           canal?: Database["public"]["Enums"]["canal_cotizacion"]
           chat_agente_id?: string | null
@@ -437,6 +548,7 @@ export type Database = {
         }
         Update: {
           actualizado_en?: string
+          almacen_despacho_id?: string | null
           anulada_en_odoo?: boolean
           canal?: Database["public"]["Enums"]["canal_cotizacion"]
           chat_agente_id?: string | null
@@ -464,6 +576,13 @@ export type Database = {
           token_publico?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "cotizaciones_almacen_despacho_id_fkey"
+            columns: ["almacen_despacho_id"]
+            isOneToOne: false
+            referencedRelation: "almacenes"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "cotizaciones_creado_por_fkey"
             columns: ["creado_por"]
@@ -611,7 +730,6 @@ export type Database = {
           largo_cm: number
           nota: string | null
           por_verificar: boolean
-          sku_compartido: boolean
         }
         Insert: {
           activo?: boolean
@@ -622,7 +740,6 @@ export type Database = {
           largo_cm: number
           nota?: string | null
           por_verificar?: boolean
-          sku_compartido?: boolean
         }
         Update: {
           activo?: boolean
@@ -633,7 +750,6 @@ export type Database = {
           largo_cm?: number
           nota?: string | null
           por_verificar?: boolean
-          sku_compartido?: boolean
         }
         Relationships: [
           {
@@ -737,6 +853,110 @@ export type Database = {
             columns: ["usuario_id"]
             isOneToOne: false
             referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ingresos_stock: {
+        Row: {
+          almacen_id: string
+          codigo: string
+          creado_en: string
+          creado_por: string | null
+          documento: string | null
+          error_sincronizacion: string | null
+          id: string
+          nota: string | null
+          odoo_picking_id: number | null
+          proveedor_nombre: string | null
+          proveedor_odoo_id: number | null
+          sincronizacion: Database["public"]["Enums"]["sincronizacion_odoo"]
+          tipo: string
+        }
+        Insert: {
+          almacen_id: string
+          codigo?: string
+          creado_en?: string
+          creado_por?: string | null
+          documento?: string | null
+          error_sincronizacion?: string | null
+          id?: string
+          nota?: string | null
+          odoo_picking_id?: number | null
+          proveedor_nombre?: string | null
+          proveedor_odoo_id?: number | null
+          sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
+          tipo: string
+        }
+        Update: {
+          almacen_id?: string
+          codigo?: string
+          creado_en?: string
+          creado_por?: string | null
+          documento?: string | null
+          error_sincronizacion?: string | null
+          id?: string
+          nota?: string | null
+          odoo_picking_id?: number | null
+          proveedor_nombre?: string | null
+          proveedor_odoo_id?: number | null
+          sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ingresos_stock_almacen_id_fkey"
+            columns: ["almacen_id"]
+            isOneToOne: false
+            referencedRelation: "almacenes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ingresos_stock_creado_por_fkey"
+            columns: ["creado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ingresos_stock_lineas: {
+        Row: {
+          cantidad: number
+          cantidad_anterior: number | null
+          codigo: string | null
+          costo_unitario: number | null
+          ingreso_id: string
+          nombre: string
+          posicion: number
+          producto_odoo_id: number
+        }
+        Insert: {
+          cantidad: number
+          cantidad_anterior?: number | null
+          codigo?: string | null
+          costo_unitario?: number | null
+          ingreso_id: string
+          nombre: string
+          posicion: number
+          producto_odoo_id: number
+        }
+        Update: {
+          cantidad?: number
+          cantidad_anterior?: number | null
+          codigo?: string | null
+          costo_unitario?: number | null
+          ingreso_id?: string
+          nombre?: string
+          posicion?: number
+          producto_odoo_id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ingresos_stock_lineas_ingreso_id_fkey"
+            columns: ["ingreso_id"]
+            isOneToOne: false
+            referencedRelation: "ingresos_stock"
             referencedColumns: ["id"]
           },
         ]
@@ -954,6 +1174,21 @@ export type Database = {
           },
         ]
       }
+      pedido_contadores: {
+        Row: {
+          periodo: string
+          ultimo: number
+        }
+        Insert: {
+          periodo: string
+          ultimo: number
+        }
+        Update: {
+          periodo?: string
+          ultimo?: number
+        }
+        Relationships: []
+      }
       pedido_mensajes: {
         Row: {
           autor_id: string
@@ -982,7 +1217,43 @@ export type Database = {
           pedido_id?: string
           texto?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "pedido_mensajes_autor_id_fkey"
+            columns: ["autor_id"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pedido_mensajes_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pedido_mensajes_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_admin"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pedido_mensajes_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_logistica"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pedido_mensajes_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_operaciones"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       pedidos: {
         Row: {
@@ -1526,9 +1797,9 @@ export type Database = {
       sobrantes: {
         Row: {
           actualizado_en: string
+          almacen_id: string
           ancho_cm: number
           codigo: string
-          color: string | null
           creado_en: string
           creado_por: string | null
           error_sincronizacion: string | null
@@ -1541,6 +1812,7 @@ export type Database = {
           odoo_lot_id: number | null
           origen: string
           pedido_id: string | null
+          precio_venta: number | null
           reserva_pedido_id: string | null
           reserva_posicion: number | null
           sincronizacion: Database["public"]["Enums"]["sincronizacion_odoo"]
@@ -1548,9 +1820,9 @@ export type Database = {
         }
         Insert: {
           actualizado_en?: string
+          almacen_id: string
           ancho_cm: number
           codigo?: string
-          color?: string | null
           creado_en?: string
           creado_por?: string | null
           error_sincronizacion?: string | null
@@ -1563,6 +1835,7 @@ export type Database = {
           odoo_lot_id?: number | null
           origen?: string
           pedido_id?: string | null
+          precio_venta?: number | null
           reserva_pedido_id?: string | null
           reserva_posicion?: number | null
           sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
@@ -1570,9 +1843,9 @@ export type Database = {
         }
         Update: {
           actualizado_en?: string
+          almacen_id?: string
           ancho_cm?: number
           codigo?: string
-          color?: string | null
           creado_en?: string
           creado_por?: string | null
           error_sincronizacion?: string | null
@@ -1585,12 +1858,20 @@ export type Database = {
           odoo_lot_id?: number | null
           origen?: string
           pedido_id?: string | null
+          precio_venta?: number | null
           reserva_pedido_id?: string | null
           reserva_posicion?: number | null
           sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
           ubicacion?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "sobrantes_almacen_id_fkey"
+            columns: ["almacen_id"]
+            isOneToOne: false
+            referencedRelation: "almacenes"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "sobrantes_creado_por_fkey"
             columns: ["creado_por"]
@@ -1929,6 +2210,7 @@ export type Database = {
           nombre_agencia: string | null
           nombre_cliente: string | null
           nombre_persona_recoge: string | null
+          notas_entrega: string | null
           numero_comprobante: string | null
           numero_documento: string | null
           observaciones: string | null
@@ -1943,7 +2225,6 @@ export type Database = {
           telefono_cliente: string | null
           telefono_persona_recoge: string | null
           tiene_comprobante: boolean | null
-          notas_entrega: string | null
           tipo_documento: Database["public"]["Enums"]["tipo_documento"] | null
           tipo_pago: Database["public"]["Enums"]["tipo_pago"] | null
           tipo_producto_terminado:
@@ -2006,6 +2287,7 @@ export type Database = {
           nombre_agencia: string | null
           nombre_cliente: string | null
           nombre_persona_recoge: string | null
+          notas_entrega: string | null
           numero_documento: string | null
           observaciones: string | null
           observaciones_envio: string | null
@@ -2016,7 +2298,6 @@ export type Database = {
           telefono_cliente: string | null
           telefono_persona_recoge: string | null
           tiene_comprobante: boolean | null
-          notas_entrega: string | null
           tipo_documento: Database["public"]["Enums"]["tipo_documento"] | null
           tipo_producto_terminado:
             | Database["public"]["Enums"]["producto_terminado"]
@@ -2071,12 +2352,12 @@ export type Database = {
           lugar_entrega: Database["public"]["Enums"]["lugar_entrega"] | null
           motivo: string | null
           nombre_cliente: string | null
+          notas_entrega: string | null
           observaciones: string | null
           provincia: string | null
           responsable: string | null
           responsable_id: string | null
           tiene_comprobante: boolean | null
-          notas_entrega: string | null
           tipo_producto_terminado:
             | Database["public"]["Enums"]["producto_terminado"]
             | null
@@ -2136,6 +2417,7 @@ export type Database = {
       array_sin_duplicados: { Args: { a: unknown }; Returns: boolean }
       auditoria_texto: { Args: { campo: string; valor: Json }; Returns: string }
       auth_rol: { Args: never; Returns: Database["public"]["Enums"]["rol"] }
+      config_almacen: { Args: never; Returns: Json }
       corte_sin_precios: { Args: { c: Json }; Returns: Json }
       cotizacion_publica: { Args: { p_token: string }; Returns: Json }
       crear_cotizacion: {
@@ -2174,8 +2456,8 @@ export type Database = {
           p_monto_total?: number
           p_nombre_agencia?: string
           p_nombre_cliente: string
-          p_notas_entrega?: string
           p_nombre_persona_recoge?: string
+          p_notas_entrega?: string
           p_numero_documento?: string
           p_observaciones?: string
           p_observaciones_envio?: string
@@ -2197,19 +2479,12 @@ export type Database = {
       es_admin: { Args: never; Returns: boolean }
       escritura_del_sistema: { Args: never; Returns: boolean }
       etiqueta: { Args: { valor: string }; Returns: string }
-      generar_codigo_pedido: { Args: { p_fecha?: string }; Returns: string }
-      guardar_version_diseno_libre: {
-        Args: {
-          p_acomodo?: Json
-          p_codigo: string
-          p_color?: string
-          p_diseno_id: string
-          p_grupo_plancha_id?: string
-          p_materiales?: Json
-          p_origen?: string
-        }
-        Returns: number
+      fijar_precio_sobrante: {
+        Args: { p_codigo: string; p_precio: number }
+        Returns: undefined
       }
+      generar_codigo_pedido: { Args: { p_fecha?: string }; Returns: string }
+      gestiona_stock: { Args: never; Returns: boolean }
       guardar_version_diseno: {
         Args: {
           p_acomodo?: Json
@@ -2221,6 +2496,18 @@ export type Database = {
           p_parametros: Json
           p_plantilla: string
           p_version_plantilla?: number
+        }
+        Returns: number
+      }
+      guardar_version_diseno_libre: {
+        Args: {
+          p_acomodo?: Json
+          p_codigo: string
+          p_color?: string
+          p_diseno_id: string
+          p_grupo_plancha_id?: string
+          p_materiales?: Json
+          p_origen?: string
         }
         Returns: number
       }
@@ -2285,7 +2572,6 @@ export type Database = {
         Returns: number
       }
       terminado_sin_precios: { Args: { t: Json }; Returns: Json }
-      token_seguimiento: { Args: { p_codigo: string }; Returns: string }
       texto_notificacion: {
         Args: {
           p_codigo: string
@@ -2296,6 +2582,7 @@ export type Database = {
           titulo: string
         }[]
       }
+      token_seguimiento: { Args: { p_codigo: string }; Returns: string }
       tomar_notificaciones: {
         Args: { p_limite?: number }
         Returns: {

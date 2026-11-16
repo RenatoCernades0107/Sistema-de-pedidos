@@ -8,6 +8,8 @@
  */
 
 import { cache } from "react";
+import { tipoDeDespacho, type Almacen } from "./almacenes";
+import { almacenPorTipo, cargarAlmacenes, odooDeAlmacen } from "./almacenes-servidor";
 import { clienteServidor } from "./supabase-servidor";
 import { mensajeDeError } from "./errores";
 import {
@@ -27,13 +29,14 @@ import {
 } from "./cortes/guardado";
 import { leerCliente } from "./odoo/clientes";
 import {
+  cambiarAlmacenDeVenta,
   confirmarPedidoDeVenta,
   crearPedidoDeVenta,
   leerPedidoDeVenta,
   type LineaParaOdoo,
 } from "./odoo/pedidos-venta";
 import { ErrorOdoo, odooConfigurado } from "./odoo/rpc";
-import { PREFIJO_CORTE, productoCorte } from "./odoo/produccion";
+import { PREFIJO_CORTE, alDia, productoCorte } from "./odoo/produccion";
 import { cargarGrupoPlancha } from "./cortes-servidor";
 import { producirCortes, reservarTerminados } from "./produccion-servidor";
 import { leerTerminado } from "./terminados/guardado";
@@ -49,7 +52,7 @@ const COLUMNAS = `
   id, canal, odoo_partner_id, cliente_nombre, cliente_documento, cliente_telefono,
   odoo_order_id, odoo_order_name, sincronizacion, error_sincronizacion,
   monto_sin_impuestos, monto_impuestos, monto_total, notas, chat_agente_id, creado_en,
-  confirmada_en_odoo, error_confirmacion, token_publico,
+  confirmada_en_odoo, error_confirmacion, token_publico, almacen_despacho_id,
   creador:usuarios!cotizaciones_creado_por_fkey ( nombre ),
   pedido:pedidos!cotizaciones_pedido_id_fkey ( codigo ),
   cotizacion_productos ( posicion, odoo_product_id, producto_nombre, producto_codigo,
@@ -77,6 +80,7 @@ export interface Fila {
   confirmada_en_odoo: boolean;
   error_confirmacion: string | null;
   token_publico?: string | null;
+  almacen_despacho_id?: string | null;
   creador: { nombre: string } | { nombre: string }[] | null;
   pedido: { codigo: string } | { codigo: string }[] | null;
   cotizacion_productos: {
@@ -125,6 +129,7 @@ export function deFila(f: Fila): Cotizacion {
     confirmadaEnOdoo: f.confirmada_en_odoo,
     errorConfirmacion: f.error_confirmacion,
     tokenPublico: f.token_publico ?? null,
+    almacenDespachoId: f.almacen_despacho_id ?? null,
     lineas: [...(f.cotizacion_productos ?? [])]
       .sort((a, b) => a.posicion - b.posicion)
       .map((l) => ({
@@ -351,6 +356,17 @@ async function productosDeCorte(lineas: LineaGuardada[]) {
   return salida;
 }
 
+/**
+ * El almacén del que sale una cotización: el elegido o, si nadie eligió, el
+ * taller si algo se produce allí y la tienda si no.
+ */
+export async function almacenDeDespacho(c: Pick<Cotizacion, "almacenDespachoId" | "lineas">): Promise<Almacen> {
+  const almacenes = await cargarAlmacenes();
+  const elegido = almacenes.find((a) => a.id === c.almacenDespachoId && a.activo);
+  if (elegido) return elegido;
+  return almacenPorTipo(tipoDeDespacho(c.lineas));
+}
+
 export type ResultadoSincronizacion =
   | { ok: true; orderName: string }
   | { ok: false; error: string };
@@ -374,16 +390,23 @@ export async function sincronizarConOdoo(id: string): Promise<ResultadoSincroniz
   const supabase = await clienteServidor();
 
   try {
-    const corteAMedida = await productosDeCorte(c.lineas);
-    const venta = await crearPedidoDeVenta({
-      cotizacionId: c.id,
-      clienteId: c.cliente.id,
-      lineas: c.lineas.flatMap((l) => lineasParaOdoo(l, corteAMedida.get(l.posicion))),
+    const despacho = await almacenDeDespacho(c);
+    const warehouseId = (await odooDeAlmacen(despacho)).warehouseId;
+    // Si el producto Corte a medida que la app recordaba ya no está en Odoo, se vuelve a crear.
+    const venta = await alDia(async () => {
+      const corteAMedida = await productosDeCorte(c.lineas);
+      return crearPedidoDeVenta({
+        cotizacionId: c.id,
+        clienteId: c.cliente.id,
+        lineas: c.lineas.flatMap((l) => lineasParaOdoo(l, corteAMedida.get(l.posicion))),
+        warehouseId,
+      });
     });
 
     const { data, error } = await supabase
       .from("cotizaciones")
       .update({
+        almacen_despacho_id: despacho.id,
         odoo_order_id: venta.orderId,
         odoo_order_name: venta.orderName,
         sincronizacion: "sincronizada",
@@ -476,10 +499,10 @@ export async function confirmarEnOdoo(id: string): Promise<{ ok: true } | { ok: 
      pasar a Listo. */
   const cotizacion = await leerCotizacion(id);
   if (!cotizacion) return resultado;
-  const cortes = await producirCortes(id, cotizacion.lineas);
+  const cortes = await producirCortes(id, orderId, cotizacion.lineas);
   if (!cortes.ok) return cortes;
   // Y las de los productos terminados que pidieron reservar su material estimado.
-  return reservarTerminados(id, cotizacion.lineas);
+  return reservarTerminados(id, orderId, cotizacion.lineas);
 }
 
 /**
@@ -530,4 +553,38 @@ export async function registrarDesdeAsistente(chatId: string, orderId: number): 
   } catch (e) {
     console.error("[cotizaciones] registrar desde el asistente", e);
   }
+}
+
+/**
+ * Cambia el almacén del que sale una cotización. Mientras es cotización en Odoo
+ * se cambia también allá; una vez confirmada, Odoo ya armó la entrega desde el
+ * almacén que tenía, y no se toca.
+ */
+export async function cambiarAlmacenDespacho(id: string, almacenId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const c = await leerCotizacion(id);
+  if (!c) return { ok: false, error: "La cotización ya no existe." };
+  if (c.confirmadaEnOdoo) {
+    return { ok: false, error: "Ya es pedido de venta en Odoo: su entrega sale del almacén que tenía." };
+  }
+  const almacen = (await cargarAlmacenes()).find((a) => a.id === almacenId && a.activo);
+  if (!almacen) return { ok: false, error: "Ese almacén ya no está activo." };
+
+  if (c.odooOrderId && odooConfigurado()) {
+    try {
+      const cambiado = await cambiarAlmacenDeVenta(c.odooOrderId, (await odooDeAlmacen(almacen)).warehouseId);
+      if (!cambiado) return { ok: false, error: "En Odoo ya no es cotización: su entrega sale del almacén que tenía." };
+    } catch (e) {
+      if (!(e instanceof ErrorOdoo)) console.error("[cotizaciones] cambiar almacén", e);
+      return { ok: false, error: e instanceof ErrorOdoo ? e.message : "Algo falló al cambiar el almacén en Odoo." };
+    }
+  }
+  const supabase = await clienteServidor();
+  const { data, error } = await supabase
+    .from("cotizaciones")
+    .update({ almacen_despacho_id: almacen.id })
+    .eq("id", id)
+    .select("id");
+  if (error) return { ok: false, error: mensajeDeError(error) };
+  if (!data?.length) return { ok: false, error: "Tu rol no puede cambiar esta cotización." };
+  return { ok: true };
 }

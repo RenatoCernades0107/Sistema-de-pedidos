@@ -37,7 +37,7 @@ import {
 import { mensajeOdoo, registrarCotizacion } from "@/lib/cotizaciones-registro";
 import { productosPorId } from "@/lib/odoo/catalogos";
 import { cancelarVentaDePedido, descontarStockDePedido, leerLineasDePedido } from "@/lib/pedido-odoo-servidor";
-import { guardarSobrantesDeCorte, reservarSobrantes } from "@/lib/produccion-servidor";
+import { guardarSobrantesDeCorte, guardarSobrantesDeTerminado, reservarSobrantes } from "@/lib/produccion-servidor";
 import { detalleDesdeLineas, referenciaDe, sumaLineas } from "@/lib/cotizaciones";
 import { totalPiezas } from "@/lib/cortes/guardado";
 import { etiquetaDeTipo } from "@/lib/terminados/catalogo";
@@ -305,14 +305,17 @@ export async function cambiarEstado(entrada: unknown): Promise<Resultado> {
     if (!anotadas.ok) return anotadas;
   }
 
-  /* Los sobrantes que el taller guardó se registran antes de mover el pedido: si
-     algo no cuadra (un retazo), se corrige en el diálogo sin haber movido nada. */
+  /* Los sobrantes que el taller guardó (de los cortes y de los productos
+     terminados), cada uno con su almacén, se registran antes de mover el pedido:
+     si algo no cuadra (un retazo), se corrige en el diálogo sin haber movido nada. */
   if (estado === "listo" && sobrantes?.length) {
     const lineas = await leerLineasDePedido(codigo);
     for (const s of sobrantes) {
       const linea = lineas.find((l) => l.posicion === s.posicion);
-      if (!linea) return fallo("Uno de los cortes ya no está en el pedido.");
-      const r = await guardarSobrantesDeCorte(codigo, linea, s.piezas);
+      if (!linea) return fallo("Una de las líneas ya no está en el pedido.");
+      const r = linea.terminado
+        ? await guardarSobrantesDeTerminado(codigo, linea, s.piezas)
+        : await guardarSobrantesDeCorte(codigo, linea, s.piezas);
       if (!r.ok) return r;
     }
   }

@@ -226,31 +226,57 @@ E2E_URL=https://<dominio>.vercel.app npm run e2e
   sobrante; va al final) y **gris** `PLANCHA` (el contorno de referencia, con la salida apagada). Los
   contornos se corren medio *grosor del corte láser* de Configuración hacia afuera, para que la pieza
   salga a su medida, sin pisar nunca a una vecina.
-- **Sobrantes** (`/sobrantes`, los tres roles): los pedazos de plancha que vuelven al almacén. En Odoo
-  cada uno es un lote del producto *Sobrante* de su material (`SOB-<código de la plancha más chica del
-  grupo>`, almacenable y con lotes), con una unidad en stock y su medida en `x_largo` / `x_ancho`. La
-  app crea el producto y esos dos campos la primera vez (`lib/odoo/sobrantes.ts`; crear campos pide un
-  usuario de Odoo con permiso de administración). La tabla `sobrantes` es su espejo (migración
-  `20261112000100`): se busca por material y por la medida que hace falta, se registran a mano los
-  que ya están en el almacén, se cambia la ubicación (texto libre, va a la nota del lote) y se imprime
-  la etiqueta con QR (`/sobrantes/<código>/etiqueta`, 80 × 50 mm). *Sincronizar con Odoo* reconcilia
-  la tabla con el stock de Odoo, que es el que manda (`lib/sobrantes-servidor.ts`). Media o cuarta
-  parte de un formato queda marcada como estándar. Con un lado menor que el retazo mínimo de la
-  configuración no se registra.
-- **La producción con piloto** (`lib/odoo/produccion.ts`, `lib/produccion-servidor.ts`): en un material
-  con el piloto encendido (Configuración), un corte se vende como *Corte a medida* de su material
+- **El almacén** (`/almacen`, los tres roles; migraciones `20261129000100` y `20261129000200`): el stock
+  de cada plancha y cada accesorio en cada almacén, los sobrantes y los ingresos. Hay un **taller**
+  (Católica: corta láser y fabrica los productos terminados), una **tienda** (Andahuaylas: algunos
+  cortes manuales) y los **depósitos** que se quieran (Esmeraldas). Cada almacén es un
+  `stock.warehouse` de Odoo que la app crea por su código corto (AND, CAT, ESM) la primera vez que
+  hace falta (`lib/odoo/almacenes.ts`, `lib/almacenes-servidor.ts`); el stock de cada uno se lee de
+  Odoo con `qty_available` en el contexto de su ubicación. Administración y Logística (`gestiona_stock()`
+  en la base) **ingresan stock** —una compra es una recepción del almacén con proveedor, guía o
+  factura y costo; un ajuste es un inventario con lo contado— (`ingresos_stock`, guardados antes de ir
+  a Odoo para reintentar si falla), **crean productos** —una plancha nueva sigue la serie `PL0001`; un
+  accesorio, el prefijo de su categoría (`ACC055`, `PEG020`)— y administran los almacenes. Solo
+  Administración **cambia precios** (el `list_price` de Odoo, y el de un sobrante en la app). El taller
+  ve todo sin precios y sin poder cambiarlo. Las planchas se filtran por material, espesor, color y
+  formato; los accesorios, por su categoría, que es de la app (`categorias_accesorio`, `accesorios`).
+  Cada color tiene su propio código en Odoo: ya no hay códigos compartidos entre colores.
+- **Sobrantes** (pestaña del almacén; `/sobrantes` lleva ahí): los pedazos de plancha que vuelven a
+  un almacén. En Odoo cada uno es un lote del producto *Sobrante* de su material (`SOB-<código de la
+  plancha más chica del grupo>`, almacenable y con lotes), con una unidad en stock **en la ubicación
+  de su almacén** y su medida en `x_largo` / `x_ancho`. La app crea el producto y esos dos campos la
+  primera vez (`lib/odoo/sobrantes.ts`; crear campos pide un usuario de Odoo con permiso de
+  administración). La tabla `sobrantes` es su espejo (migración `20261112000100`, con `almacen_id` y
+  `precio_venta` desde `20261129000100`): se busca por material, por almacén y por la medida que hace
+  falta, quien gestiona el stock registra a mano los que ya están en un almacén, cambia la ubicación
+  dentro de él (texto libre, va a la nota del lote) y se imprime la etiqueta con QR
+  (`/sobrantes/<código>/etiqueta`, 80 × 50 mm). Su precio de venta es el que fija Administración o, si
+  no, el costo de su parte de la plancha por el factor de Configuración (`config_almacen()`).
+  *Sincronizar con Odoo* reconcilia la tabla con el stock de Odoo, que es el que manda
+  (`lib/sobrantes-servidor.ts`), y ubica cada lote en el almacén donde está. Media o cuarta parte de un
+  formato queda marcada como estándar. Con un lado menor que el retazo mínimo de la configuración no
+  se registra.
+- **Dónde se produce**: el láser y los productos terminados, en el taller; un corte manual, donde
+  diga quien cotiza (por defecto, la tienda). El cálculo usa solo los sobrantes de ese almacén, y la
+  orden de fabricación consume de él (`picking_type_id` de su almacén) y deja lo producido en el
+  almacén de donde sale la venta (`warehouse_id` de la `sale.order`: el taller si algo se produce
+  allí, la tienda si no; se guarda en `cotizaciones.almacen_despacho_id`). Al pasar a **Listo** se
+  dice a qué almacén se fue cada sobrante, en los cortes y en los productos terminados; la orden lleva
+  un subproducto por almacén de destino.
+- **La producción con piloto** (`lib/odoo/produccion.ts`, `lib/produccion-servidor.ts`): encendido
+  para todos los materiales desde `20261129000100`, un corte se vende como *Corte a medida* de su material
   (`CAM-<código>`, en m² de piezas) por el mismo importe que el cálculo por fracción; lo que el precio
   por m² no cuadra al céntimo lo absorbe la línea del servicio. Al confirmar el pedido nace su orden
   de fabricación, sin lista de materiales: consume las planchas nuevas del cálculo, produce los m² y
   prevé los sobrantes (con su parte del costo por área). Al pasar a **Listo**, el diálogo propone los
   pedazos que vuelven al almacén (las zonas libres que no son retazo); el taller los mide, les pone
   ubicación, quita o agrega. Se guardan en `sobrantes` antes de ir a Odoo, la orden se cierra con lo
-  real (un lote por sobrante, con `x_largo` / `x_ancho`) y la entrega saca el corte terminado. Al
+  real (un lote por sobrante, con `x_largo` / `x_ancho`, en su almacén) y la entrega saca el corte terminado. Al
   anular, la orden se cancela. Un sobrante nacido de un corte solo entra a Odoo al cerrar su orden:
   *Sincronizar* no lo crea por su cuenta (lo pondría dos veces en el stock). Migración
   `20261112000200`. Necesita en Odoo el módulo Fabricación y la unidad m².
 - **El reuso de sobrantes** (piloto): el cálculo de un corte usa primero los sobrantes disponibles del
-  material (del color pedido si el código es compartido), del más chico al más grande y los estándar
+  material en el almacén donde se corta, del más chico al más grande y los estándar
   al final; el precio no cambia, es el de planchas nuevas. Al registrar el pedido, el acomodo se
   rehace con lo disponible en ese momento y esos sobrantes quedan reservados en la misma transacción
   (`reservar_sobrantes_de_corte()`, migración `20261112000300`; si otro pedido se lleva uno, se rehace

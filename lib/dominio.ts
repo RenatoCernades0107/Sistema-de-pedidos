@@ -267,8 +267,16 @@ export interface PermisosRol {
   verMetricas: boolean;
   /** Cambiar los precios de corte y el catálogo de planchas en `/configuracion`. */
   configurar: boolean;
-  /** Buscar, registrar y etiquetar los sobrantes del almacén en `/sobrantes`. */
-  verSobrantes: boolean;
+  /** Ver el stock de cada almacén y los sobrantes en `/almacen`. */
+  verAlmacen: boolean;
+  /**
+   * Ingresar stock (compras y ajustes), crear planchas y accesorios, registrar
+   * sobrantes a mano y administrar los almacenes. La misma condición que
+   * `gestiona_stock()` en la base.
+   */
+  gestionarStock: boolean;
+  /** Cambiar el precio de venta de planchas, accesorios y sobrantes. */
+  editarPrecios: boolean;
   /** Diseñar piezas con el motor CAD (chat, render 3D y exportación DXF/STEP) en `/disenos`. */
   usarCad: boolean;
 }
@@ -294,7 +302,9 @@ export const ROLES: Record<Rol, PermisosRol> = {
     gestionarCotizaciones: true,
     verMetricas: true,
     configurar: true,
-    verSobrantes: true,
+    verAlmacen: true,
+    gestionarStock: true,
+    editarPrecios: true,
     usarCad: true,
   },
   logistica: {
@@ -317,7 +327,9 @@ export const ROLES: Record<Rol, PermisosRol> = {
     gestionarCotizaciones: false,
     verMetricas: false,
     configurar: false,
-    verSobrantes: true,
+    verAlmacen: true,
+    gestionarStock: true,
+    editarPrecios: false,
     usarCad: false,
   },
   operaciones: {
@@ -340,7 +352,9 @@ export const ROLES: Record<Rol, PermisosRol> = {
     gestionarCotizaciones: false,
     verMetricas: false,
     configurar: false,
-    verSobrantes: true,
+    verAlmacen: true,
+    gestionarStock: false,
+    editarPrecios: false,
     usarCad: false,
   },
 };
@@ -526,7 +540,7 @@ export interface ConfigHerramienta {
 export const HERRAMIENTAS: ConfigHerramienta[] = [
   { titulo: "Cotizaciones", href: "/cotizaciones", permiso: "gestionarCotizaciones" },
   { titulo: "Diseños", href: "/disenos", permiso: "usarCad" },
-  { titulo: "Sobrantes", href: "/sobrantes", permiso: "verSobrantes" },
+  { titulo: "Almacén", href: "/almacen", permiso: "verAlmacen" },
   { titulo: "Métricas", href: "/metricas", permiso: "verMetricas" },
   { titulo: "Configuración", href: "/configuracion", permiso: "configurar" },
 ];

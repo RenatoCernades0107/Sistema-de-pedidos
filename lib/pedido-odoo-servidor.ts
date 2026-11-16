@@ -109,10 +109,12 @@ export async function descontarStockDePedido(codigo: string): Promise<ResultadoO
       /* Con el piloto, el corte se fabrica: primero se cierra su orden (consume las
          planchas y devuelve los sobrantes al almacén) y después la entrega saca
          el corte terminado. */
-      const cortes = await cerrarCortesDePedido(codigo, odoo.cotizacionId, lineas);
+      const cortes = await cerrarCortesDePedido(codigo, odoo.cotizacionId, odoo.orderId, lineas);
       /* Un producto terminado también se fabrica: su orden consume lo que de
          verdad se usó y deja el producto en el almacén, listo para la entrega. */
-      const terminados = cortes.ok ? await cerrarTerminadosDePedido(odoo.cotizacionId, lineas) : cortes;
+      const terminados = cortes.ok
+        ? await cerrarTerminadosDePedido(codigo, odoo.cotizacionId, odoo.orderId, lineas)
+        : cortes;
       if (!cortes.ok) resultado = cortes;
       else if (!terminados.ok) resultado = terminados;
       else {

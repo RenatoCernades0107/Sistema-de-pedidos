@@ -285,3 +285,17 @@ export const terminosOdoo = (q: string): string[] => q.trim().split(/\s+/).filte
 /** Odoo devuelve `false` para un campo vacío, no `null`. */
 export const texto = (v: unknown): string | null =>
   typeof v === "string" && v.trim() ? v.trim() : null;
+
+/**
+ * "Almacenable", como lo diga esta versión: `is_storable` desde la 18,
+ * `detailed_type` en la 15-17 y `type = product` antes.
+ */
+export async function valoresAlmacenable(): Promise<Record<string, unknown>> {
+  const [storable, detailed] = await Promise.all([
+    camposExistentes("product.template", ["is_storable"]),
+    camposExistentes("product.template", ["detailed_type"]),
+  ]);
+  if (storable.length) return { type: "consu", is_storable: true };
+  if (detailed.length) return { detailed_type: "product" };
+  return { type: "product" };
+}

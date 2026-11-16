@@ -17,11 +17,10 @@ import {
   espesorTexto,
   medidaDe,
   nombreDeGrupo,
-  pideColor,
   type GrupoPlancha,
 } from "@/lib/cortes/catalogo";
 import type { ConfigCortes } from "@/lib/cortes/config";
-import { planchasNuevas, planchasTexto } from "@/lib/cortes/guardado";
+import { LUGARES_CORTE, lugarDeCorte, planchasNuevas, planchasTexto, type LugarCorte } from "@/lib/cortes/guardado";
 import { contenedoresDe } from "@/lib/sobrantes";
 import { money } from "@/lib/formato";
 import type { LineaCorte } from "@/lib/lineas-cotizacion";
@@ -69,6 +68,7 @@ function piezasDe(filas: FilaPieza[]): PiezaPedida[] {
 
 type Precios = RespuestaPrecios["precios"];
 type Sobrantes = RespuestaPrecios["sobrantes"];
+const SIN_SOBRANTES: Sobrantes = { taller: [], tienda: [] };
 
 /** Los precios de un material no cambian mientras se arma un corte: se piden una vez. */
 const preciosVistos = new Map<string, { precios: Precios; sobrantes: Sobrantes }>();
@@ -92,21 +92,21 @@ export function usePrecios(grupoId: string | null) {
         const res = await fetch(`/api/cortes/precios?grupo=${grupoId}`, { signal: ctrl.signal });
         const json = (await res.json()) as RespuestaPrecios & { error?: string };
         if (!res.ok) {
-          setEstado({ grupoId, precios: null, sobrantes: [], error: json.error ?? "No se pudieron leer los precios." });
+          setEstado({ grupoId, precios: null, sobrantes: SIN_SOBRANTES, error: json.error ?? "No se pudieron leer los precios." });
           return;
         }
-        preciosVistos.set(grupoId, { precios: json.precios, sobrantes: json.sobrantes ?? [] });
-        setEstado({ grupoId, precios: json.precios, sobrantes: json.sobrantes ?? [], error: null });
+        preciosVistos.set(grupoId, { precios: json.precios, sobrantes: json.sobrantes ?? SIN_SOBRANTES });
+        setEstado({ grupoId, precios: json.precios, sobrantes: json.sobrantes ?? SIN_SOBRANTES, error: null });
       } catch {
         if (!ctrl.signal.aborted) {
-          setEstado({ grupoId, precios: null, sobrantes: [], error: "No se pudieron leer los precios. Revisa la conexión." });
+          setEstado({ grupoId, precios: null, sobrantes: SIN_SOBRANTES, error: "No se pudieron leer los precios. Revisa la conexión." });
         }
       }
     })();
     return () => ctrl.abort();
   }, [grupoId]);
 
-  const nada = { precios: null, sobrantes: [] as Sobrantes, error: null };
+  const nada = { precios: null, sobrantes: SIN_SOBRANTES, error: null };
   if (!grupoId) return nada;
   const visto = preciosVistos.get(grupoId);
   if (visto) return { ...visto, error: null };
@@ -114,6 +114,7 @@ export function usePrecios(grupoId: string | null) {
 }
 
 type Stock = Record<string, number | null>;
+type PorAlmacen = RespuestaStock["porAlmacen"];
 
 /**
  * El stock de los formatos candidatos, en una sola consulta a Odoo. Espera a que
@@ -122,7 +123,12 @@ type Stock = Record<string, number | null>;
  */
 function useStock(codigos: string[]) {
   const clave = [...codigos].sort().join(",");
-  const [estado, setEstado] = useState<{ clave: string; stock: Stock | null; error: boolean } | null>(null);
+  const [estado, setEstado] = useState<{
+    clave: string;
+    stock: Stock | null;
+    porAlmacen: PorAlmacen;
+    error: boolean;
+  } | null>(null);
 
   useEffect(() => {
     if (!clave) return;
@@ -132,9 +138,9 @@ function useStock(codigos: string[]) {
         const res = await fetch(`/api/cortes/stock?codigos=${encodeURIComponent(clave)}`, { signal: ctrl.signal });
         if (!res.ok) throw new Error();
         const json = (await res.json()) as RespuestaStock;
-        setEstado({ clave, stock: json.stock, error: false });
+        setEstado({ clave, stock: json.stock, porAlmacen: json.porAlmacen ?? {}, error: false });
       } catch {
-        if (!ctrl.signal.aborted) setEstado({ clave, stock: null, error: true });
+        if (!ctrl.signal.aborted) setEstado({ clave, stock: null, porAlmacen: {}, error: true });
       }
     }, 350);
     return () => {
@@ -147,6 +153,8 @@ function useStock(codigos: string[]) {
   return {
     /** `null` mientras Odoo no contesta por estos candidatos. */
     stock: alDia ? estado.stock : null,
+    /** Por código, lo que hay en cada almacén (por su nombre). */
+    porAlmacen: alDia ? estado.porAlmacen : {},
     validando: !!clave && !alDia,
     fallo: alDia && estado.error,
   };
@@ -178,8 +186,10 @@ export function EditorCorte({
 }) {
   const [grupoId, setGrupoId] = useState<string | null>(inicial?.grupoId ?? null);
   const [consulta, setConsulta] = useState("");
-  const [color, setColor] = useState(inicial?.color ?? "");
   const [modalidad, setModalidad] = useState<Modalidad>(inicial?.modalidad ?? "laser");
+  /** Dónde se hace un corte manual. El láser va siempre al taller. */
+  const [lugarManual, setLugarManual] = useState<LugarCorte>(inicial?.lugar ?? "tienda");
+  const lugar = lugarDeCorte({ modalidad, lugar: lugarManual });
   const [filas, setFilas] = useState<FilaPieza[]>(() =>
     inicial
       ? inicial.piezas.map((p) => ({ ancho: String(p.ancho), alto: String(p.alto), cantidad: String(p.cantidad) }))
@@ -197,7 +207,6 @@ export function EditorCorte({
   const buscador = useRef<HTMLInputElement>(null);
 
   const grupo = catalogo.find((g) => g.id === grupoId) ?? null;
-  const conColor = grupo ? pideColor(grupo) : false;
   const { precios, sobrantes, error: errorPrecios } = usePrecios(grupoId);
   const piezas = useMemo(() => piezasDe(filas), [filas]);
 
@@ -206,8 +215,8 @@ export function EditorCorte({
     const formatos = grupo.formatos
       .filter((f) => precios[f.codigo])
       .map((f) => ({ codigo: f.codigo, ancho: f.anchoCm, alto: f.largoCm, precio: precios[f.codigo].precio }));
-    // Con el piloto, los sobrantes del almacén van primero (del color pedido, si el código es compartido).
-    const delAlmacen = grupo.sobrantesActivo ? contenedoresDe(sobrantes, conColor ? color : null) : [];
+    // Los sobrantes del almacén donde se corta van primero.
+    const delAlmacen = grupo.sobrantesActivo ? contenedoresDe(sobrantes[lugar]) : [];
     return compararFormatos(
       { piezas, espesorMm: grupo.espesorMm, modalidad, rotable: grupo.rotable },
       formatos,
@@ -216,13 +225,13 @@ export function EditorCorte({
       // La plancha más chica que sirva: las grandes se guardan para las medidas grandes.
       "tamano",
     );
-  }, [grupo, precios, sobrantes, piezas, modalidad, config, conColor, color]);
+  }, [grupo, precios, sobrantes, piezas, modalidad, config, lugar]);
 
   const candidatos = calculos.slice(0, CANDIDATOS);
   // El formato elegido a mano también se valida, aunque ya no esté entre los tres.
   const elegidoAMano = aMano ? (calculos.find((c) => c.formato.codigo === aMano) ?? null) : null;
   const aValidar = [...new Set([...candidatos, ...(elegidoAMano ? [elegidoAMano] : [])].map((c) => c.formato.codigo))];
-  const { stock, validando, fallo: falloStock } = useStock(aValidar);
+  const { stock, porAlmacen, validando, fallo: falloStock } = useStock(aValidar);
 
   const alcanza = (c: CalculoCorte) => {
     const hay = stock?.[c.formato.codigo];
@@ -234,14 +243,12 @@ export function EditorCorte({
   const mostrados = elegidoAMano && !candidatos.includes(elegidoAMano) ? [...candidatos, elegidoAMano] : candidatos;
 
   const sinOdoo = grupo && precios ? grupo.formatos.filter((f) => !precios[f.codigo]) : [];
-  const faltaColor = conColor && !color.trim();
-  const listo = !!grupo && !!elegido && !elegido.problema && !faltaColor;
+  const listo = !!grupo && !!elegido && !elegido.problema;
 
   const elegirGrupo = (g: GrupoPlancha) => {
     setGrupoId(g.id);
     setConsulta("");
     setAMano(null);
-    setColor(pideColor(g) ? g.detalle : "");
     // Con el material elegido, lo siguiente son las medidas.
     porEnfocar.current = 0;
   };
@@ -271,10 +278,11 @@ export function EditorCorte({
       clave: inicial?.clave,
       grupoId: grupo.id,
       material: grupo.material,
-      color: conColor ? color.trim() : colorDe(grupo),
+      color: colorDe(grupo),
       espesorMm: grupo.espesorMm,
       rotable: grupo.rotable,
       modalidad,
+      lugar,
       piezas,
       calculo: elegido,
     });
@@ -341,16 +349,6 @@ export function EditorCorte({
                   </Button>
                 </p>
               </div>
-              {conColor && (
-                <Campo
-                  label="Color"
-                  requerido
-                  className="w-40"
-                  error={faltaColor ? "Escribe el color" : undefined}
-                >
-                  <Input value={color} onChange={(e) => setColor(e.target.value)} maxLength={60} />
-                </Campo>
-              )}
             </div>
           ) : (
             <div className="flex flex-col gap-1.5">
@@ -385,6 +383,20 @@ export function EditorCorte({
                   opciones={Object.entries(MODALIDADES).map(([valor, label]) => ({ valor, label }))}
                 />
               </Campo>
+              {modalidad === "manual" ? (
+                <Campo grupo label="Dónde se corta">
+                  <Opciones
+                    valores={[lugarManual]}
+                    onToggle={(v) => {
+                      setLugarManual(v as LugarCorte);
+                      setAMano(null);
+                    }}
+                    opciones={Object.entries(LUGARES_CORTE).map(([valor, label]) => ({ valor, label }))}
+                  />
+                </Campo>
+              ) : (
+                <p className="text-muted-foreground -mt-2 text-xs">El corte láser se hace en el taller.</p>
+              )}
 
               {/* 3. Piezas */}
               <div className="flex flex-col gap-1.5">
@@ -514,9 +526,7 @@ export function EditorCorte({
                           elegido={elegido?.formato.codigo === c.formato.codigo}
                           validando={validando}
                           hay={stock ? (stock[c.formato.codigo] ?? null) : undefined}
-                          compartido={
-                            grupo.formatos.find((f) => f.codigo === c.formato.codigo)?.skuCompartido ?? false
-                          }
+                          porAlmacen={porAlmacen[c.formato.codigo]}
                           alElegir={() => setAMano(c.formato.codigo)}
                         />
                       </li>
@@ -608,7 +618,7 @@ function TarjetaFormato({
   elegido,
   validando,
   hay,
-  compartido,
+  porAlmacen,
   alElegir,
 }: {
   calculo: CalculoCorte;
@@ -616,7 +626,8 @@ function TarjetaFormato({
   validando: boolean;
   /** `undefined`: Odoo todavía no contesta. `null`: Odoo no lleva ese stock. */
   hay: number | null | undefined;
-  compartido: boolean;
+  /** Lo que hay en cada almacén, por su nombre. */
+  porAlmacen?: Record<string, number>;
   alElegir: () => void;
 }) {
   const necesita = planchasNuevas(c);
@@ -669,21 +680,22 @@ function TarjetaFormato({
         ) : alcanza ? (
           <>
             <Check className="text-st-entregado size-3.5" />
-            <span className="text-st-entregado font-medium">
-              Hay {hay}
-              {compartido && <span className="text-muted-foreground font-normal"> · entre todos los colores</span>}
-            </span>
+            <span className="text-st-entregado font-medium">Hay {hay}</span>
           </>
         ) : (
           <>
             <CircleAlert className="text-destructive size-3.5" />
-            <span className="text-destructive font-medium">
-              {hay <= 0 ? "Sin stock" : `Solo hay ${hay}`}
-              {compartido && <span className="text-muted-foreground font-normal"> · entre todos los colores</span>}
-            </span>
+            <span className="text-destructive font-medium">{hay <= 0 ? "Sin stock" : `Solo hay ${hay}`}</span>
           </>
         )}
       </span>
+      {porAlmacen && Object.keys(porAlmacen).length > 0 && (
+        <span className="text-muted-foreground tnum text-2xs" data-testid="stock-por-almacen">
+          {Object.entries(porAlmacen)
+            .map(([nombre, n]) => `${nombre} ${String(+n.toFixed(2))}`)
+            .join(" · ")}
+        </span>
+      )}
     </button>
   );
 }

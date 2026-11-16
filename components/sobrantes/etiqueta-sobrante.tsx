@@ -20,7 +20,7 @@ export function EtiquetaSobrante({ sobrante: s, qr }: { sobrante: Sobrante; qr: 
 
       <div className="mb-4 flex items-center gap-2 print:hidden">
         <Button
-          render={<Link href="/sobrantes" />}
+          render={<Link href="/almacen?vista=sobrantes" />}
           nativeButton={false}
           variant="ghost"
           size="sm"
@@ -54,6 +54,9 @@ export function EtiquetaSobrante({ sobrante: s, qr }: { sobrante: Sobrante; qr: 
           <p className="text-[15pt] font-bold tabular-nums">{medidaSobrante(s)} cm</p>
           <p className="line-clamp-3 text-[8pt]">{s.material}</p>
           <p className="text-[7pt]">
+            {s.almacen}
+            {s.ubicacion ? ` · ${s.ubicacion}` : ""}
+            {" · "}
             {s.estandar ? "Estándar · " : ""}
             {fechaCompleta(diaEnLima(s.creadoEn))}
           </p>

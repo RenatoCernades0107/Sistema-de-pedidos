@@ -15,7 +15,13 @@ import {
   Scissors,
 } from "lucide-react";
 import { toast } from "sonner";
-import { reintentarConfirmacion, reintentarSincronizacion } from "@/app/(app)/cotizaciones/acciones";
+import {
+  cambiarAlmacenDeCotizacion,
+  reintentarConfirmacion,
+  reintentarSincronizacion,
+} from "@/app/(app)/cotizaciones/acciones";
+import type { Almacen } from "@/lib/almacenes";
+import { SelectorAlmacen, nombreDeAlmacen } from "@/components/almacen/comun";
 import { referenciaDe, sumaLineas, type Cotizacion } from "@/lib/cotizaciones";
 import { momentoEnLima } from "@/lib/fecha";
 import { fechaHora, money, numero } from "@/lib/formato";
@@ -33,6 +39,8 @@ export function DetalleCotizacion({
   puedeAsistente,
   puedeCrearPedido,
   validezDias,
+  almacenes = [],
+  despachoId = null,
 }: {
   cotizacion: Cotizacion;
   /** Calculado en el servidor: la URL de Odoo no viaja en el bundle. */
@@ -41,10 +49,23 @@ export function DetalleCotizacion({
   puedeCrearPedido: boolean;
   /** La validez que va en el PDF y en el texto (de /configuracion). */
   validezDias: number;
+  /** Los almacenes, y del que sale la venta (el elegido o el de la regla). */
+  almacenes?: Almacen[];
+  despachoId?: string | null;
 }) {
   const router = useRouter();
   const [reintentando, iniciar] = useTransition();
   const [confirmando, iniciarConfirmacion] = useTransition();
+  const [, iniciarAlmacen] = useTransition();
+  const despacho = almacenes.find((a) => a.id === despachoId) ?? null;
+
+  const cambiarAlmacen = (almacenId: string) =>
+    iniciarAlmacen(async () => {
+      const r = await cambiarAlmacenDeCotizacion(c.id, almacenId);
+      if (r.ok) toast.success("Almacén de despacho cambiado");
+      else toast.error("No se cambió el almacén", { description: r.error });
+      router.refresh();
+    });
 
   const confirmar = () =>
     iniciarConfirmacion(async () => {
@@ -213,6 +234,30 @@ export function DetalleCotizacion({
                 <RotateCw className={confirmando ? "animate-spin" : undefined} />
                 {confirmando ? "Confirmando…" : "Confirmar en Odoo"}
               </Button>
+            )}
+          </section>
+        )}
+
+        {despacho && (
+          <section className="bg-card flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border p-4 text-sm">
+            <div className="min-w-0 flex-1">
+              <p className="eyebrow mb-1">Sale del almacén</p>
+              <p className="text-muted-foreground text-xs">
+                {c.confirmadaEnOdoo
+                  ? "Ya es pedido de venta: la entrega sale de aquí."
+                  : "Por defecto, el taller si algo se produce allí; si no, la tienda. Cámbialo si el stock está en otro."}
+              </p>
+            </div>
+            {c.confirmadaEnOdoo ? (
+              <p className="font-medium">{nombreDeAlmacen(despacho)}</p>
+            ) : (
+              <SelectorAlmacen
+                almacenes={almacenes}
+                valor={despacho.id}
+                alCambiar={(id) => id !== despacho.id && cambiarAlmacen(id)}
+                etiqueta="Almacén de despacho"
+                className="w-56"
+              />
             )}
           </section>
         )}

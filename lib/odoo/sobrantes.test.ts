@@ -6,6 +6,7 @@
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { BASE, CLAVE, USUARIO, crearOdooFalso } from "../../e2e/odoo-falso.mjs";
+import { asegurarAlmacen } from "./almacenes";
 import { reiniciarCacheOdoo } from "./rpc";
 import { anotarLote, crearLoteSobrante, lotesEnStock, productoSobrante } from "./sobrantes";
 
@@ -30,7 +31,14 @@ beforeEach(() => {
 });
 
 const material = { codigoBase: "F7E024", nombre: "SOBRANTE ACRILICO ECO CRISTAL 3MM" };
-const lote = (nombre: string, largo = 183, ancho = 61) => ({ material, nombre, largo, ancho, nota: "Rack 2" });
+const lote = (nombre: string, largo = 183, ancho = 61, ubicacionId = 8) => ({
+  material,
+  nombre,
+  largo,
+  ancho,
+  nota: "Rack 2",
+  ubicacionId,
+});
 
 describe("crearLoteSobrante", () => {
   it("crea el producto, los campos de medida y el lote con una unidad en stock", async () => {
@@ -93,9 +101,16 @@ describe("lotesEnStock", () => {
     await crearLoteSobrante(lote("SOB-00002", 100, 50));
     const lotes = await lotesEnStock();
     expect(lotes).toEqual([
-      expect.objectContaining({ nombre: "SOB-00001", codigoProducto: "SOB-F7E024", largo: 183, ancho: 61, nota: "Rack 2" }),
+      expect.objectContaining({ nombre: "SOB-00001", codigoProducto: "SOB-F7E024", largo: 183, ancho: 61, nota: "Rack 2", ubicacionId: 8 }),
       expect.objectContaining({ nombre: "SOB-00002", largo: 100, ancho: 50 }),
     ]);
+  });
+
+  it("dice en qué ubicación está cada uno", async () => {
+    const almacen = await asegurarAlmacen({ nombre: "Católica", codigo: "CAT" });
+    await crearLoteSobrante(lote("SOB-00003", 90, 45, almacen.ubicacionId));
+    const [l] = await lotesEnStock();
+    expect(l).toMatchObject({ nombre: "SOB-00003", ubicacionId: almacen.ubicacionId });
   });
 
   it("sin productos Sobrante no hay nada", async () => {

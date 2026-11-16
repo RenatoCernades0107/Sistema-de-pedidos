@@ -26,6 +26,14 @@ Dos scripts, los dos pensados para correr contra el proyecto de Supabase en la n
   y su RLS, la numeración de versiones de `guardar_version_diseno`, los CHECK de origen
   y rol, la cascada al borrar un diseño y que quien no es Administración no ve ni
   escribe nada. Tampoco necesita las cuentas del seed, y termina en `ROLLBACK`.
+- **`almacenes.sql`** — verifica las migraciones `20261129000100`–`200`: los tres almacenes con su
+  papel (un solo taller y una sola tienda), que ya no hay código compartido entre colores y todos los
+  materiales registran sobrantes, los accesorios sembrados en sus categorías, que un sobrante necesita
+  su almacén, y por rol: el taller ve los almacenes pero no crea almacenes, ingresos ni accesorios, ni
+  toca el precio de un sobrante; Logística gestiona el stock (ingresos, accesorios, planchas nuevas)
+  sin cambiar el catálogo ni los precios; Administración fija y devuelve al calculado el precio de un
+  sobrante. Entra como el primer usuario activo de cada rol, así que no necesita las cuentas del seed.
+  Termina en `ROLLBACK`.
 - **`estado.sql`** — no verifica nada, solo reporta: cuántos pedidos, pagos y adjuntos
   hay, cómo se reparten los estados y si algún saldo quedó descuadrado.
 

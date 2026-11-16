@@ -8,11 +8,13 @@
 import { cache } from "react";
 import { clienteServidor } from "./supabase-servidor";
 import { calcularCorte } from "./cortes/calcular";
-import { colorDe, pideColor, type FormatoPlancha, type GrupoPlancha } from "./cortes/catalogo";
+import { colorDe, type FormatoPlancha, type GrupoPlancha } from "./cortes/catalogo";
 import { leerConfigCortes, type ConfigCortes } from "./cortes/config";
-import { guardarCorte, resumenPiezas, tituloCorte, type CorteGuardado } from "./cortes/guardado";
+import { guardarCorte, lugarDeCorte, resumenPiezas, tituloCorte, type CorteGuardado } from "./cortes/guardado";
 import type { NuevaLineaCorte } from "./esquemas";
 import { productosPorCodigo } from "./odoo/catalogos";
+import { almacenDeLugar } from "./almacenes";
+import { cargarAlmacenes } from "./almacenes-servidor";
 import { contenedoresDe } from "./sobrantes";
 import { sobrantesDisponibles } from "./sobrantes-servidor";
 
@@ -42,7 +44,6 @@ interface FilaGrupo {
     codigo_odoo: string;
     ancho_cm: number;
     largo_cm: number;
-    sku_compartido: boolean;
     por_verificar: boolean;
     nota: string | null;
     activo: boolean;
@@ -54,7 +55,6 @@ const deFormato = (f: FilaGrupo["formatos_plancha"][number]): FormatoPlancha => 
   codigo: f.codigo_odoo,
   anchoCm: Number(f.ancho_cm),
   largoCm: Number(f.largo_cm),
-  skuCompartido: f.sku_compartido,
   porVerificar: f.por_verificar,
   nota: f.nota,
   activo: f.activo,
@@ -75,7 +75,7 @@ const deGrupo = (g: FilaGrupo): GrupoPlancha => ({
 
 const COLUMNAS = `
   id, material, variante, detalle, espesor_mm, rotable, sobrantes_activo,
-  formatos_plancha ( id, codigo_odoo, ancho_cm, largo_cm, sku_compartido, por_verificar, nota, activo )
+  formatos_plancha ( id, codigo_odoo, ancho_cm, largo_cm, por_verificar, nota, activo )
 `;
 
 /**
@@ -169,10 +169,10 @@ export async function prepararCorte(
     return fallo(`El servicio de corte ${codigoServicio} no existe en Odoo. Revisa el código en Configuración.`);
   }
 
-  // Con el piloto, el acomodo usa primero los sobrantes del almacén. El precio no cambia.
-  const delAlmacen = grupo.sobrantesActivo
-    ? contenedoresDe(await sobrantesDisponibles(grupo.id), pideColor(grupo) ? (linea.color ?? null) : null)
-    : [];
+  // El acomodo usa primero los sobrantes del almacén donde se corta. El precio no cambia.
+  const lugar = lugarDeCorte(linea);
+  const almacen = almacenDeLugar(await cargarAlmacenes(), lugar);
+  const delAlmacen = grupo.sobrantesActivo && almacen ? contenedoresDe(await sobrantesDisponibles(grupo.id, almacen.id)) : [];
   const calculo = calcularCorte(
     { piezas: linea.piezas, espesorMm: grupo.espesorMm, modalidad: linea.modalidad, rotable: grupo.rotable },
     { codigo: formato.codigo, ancho: formato.anchoCm, alto: formato.largoCm, precio: plancha.precio },
@@ -191,10 +191,10 @@ export async function prepararCorte(
     {
       grupoId: grupo.id,
       material: grupo.material,
-      // Con un código para todos los colores, vale el que se pidió.
-      color: (pideColor(grupo) && linea.color) || colorDe(grupo),
+      color: colorDe(grupo),
       espesorMm: grupo.espesorMm,
       modalidad: linea.modalidad,
+      lugar,
       rotable: grupo.rotable,
       piezas: linea.piezas,
       servicio: { productoId: servicio.id, codigo: codigoServicio, nombre: servicio.nombre },

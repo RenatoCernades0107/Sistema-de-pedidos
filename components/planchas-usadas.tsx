@@ -13,6 +13,9 @@ import {
 } from "@/lib/pedido-lineas";
 import { sobrantesUsados } from "@/lib/cortes/guardado";
 import { normalizarMedidas, sobrantesDeCorte } from "@/lib/sobrantes";
+import { almacenDeLugar, type Almacen } from "@/lib/almacenes";
+import { lugarDeCorte } from "@/lib/cortes/guardado";
+import { SelectorAlmacen } from "@/components/almacen/comun";
 import type { Resultado } from "@/app/(app)/acciones";
 import { Button } from "@/components/ui/button";
 import { Campo } from "@/components/ui/campo";
@@ -30,7 +33,8 @@ import {
 export type PlanchasAnotadas = { posicion: number; planchas: number }[];
 export type SobrantesGuardados = {
   posicion: number;
-  piezas: { largo: number; ancho: number; ubicacion: string | null }[];
+  /** Cada pedazo, con el almacén al que se fue (y, en un producto terminado, su material). */
+  piezas: { largo: number; ancho: number; ubicacion: string | null; almacenId: string; grupoId?: string | null }[];
 }[];
 
 const n = (x: number) => String(+x.toFixed(2));
@@ -58,6 +62,8 @@ interface SobranteEnEdicion {
   largo: string;
   ancho: string;
   ubicacion: string;
+  /** A qué almacén se fue. Llega puesto con el almacén donde se cortó. */
+  almacenId: string | null;
 }
 
 /**
@@ -65,9 +71,10 @@ interface SobranteEnEdicion {
  * stock en Odoo: llega puesto con lo anotado o, si nadie anotó, con lo
  * calculado, y solo se corrige si se usó otra cantidad.
  *
- * En los cortes con el piloto de sobrantes, al pasar a Listo se confirman
- * además los pedazos que vuelven al almacén: llegan propuestos con lo que dejó
- * el cálculo, y se corrigen con la medida real, se quitan o se agregan.
+ * Al pasar a Listo se confirman además los pedazos que vuelven al almacén, y a
+ * cuál se fue cada uno: llegan propuestos con lo que dejó el cálculo y con el
+ * almacén donde se cortó, y se corrigen con la medida real, se quitan, se
+ * agregan o se mandan a otro almacén.
  *
  * Lo abre el botón "Listo" (`alPasarAListo`), que mueve el pedido y descuenta, y
  * el detalle del pedido, que solo anota las planchas.
@@ -76,6 +83,7 @@ export function DialogoPlanchas({
   abierto,
   alCambiar,
   cortes,
+  almacenes = [],
   alPasarAListo,
   retazoMin = 30,
   pendiente,
@@ -84,6 +92,8 @@ export function DialogoPlanchas({
   abierto: boolean;
   alCambiar: (abierto: boolean) => void;
   cortes: LineaDePedido[];
+  /** Los almacenes, para decir a cuál se fue cada sobrante. */
+  almacenes?: Almacen[];
   alPasarAListo?: boolean;
   /** El lado mínimo de un sobrante: con menos, es retazo. */
   retazoMin?: number;
@@ -99,7 +109,7 @@ export function DialogoPlanchas({
           <DialogDescription>
             {alPasarAListo
               ? conPiloto
-                ? "Confirma las planchas que usaste y los sobrantes que guardaste: con eso se cierra la producción en Odoo."
+                ? "Confirma las planchas que usaste, los sobrantes que guardaste y a qué almacén se fue cada uno: con eso se cierra la producción en Odoo."
                 : "Al pasar a Listo, estas planchas se descuentan del stock en Odoo. Corrige la cantidad si usaste otra."
               : "Lo que se descontará del stock en Odoo cuando el pedido pase a Listo."}
           </DialogDescription>
@@ -108,6 +118,7 @@ export function DialogoPlanchas({
         {abierto && (
           <Formulario
             cortes={cortes}
+            almacenes={almacenes}
             alPasarAListo={alPasarAListo}
             retazoMin={retazoMin}
             pendiente={pendiente}
@@ -126,12 +137,14 @@ let siguienteClave = 1;
 
 function Formulario({
   cortes,
+  almacenes,
   alPasarAListo,
   retazoMin,
   pendiente,
   alConfirmar,
 }: {
   cortes: LineaDePedido[];
+  almacenes: Almacen[];
   alPasarAListo?: boolean;
   retazoMin: number;
   pendiente: boolean;
@@ -147,6 +160,7 @@ function Formulario({
             largo: n(s.largo),
             ancho: n(s.ancho),
             ubicacion: "",
+            almacenId: almacenDeLugar(almacenes, lugarDeCorte(l.corte!))?.id ?? null,
           }))
         : [],
     ),
@@ -179,7 +193,8 @@ function Formulario({
         if (m.ancho < retazoMin) {
           return setErrorSobrantes(`${n(m.largo)}×${n(m.ancho)} es retazo (un lado de menos de ${retazoMin} cm): quítalo.`);
         }
-        piezas.push({ ...m, ubicacion: s.ubicacion.trim() || null });
+        if (!s.almacenId) return setErrorSobrantes("Elige a qué almacén se fue cada sobrante.");
+        piezas.push({ ...m, ubicacion: s.ubicacion.trim() || null, almacenId: s.almacenId });
       }
       guardados.push({ posicion: l.posicion, piezas });
     }
@@ -257,6 +272,14 @@ function Formulario({
                             onChange={(e) => cambiarSobrante(i, s.clave, { ancho: e.target.value })}
                           />
                         </Campo>
+                        <Campo grupo label="Se fue a" className="w-40">
+                          <SelectorAlmacen
+                            almacenes={almacenes}
+                            valor={s.almacenId}
+                            alCambiar={(id) => cambiarSobrante(i, s.clave, { almacenId: id })}
+                            etiqueta={`Almacén del sobrante ${k + 1}`}
+                          />
+                        </Campo>
                         <Campo label="Ubicación" className="min-w-28 flex-1">
                           <Input
                             value={s.ubicacion}
@@ -286,7 +309,18 @@ function Formulario({
                       onClick={() =>
                         setSobrantes((prev) =>
                           prev.map((lista, j) =>
-                            j === i ? [...lista, { clave: siguienteClave++, largo: "", ancho: "", ubicacion: "" }] : lista,
+                            j === i
+                              ? [
+                                  ...lista,
+                                  {
+                                    clave: siguienteClave++,
+                                    largo: "",
+                                    ancho: "",
+                                    ubicacion: "",
+                                    almacenId: almacenDeLugar(almacenes, lugarDeCorte(c))?.id ?? null,
+                                  },
+                                ]
+                              : lista,
                           ),
                         )
                       }

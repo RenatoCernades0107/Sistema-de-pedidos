@@ -338,8 +338,8 @@ export function lineaParaEnviar(l: Linea) {
     return {
       tipo: "corte" as const,
       grupoId: l.grupoId,
-      color: l.color.trim() || null,
       modalidad: l.modalidad,
+      lugar: l.lugar,
       piezas: l.piezas,
       formatoCodigo: l.calculo.formato.codigo,
       totalMostrado: l.calculo.total,
@@ -361,7 +361,6 @@ export function lineaParaEnviar(l: Linea) {
         letras: m.letras || null,
       },
       grupoId: l.grupoId,
-      color: l.color?.trim() || null,
       opciones: l.opciones,
       texto: l.texto.trim() || null,
       notas: l.notas.trim() || null,
