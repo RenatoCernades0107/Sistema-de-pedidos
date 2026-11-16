@@ -1,4 +1,4 @@
-import { Box, ChartColumn, Layers, MessageSquareText, Settings, type LucideIcon } from "lucide-react";
+import { Box, ChartColumn, Layers, MessageCircle, MessageSquareText, Settings, type LucideIcon } from "lucide-react";
 
 /**
  * El icono de cada herramienta de `lib/dominio.ts`, por `href`, que es lo que la
@@ -6,6 +6,7 @@ import { Box, ChartColumn, Layers, MessageSquareText, Settings, type LucideIcon 
  * lateral y menú "Más") y el buscador (⌘K)— y el modelo no sabe de iconos.
  */
 export const ICONOS_HERRAMIENTA: Record<string, LucideIcon> = {
+  "/chat": MessageCircle,
   "/cotizaciones": MessageSquareText,
   "/disenos": Box,
   "/sobrantes": Layers,

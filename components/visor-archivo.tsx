@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Un PDF o una imagen a pantalla completa, dentro de la app, con su propia barra:
+ * Un PDF, una imagen o un video a pantalla completa, dentro de la app, con su propia barra:
  * volver, compartir y descargar.
  *
  * Existe por la PWA del iPhone: instalada no tiene barra del navegador, y el visor
@@ -32,6 +32,12 @@ type Carga =
 interface Props {
   url: string;
   titulo: string;
+  /**
+   * El tipo, si quien abre ya lo sabe. Un video no se baja entero antes de
+   * mostrarlo (pesa hasta 50 MB): se reproduce desde la URL y solo se baja si
+   * se pide compartir o descargar.
+   */
+  mime?: string;
   onCerrar: () => void;
 }
 
@@ -43,7 +49,10 @@ export function VisorArchivo({ abierto, ...props }: Props & { abierto: boolean }
   return abierto ? <VisorAbierto key={props.url} {...props} /> : null;
 }
 
-function VisorAbierto({ url, titulo, onCerrar }: Props) {
+function VisorAbierto({ url, titulo, mime, onCerrar }: Props) {
+  const esVideo = mime?.startsWith("video/") ?? false;
+  /* El video se pide como archivo recién cuando hace falta (compartir, descargar). */
+  const [pedido, setPedido] = useState(!esVideo);
   const [carga, setCarga] = useState<Carga>({ estado: "cargando" });
   const volverRef = useRef<HTMLButtonElement>(null);
   /* Si el visor puso su entrada en el historial, cerrarlo es `history.back()`:
@@ -89,6 +98,7 @@ function VisorAbierto({ url, titulo, onCerrar }: Props) {
   }, [cerrar]);
 
   useEffect(() => {
+    if (!pedido) return;
     const control = new AbortController();
 
     (async () => {
@@ -112,7 +122,7 @@ function VisorAbierto({ url, titulo, onCerrar }: Props) {
     })();
 
     return () => control.abort();
-  }, [url, titulo]);
+  }, [url, titulo, pedido]);
 
   const archivo = carga.estado === "listo" ? carga.archivo : null;
   const puedeCompartir = archivo !== null && sePuedeCompartir(archivo);
@@ -130,14 +140,22 @@ function VisorAbierto({ url, titulo, onCerrar }: Props) {
     }
   };
 
+  /* Un video todavía no bajado: el botón lo pide y la descarga sale sola al llegar. */
+  const descargarAlLlegar = useRef(false);
+  useEffect(() => {
+    if (descargarAlLlegar.current && archivo) {
+      descargarAlLlegar.current = false;
+      guardar(archivo);
+    }
+  }, [archivo]);
+
   const descargar = () => {
-    if (!archivo) return;
-    const enlace = document.createElement("a");
-    enlace.href = URL.createObjectURL(archivo);
-    enlace.download = archivo.name;
-    enlace.click();
-    // El navegador ya tomó el enlace; liberarlo en el mismo tick corta descargas en Safari.
-    setTimeout(() => URL.revokeObjectURL(enlace.href), 10_000);
+    if (archivo) {
+      guardar(archivo);
+      return;
+    }
+    descargarAlLlegar.current = true;
+    setPedido(true);
   };
 
   return createPortal(
@@ -165,7 +183,7 @@ function VisorAbierto({ url, titulo, onCerrar }: Props) {
           variant="ghost"
           size="lg"
           onClick={descargar}
-          disabled={!archivo}
+          disabled={!archivo && !(esVideo && !pedido)}
           aria-label="Descargar"
           className={puedeCompartir ? "hidden sm:inline-flex" : undefined}
         >
@@ -175,13 +193,35 @@ function VisorAbierto({ url, titulo, onCerrar }: Props) {
       </header>
 
       <div className="bg-muted/40 min-h-0 flex-1 overflow-auto overscroll-contain p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
-        {carga.estado === "cargando" && <Cargando />}
-        {carga.estado === "error" && <Aviso>{carga.mensaje}</Aviso>}
+        {esVideo ? (
+          // Desde la URL: el navegador va pidiendo por partes y empieza a reproducir enseguida.
+          <video
+            src={url}
+            controls
+            autoPlay
+            playsInline
+            className="mx-auto h-full max-h-full w-full max-w-5xl rounded-lg bg-black object-contain"
+          />
+        ) : (
+          <>
+            {carga.estado === "cargando" && <Cargando />}
+            {carga.estado === "error" && <Aviso>{carga.mensaje}</Aviso>}
+          </>
+        )}
         {archivo &&
+          !esVideo &&
           (archivo.type === "application/pdf" ? (
             <PaginasPdf archivo={archivo} />
           ) : archivo.type.startsWith("image/") ? (
-            <Imagen archivo={archivo} />
+            <Imagen archivo={archivo} onDescargar={descargar} />
+          ) : archivo.type.startsWith("video/") ? (
+            <video
+              src={url}
+              controls
+              autoPlay
+              playsInline
+              className="mx-auto h-full max-h-full w-full max-w-5xl rounded-lg bg-black object-contain"
+            />
           ) : (
             <Aviso>Este archivo no se puede previsualizar. Descárgalo para abrirlo.</Aviso>
           ))}
@@ -208,7 +248,10 @@ function Aviso({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Imagen({ archivo }: { archivo: File }) {
+function Imagen({ archivo, onDescargar }: { archivo: File; onDescargar: () => void }) {
+  /* Las fotos HEIC del iPhone solo las muestra Safari: en los demás el `<img>`
+     falla y lo único útil es bajarla. */
+  const [noSeVe, setNoSeVe] = useState(false);
   /* La URL del blob vive lo que vive el `<img>`: el ref la crea al montarlo y
      la libera al quitarlo. */
   const conBlob = useCallback(
@@ -221,8 +264,31 @@ function Imagen({ archivo }: { archivo: File }) {
     [archivo],
   );
 
-  // eslint-disable-next-line @next/next/no-img-element -- es un blob local, no hay nada que optimizar
-  return <img ref={conBlob} alt={archivo.name} className="mx-auto h-auto max-w-full rounded-lg border" />;
+  if (noSeVe) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-sm">
+        <p className="text-muted-foreground max-w-xs">
+          {/heic|heif/i.test(archivo.type) || /\.hei[cf]$/i.test(archivo.name)
+            ? "Esta foto está en formato HEIC (del iPhone) y este navegador no la puede mostrar."
+            : "Este navegador no puede mostrar la imagen."}{" "}
+          Descárgala para verla.
+        </p>
+        <Button variant="outline" onClick={onDescargar}>
+          <Download /> Descargar
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- es un blob local, no hay nada que optimizar
+    <img
+      ref={conBlob}
+      alt={archivo.name}
+      onError={() => setNoSeVe(true)}
+      className="mx-auto h-auto max-w-full rounded-lg border"
+    />
+  );
 }
 
 /**
@@ -317,6 +383,15 @@ function cargarPdfjs() {
     return pdfjs;
   });
   return pdfjsListo;
+}
+
+function guardar(archivo: File) {
+  const enlace = document.createElement("a");
+  enlace.href = URL.createObjectURL(archivo);
+  enlace.download = archivo.name;
+  enlace.click();
+  // El navegador ya tomó el enlace; liberarlo en el mismo tick corta descargas en Safari.
+  setTimeout(() => URL.revokeObjectURL(enlace.href), 10_000);
 }
 
 function sePuedeCompartir(archivo: File): boolean {

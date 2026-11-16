@@ -43,7 +43,7 @@ import { Button } from "@/components/ui/button";
 import { LineasPedido } from "@/components/lineas-pedido";
 import { CompartirMenu } from "@/components/compartir-menu";
 import { ChatPedido } from "@/components/chat-pedido";
-import type { MensajePedido } from "@/lib/chat-pedido";
+import type { ChatInicial } from "@/lib/chat/consultas";
 import { asuntoSeguimiento, mensajeSeguimiento } from "@/lib/compartir";
 import type { LineaDePedido, OdooDePedido } from "@/lib/pedido-lineas";
 import type { Sobrante } from "@/lib/sobrantes";
@@ -58,8 +58,11 @@ export function DetallePedido({
   chat = null,
 }: {
   codigo: string;
-  /** El chat del equipo. `null` si no se pudo leer. */
-  chat?: { pedidoId: string; usuarioId: string; mensajes: MensajePedido[] } | null;
+  /**
+   * El chat del pedido (su conversación del chat del equipo). `null` si no se
+   * pudo leer. `abrir`: se llegó desde un aviso y el panel se abre solo.
+   */
+  chat?: { conversacionId: string; usuarioId: string; inicial: ChatInicial | null; abrir?: boolean } | null;
   /**
    * El permiso del enlace público de seguimiento. Solo llega a quien coordina
    * con el cliente (Administración y Logística); sin él no sale el botón.
@@ -467,10 +470,11 @@ export function DetallePedido({
 
         {chat && (
           <ChatPedido
-            pedidoId={chat.pedidoId}
+            conversacionId={chat.conversacionId}
             codigo={p.codigo}
             usuarioId={chat.usuarioId}
-            iniciales={chat.mensajes}
+            inicial={chat.inicial}
+            abrirAlEntrar={chat.abrir}
             className="order-3 2xl:sticky 2xl:top-20 2xl:h-[calc(100dvh-6rem)]"
           />
         )}
