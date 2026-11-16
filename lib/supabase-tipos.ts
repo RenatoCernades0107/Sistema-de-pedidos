@@ -2270,6 +2270,28 @@ export type Database = {
       array_sin_duplicados: { Args: { a: unknown }; Returns: boolean }
       auditoria_texto: { Args: { campo: string; valor: Json }; Returns: string }
       auth_rol: { Args: never; Returns: Database["public"]["Enums"]["rol"] }
+      buscar_pedidos_chat: {
+        Args: { p_q: string }
+        Returns: {
+          codigo: string
+          estado: Database["public"]["Enums"]["estado_pedido"]
+          fecha_creacion: string
+          fecha_prometida: string
+          nombre_cliente: string
+        }[]
+      }
+      chat_compactar: { Args: { p_texto: string }; Returns: string }
+      chat_normalizar: { Args: { p_texto: string }; Returns: string }
+      chat_telefono: { Args: { p_texto: string }; Returns: string }
+      clientes_de_pedidos: {
+        Args: { p_q: string }
+        Returns: {
+          nombre: string
+          pedidos: number
+          telefono: string
+          ultimo: string
+        }[]
+      }
       conversacion_de_pedido: {
         Args: { p_pedido_id: string }
         Returns: string
@@ -2447,6 +2469,16 @@ export type Database = {
           nombre: string
           rol: Database["public"]["Enums"]["rol"]
           usuario_id: string
+        }[]
+      }
+      pedidos_de_cliente: {
+        Args: { p_nombre: string | null; p_partner_id: number | null; p_telefono: string | null }
+        Returns: {
+          codigo: string
+          estado: Database["public"]["Enums"]["estado_pedido"]
+          fecha_creacion: string
+          fecha_prometida: string
+          nombre_cliente: string
         }[]
       }
       puede_ver_conversacion: {
