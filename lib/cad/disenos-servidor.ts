@@ -3,7 +3,7 @@
  * la conversación con el asistente.
  *
  * Como el resto de la app, se lee y se escribe con la sesión de quien pide: la
- * RLS es la que dice que solo Administración entra aquí (`cad_*_admin`). Quién
+ * RLS es la que dice quién entra aquí (los tres roles, 20261129000300). Quién
  * puede llamar a esto lo comprueban las acciones y el route handler antes.
  *
  * La geometría no se guarda: una versión es una plantilla con sus parámetros, y
@@ -18,6 +18,7 @@ import { esquemaReferenciaCara, type ReferenciaCara } from "./caras";
 import type { DisenoCad, MaterialDiseno, ParametrosCad } from "./tipos";
 import { NOMBRE_POR_DEFECTO } from "./titulo";
 import { urlMiniatura } from "./miniatura-url";
+import type { FirmaVersion, OrigenHistorial, VersionHistorial } from "./historial";
 
 export type OrigenVersion = "formulario" | "chat";
 
@@ -389,6 +390,85 @@ export async function agregarMensaje(entrada: {
     herramientas: entrada.herramientas?.length ? entrada.herramientas : null,
     referencias: entrada.referencias?.length ? (entrada.referencias as unknown as Json) : null,
     ...(entrada.creadoEn ? { creado_en: entrada.creadoEn } : {}),
+  });
+  if (error) throw new Error(mensajeDeError(error));
+}
+
+/* ── Historial de versiones (20261129000300) ─────────────────────────────── */
+
+/** Cuántas versiones trae el historial, las más nuevas. Un diseño muy trabajado puede tener cientos. */
+const MAX_HISTORIAL = 300;
+
+const deOrigen = (o: string): OrigenHistorial =>
+  o === "chat" ? "chat" : o === "restauracion" ? "restauracion" : "formulario";
+
+/** Las versiones de un diseño, la más nueva primero, con quién las guardó y su foto. */
+export async function listarVersiones(disenoId: string): Promise<VersionHistorial[]> {
+  const supabase = await clienteServidor();
+  const { data, error } = await supabase
+    .from("cad_diseno_versiones")
+    .select(
+      "version, creado_en, creado_por, autor_nombre, origen, nombre_version, restaurada_de, estado, miniatura_path, plantilla, parametros, grupo_plancha_id, color, materiales",
+    )
+    .eq("diseno_id", disenoId)
+    .order("version", { ascending: false })
+    .limit(MAX_HISTORIAL);
+  if (error) throw new Error(`No se pudo leer el historial: ${error.message}`);
+  return (data ?? []).map((v) => ({
+    version: v.version,
+    creadoEn: v.creado_en,
+    creadoPor: v.creado_por,
+    autorNombre: v.autor_nombre,
+    origen: deOrigen(v.origen),
+    nombreVersion: v.nombre_version,
+    restauradaDe: v.restaurada_de,
+    estado: v.estado === "borrador" ? "borrador" : "aprobado",
+    miniatura: urlMiniatura(v.miniatura_path),
+    plantilla: v.plantilla,
+    parametros: deParametros(v.parametros),
+    material: v.grupo_plancha_id ? { grupoPlanchaId: v.grupo_plancha_id, color: v.color } : null,
+    materiales: leerMateriales(v.materiales),
+  }));
+}
+
+/**
+ * Las versiones guardadas después de `desde` (número y autor), para saber si
+ * alguien más guardó mientras se editaba. Pocas filas: solo las nuevas.
+ */
+export async function firmasDesde(disenoId: string, desde: number): Promise<FirmaVersion[]> {
+  const supabase = await clienteServidor();
+  const { data, error } = await supabase
+    .from("cad_diseno_versiones")
+    .select("version, creado_por, autor_nombre")
+    .eq("diseno_id", disenoId)
+    .gt("version", desde)
+    .order("version", { ascending: false })
+    .limit(50);
+  if (error) throw new Error(`No se pudo leer el diseño: ${error.message}`);
+  return (data ?? []).map((v) => ({ version: v.version, creadoPor: v.creado_por, autorNombre: v.autor_nombre }));
+}
+
+/**
+ * Copia una versión vieja como la nueva vigente (`restaurar_version_diseno`):
+ * nada se pierde, la que se reemplaza sigue en el historial. Devuelve el número nuevo.
+ */
+export async function restaurarVersion(disenoId: string, version: number): Promise<{ version: number }> {
+  const supabase = await clienteServidor();
+  const { data, error } = await supabase.rpc("restaurar_version_diseno", {
+    p_diseno_id: disenoId,
+    p_version: version,
+  });
+  if (error) throw new Error(mensajeDeError(error));
+  return { version: data };
+}
+
+/** Pone, cambia o quita (`null`) el nombre de una versión. */
+export async function nombrarVersion(disenoId: string, version: number, nombre: string | null): Promise<void> {
+  const supabase = await clienteServidor();
+  const { error } = await supabase.rpc("nombrar_version_diseno", {
+    p_diseno_id: disenoId,
+    p_version: version,
+    p_nombre: nombre ?? "",
   });
   if (error) throw new Error(mensajeDeError(error));
 }

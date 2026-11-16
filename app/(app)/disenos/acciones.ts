@@ -18,15 +18,20 @@ import { clienteServidor } from "@/lib/supabase-servidor";
 import { mensajeDeError } from "@/lib/errores";
 import {
   crearOReusarBorrador,
+  firmasDesde,
   guardarVersionDiseno,
   listarDisenos,
   listarMensajes,
+  listarVersiones,
+  nombrarVersion,
   obtenerDiseno,
   obtenerMaterialDiseno,
   obtenerMaterialesPorCopia,
   renombrarSiPorDefecto,
+  restaurarVersion,
   type MensajeCad,
 } from "@/lib/cad/disenos-servidor";
+import { cambioAjenoDesde, limpiarNombreVersion, versionActual, type VersionHistorial } from "@/lib/cad/historial";
 import { obtenerPlantilla } from "@/lib/cad/motor";
 import { aprobarVersionLibre, guardarMaterialLibre, obtenerVersionLibre } from "@/lib/cad/libre-servidor";
 import { esquemaMaterialesGuardados, type MaterialesPorCopia } from "@/lib/cad/materiales";
@@ -187,7 +192,11 @@ export async function eliminarDiseno(disenoId: string): Promise<void> {
   if (error?.code === "23503")
     throw new Error("Este diseño está en una cotización: no se puede borrar.");
   if (error) throw new Error(mensajeDeError(error));
-  if (data.length === 0) throw new Error(ERROR_SIN_DISENO);
+  if (data.length === 0) {
+    // Lo ve pero no lo borró: la RLS solo deja borrar el propio (o a Administración).
+    if (await obtenerDiseno(id)) throw new Error("Solo quien creó este diseño (o Administración) puede borrarlo.");
+    throw new Error(ERROR_SIN_DISENO);
+  }
 }
 
 /** La conversación guardada de un diseño, para pintarla al abrirlo. */
@@ -314,5 +323,50 @@ export async function buscarMisDisenos(entrada: {
     total,
     pagina: actual,
     paginas,
+  };
+}
+
+/* ── Historial de versiones ── */
+
+const esquemaVersion = z.number().int().min(1, "La versión no es válida.");
+
+/** Las versiones de un diseño, la más nueva primero (ver `components/disenos/historial-versiones.tsx`). */
+export async function cargarHistorial(disenoId: string): Promise<VersionHistorial[]> {
+  await exigirCad();
+  return listarVersiones(validar(esquemaId, disenoId));
+}
+
+/**
+ * Vuelve a una versión anterior: la copia como versión nueva (nada se pierde).
+ * Devuelve el número de la nueva vigente.
+ */
+export async function restaurarVersionDiseno(disenoId: string, version: number): Promise<{ version: number }> {
+  await exigirCad();
+  return restaurarVersion(validar(esquemaId, disenoId), validar(esquemaVersion, version));
+}
+
+/** Pone, cambia o quita (texto vacío) el nombre de una versión: "Aprobada por el cliente". */
+export async function nombrarVersionDiseno(disenoId: string, version: number, nombre: string): Promise<void> {
+  await exigirCad();
+  const texto = validar(z.string().max(200, "El nombre es demasiado largo."), nombre);
+  await nombrarVersion(validar(esquemaId, disenoId), validar(esquemaVersion, version), limpiarNombreVersion(texto));
+}
+
+/**
+ * Edición en paralelo: la versión vigente y, si después de `desde` guardó
+ * alguien que no es quien pregunta, la más nueva de esas (número y nombre).
+ * Lo llaman el guardado y el volver a la pestaña.
+ */
+export async function revisarCambiosAjenos(
+  disenoId: string,
+  desde: number,
+): Promise<{ actual: number; ajena: { version: number; autorNombre: string } | null }> {
+  const perfil = await exigirCad();
+  const id = validar(esquemaId, disenoId);
+  const firmas = await firmasDesde(id, validar(z.number().int().min(0), desde));
+  const ajena = cambioAjenoDesde(firmas, desde, perfil.id);
+  return {
+    actual: versionActual(firmas)?.version ?? desde,
+    ajena: ajena ? { version: ajena.version, autorNombre: ajena.autorNombre } : null,
   };
 }

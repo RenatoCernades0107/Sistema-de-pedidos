@@ -16,12 +16,13 @@ const ESPERA_MS = 2500;
  * entretanto se guardó otra versión o si la vigente ya tenía una.
  */
 export function MiniaturaDiseno({ vigenteConFoto }: { vigenteConFoto: boolean }) {
-  const { disenoId, resultado, tinte, esperarGuardado } = useDiseno();
+  const { disenoId, resultado, tinte, esperarGuardado, vistaPrevia } = useDiseno();
   // Al abrir un diseño se regenera su versión vigente: si ya tenía foto, no hace falta otra.
   const saltar = useRef(vigenteConFoto);
 
   useEffect(() => {
-    if (!resultado) return;
+    // Una versión vieja en vista previa no es la vigente: su foto no va.
+    if (!resultado || vistaPrevia !== null) return;
     if (saltar.current) {
       saltar.current = false;
       return;
@@ -49,7 +50,7 @@ export function MiniaturaDiseno({ vigenteConFoto }: { vigenteConFoto: boolean })
       vivo = false;
       clearTimeout(espera);
     };
-  }, [disenoId, resultado, tinte, esperarGuardado]);
+  }, [disenoId, resultado, tinte, esperarGuardado, vistaPrevia]);
 
   return null;
 }

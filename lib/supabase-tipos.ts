@@ -119,6 +119,7 @@ export type Database = {
           acomodo: Json | null
           aprobado_en: string | null
           aprobado_por: string | null
+          autor_nombre: string
           codigo: string | null
           color: string | null
           creado_en: string
@@ -129,9 +130,11 @@ export type Database = {
           id: string
           materiales: Json | null
           miniatura_path: string | null
+          nombre_version: string | null
           origen: string
           parametros: Json
           plantilla: string
+          restaurada_de: number | null
           version: number
           version_plantilla: number | null
         }
@@ -139,6 +142,7 @@ export type Database = {
           acomodo?: Json | null
           aprobado_en?: string | null
           aprobado_por?: string | null
+          autor_nombre?: string
           codigo?: string | null
           color?: string | null
           creado_en?: string
@@ -149,9 +153,11 @@ export type Database = {
           id?: string
           materiales?: Json | null
           miniatura_path?: string | null
+          nombre_version?: string | null
           origen: string
           parametros?: Json
           plantilla: string
+          restaurada_de?: number | null
           version: number
           version_plantilla?: number | null
         }
@@ -159,6 +165,7 @@ export type Database = {
           acomodo?: Json | null
           aprobado_en?: string | null
           aprobado_por?: string | null
+          autor_nombre?: string
           codigo?: string | null
           color?: string | null
           creado_en?: string
@@ -169,9 +176,11 @@ export type Database = {
           id?: string
           materiales?: Json | null
           miniatura_path?: string | null
+          nombre_version?: string | null
           origen?: string
           parametros?: Json
           plantilla?: string
+          restaurada_de?: number | null
           version?: number
           version_plantilla?: number | null
         }
@@ -2426,6 +2435,10 @@ export type Database = {
         Returns: number
       }
       marcar_password_cambiada: { Args: never; Returns: undefined }
+      nombrar_version_diseno: {
+        Args: { p_diseno_id: string; p_nombre: string; p_version: number }
+        Returns: undefined
+      }
       odoo_de_pedido: {
         Args: { p_codigo: string }
         Returns: {
@@ -2466,6 +2479,10 @@ export type Database = {
           p_posicion: number
         }
         Returns: undefined
+      }
+      restaurar_version_diseno: {
+        Args: { p_diseno_id: string; p_version: number }
+        Returns: number
       }
       resumen_conversaciones: {
         Args: never

@@ -318,7 +318,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     verMetricas: false,
     configurar: false,
     verSobrantes: true,
-    usarCad: false,
+    usarCad: true,
   },
   operaciones: {
     nombre: "Operaciones",
@@ -341,7 +341,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     verMetricas: false,
     configurar: false,
     verSobrantes: true,
-    usarCad: false,
+    usarCad: true,
   },
 };
 

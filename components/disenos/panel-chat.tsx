@@ -44,7 +44,16 @@ export function PanelChat(props: {
   useEffect(() => {
     onNombreRef.current = props.onNombre;
   }, [props.onNombre]);
-  const { aplicar, mostrarMaterial, carasReferidas, quitarCara, setCarasReferidas, setModoCaras } = useDiseno();
+  const {
+    aplicar,
+    mostrarMaterial,
+    carasReferidas,
+    quitarCara,
+    setCarasReferidas,
+    setModoCaras,
+    revisarAjenos,
+    vistaPrevia,
+  } = useDiseno();
   const mostrarMaterialRef = useRef(mostrarMaterial);
   useEffect(() => {
     mostrarMaterialRef.current = mostrarMaterial;
@@ -113,6 +122,16 @@ export function PanelChat(props: {
   useEffect(() => {
     aplicarRef.current = aplicar;
   }, [aplicar]);
+  const revisarAjenosRef = useRef(revisarAjenos);
+  useEffect(() => {
+    revisarAjenosRef.current = revisarAjenos;
+  }, [revisarAjenos]);
+  // Si mientras el asistente trabaja alguien abre una versión vieja en vista
+  // previa, lo que guarde el asistente no la tapa: queda en el historial.
+  const vistaPreviaRef = useRef(vistaPrevia);
+  useEffect(() => {
+    vistaPreviaRef.current = vistaPrevia;
+  }, [vistaPrevia]);
 
   // La conversación guardada. Si no se puede leer se sigue igual: se puede
   // escribir, solo que sin ver lo anterior.
@@ -223,6 +242,9 @@ export function PanelChat(props: {
               case "diseno":
                 // La ruta ya guardó la versión: aquí solo se muestra.
                 // Si la herramienta eligió material, las pestañas Planchas y Costo lo muestran ya.
+                // Y se anota la versión nueva (la guardó quien chatea: no es un cambio ajeno).
+                void revisarAjenosRef.current();
+                if (vistaPreviaRef.current !== null) break;
                 if (evento.material || evento.materiales) {
                   mostrarMaterialRef.current(evento.material ?? null, evento.materiales);
                 }
