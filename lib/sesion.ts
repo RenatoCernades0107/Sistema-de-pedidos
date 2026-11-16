@@ -119,6 +119,15 @@ export async function perfilConCotizaciones(): Promise<Perfil | null> {
   return ROLES[perfil.rol].gestionarCotizaciones ? perfil : null;
 }
 
+/** El chat del equipo (`/chat`). */
+export async function exigirChat(): Promise<Perfil> {
+  const perfil = await exigirSesion();
+  if (!ROLES[perfil.rol].usarChat) {
+    redirect(RUTA_PEDIDOS);
+  }
+  return perfil;
+}
+
 /** La herramienta de diseños (`/disenos`): el chat, el render y las descargas del motor CAD. */
 export async function exigirCad(): Promise<Perfil> {
   const perfil = await exigirSesion();

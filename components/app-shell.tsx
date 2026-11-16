@@ -15,6 +15,21 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { ICONOS_HERRAMIENTA } from "@/components/iconos-herramienta";
 import { CommandMenu, useCommandMenu } from "@/components/command-menu";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { useNoLeidos } from "@/components/chat/use-no-leidos";
+
+/** El globo de "Chat": cuántos mensajes sin leer, con @ si alguno te menciona. */
+function GloboChat({ total, menciones }: { total: number; menciones: number }) {
+  if (total === 0) return null;
+  return (
+    <span
+      className="bg-primary text-primary-foreground tnum ml-auto grid h-5 min-w-5 place-items-center rounded-full px-1.5 text-2xs font-semibold"
+      aria-label={`${total} sin leer${menciones ? `, te mencionaron` : ""}`}
+    >
+      {menciones > 0 && "@"}
+      {total > 99 ? "99+" : total}
+    </span>
+  );
+}
 
 /** Un enlace de la barra lateral: vistas y herramientas se pintan igual. */
 const claseEnlaceLateral = (activo: boolean) =>
@@ -60,6 +75,7 @@ export function AppShell({
   const activos = useActivos();
   const cmd = useCommandMenu();
   const [masAbierto, setMasAbierto] = useState(false);
+  const noLeidos = useNoLeidos();
 
   const herramientas = herramientasDe(permisos);
   const pedidosActivo = enPedidos(pathname);
@@ -181,6 +197,7 @@ export function AppShell({
                         className={cn("size-4 shrink-0", activo ? "text-primary" : "opacity-70")}
                       />
                       {h.titulo}
+                      {h.href === "/chat" && <GloboChat {...noLeidos} />}
                     </Link>
                   );
                 })}
@@ -227,7 +244,13 @@ export function AppShell({
             <SheetTrigger
               className={cn(CLASE_TAB, menuActivo ? "text-primary" : "text-muted-foreground")}
             >
-              <Ellipsis className="size-5 shrink-0" />
+              <span className="relative">
+                <Ellipsis className="size-5 shrink-0" />
+                {/* El chat está dentro de "Más": el punto avisa que hay algo sin leer. */}
+                {noLeidos.total > 0 && (
+                  <span className="bg-primary ring-background absolute -top-0.5 -right-1 size-2 rounded-full ring-2" />
+                )}
+              </span>
               <span className="w-full truncate text-center">Más</span>
             </SheetTrigger>
 
@@ -256,6 +279,7 @@ export function AppShell({
                         className={cn("size-4 shrink-0", activo ? "text-primary" : "opacity-70")}
                       />
                       {h.titulo}
+                      {h.href === "/chat" && <GloboChat {...noLeidos} />}
                     </Link>
                   );
                 })}

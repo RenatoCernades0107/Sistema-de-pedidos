@@ -230,7 +230,8 @@ end $$;
 
 set local role postgres;
 
--- ── 3. Otro rol no ve ni toca ───────────────────────────────────────────────
+-- ── 3. Otro rol también ve y edita (20261129000300) ─────────────────────────
+-- Los diseños son de los tres roles; borrar el diseño de otra persona, no.
 
 select set_config('plexi.test_otro',
                   coalesce((select id::text from public.usuarios where rol <> 'administracion' and activo
@@ -251,36 +252,41 @@ set local role authenticated;
 
 do $$
 declare
-  v_diseno uuid := current_setting('plexi.diseno')::uuid;
+  v_diseno  uuid := current_setting('plexi.diseno')::uuid;
+  v_propio  uuid;
+  v_version integer;
 begin
   if current_setting('plexi.test_otro') = '' then return; end if;
 
-  -- El diseño de la sección 2 sigue ahí, pero este rol no lo ve.
-  if (select count(*) from public.cad_disenos) > 0
-     or (select count(*) from public.cad_diseno_versiones) > 0
-     or (select count(*) from public.cad_mensajes) > 0 then
-    raise exception 'FALLO: un rol que no es Administración ve los diseños';
+  -- El diseño de la sección 2 lo ve, con sus versiones y su conversación.
+  if not exists (select 1 from public.cad_disenos where id = v_diseno)
+     or not exists (select 1 from public.cad_diseno_versiones where diseno_id = v_diseno)
+     or not exists (select 1 from public.cad_mensajes where diseno_id = v_diseno) then
+    raise exception 'FALLO: otro rol no ve un diseño de Administración';
   end if;
 
-  update public.cad_disenos set nombre = 'Intruso' where id = v_diseno;
-  if found then raise exception 'FALLO: otro rol pudo renombrar un diseño'; end if;
+  update public.cad_disenos set nombre = 'Renombrado por otro rol' where id = v_diseno;
+  if not found then raise exception 'FALLO: otro rol no pudo renombrar un diseño'; end if;
+
+  v_version := public.guardar_version_diseno(v_diseno, 'caja', '{"largo": 300}'::jsonb, 'formulario');
+  if (select creado_por::text from public.cad_diseno_versiones where diseno_id = v_diseno and version = v_version)
+     <> current_setting('plexi.test_otro') then
+    raise exception 'FALLO: la versión de otro rol no quedó firmada por él';
+  end if;
+  insert into public.cad_mensajes (diseno_id, rol, contenido) values (v_diseno, 'usuario', 'x');
+
+  -- El de otra persona no lo borra; el suyo, sí.
   delete from public.cad_disenos where id = v_diseno;
-  if found then raise exception 'FALLO: otro rol pudo borrar un diseño'; end if;
+  if found then raise exception 'FALLO: otro rol pudo borrar el diseño de otra persona'; end if;
+  insert into public.cad_disenos default values returning id into v_propio;
+  delete from public.cad_disenos where id = v_propio;
+  if not found then raise exception 'FALLO: otro rol no pudo borrar su propio diseño'; end if;
 
+  -- Sigue sin poder corregir una versión guardada.
   begin
-    insert into public.cad_disenos default values;
-    raise exception 'FALLO: otro rol pudo crear un diseño';
-  exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
-
-  begin
-    perform public.guardar_version_diseno(v_diseno, 'caja', '{}'::jsonb, 'chat');
-    raise exception 'FALLO: otro rol pudo guardar una versión';
-  exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
-
-  begin
-    insert into public.cad_mensajes (diseno_id, rol, contenido) values (v_diseno, 'usuario', 'x');
-    raise exception 'FALLO: otro rol pudo escribir en la conversación';
-  exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
+    update public.cad_diseno_versiones set parametros = '{}'::jsonb where diseno_id = v_diseno;
+    raise exception 'FALLO: otro rol pudo corregir una versión guardada';
+  exception when insufficient_privilege then null; end;
 end $$;
 
 set local role postgres;
@@ -402,7 +408,7 @@ begin
   end if;
 end $$;
 
--- Otro rol no puede aprobar ni guardar versiones libres.
+-- Otro rol guarda versiones libres, pero aprobar sigue siendo de Administración.
 set local role postgres;
 select set_config('request.jwt.claims',
                   json_build_object('sub', nullif(current_setting('plexi.test_otro'), ''), 'role', 'authenticated')::text,
@@ -418,10 +424,9 @@ begin
     perform public.aprobar_version_diseno(v_diseno, 3);
     raise exception 'FALLO: otro rol pudo aprobar un diseño libre';
   exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
-  begin
-    perform public.guardar_version_diseno_libre(v_diseno, 'piezas = []');
-    raise exception 'FALLO: otro rol pudo guardar una versión libre';
-  exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
+  if public.guardar_version_diseno_libre(v_diseno, 'piezas = []') is null then
+    raise exception 'FALLO: otro rol no pudo guardar una versión libre';
+  end if;
 end $$;
 
 set local role postgres;

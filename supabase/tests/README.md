@@ -24,8 +24,14 @@ Dos scripts, los dos pensados para correr contra el proyecto de Supabase en la n
   y que los que ninguna plantilla cubre quedan en null. Termina en `ROLLBACK`.
 - **`cad.sql`** — verifica la migración `20261116000100` (y la columna `referencias` de `20261123000100`): las tablas de los diseños CAD
   y su RLS, la numeración de versiones de `guardar_version_diseno`, los CHECK de origen
-  y rol, la cascada al borrar un diseño y que quien no es Administración no ve ni
-  escribe nada. Tampoco necesita las cuentas del seed, y termina en `ROLLBACK`.
+  y rol, la cascada al borrar un diseño y que desde `20261129000300` los otros roles
+  también ven y editan (pero no borran el diseño de otra persona ni aprueban un
+  diseño libre). Tampoco necesita las cuentas del seed, y termina en `ROLLBACK`.
+- **`cad_versiones.sql`** — verifica la migración `20261129000300`: restaurar una versión
+  (numera, copia, `origen`/`restaurada_de`, la aprobación de un libre solo con el mismo
+  código), el nombre de una versión, el autor firmado por la sesión y el aviso
+  `diseno_modificado` (a otro autor sí, a uno mismo no, uno cada 30 minutos salvo que
+  la persona vuelva a guardar). Crea sus propias personas de prueba; termina en `ROLLBACK`.
 - **`estado.sql`** — no verifica nada, solo reporta: cuántos pedidos, pagos y adjuntos
   hay, cómo se reparten los estados y si algún saldo quedó descuadrado.
 

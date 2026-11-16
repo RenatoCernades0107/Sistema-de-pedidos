@@ -119,6 +119,7 @@ export type Database = {
           acomodo: Json | null
           aprobado_en: string | null
           aprobado_por: string | null
+          autor_nombre: string
           codigo: string | null
           color: string | null
           creado_en: string
@@ -129,9 +130,11 @@ export type Database = {
           id: string
           materiales: Json | null
           miniatura_path: string | null
+          nombre_version: string | null
           origen: string
           parametros: Json
           plantilla: string
+          restaurada_de: number | null
           version: number
           version_plantilla: number | null
         }
@@ -139,6 +142,7 @@ export type Database = {
           acomodo?: Json | null
           aprobado_en?: string | null
           aprobado_por?: string | null
+          autor_nombre?: string
           codigo?: string | null
           color?: string | null
           creado_en?: string
@@ -149,9 +153,11 @@ export type Database = {
           id?: string
           materiales?: Json | null
           miniatura_path?: string | null
+          nombre_version?: string | null
           origen: string
           parametros?: Json
           plantilla: string
+          restaurada_de?: number | null
           version: number
           version_plantilla?: number | null
         }
@@ -159,6 +165,7 @@ export type Database = {
           acomodo?: Json | null
           aprobado_en?: string | null
           aprobado_por?: string | null
+          autor_nombre?: string
           codigo?: string | null
           color?: string | null
           creado_en?: string
@@ -169,9 +176,11 @@ export type Database = {
           id?: string
           materiales?: Json | null
           miniatura_path?: string | null
+          nombre_version?: string | null
           origen?: string
           parametros?: Json
           plantilla?: string
+          restaurada_de?: number | null
           version?: number
           version_plantilla?: number | null
         }
@@ -300,6 +309,63 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      conversacion_miembros: {
+        Row: {
+          agregado_en: string
+          agregado_por: string | null
+          conversacion_id: string
+          usuario_id: string
+        }
+        Insert: {
+          agregado_en?: string
+          agregado_por?: string | null
+          conversacion_id: string
+          usuario_id: string
+        }
+        Update: {
+          agregado_en?: string
+          agregado_por?: string | null
+          conversacion_id?: string
+          usuario_id?: string
+        }
+        Relationships: []
+      }
+      conversaciones: {
+        Row: {
+          creado_en: string
+          creado_por: string | null
+          descripcion: string | null
+          directo_clave: string | null
+          id: string
+          nombre: string | null
+          pedido_id: string | null
+          tipo: Database["public"]["Enums"]["tipo_conversacion"]
+          ultimo_mensaje_en: string | null
+        }
+        Insert: {
+          creado_en?: string
+          creado_por?: string | null
+          descripcion?: string | null
+          directo_clave?: string | null
+          id?: string
+          nombre?: string | null
+          pedido_id?: string | null
+          tipo: Database["public"]["Enums"]["tipo_conversacion"]
+          ultimo_mensaje_en?: string | null
+        }
+        Update: {
+          creado_en?: string
+          creado_por?: string | null
+          descripcion?: string | null
+          directo_clave?: string | null
+          id?: string
+          nombre?: string | null
+          pedido_id?: string | null
+          tipo?: Database["public"]["Enums"]["tipo_conversacion"]
+          ultimo_mensaje_en?: string | null
+        }
+        Relationships: []
       }
       cotizacion_productos: {
         Row: {
@@ -807,6 +873,105 @@ export type Database = {
           },
         ]
       }
+      mensaje_adjuntos: {
+        Row: {
+          alto: number | null
+          ancho: number | null
+          conversacion_id: string
+          creado_en: string
+          duracion_s: number | null
+          id: string
+          mensaje_id: string
+          mime: string
+          nombre: string
+          posicion: number
+          storage_path: string
+          tamano: number
+        }
+        Insert: {
+          alto?: number | null
+          ancho?: number | null
+          conversacion_id: string
+          creado_en?: string
+          duracion_s?: number | null
+          id?: string
+          mensaje_id: string
+          mime: string
+          nombre: string
+          posicion?: number
+          storage_path: string
+          tamano: number
+        }
+        Update: {
+          alto?: number | null
+          ancho?: number | null
+          conversacion_id?: string
+          creado_en?: string
+          duracion_s?: number | null
+          id?: string
+          mensaje_id?: string
+          mime?: string
+          nombre?: string
+          posicion?: number
+          storage_path?: string
+          tamano?: number
+        }
+        Relationships: []
+      }
+      mensaje_lecturas: {
+        Row: {
+          conversacion_id: string
+          leido_en: string
+          mensaje_id: string
+          usuario_id: string
+        }
+        Insert: {
+          conversacion_id: string
+          leido_en?: string
+          mensaje_id: string
+          usuario_id: string
+        }
+        Update: {
+          conversacion_id?: string
+          leido_en?: string
+          mensaje_id?: string
+          usuario_id?: string
+        }
+        Relationships: []
+      }
+      mensajes: {
+        Row: {
+          autor_id: string
+          autor_nombre: string
+          autor_rol: Database["public"]["Enums"]["rol"] | null
+          conversacion_id: string
+          creado_en: string
+          id: string
+          referencias: Json
+          texto: string
+        }
+        Insert: {
+          autor_id?: string
+          autor_nombre?: string
+          autor_rol?: Database["public"]["Enums"]["rol"] | null
+          conversacion_id: string
+          creado_en?: string
+          id?: string
+          referencias?: Json
+          texto?: string
+        }
+        Update: {
+          autor_id?: string
+          autor_nombre?: string
+          autor_rol?: Database["public"]["Enums"]["rol"] | null
+          conversacion_id?: string
+          creado_en?: string
+          id?: string
+          referencias?: Json
+          texto?: string
+        }
+        Relationships: []
+      }
       notificaciones: {
         Row: {
           creado_en: string
@@ -953,36 +1118,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
-      }
-      pedido_mensajes: {
-        Row: {
-          autor_id: string
-          autor_nombre: string
-          autor_rol: Database["public"]["Enums"]["rol"] | null
-          creado_en: string
-          id: string
-          pedido_id: string
-          texto: string
-        }
-        Insert: {
-          autor_id?: string
-          autor_nombre?: string
-          autor_rol?: Database["public"]["Enums"]["rol"] | null
-          creado_en?: string
-          id?: string
-          pedido_id: string
-          texto: string
-        }
-        Update: {
-          autor_id?: string
-          autor_nombre?: string
-          autor_rol?: Database["public"]["Enums"]["rol"] | null
-          creado_en?: string
-          id?: string
-          pedido_id?: string
-          texto?: string
-        }
-        Relationships: []
       }
       pedidos: {
         Row: {
@@ -2103,6 +2238,14 @@ export type Database = {
       }
     }
     Functions: {
+      abrir_directo: {
+        Args: { p_usuario_id: string }
+        Returns: string
+      }
+      agregar_miembros: {
+        Args: { p_conversacion_id: string; p_usuarios: string[] }
+        Returns: number
+      }
       anotar_anulacion_en_odoo: {
         Args: { p_anulada: boolean; p_codigo: string; p_error?: string }
         Returns: undefined
@@ -2136,8 +2279,38 @@ export type Database = {
       array_sin_duplicados: { Args: { a: unknown }; Returns: boolean }
       auditoria_texto: { Args: { campo: string; valor: Json }; Returns: string }
       auth_rol: { Args: never; Returns: Database["public"]["Enums"]["rol"] }
+      buscar_pedidos_chat: {
+        Args: { p_q: string }
+        Returns: {
+          codigo: string
+          estado: Database["public"]["Enums"]["estado_pedido"]
+          fecha_creacion: string
+          fecha_prometida: string
+          nombre_cliente: string
+        }[]
+      }
+      chat_compactar: { Args: { p_texto: string }; Returns: string }
+      chat_normalizar: { Args: { p_texto: string }; Returns: string }
+      chat_telefono: { Args: { p_texto: string }; Returns: string }
+      clientes_de_pedidos: {
+        Args: { p_q: string }
+        Returns: {
+          nombre: string
+          pedidos: number
+          telefono: string
+          ultimo: string
+        }[]
+      }
+      conversacion_de_pedido: {
+        Args: { p_pedido_id: string }
+        Returns: string
+      }
       corte_sin_precios: { Args: { c: Json }; Returns: Json }
       cotizacion_publica: { Args: { p_token: string }; Returns: Json }
+      crear_canal: {
+        Args: { p_descripcion: string | null; p_miembros: string[]; p_nombre: string }
+        Returns: string
+      }
       crear_cotizacion: {
         Args: {
           p_canal?: Database["public"]["Enums"]["canal_cotizacion"]
@@ -2193,7 +2366,33 @@ export type Database = {
         Returns: string
       }
       despachar_push: { Args: never; Returns: undefined }
+      directorio_usuarios: {
+        Args: never
+        Returns: {
+          id: string
+          nombre: string
+          rol: Database["public"]["Enums"]["rol"]
+          usuario: string
+        }[]
+      }
+      editar_canal: {
+        Args: { p_conversacion_id: string; p_descripcion: string | null; p_nombre: string }
+        Returns: undefined
+      }
+      eliminar_canal: {
+        Args: { p_conversacion_id: string }
+        Returns: undefined
+      }
       email_de_usuario: { Args: { nombre_usuario: string }; Returns: string }
+      enviar_mensaje: {
+        Args: {
+          p_adjuntos?: Json
+          p_conversacion_id: string
+          p_referencias?: Json
+          p_texto: string
+        }
+        Returns: string
+      }
       es_admin: { Args: never; Returns: boolean }
       escritura_del_sistema: { Args: never; Returns: boolean }
       etiqueta: { Args: { valor: string }; Returns: string }
@@ -2253,7 +2452,15 @@ export type Database = {
         Args: { activa: boolean }
         Returns: undefined
       }
+      marcar_leidos: {
+        Args: { p_conversacion_id: string; p_hasta?: string }
+        Returns: number
+      }
       marcar_password_cambiada: { Args: never; Returns: undefined }
+      nombrar_version_diseno: {
+        Args: { p_diseno_id: string; p_nombre: string; p_version: number }
+        Returns: undefined
+      }
       odoo_de_pedido: {
         Args: { p_codigo: string }
         Returns: {
@@ -2268,7 +2475,34 @@ export type Database = {
           stock_descontado: boolean
         }[]
       }
+      participantes_conversacion: {
+        Args: { p_conversacion_id: string }
+        Returns: {
+          desde: string
+          nombre: string
+          rol: Database["public"]["Enums"]["rol"]
+          usuario_id: string
+        }[]
+      }
+      pedidos_de_cliente: {
+        Args: { p_nombre: string | null; p_partner_id: number | null; p_telefono: string | null }
+        Returns: {
+          codigo: string
+          estado: Database["public"]["Enums"]["estado_pedido"]
+          fecha_creacion: string
+          fecha_prometida: string
+          nombre_cliente: string
+        }[]
+      }
+      puede_ver_conversacion: {
+        Args: { p_conversacion_id: string }
+        Returns: boolean
+      }
       purgar_notificaciones: { Args: never; Returns: undefined }
+      quitar_miembro: {
+        Args: { p_conversacion_id: string; p_usuario_id: string }
+        Returns: undefined
+      }
       reservar_sobrantes_de_corte: {
         Args: {
           p_codigos: string[]
@@ -2277,6 +2511,31 @@ export type Database = {
           p_posicion: number
         }
         Returns: undefined
+      }
+      restaurar_version_diseno: {
+        Args: { p_diseno_id: string; p_version: number }
+        Returns: number
+      }
+      resumen_conversaciones: {
+        Args: never
+        Returns: {
+          descripcion: string | null
+          id: string
+          menciones_sin_leer: number
+          miembros: number
+          nombre: string | null
+          otro_usuario_id: string | null
+          otro_usuario_rol: Database["public"]["Enums"]["rol"] | null
+          pedido_codigo: string | null
+          pedido_id: string | null
+          sin_leer: number
+          tipo: Database["public"]["Enums"]["tipo_conversacion"]
+          ultimo_adjuntos: number
+          ultimo_autor: string | null
+          ultimo_autor_id: string | null
+          ultimo_mensaje_en: string | null
+          ultimo_texto: string | null
+        }[]
       }
       retazo_minimo: { Args: never; Returns: number }
       seguimiento_pedido: { Args: { p_token: string }; Returns: Json }
@@ -2375,7 +2634,13 @@ export type Database = {
       tipo_adjunto: "diseno" | "factura" | "guia" | "foto_entrega"
       tipo_documento: "DNI" | "CE"
       tipo_linea: "producto" | "corte" | "terminado"
-      tipo_notificacion: "pedido_creado" | "responsable_asignado"
+      tipo_conversacion: "general" | "canal" | "directo" | "pedido"
+      tipo_notificacion:
+        | "pedido_creado"
+        | "responsable_asignado"
+        | "mencion"
+        | "mensaje_directo"
+        | "diseno_modificado"
       tipo_pago: "contado" | "a_cuenta" | "credito"
       tipo_pedido: "CL" | "CM" | "SP" | "PT" | "AC"
       ubicacion: "tienda" | "taller" | "agencia"
@@ -2556,7 +2821,14 @@ export const Constants = {
       tipo_adjunto: ["diseno", "factura", "guia", "foto_entrega"],
       tipo_documento: ["DNI", "CE"],
       tipo_linea: ["producto", "corte", "terminado"],
-      tipo_notificacion: ["pedido_creado", "responsable_asignado"],
+      tipo_conversacion: ["general", "canal", "directo", "pedido"],
+      tipo_notificacion: [
+        "pedido_creado",
+        "responsable_asignado",
+        "mencion",
+        "mensaje_directo",
+        "diseno_modificado",
+      ],
       tipo_pago: ["contado", "a_cuenta", "credito"],
       tipo_pedido: ["CL", "CM", "SP", "PT", "AC"],
       ubicacion: ["tienda", "taller", "agencia"],
