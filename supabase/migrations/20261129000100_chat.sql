@@ -859,5 +859,13 @@ select pm.id, c.id, pm.autor_id, pm.autor_nombre, pm.autor_rol, pm.texto, pm.cre
   from public.pedido_mensajes pm
   join public.conversaciones c on c.pedido_id = pm.pedido_id;
 
+-- Lo de antes ya se leyó en su momento: se marca como visto para quienes ya
+-- tenían cuenta, así el chat nuevo no amanece lleno de "sin leer" viejos.
+insert into public.mensaje_lecturas (mensaje_id, usuario_id, conversacion_id, leido_en)
+select m.id, u.id, m.conversacion_id, m.creado_en
+  from public.mensajes m
+  join public.usuarios u on u.id <> m.autor_id and u.creado_en <= m.creado_en
+on conflict do nothing;
+
 drop table public.pedido_mensajes;
 drop function public.firmar_mensaje_pedido();

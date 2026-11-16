@@ -269,6 +269,8 @@ export interface PermisosRol {
   configurar: boolean;
   /** Buscar, registrar y etiquetar los sobrantes del almacén en `/sobrantes`. */
   verSobrantes: boolean;
+  /** Hablar con el equipo en `/chat`: General, canales, directos y el chat de cada pedido. */
+  usarChat: boolean;
   /** Diseñar piezas con el motor CAD (chat, render 3D y exportación DXF/STEP) en `/disenos`. */
   usarCad: boolean;
 }
@@ -295,6 +297,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     verMetricas: true,
     configurar: true,
     verSobrantes: true,
+    usarChat: true,
     usarCad: true,
   },
   logistica: {
@@ -318,6 +321,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     verMetricas: false,
     configurar: false,
     verSobrantes: true,
+    usarChat: true,
     usarCad: true,
   },
   operaciones: {
@@ -341,6 +345,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     verMetricas: false,
     configurar: false,
     verSobrantes: true,
+    usarChat: true,
     usarCad: true,
   },
 };
@@ -524,6 +529,7 @@ export interface ConfigHerramienta {
 }
 
 export const HERRAMIENTAS: ConfigHerramienta[] = [
+  { titulo: "Chat", href: "/chat", permiso: "usarChat" },
   { titulo: "Cotizaciones", href: "/cotizaciones", permiso: "gestionarCotizaciones" },
   { titulo: "Diseños", href: "/disenos", permiso: "usarCad" },
   { titulo: "Sobrantes", href: "/sobrantes", permiso: "verSobrantes" },

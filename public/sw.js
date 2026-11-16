@@ -30,9 +30,13 @@ self.addEventListener("push", (evento) => {
       badge: "/icono-192.png",
       lang: "es-PE",
       data: { url: datos.url },
-      /* Dos avisos del mismo pedido se reemplazan en vez de apilarse. Cubre el
-         reintento de la cola: si el envío se duplicó, en pantalla sale uno. */
+      /* Una notificación por destino: dos avisos del mismo pedido o de la misma
+         conversación del chat se reemplazan en vez de apilarse (y cubre el
+         reintento de la cola: si el envío se duplicó, en pantalla sale uno).
+         `renotify` hace que el reemplazo vuelva a sonar y vibrar: un mensaje
+         nuevo en un chat que ya tenía aviso no puede llegar en silencio. */
       tag: datos.url,
+      renotify: true,
     }),
   );
 });
@@ -48,8 +52,12 @@ self.addEventListener("notificationclick", (evento) => {
     self.clients
       .matchAll({ type: "window", includeUncontrolled: true })
       .then((ventanas) => {
+        /* Se compara ruta y consulta: el aviso de un pedido lleva `?chat=1` para
+           abrir su chat, y enfocar la pestaña del pedido sin eso no lo abriría. */
+        const destino = new URL(url, self.location.origin);
         for (const ventana of ventanas) {
-          if (new URL(ventana.url).pathname === url && "focus" in ventana) {
+          const abierta = new URL(ventana.url);
+          if (abierta.pathname === destino.pathname && abierta.search === destino.search && "focus" in ventana) {
             return ventana.focus();
           }
         }
