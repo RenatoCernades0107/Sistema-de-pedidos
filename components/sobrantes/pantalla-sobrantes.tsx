@@ -47,7 +47,7 @@ function filtrar(
     .filter(Boolean);
 
   const lista = sobrantes.filter((s) => {
-    if (vista === "disponibles" && s.estado !== "disponible" && s.estado !== "reservado") return false;
+    if (vista === "disponibles" && s.estado !== "disponible" && s.estado !== "reservado" && s.estado !== "en_transito") return false;
     if (almacenId && s.almacenId !== almacenId) return false;
     if (pieza && !cabeEn(s, pieza)) return false;
     const donde = compactar(`${s.codigo} ${s.material} ${s.almacen} ${s.ubicacion ?? ""}`);
@@ -69,6 +69,7 @@ export function PantallaSobrantes({
   precios,
   permisos,
   odooConectado,
+  alTransferir,
 }: {
   sobrantes: Sobrante[];
   catalogo: GrupoPlancha[];
@@ -77,6 +78,8 @@ export function PantallaSobrantes({
   precios: Record<string, number | null>;
   permisos: PermisosAlmacen;
   odooConectado: boolean;
+  /** Llevarlo a otro almacén: abre la transferencia con este sobrante. */
+  alTransferir?: (s: Sobrante) => void;
 }) {
   const router = useRouter();
   const [texto, setTexto] = useState("");
@@ -281,6 +284,17 @@ export function PantallaSobrantes({
                     Mover
                   </Button>
                 )}
+                {permisos.gestionarStock && alTransferir && s.estado === "disponible" && s.odooLotId && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => alTransferir(s)}
+                    aria-label={`Llevar ${s.codigo} a otro almacén`}
+                    disabled={!odooConectado}
+                  >
+                    A otro almacén
+                  </Button>
+                )}
                 <Button
                   render={<Link href={`/sobrantes/${encodeURIComponent(s.codigo)}/etiqueta`} />}
                   nativeButton={false}
@@ -335,7 +349,7 @@ function EstadoSobrante({ sobrante: s }: { sobrante: Sobrante }) {
   const tono =
     s.estado === "disponible"
       ? "bg-st-entregado-soft text-st-entregado ring-st-entregado/25"
-      : s.estado === "reservado"
+      : s.estado === "reservado" || s.estado === "en_transito"
         ? "bg-st-en_transito-soft text-st-en_transito ring-st-en_transito/25"
         : "bg-muted text-muted-foreground ring-border";
   return (

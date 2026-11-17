@@ -9,13 +9,14 @@
 import { colorDe, espesorTexto, type FormatoPlancha, type GrupoPlancha } from "./cortes/catalogo";
 import type { CorteGuardado } from "./cortes/guardado";
 
-export type EstadoSobrante = "disponible" | "reservado" | "consumido" | "baja";
+export type EstadoSobrante = "disponible" | "reservado" | "en_transito" | "consumido" | "baja";
 export type OrigenSobrante = "manual" | "corte" | "terminado" | "odoo";
 export type SincronizacionSobrante = "pendiente" | "sincronizada" | "error";
 
 export const ESTADOS_SOBRANTE: Record<EstadoSobrante, string> = {
   disponible: "Disponible",
   reservado: "Reservado",
+  en_transito: "En camino",
   consumido: "Consumido",
   baja: "De baja",
 };

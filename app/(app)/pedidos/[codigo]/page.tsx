@@ -2,6 +2,7 @@ import { DetallePedido } from "@/components/detalle-pedido";
 import { cargarLineasDePedido, cargarOdooDePedido } from "@/lib/pedido-odoo-servidor";
 import { cargarSobrantesDePedido } from "@/lib/sobrantes-servidor";
 import { cargarAlmacenes } from "@/lib/almacenes-servidor";
+import { faltantesDePedido } from "@/lib/faltantes-servidor";
 import { cargarCatalogoPlanchas } from "@/lib/cortes-servidor";
 import { clienteServidor } from "@/lib/supabase-servidor";
 import { tokenSeguimiento } from "@/lib/compartir-servidor";
@@ -18,7 +19,7 @@ export default async function Page({ params }: PageProps<"/pedidos/[codigo]">) {
   const codigo = decodeURIComponent((await params).codigo);
   const supabase = await clienteServidor();
 
-  const [lineas, odoo, sobrantes, retazo, token, chat, almacenes, catalogo] = await Promise.all([
+  const [lineas, odoo, sobrantes, retazo, token, chat, almacenes, catalogo, faltantes] = await Promise.all([
     cargarLineasDePedido(codigo).catch((e) => {
       console.error("[pedidos] líneas", e);
       return null;
@@ -46,6 +47,11 @@ export default async function Page({ params }: PageProps<"/pedidos/[codigo]">) {
       console.error("[pedidos] catálogo", e);
       return [];
     }),
+    // Lo que le falta donde se produce o se despacha (lo ve quien ve el pedido).
+    faltantesDeCodigo(codigo).catch((e) => {
+      console.error("[pedidos] faltantes", e);
+      return [];
+    }),
   ]);
 
   return (
@@ -54,6 +60,7 @@ export default async function Page({ params }: PageProps<"/pedidos/[codigo]">) {
       lineas={lineas}
       odoo={odoo}
       sobrantes={sobrantes}
+      faltantes={faltantes}
       retazoMin={retazo.data ?? undefined}
       almacenes={almacenes}
       catalogo={catalogo}
@@ -61,6 +68,13 @@ export default async function Page({ params }: PageProps<"/pedidos/[codigo]">) {
       chat={chat}
     />
   );
+}
+
+/** Lo que le falta al pedido donde se produce o se despacha. */
+async function faltantesDeCodigo(codigo: string) {
+  const supabase = await clienteServidor();
+  const { data } = await supabase.from("pedidos").select("id").eq("codigo", codigo).maybeSingle();
+  return data ? faltantesDePedido(data.id) : [];
 }
 
 /** El chat del pedido: su id (el canal en vivo filtra por él), quién mira y lo ya escrito. */

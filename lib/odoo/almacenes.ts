@@ -12,7 +12,7 @@
  * que en `entregas.ts`.
  */
 
-import { camposExistentes, ejecutar, ErrorOdoo, idDe, texto } from "./rpc";
+import { campoCantidad, camposExistentes, ejecutar, ErrorOdoo, idDe, texto } from "./rpc";
 
 type Fila = Record<string, unknown>;
 
@@ -112,11 +112,16 @@ const numero = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v 
  * El stock de unos productos en cada almacén. Odoo calcula `qty_available` para
  * una ubicación (y sus hijas) cuando se le pasa en el contexto: una consulta por
  * almacén, más una sin contexto para el total.
+ *
+ * Con `libre`, lo que no está reservado (`free_qty`): lo que de verdad se puede
+ * usar para un pedido nuevo.
  */
 export async function stockPorAlmacen(
   productoIds: number[],
   almacenes: UbicacionDeAlmacen[],
+  opciones: { libre?: boolean } = {},
 ): Promise<Map<number, StockDeProducto>> {
+  const campo = opciones.libre ? "free_qty" : "qty_available";
   const mapa = new Map<number, StockDeProducto>();
   const ids = [...new Set(productoIds)].filter((id) => id > 0);
   if (ids.length === 0) return mapa;
@@ -124,7 +129,7 @@ export async function stockPorAlmacen(
 
   const leer = (contexto?: Record<string, unknown>) =>
     ejecutar<Fila[]>("product.product", "read", [ids], {
-      fields: ["qty_available"],
+      fields: [campo],
       ...(contexto ? { context: contexto } : {}),
     });
 
@@ -134,12 +139,12 @@ export async function stockPorAlmacen(
   ]);
   for (const f of total) {
     const s = mapa.get(f.id as number);
-    if (s) s.total = numero(f.qty_available);
+    if (s) s.total = numero(f[campo]);
   }
   almacenes.forEach((a, i) => {
     for (const f of porAlmacen[i]) {
       const s = mapa.get(f.id as number);
-      if (s) s.porAlmacen[a.almacenId] = numero(f.qty_available);
+      if (s) s.porAlmacen[a.almacenId] = numero(f[campo]);
     }
   });
   for (const s of mapa.values()) {
@@ -200,13 +205,49 @@ async function moverDentro(
   ]);
 }
 
-/** Pone en cada movimiento del picking lo que de verdad se movió, y lo valida. */
-async function validarPicking(pickingId: number, cantidades: Map<number, number>) {
+/** Un movimiento de un lote (un sobrante): se mueve por su línea, con ese lote y no otro. */
+interface MovimientoDeLote {
+  moveId: number;
+  productoId: number;
+  loteId: number;
+  desde: number;
+  hacia: number;
+}
+
+/**
+ * Pone en cada movimiento del picking lo que de verdad se movió, y lo valida.
+ * Los de un lote van por su línea: si Odoo reservó otro lote del mismo
+ * producto, esa línea se quita.
+ */
+async function validarPicking(pickingId: number, cantidades: Map<number, number>, lotes: MovimientoDeLote[] = []) {
   await ejecutar("stock.picking", "action_confirm", [[pickingId]]);
-  const picked = (await camposExistentes("stock.move", ["picked"])).length > 0;
-  const campo = picked ? "quantity" : "quantity_done";
+  const { picked, campoMov: campo, campoLinea } = await campoCantidad();
   for (const [moveId, cantidad] of cantidades) {
     await ejecutar("stock.move", "write", [[moveId], { [campo]: cantidad, ...(picked ? { picked: cantidad > 0 } : {}) }]);
+  }
+  for (const m of lotes) {
+    const lineas = await ejecutar<Fila[]>("stock.move.line", "search_read", [[["move_id", "=", m.moveId]]], {
+      fields: ["lot_id"],
+    });
+    const otras = lineas.filter((l) => idDe(l.lot_id) !== m.loteId).map((l) => l.id as number);
+    if (otras.length) await ejecutar("stock.move.line", "unlink", [otras]);
+    const nuestra = lineas.find((l) => idDe(l.lot_id) === m.loteId);
+    const valores = { [campoLinea]: 1, ...(picked ? { picked: true } : {}) };
+    if (nuestra) {
+      await ejecutar("stock.move.line", "write", [[nuestra.id as number], valores]);
+    } else {
+      await ejecutar("stock.move.line", "create", [
+        {
+          move_id: m.moveId,
+          product_id: m.productoId,
+          lot_id: m.loteId,
+          location_id: m.desde,
+          location_dest_id: m.hacia,
+          ...valores,
+        },
+      ]);
+    }
+    if (picked) await ejecutar("stock.move", "write", [[m.moveId], { picked: true }]);
   }
   const r = await ejecutar("stock.picking", "button_validate", [[pickingId]], { context: contextoValidar([pickingId]) });
   if (esAsistente(r)) {
@@ -321,37 +362,92 @@ export async function ajustarInventario(a: Ajuste): Promise<Map<number, number>>
   return antes;
 }
 
-export interface Transferencia {
-  desde: AlmacenOdoo;
-  hacia: AlmacenOdoo;
+/* ── Pasar de un almacén a otro ────────────────────────────────────────────── */
+
+const TRANSITO = "Tránsito Plexiacril";
+
+/**
+ * La ubicación donde está lo que va de un almacén a otro. Es de tránsito: no
+ * pertenece a ningún almacén, así que lo que está ahí no cuenta en el stock de
+ * ninguno hasta que se recibe. Si no existe, se crea.
+ */
+export async function asegurarTransito(): Promise<number> {
+  const [id] = await ejecutar<number[]>("stock.location", "search", [[["usage", "=", "transit"], ["name", "=", TRANSITO]]], {
+    limit: 1,
+  });
+  if (id) return id;
+  return ejecutar<number>("stock.location", "create", [{ name: TRANSITO, usage: "transit" }]);
+}
+
+export interface LineaDeTransferencia {
+  productoId: number;
+  cantidad: number;
+  /** Un sobrante: se mueve su lote (cantidad 1). */
+  loteId?: number | null;
+}
+
+export interface Movimiento {
+  /** El tipo de operación: la transferencia interna del almacén que hace el movimiento. */
+  tipoOperacion: number | null;
+  desde: number;
+  hacia: number;
+  /** "App Plexiacril TRF-00001 envío". Reintentar no duplica. */
   origen: string;
-  lineas: { productoId: number; cantidad: number }[];
+  lineas: LineaDeTransferencia[];
 }
 
 /**
- * Pasa productos de un almacén a otro con la transferencia interna del almacén
- * de origen. Se puede repetir por su origen. Para la fase de transferencias: hoy
- * no la llama ninguna pantalla.
+ * Mueve productos (y lotes) entre dos ubicaciones con una transferencia interna
+ * validada. Devuelve el id del picking. Se puede repetir por su origen.
  */
-export async function transferirInterno(t: Transferencia): Promise<number> {
-  if (!t.desde.internoId) throw new ErrorOdoo("El almacén de origen no tiene operación de transferencia interna.");
-  const previo = await pickingPorOrigen(t.origen);
+export async function moverEntreUbicaciones(m: Movimiento): Promise<number> {
+  if (!m.tipoOperacion) throw new ErrorOdoo("El almacén no tiene operación de transferencia interna en Odoo.");
+  const previo = await pickingPorOrigen(m.origen);
   if (previo?.estado === "done") return previo.id;
-  if (previo) throw new ErrorOdoo("La transferencia quedó a medias en Odoo. Termínala desde Odoo.");
+  if (previo) throw new ErrorOdoo(`La operación ${m.origen} quedó a medias en Odoo. Termínala o cancélala desde Odoo.`);
+  const lineas = m.lineas.filter((x) => x.cantidad > 0);
+  if (lineas.length === 0) throw new ErrorOdoo("No hay nada que mover.");
 
   const pickingId = await ejecutar<number>("stock.picking", "create", [
-    {
-      picking_type_id: t.desde.internoId,
-      origin: t.origen,
-      location_id: t.desde.ubicacionId,
-      location_dest_id: t.hacia.ubicacionId,
-    },
+    { picking_type_id: m.tipoOperacion, origin: m.origen, location_id: m.desde, location_dest_id: m.hacia },
   ]);
   const cantidades = new Map<number, number>();
-  for (const l of t.lineas.filter((x) => x.cantidad > 0)) {
-    const id = await moverDentro(pickingId, t.desde.ubicacionId, t.hacia.ubicacionId, l, "Transferencia");
-    cantidades.set(id, l.cantidad);
+  const lotes: MovimientoDeLote[] = [];
+  for (const l of lineas) {
+    const id = await moverDentro(pickingId, m.desde, m.hacia, { productoId: l.productoId, cantidad: l.cantidad }, "Transferencia");
+    if (l.loteId) lotes.push({ moveId: id, productoId: l.productoId, loteId: l.loteId, desde: m.desde, hacia: m.hacia });
+    else cantidades.set(id, l.cantidad);
   }
-  await validarPicking(pickingId, cantidades);
+  await validarPicking(pickingId, cantidades, lotes);
   return pickingId;
+}
+
+export interface Transferencia {
+  desde: AlmacenOdoo;
+  hacia: AlmacenOdoo;
+  /** "App Plexiacril TRF-00001". */
+  origen: string;
+  lineas: LineaDeTransferencia[];
+}
+
+/** El primer paso: sale del almacén de origen y queda en tránsito. */
+export async function enviarATransito(t: Transferencia): Promise<number> {
+  return moverEntreUbicaciones({
+    tipoOperacion: t.desde.internoId,
+    desde: t.desde.ubicacionId,
+    hacia: await asegurarTransito(),
+    origen: `${t.origen} envío`,
+    lineas: t.lineas,
+  });
+}
+
+/** El segundo paso: llega del tránsito al almacén de destino. */
+export async function recibirDeTransito(t: Transferencia): Promise<number> {
+  return moverEntreUbicaciones({
+    tipoOperacion: t.hacia.internoId,
+    desde: await asegurarTransito(),
+    hacia: t.hacia.ubicacionId,
+    origen: `${t.origen} recepción`,
+    lineas: t.lineas,
+  });
 }

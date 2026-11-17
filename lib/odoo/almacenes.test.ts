@@ -5,7 +5,17 @@
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { BASE, CLAVE, USUARIO, crearOdooFalso } from "../../e2e/odoo-falso.mjs";
-import { ajustarInventario, asegurarAlmacen, ingresarCompra, leerAlmacen, stockPorAlmacen, transferirInterno } from "./almacenes";
+import {
+  ajustarInventario,
+  asegurarAlmacen,
+  asegurarTransito,
+  enviarATransito,
+  ingresarCompra,
+  leerAlmacen,
+  recibirDeTransito,
+  stockPorAlmacen,
+} from "./almacenes";
+import { crearLoteSobrante } from "./sobrantes";
 import { almacenDeVenta, cambiarAlmacenDeVenta, confirmarPedidoDeVenta, crearPedidoDeVenta } from "./pedidos-venta";
 import { reiniciarCacheOdoo } from "./rpc";
 
@@ -71,19 +81,64 @@ describe("compra, ajuste y stock por almacén", () => {
     expect(stock.get(20)?.porAlmacen.and).toBe(1);
   });
 
-  it("una transferencia pasa stock de un almacén a otro", async () => {
+  it("una transferencia sale a tránsito y llega al recibirla", async () => {
     const tienda = await asegurarAlmacen({ nombre: "Andahuaylas", codigo: "AND" });
     const taller = await asegurarAlmacen({ nombre: "Católica", codigo: "CAT" });
     await ajustarInventario({ ubicacionId: taller.ubicacionId, lineas: [{ productoId: 21, cantidad: 5 }] });
-    await transferirInterno({ desde: taller, hacia: tienda, origen: "App Plexiacril TR-1", lineas: [{ productoId: 21, cantidad: 2 }] });
-    const stock = await stockPorAlmacen(
-      [21],
-      [
-        { almacenId: "and", ubicacionId: tienda.ubicacionId },
-        { almacenId: "cat", ubicacionId: taller.ubicacionId },
-      ],
-    );
+    const ubicaciones = [
+      { almacenId: "and", ubicacionId: tienda.ubicacionId },
+      { almacenId: "cat", ubicacionId: taller.ubicacionId },
+    ];
+    const t = { desde: taller, hacia: tienda, origen: "App Plexiacril TRF-1", lineas: [{ productoId: 21, cantidad: 2 }] };
+
+    const envio = await enviarATransito(t);
+    // Enviar otra vez (un reintento) no la duplica.
+    expect(await enviarATransito(t)).toBe(envio);
+    let stock = await stockPorAlmacen([21], ubicaciones);
+    expect(stock.get(21)?.porAlmacen).toEqual({ and: 0, cat: 3 });
+    const transito = await asegurarTransito();
+    expect(await asegurarTransito()).toBe(transito);
+    expect(odoo.estado().pickings.find((p) => p.id === envio)).toMatchObject({
+      origin: "App Plexiacril TRF-1 envío",
+      state: "done",
+      picking_type_id: [taller.internoId, expect.anything()],
+      location_dest_id: [transito, ""],
+    });
+
+    await recibirDeTransito(t);
+    stock = await stockPorAlmacen([21], ubicaciones);
     expect(stock.get(21)?.porAlmacen).toEqual({ and: 2, cat: 3 });
+  });
+
+  it("un sobrante viaja como su lote, y no otro del mismo producto", async () => {
+    const tienda = await asegurarAlmacen({ nombre: "Andahuaylas", codigo: "AND" });
+    const taller = await asegurarAlmacen({ nombre: "Católica", codigo: "CAT" });
+    const material = { codigoBase: "F7E024", nombre: "SOBRANTE ACRILICO ECO CRISTAL 3MM" };
+    const nuevo = (nombre: string) =>
+      crearLoteSobrante({ material, nombre, largo: 100, ancho: 50, nota: null, ubicacionId: taller.ubicacionId });
+    const otro = await nuevo("SOB-00001");
+    const lote = await nuevo("SOB-00002");
+    const productoId = odoo.estado().lotes.find((l) => l.id === lote)!.product_id as [number, string];
+
+    const t = { desde: taller, hacia: tienda, origen: "App Plexiacril TRF-2", lineas: [{ productoId: productoId[0], cantidad: 1, loteId: lote }] };
+    await enviarATransito(t);
+    await recibirDeTransito(t);
+
+    const dondeEsta = (id: number) =>
+      odoo
+        .estado()
+        .quants.filter((q) => (q.lot_id as [number, string] | false) && (q.lot_id as [number, string])[0] === id && Number(q.quantity) > 0)
+        .map((q) => (q.location_id as [number, string])[0]);
+    expect(dondeEsta(lote)).toEqual([tienda.ubicacionId]);
+    expect(dondeEsta(otro)).toEqual([taller.ubicacionId]);
+  });
+
+  it("el stock libre no cuenta lo reservado", async () => {
+    const tienda = await asegurarAlmacen({ nombre: "Andahuaylas", codigo: "AND" });
+    await ajustarInventario({ ubicacionId: tienda.ubicacionId, lineas: [{ productoId: 20, cantidad: 4 }] });
+    const stock = await stockPorAlmacen([20], [{ almacenId: "and", ubicacionId: tienda.ubicacionId }], { libre: true });
+    expect(stock.get(20)?.porAlmacen.and).toBe(4);
+    expect(odoo.estado().llamadas.some((l) => JSON.stringify(l.kwargs.fields) === '["free_qty"]')).toBe(true);
   });
 });
 

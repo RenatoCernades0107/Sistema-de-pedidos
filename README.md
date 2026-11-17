@@ -241,6 +241,23 @@ E2E_URL=https://<dominio>.vercel.app npm run e2e
   ve todo sin precios y sin poder cambiarlo. Las planchas se filtran por material, espesor, color y
   formato; los accesorios, por su categoría, que es de la app (`categorias_accesorio`, `accesorios`).
   Cada color tiene su propio código en Odoo: ya no hay códigos compartidos entre colores.
+- **Transferencias y avisos de "mover stock"** (migración `20261130000100`): una **transferencia**
+  pasa planchas, accesorios o sobrantes de un almacén a otro en dos pasos. Al **enviarla**
+  (Administración y Logística) sale del origen a la ubicación *Tránsito Plexiacril* de Odoo, que no
+  es de ningún almacén; al **recibirla** (cualquiera que vea el almacén: el taller recibe lo que le
+  llega) entra al destino. Son dos transferencias internas de Odoo, que se buscan por su origen
+  (`App Plexiacril TRF-00001 envío` / `recepción`) para que reintentar no duplique; un sobrante viaja
+  como su lote y, mientras está en camino, queda `en_transito` y ningún corte lo reserva
+  (`transferencias_stock`, `lib/transferencias-servidor.ts`). El **almacén de despacho** lo decide el
+  stock: el taller si algo se produce allí; si no, el que tiene todo lo suelto (la tienda primero) o,
+  si ninguno, el que más cubre; un depósito nunca despacha, y se puede cambiar en la cotización
+  (`lib/faltantes.ts`). Al **registrar el pedido** se calcula qué le falta con el stock libre de Odoo
+  (`free_qty`): las planchas de un corte donde se corta, el material de un producto terminado en el
+  taller y lo suelto en el almacén de despacho. Lo que falta queda en `faltantes_stock` con el origen
+  sugerido (el otro de taller y tienda, después los depósitos; si nadie tiene, "hay que comprar"), y
+  `avisar_faltantes()` encola un aviso `mover_stock` para Administración y Logística. Se resuelve
+  desde la pestaña **Por mover**, con la transferencia ya armada; al recibirla, el aviso queda
+  resuelto. El pedido muestra lo que le falta, y la cotización, lo que faltaría con su despacho.
 - **Sobrantes** (pestaña del almacén; `/sobrantes` lleva ahí): los pedazos de plancha que vuelven a
   un almacén. En Odoo cada uno es un lote del producto *Sobrante* de su material (`SOB-<código de la
   plancha más chica del grupo>`, almacenable y con lotes), con una unidad en stock **en la ubicación
@@ -259,8 +276,8 @@ E2E_URL=https://<dominio>.vercel.app npm run e2e
 - **Dónde se produce**: el láser y los productos terminados, en el taller; un corte manual, donde
   diga quien cotiza (por defecto, la tienda). El cálculo usa solo los sobrantes de ese almacén, y la
   orden de fabricación consume de él (`picking_type_id` de su almacén) y deja lo producido en el
-  almacén de donde sale la venta (`warehouse_id` de la `sale.order`: el taller si algo se produce
-  allí, la tienda si no; se guarda en `cotizaciones.almacen_despacho_id`). Al pasar a **Listo** se
+  almacén de donde sale la venta (`warehouse_id` de la `sale.order`, que decide el stock: ver
+  Transferencias; se guarda en `cotizaciones.almacen_despacho_id`). Al pasar a **Listo** se
   dice a qué almacén se fue cada sobrante, en los cortes y en los productos terminados; la orden lleva
   un subproducto por almacén de destino.
 - **La producción con piloto** (`lib/odoo/produccion.ts`, `lib/produccion-servidor.ts`): encendido

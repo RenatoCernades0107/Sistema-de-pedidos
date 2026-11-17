@@ -249,3 +249,72 @@ export const esquemaAlmacen = z.object({
   tipo: z.enum(["taller", "tienda", "deposito"]),
   activo: z.boolean(),
 });
+
+/* ── Transferencias ────────────────────────────────────────────────────────── */
+
+export const esquemaTransferencia = z
+  .object({
+    desdeId: z.uuid("Elige de dónde sale"),
+    haciaId: z.uuid("Elige a dónde va"),
+    nota: texto(500, "La nota es muy larga"),
+    lineas: z
+      .array(
+        z.object({
+          productoId: z.number().int().positive(),
+          cantidad: z
+            .number({ error: "La cantidad es un número" })
+            .int("Se mueve por unidades enteras")
+            .positive("Cada producto va con al menos una unidad")
+            .max(99_999, "Son demasiadas unidades"),
+        }),
+      )
+      .max(100, "Son demasiados productos para una sola transferencia"),
+    sobrantes: z.array(z.string().trim().min(1)).max(100, "Son demasiados sobrantes para una sola transferencia"),
+    /** Los avisos de "mover stock" que esta transferencia atiende. */
+    faltanteIds: z.array(z.uuid()).max(100).default([]),
+    pedidoId: z.uuid().nullable().default(null),
+  })
+  .superRefine((v, ctx) => {
+    if (v.desdeId === v.haciaId) {
+      ctx.addIssue({ code: "custom", path: ["haciaId"], message: "El destino tiene que ser otro almacén" });
+    }
+    if (v.lineas.length === 0 && v.sobrantes.length === 0) {
+      ctx.addIssue({ code: "custom", path: ["lineas"], message: "Agrega al menos un producto o un sobrante" });
+    }
+    const repetidos = v.lineas.filter((l, i) => v.lineas.findIndex((x) => x.productoId === l.productoId) !== i);
+    if (repetidos.length) {
+      ctx.addIssue({ code: "custom", path: ["lineas"], message: "Un producto está dos veces: junta sus cantidades" });
+    }
+  });
+
+export type NuevaTransferencia = z.output<typeof esquemaTransferencia>;
+
+export type EstadoTransferencia = "enviada" | "recibida" | "anulada";
+
+export const ESTADOS_TRANSFERENCIA: Record<EstadoTransferencia, string> = {
+  enviada: "En camino",
+  recibida: "Recibida",
+  anulada: "Anulada",
+};
+
+export interface TransferenciaResumen {
+  id: string;
+  codigo: string;
+  estado: EstadoTransferencia;
+  desdeId: string;
+  desde: string;
+  haciaId: string;
+  hacia: string;
+  pedidoCodigo: string | null;
+  nota: string | null;
+  lineas: { productoId: number; codigo: string | null; nombre: string; cantidad: number; sobrante: string | null }[];
+  enviadoPor: string | null;
+  enviadoEn: string;
+  recibidoPor: string | null;
+  recibidoEn: string | null;
+  /** Si el paso que toca en Odoo (enviar o recibir) falló. */
+  sincronizacion: "pendiente" | "sincronizada" | "error";
+  error: string | null;
+  /** Si el envío ya salió en Odoo (entonces ya no se anula). */
+  salioEnOdoo: boolean;
+}

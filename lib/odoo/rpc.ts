@@ -299,3 +299,16 @@ export async function valoresAlmacenable(): Promise<Record<string, unknown>> {
   if (detailed.length) return { detailed_type: "product" };
   return { type: "product" };
 }
+
+/**
+ * Dónde va la cantidad hecha según la versión: desde la 17, `quantity` y
+ * `picked` en el movimiento y `quantity` en su línea; antes, `quantity_done` y
+ * `qty_done`.
+ */
+export async function campoCantidad() {
+  const [picked, nuevo] = await Promise.all([
+    camposExistentes("stock.move", ["picked"]).then((x) => x.length > 0),
+    camposExistentes("stock.move.line", ["quantity"]).then((x) => x.length > 0),
+  ]);
+  return { picked, campoMov: picked ? "quantity" : "quantity_done", campoLinea: nuevo ? "quantity" : "qty_done" };
+}

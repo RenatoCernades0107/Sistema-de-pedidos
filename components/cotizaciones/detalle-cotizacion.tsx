@@ -21,6 +21,7 @@ import {
   reintentarSincronizacion,
 } from "@/app/(app)/cotizaciones/acciones";
 import type { Almacen } from "@/lib/almacenes";
+import { MOTIVOS_FALTANTE, type Faltante } from "@/lib/faltantes";
 import { SelectorAlmacen, nombreDeAlmacen } from "@/components/almacen/comun";
 import { referenciaDe, sumaLineas, type Cotizacion } from "@/lib/cotizaciones";
 import { momentoEnLima } from "@/lib/fecha";
@@ -41,6 +42,7 @@ export function DetalleCotizacion({
   validezDias,
   almacenes = [],
   despachoId = null,
+  faltantes = null,
 }: {
   cotizacion: Cotizacion;
   /** Calculado en el servidor: la URL de Odoo no viaja en el bundle. */
@@ -52,6 +54,8 @@ export function DetalleCotizacion({
   /** Los almacenes, y del que sale la venta (el elegido o el de la regla). */
   almacenes?: Almacen[];
   despachoId?: string | null;
+  /** Lo que faltaría con ese despacho (stock libre de Odoo). `null`: no se sabe. */
+  faltantes?: Faltante[] | null;
 }) {
   const router = useRouter();
   const [reintentando, iniciar] = useTransition();
@@ -245,7 +249,7 @@ export function DetalleCotizacion({
               <p className="text-muted-foreground text-xs">
                 {c.confirmadaEnOdoo
                   ? "Ya es pedido de venta: la entrega sale de aquí."
-                  : "Por defecto, el taller si algo se produce allí; si no, la tienda. Cámbialo si el stock está en otro."}
+                  : "Por defecto, el taller si algo se produce allí; si no, el que tiene el stock (la tienda primero). Puedes cambiarlo."}
               </p>
             </div>
             {c.confirmadaEnOdoo ? (
@@ -258,6 +262,24 @@ export function DetalleCotizacion({
                 etiqueta="Almacén de despacho"
                 className="w-56"
               />
+            )}
+            {faltantes && faltantes.length > 0 && (
+              <ul className="w-full border-t pt-2 text-xs" aria-label="Faltaría">
+                {faltantes.map((f) => (
+                  <li key={`${f.productoId}|${f.almacenId}`} className="text-st-observado flex flex-wrap gap-x-1.5">
+                    <span className="font-mono">{f.codigo}</span>
+                    <span>
+                      faltarían {+f.falta.toFixed(2)} en {almacenes.find((a) => a.id === f.almacenId)?.nombre}{" "}
+                      {MOTIVOS_FALTANTE[f.motivo]}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {f.origenSugeridoId
+                        ? `· hay ${+f.hayEnOrigen.toFixed(2)} en ${almacenes.find((a) => a.id === f.origenSugeridoId)?.nombre}`
+                        : "· no hay en ningún almacén"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             )}
           </section>
         )}

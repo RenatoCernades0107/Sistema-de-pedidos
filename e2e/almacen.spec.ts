@@ -106,7 +106,7 @@ test("un ajuste deja lo contado, y el ingreso queda con lo que había antes", as
   await expect(dialogo).toBeHidden();
   expect(await stockEn("F7E024", "CAT")).toBe(3);
 
-  await page.getByRole("tab", { name: "Ingresos" }).click();
+  await page.getByRole("tab", { name: "Movimientos" }).click();
   // Los ingresos no se borran: el de esta corrida es el más reciente, el primero.
   const ingreso = page
     .getByRole("list", { name: "Ingresos de stock" })

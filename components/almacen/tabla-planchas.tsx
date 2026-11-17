@@ -61,11 +61,14 @@ export function TablaPlanchas({
   almacenes,
   permisos,
   conFuera,
+  enCamino = {},
 }: {
   planchas: PlanchaInventario[];
   almacenes: Almacen[];
   permisos: PermisosAlmacen;
   conFuera: boolean;
+  /** Lo que viene en camino a cada almacén, por producto. */
+  enCamino?: Record<number, Record<string, number>>;
 }) {
   const [texto, setTexto] = useState("");
   const [material, setMaterial] = useState<string | null>(null);
@@ -202,7 +205,7 @@ export function TablaPlanchas({
                         {p.codigo}
                       </span>
                     </td>
-                    <CeldasStock stock={p.stock} almacenes={activos} conFuera={conFuera} />
+                    <CeldasStock stock={p.stock} almacenes={activos} conFuera={conFuera} enCamino={p.productoId ? enCamino[p.productoId] : undefined} />
                     {permisos.verPrecios && (
                       <td className="tnum px-2 py-2 text-right whitespace-nowrap">{p.precio === null ? "—" : money(p.precio)}</td>
                     )}

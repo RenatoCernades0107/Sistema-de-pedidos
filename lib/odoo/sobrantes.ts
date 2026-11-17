@@ -293,3 +293,17 @@ async function leerLotesEnStock(): Promise<LoteEnStock[]> {
     ubicacionId: dondeEsta.get(f.id as number) ?? null,
   }));
 }
+
+/** El producto (Sobrante de su material) de cada lote. */
+export async function productosDeLotes(loteIds: number[]): Promise<Map<number, number>> {
+  const ids = [...new Set(loteIds)].filter((id) => id > 0);
+  if (ids.length === 0) return new Map();
+  const modelo = await modeloDeLote();
+  const filas = await ejecutar<Fila[]>(modelo, "read", [ids], { fields: ["product_id"] });
+  const salida = new Map<number, number>();
+  for (const f of filas) {
+    const producto = idDe(f.product_id);
+    if (producto) salida.set(f.id as number, producto);
+  }
+  return salida;
+}

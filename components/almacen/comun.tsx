@@ -159,11 +159,14 @@ export function CeldasStock({
   stock,
   almacenes,
   conFuera,
+  enCamino,
 }: {
   stock: { porAlmacen: Record<string, number>; total: number; fuera: number } | null;
   almacenes: Almacen[];
   /** Si se muestra la columna de lo que está en el almacén anterior de Odoo. */
   conFuera: boolean;
+  /** Lo que viene en camino a cada almacén (transferencias enviadas, sin recibir). */
+  enCamino?: Record<string, number>;
 }) {
   if (!stock) {
     return (
@@ -176,9 +179,15 @@ export function CeldasStock({
     <>
       {almacenes.map((a) => {
         const n = stock.porAlmacen[a.id] ?? 0;
+        const viene = enCamino?.[a.id] ?? 0;
         return (
           <td key={a.id} className={`tnum px-2 py-2 text-right ${n === 0 ? "text-muted-foreground" : n < 0 ? "text-destructive" : ""}`}>
             {cantidad(n)}
+            {viene > 0 && (
+              <span className="text-st-en_transito block text-[0.68rem] leading-tight" title={`${cantidad(viene)} en camino a ${a.nombre}`}>
+                +{cantidad(viene)} en camino
+              </span>
+            )}
           </td>
         );
       })}

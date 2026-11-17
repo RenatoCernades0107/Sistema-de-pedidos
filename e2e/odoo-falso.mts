@@ -589,6 +589,13 @@ export async function crearOdooFalso(
       return id;
     }
 
+    if (modelo === "stock.location") {
+      const uso = String(vals.usage ?? "internal");
+      t.push({ id, name: vals.name, usage: uso });
+      USO_UBICACION[id] = uso;
+      return id;
+    }
+
     throw new ErrorRpc("odoo.exceptions.AccessError", `El Odoo falso no crea ${modelo}.`);
   }
 
@@ -672,6 +679,13 @@ export async function crearOdooFalso(
       }
       case "create":
         return crear(modelo, args[0] as Record<string, unknown>);
+      case "unlink": {
+        if (modelo !== "stock.move.line") break;
+        const ids = args[0] as number[];
+        const filas = tabla(modelo);
+        for (let i = filas.length - 1; i >= 0; i--) if (ids.includes(filas[i].id)) filas.splice(i, 1);
+        return true;
+      }
       case "write": {
         const [ids, vals] = args as [number[], Record<string, unknown>];
         if (modelo === "mrp.production") {
@@ -847,6 +861,12 @@ export async function crearOdooFalso(
         const contexto = (kwargs.context ?? {}) as Record<string, unknown>;
         for (const p of tabla(modelo).filter((r) => ids.includes(r.id))) {
           const movs = tabla("stock.move").filter((m) => valorDe(m, "picking_id") === p.id && m.state !== "cancel");
+          // Un movimiento con líneas (un lote) mueve lo de sus líneas.
+          const lineasDe = (m: Registro) => tabla("stock.move.line").filter((l) => valorDe(l, "move_id") === m.id);
+          for (const m of movs) {
+            const lineas = lineasDe(m);
+            if (lineas.length) m.quantity = lineas.reduce((s, l) => s + Number(l.quantity ?? 0), 0);
+          }
           const hechos = movs.filter((m) => m.picked && Number(m.quantity) > 0);
           if (hechos.length === 0) {
             throw new ErrorRpc(
@@ -867,6 +887,21 @@ export async function crearOdooFalso(
             m.state = "done";
             const q = Number(m.quantity);
             const producto = valorDe(m, "product_id");
+            const conLote = lineasDe(m).filter((l) => valorDe(l, "lot_id"));
+            if (conLote.length) {
+              const quants = tabla("stock.quant");
+              for (const l of conLote) {
+                const desde = valorDe(l, "location_id") ?? valorDe(m, "location_id");
+                const hacia = valorDe(l, "location_dest_id") ?? valorDe(m, "location_dest_id");
+                const origen = quants.find((x) => valorDe(x, "lot_id") === valorDe(l, "lot_id") && valorDe(x, "location_id") === desde);
+                if (origen) origen.quantity = Number(origen.quantity) - Number(l.quantity ?? 0);
+                const destino = quants.find((x) => valorDe(x, "lot_id") === valorDe(l, "lot_id") && valorDe(x, "location_id") === hacia);
+                if (destino) destino.quantity = Number(destino.quantity) + Number(l.quantity ?? 0);
+                else quants.push({ id: siguienteId(quants), product_id: [producto, ""], location_id: [hacia, ""],
+                  lot_id: l.lot_id, quantity: Number(l.quantity ?? 0), inventory_quantity: 0 });
+              }
+              continue;
+            }
             if (p.picking_type_code !== "incoming") moverStock(producto, valorDe(m, "location_id") ?? 8, -q);
             if (p.picking_type_code !== "outgoing") moverStock(producto, valorDe(m, "location_dest_id"), q);
           }

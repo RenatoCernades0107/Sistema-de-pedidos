@@ -71,12 +71,15 @@ export function TablaAccesorios({
   almacenes,
   permisos,
   conFuera,
+  enCamino = {},
 }: {
   accesorios: AccesorioInventario[];
   categorias: CategoriaAccesorio[];
   almacenes: Almacen[];
   permisos: PermisosAlmacen;
   conFuera: boolean;
+  /** Lo que viene en camino a cada almacén, por producto. */
+  enCamino?: Record<number, Record<string, number>>;
 }) {
   const [texto, setTexto] = useState("");
   const [categoria, setCategoria] = useState<string | null>(null);
@@ -185,7 +188,7 @@ export function TablaAccesorios({
                       {a.nombre}
                       {a.unidad && <span className="text-muted-foreground ml-1.5 text-xs">({a.unidad.toLowerCase()})</span>}
                     </td>
-                    <CeldasStock stock={a.stock} almacenes={activos} conFuera={conFuera} />
+                    <CeldasStock stock={a.stock} almacenes={activos} conFuera={conFuera} enCamino={a.productoId ? enCamino[a.productoId] : undefined} />
                     {permisos.verPrecios && (
                       <td className="tnum px-2 py-2 text-right whitespace-nowrap">{a.precio === null ? "—" : money(a.precio)}</td>
                     )}

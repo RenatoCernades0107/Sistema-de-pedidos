@@ -48,6 +48,8 @@ import { asuntoSeguimiento, mensajeSeguimiento } from "@/lib/compartir";
 import type { LineaDePedido, OdooDePedido } from "@/lib/pedido-lineas";
 import type { Sobrante } from "@/lib/sobrantes";
 import type { Almacen } from "@/lib/almacenes";
+import type { FaltanteGuardado } from "@/lib/faltantes";
+import { AvisoFaltantes } from "@/components/almacen/aviso-faltantes";
 import type { GrupoPlancha } from "@/lib/cortes/catalogo";
 
 export function DetallePedido({
@@ -58,6 +60,7 @@ export function DetallePedido({
   almacenes = [],
   catalogo = [],
   sobrantes = [],
+  faltantes = [],
   tokenSeguimiento = null,
   chat = null,
 }: {
@@ -76,6 +79,8 @@ export function DetallePedido({
   catalogo?: GrupoPlancha[];
   /** Los sobrantes que este pedido devolvió al almacén. */
   sobrantes?: Sobrante[];
+  /** El material que le falta donde se produce o se despacha (los avisos de "mover stock"). */
+  faltantes?: FaltanteGuardado[];
   /** Los productos y cortes del pedido. `null` si no se pudieron leer. */
   lineas?: LineaDePedido[] | null;
   odoo?: OdooDePedido | null;
@@ -281,6 +286,8 @@ export function DetallePedido({
               </Dato>
             </dl>
           </Panel>
+
+          <AvisoFaltantes faltantes={faltantes} almacenes={almacenes} gestiona={permisos.gestionarStock} />
 
           {lineas === null ? (
             <p className="text-muted-foreground rounded-xl border border-dashed p-4 text-sm">

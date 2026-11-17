@@ -27,6 +27,7 @@
 import { refresh } from "next/cache";
 import { after } from "next/server";
 import { clienteServidor } from "@/lib/supabase-servidor";
+import { revisarFaltantesDePedido } from "@/lib/faltantes-servidor";
 import { despacharNotificaciones } from "./notificaciones-acciones";
 import {
   confirmarEnOdoo,
@@ -253,6 +254,19 @@ export async function registrarPedido(entrada: unknown): Promise<Resultado> {
   const reserva = await reservarSobrantes(cotizacionId, c.lineas);
   if (!reserva.ok) aviso = reserva.error;
 
+  /* Lo que le falta al pedido donde se produce o se despacha, con el stock libre
+     de ahora (antes de que la venta confirmada reserve lo suyo). Si falta algo,
+     se avisa a Logística y Administración para que lo muevan. */
+  let hayAvisoDeStock = false;
+  if (enOdoo && data) {
+    const { data: pedido } = await supabase.from("pedidos").select("id").eq("codigo", data).maybeSingle();
+    if (pedido) {
+      const revision = await revisarFaltantesDePedido(pedido.id, { libre: true, avisar: true });
+      if (!revision.ok) aviso ??= `No se pudo revisar el stock del pedido: ${revision.error}`;
+      else hayAvisoDeStock = revision.nuevos > 0;
+    }
+  }
+
   /* La cotización pasa a pedido de venta en Odoo, que es lo que reserva el stock.
      Va después del alta y no la deshace si falla: el pedido ya está, y la
      cotización se queda con el motivo para reintentar desde su detalle. */
@@ -265,7 +279,7 @@ export async function registrarPedido(entrada: unknown): Promise<Resultado> {
      solo lo apura: after() corre cuando la respuesta ya salió, así que quien
      registra el pedido no espera al push. Si no llega a correr, el cron del
      minuto vacía la cola igual. */
-  if (v.responsableId) after(despacharNotificaciones);
+  if (v.responsableId || hayAvisoDeStock) after(despacharNotificaciones);
 
   refresh();
   return { ok: true, codigo: data ?? undefined, aviso, total };

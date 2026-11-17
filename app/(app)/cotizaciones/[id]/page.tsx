@@ -3,6 +3,7 @@ import { exigirCotizaciones } from "@/lib/sesion";
 import { ROLES } from "@/lib/dominio";
 import { almacenDeDespacho, cargarConfigCotizaciones, cargarCotizacion } from "@/lib/cotizaciones-servidor";
 import { cargarAlmacenes } from "@/lib/almacenes-servidor";
+import { faltantesPrevistos } from "@/lib/faltantes-servidor";
 import { enlaceOdoo } from "@/lib/odoo/rpc";
 import { DetalleCotizacion } from "@/components/cotizaciones/detalle-cotizacion";
 
@@ -17,6 +18,9 @@ export default async function Page({ params }: PageProps<"/cotizaciones/[id]">) 
   if (!cotizacion) notFound();
   // El elegido o, si nadie eligió, el que da la regla (taller si algo se produce allí).
   const despacho = await almacenDeDespacho(cotizacion).catch(() => null);
+  // Mientras no tiene pedido: lo que faltaría con ese despacho, para cambiarlo o mover stock a tiempo.
+  const previstos =
+    despacho && !cotizacion.pedido ? await faltantesPrevistos(cotizacion.lineas, despacho.id) : null;
 
   return (
     <DetalleCotizacion
@@ -27,6 +31,7 @@ export default async function Page({ params }: PageProps<"/cotizaciones/[id]">) 
       validezDias={config.validezDias}
       almacenes={almacenes}
       despachoId={despacho?.id ?? null}
+      faltantes={previstos?.ok ? previstos.faltantes : null}
     />
   );
 }

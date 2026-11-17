@@ -38,6 +38,7 @@ import {
 import { ErrorOdoo, odooConfigurado } from "./odoo/rpc";
 import { PREFIJO_CORTE, alDia, productoCorte } from "./odoo/produccion";
 import { cargarGrupoPlancha } from "./cortes-servidor";
+import { despachoPorStock } from "./faltantes-servidor";
 import { producirCortes, reservarTerminados } from "./produccion-servidor";
 import { leerTerminado } from "./terminados/guardado";
 import { areaPiezasM2, lineasCorteAMedida, materialOdoo } from "./sobrantes";
@@ -360,10 +361,18 @@ async function productosDeCorte(lineas: LineaGuardada[]) {
  * El almacén del que sale una cotización: el elegido o, si nadie eligió, el
  * taller si algo se produce allí y la tienda si no.
  */
-export async function almacenDeDespacho(c: Pick<Cotizacion, "almacenDespachoId" | "lineas">): Promise<Almacen> {
+export async function almacenDeDespacho(
+  c: Pick<Cotizacion, "almacenDespachoId" | "lineas">,
+  opciones: { porStock?: boolean } = {},
+): Promise<Almacen> {
   const almacenes = await cargarAlmacenes();
   const elegido = almacenes.find((a) => a.id === c.almacenDespachoId && a.activo);
   if (elegido) return elegido;
+  // Sin uno elegido, lo dice el stock (de donde sale todo lo suelto); si Odoo no responde, la regla de siempre.
+  if (opciones.porStock) {
+    const porStock = await despachoPorStock(c.lineas);
+    if (porStock) return porStock;
+  }
   return almacenPorTipo(tipoDeDespacho(c.lineas));
 }
 
@@ -390,7 +399,7 @@ export async function sincronizarConOdoo(id: string): Promise<ResultadoSincroniz
   const supabase = await clienteServidor();
 
   try {
-    const despacho = await almacenDeDespacho(c);
+    const despacho = await almacenDeDespacho(c, { porStock: true });
     const warehouseId = (await odooDeAlmacen(despacho)).warehouseId;
     // Si el producto Corte a medida que la app recordaba ya no está en Odoo, se vuelve a crear.
     const venta = await alDia(async () => {

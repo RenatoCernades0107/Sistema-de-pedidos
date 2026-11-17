@@ -24,7 +24,10 @@ import {
   esquemaNuevoProducto,
   esquemaPrecio,
   esquemaPrecioSobrante,
+  esquemaTransferencia,
 } from "@/lib/inventario";
+import * as faltantes from "@/lib/faltantes-servidor";
+import * as transferencias from "@/lib/transferencias-servidor";
 import { buscarClientes } from "@/lib/odoo/catalogos";
 import { ErrorOdoo } from "@/lib/odoo/rpc";
 import type { ClienteOdoo } from "@/lib/odoo/tipos";
@@ -173,4 +176,62 @@ export async function sincronizarSobrantes(): Promise<ResultadoAlmacen> {
     if (!(e instanceof ErrorOdoo)) console.error("[almacen] sincronizar", e);
     return { ok: false, error: e instanceof ErrorOdoo ? e.message : "Algo falló al sincronizar con Odoo." };
   }
+}
+
+/* ── Transferencias y avisos de "mover stock" ──────────────────────────────── */
+
+export async function crearTransferencia(entrada: unknown) {
+  return con("gestionarStock", esquemaTransferencia, entrada, transferencias.crearTransferencia);
+}
+
+/** Recibe una transferencia en camino. Lo hace también el taller: es quien recibe lo que le llega. */
+export async function recibirTransferencia(id: unknown): Promise<ResultadoAlmacen> {
+  const perfil = await exigirSesion();
+  if (!ROLES[perfil.rol].verAlmacen) return { ok: false, error: "Tu rol no recibe transferencias." };
+  if (typeof id !== "string") return { ok: false, error: "Esa transferencia no existe." };
+  const r = await transferencias.recibirTransferencia(id, ROLES[perfil.rol].gestionarStock);
+  refresh();
+  return r;
+}
+
+export async function reintentarTransferencia(id: unknown): Promise<ResultadoAlmacen> {
+  const no = await puede("gestionarStock");
+  if (no) return no;
+  if (typeof id !== "string") return { ok: false, error: "Esa transferencia no existe." };
+  const r = await transferencias.llevarAOdoo(id);
+  refresh();
+  return r;
+}
+
+export async function anularTransferencia(id: unknown): Promise<ResultadoAlmacen> {
+  const no = await puede("gestionarStock");
+  if (no) return no;
+  if (typeof id !== "string") return { ok: false, error: "Esa transferencia no existe." };
+  const r = await transferencias.anularTransferencia(id);
+  refresh();
+  return r;
+}
+
+export async function descartarFaltante(id: unknown): Promise<ResultadoAlmacen> {
+  const no = await puede("gestionarStock");
+  if (no) return no;
+  if (typeof id !== "string") return { ok: false, error: "Ese aviso no existe." };
+  const r = await faltantes.descartarFaltante(id);
+  refresh();
+  return r;
+}
+
+/** Vuelve a mirar qué les falta a los pedidos con avisos abiertos (o a uno). */
+export async function revisarFaltantes(pedidoId?: unknown): Promise<ResultadoAlmacen> {
+  const no = await puede("gestionarStock");
+  if (no) return no;
+  const pedidos =
+    typeof pedidoId === "string" ? [pedidoId] : [...new Set((await faltantes.cargarFaltantes()).map((f) => f.pedidoId))];
+  const problemas: string[] = [];
+  for (const p of pedidos) {
+    const r = await faltantes.revisarFaltantesDePedido(p, { libre: false, avisar: false });
+    if (!r.ok) problemas.push(r.error);
+  }
+  refresh();
+  return problemas.length ? { ok: false, error: problemas[0] } : { ok: true };
 }

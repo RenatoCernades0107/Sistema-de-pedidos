@@ -27,7 +27,7 @@ import {
 import { SelectorAlmacen, cantidad as fmt, leerPrecio } from "./comun";
 
 /** Un producto que se puede ingresar: una plancha o un accesorio del almacén que existe en Odoo. */
-interface Ingresable {
+export interface Ingresable {
   productoId: number;
   codigo: string;
   /** "Acrílico ECO · Cristal · 3 mm · 122×183" o el nombre del accesorio. */

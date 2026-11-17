@@ -30,7 +30,7 @@ import {
   productoSobrante,
   type MaterialDeSobrante,
 } from "./sobrantes";
-import { camposExistentes, ejecutar, ErrorOdoo, idDe, registrarReinicio, texto, valoresAlmacenable } from "./rpc";
+import { campoCantidad, camposExistentes, ejecutar, ErrorOdoo, idDe, registrarReinicio, texto, valoresAlmacenable } from "./rpc";
 
 type Fila = Record<string, unknown>;
 
@@ -320,14 +320,6 @@ export interface Cierre {
   /** Los pedazos que de verdad se guardaron, con su medida real y su almacén. */
   sobrantes: SobranteReal[];
 }
-
-const campoCantidad = async () => {
-  const [picked, nuevo] = await Promise.all([
-    camposExistentes("stock.move", ["picked"]).then((x) => x.length > 0),
-    camposExistentes("stock.move.line", ["quantity"]).then((x) => x.length > 0),
-  ]);
-  return { picked, campoMov: picked ? "quantity" : "quantity_done", campoLinea: nuevo ? "quantity" : "qty_done" };
-};
 
 /**
  * Los lotes de los sobrantes, con sus medidas: así la línea del movimiento solo
