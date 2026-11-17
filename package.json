@@ -13,6 +13,7 @@
     "e2e": "playwright test",
     "tipos": "supabase gen types typescript --linked > lib/supabase-tipos.ts",
     "iconos": "node scripts/gen-iconos.cjs",
+    "odoo:tipos-doc": "node --env-file-if-exists=.env.local scripts/odoo-tipos-documento.mjs",
     "seed:odoo": "node --env-file-if-exists=.env.local scripts/seed-odoo.mjs"
   },
   "dependencies": {
