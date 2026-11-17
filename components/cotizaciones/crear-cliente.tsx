@@ -84,9 +84,12 @@ function Formulario({
   });
   const errores = form.formState.errors;
 
-  const enviar = form.handleSubmit((datos) =>
+  const enviar = form.handleSubmit(() =>
     iniciar(async () => {
-      const r = await crearClienteOdoo(datos);
+      // Se manda lo tecleado, no lo que devolvió el resolver: este ya pasó por
+      // los `transform` del esquema ("" → null) y el servidor, que valida otra
+      // vez con el mismo esquema, rechazaría ese null ("Invalid input").
+      const r = await crearClienteOdoo(form.getValues());
       if (!r.ok) {
         toast.error("No se pudo crear el cliente", { description: r.error });
         return;
