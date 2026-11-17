@@ -39,7 +39,7 @@ import {
   urgenciaDe,
 } from "@/lib/formato";
 import { BARRA_ESTADO, EstadoBadge } from "@/components/estado-badge";
-import { AccionesPedido } from "@/components/acciones-pedido";
+import { AsignacionPedido, MoverPedido } from "@/components/acciones-pedido";
 import { EditarDatos, EditarEnvio } from "@/components/editar-pedido";
 import { RegistrarAbono } from "@/components/registrar-abono";
 import { AdjuntosPedido } from "@/components/adjuntos-pedido";
@@ -172,8 +172,11 @@ export function DetallePedido({
        arriba de 3.5rem) y cada columna se desplaza por su cuenta: el estado, la
        entrega, el pago y el chat quedan siempre a la vista. */
     <div className="px-4 py-5 md:px-6 md:py-6 lg:flex lg:h-[calc(100dvh-3.5rem-1px)] lg:min-h-[38rem] lg:flex-col lg:py-4">
-      <header className="mb-4 flex flex-col gap-1 lg:shrink-0">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      {/* A la izquierda, de quién es el pedido; a la derecha, por dónde va y qué
+          se puede hacer con él: la línea de tiempo, la fecha prometida,
+          Compartir y, debajo, los botones para moverlo. */}
+      <header className="mb-4 flex flex-col gap-x-6 gap-y-3 lg:shrink-0 xl:flex-row xl:items-start xl:justify-between">
+        <div className="flex min-w-0 flex-col gap-1">
           <div className="flex flex-wrap items-center gap-2">
             <Button
               render={<Link href="/pedidos" />}
@@ -196,7 +199,11 @@ export function DetallePedido({
             )}
             <EstadoBadge estado={p.estado} size="sm" />
           </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 sm:ml-auto">
+          <h1 className="text-xl font-semibold tracking-tight">{titulo}</h1>
+          <DatosCliente pedido={p} documento={documentoCliente} />
+        </div>
+        <div className="flex flex-col gap-2.5 xl:items-end">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 xl:justify-end">
             <Stepper pedido={p} />
             <FechaPrometida pedido={p} />
             {tokenSeguimiento && permisos.verTelefonoCliente && (
@@ -209,54 +216,14 @@ export function DetallePedido({
               />
             )}
           </div>
-        </div>
-        <h1 className="text-xl font-semibold tracking-tight">{titulo}</h1>
-        <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-          {documentoCliente && (
-            <>
-              <span className="inline-flex items-center gap-1.5">
-                <IdCard className="size-3.5" aria-hidden />
-                <span className="text-foreground tnum">{documentoCliente}</span>
-              </span>
-              <span aria-hidden>·</span>
-            </>
-          )}
-          {permisos.verTelefonoCliente && (
-            <>
-              <span className="inline-flex items-center gap-1.5">
-                <Phone className="size-3.5" aria-hidden />
-                {p.telefonoCliente ? (
-                  <a
-                    href={`tel:${p.telefonoCliente.replace(/\s+/g, "")}`}
-                    className="text-foreground tnum hover:underline"
-                  >
-                    {p.telefonoCliente}
-                  </a>
-                ) : (
-                  <Vacio>Sin teléfono</Vacio>
-                )}
-              </span>
-              <span aria-hidden>·</span>
-            </>
-          )}
-          <span>
-            Registrado el <span className="tnum">{fechaCompleta(p.fechaCreacion)}</span>
-          </span>
-          {p.fechaEntrega && (
-            <span>
-              · Entregado el <span className="tnum">{fechaCompleta(p.fechaEntrega)}</span>
-            </span>
-          )}
-          {p.fechaAnulacion && (
-            <span>
-              · Anulado el <span className="tnum">{fechaCompleta(p.fechaAnulacion)}</span>
-            </span>
-          )}
-          {permisos.editarTodo && !esTerminal(p.estado) && (
-            <span className="ml-1">
-              <EditarDatos pedido={p} />
-            </span>
-          )}
+          <MoverPedido
+            pedido={p}
+            cortes={items.filter((l) => l.corte)}
+            terminados={items.filter((l) => l.terminado)}
+            stockDescontado={odoo?.stockDescontado ?? false}
+            retazoMin={retazoMin}
+            className="xl:justify-end"
+          />
         </div>
       </header>
 
@@ -291,13 +258,7 @@ export function DetallePedido({
           className="max-lg:contents lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:gap-3 lg:overflow-y-auto"
         >
           <div className="max-lg:order-1">
-            <AccionesPedido
-              pedido={p}
-              cortes={items.filter((l) => l.corte)}
-              terminados={items.filter((l) => l.terminado)}
-              stockDescontado={odoo?.stockDescontado ?? false}
-              retazoMin={retazoMin}
-            />
+            <AsignacionPedido pedido={p} />
           </div>
           <div className="flex flex-col gap-3 max-lg:order-4">
             <PanelEntrega pedido={p} cerrado={esTerminal(p.estado)} />
@@ -366,6 +327,60 @@ export function DetallePedido({
           inicial={chat.inicial}
           abrirAlEntrar={chat.abrir}
         />
+      )}
+    </div>
+  );
+}
+
+/** Bajo el nombre: el documento y el teléfono del cliente, cuándo se registró y el botón de editar. */
+function DatosCliente({ pedido: p, documento: documentoCliente }: { pedido: Pedido; documento: string | null }) {
+  const { permisos } = useStore();
+  return (
+    <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+      {documentoCliente && (
+        <>
+          <span className="inline-flex items-center gap-1.5">
+            <IdCard className="size-3.5" aria-hidden />
+            <span className="text-foreground tnum">{documentoCliente}</span>
+          </span>
+          <span aria-hidden>·</span>
+        </>
+      )}
+      {permisos.verTelefonoCliente && (
+        <>
+          <span className="inline-flex items-center gap-1.5">
+            <Phone className="size-3.5" aria-hidden />
+            {p.telefonoCliente ? (
+              <a
+                href={`tel:${p.telefonoCliente.replace(/\s+/g, "")}`}
+                className="text-foreground tnum hover:underline"
+              >
+                {p.telefonoCliente}
+              </a>
+            ) : (
+              <Vacio>Sin teléfono</Vacio>
+            )}
+          </span>
+          <span aria-hidden>·</span>
+        </>
+      )}
+      <span>
+        Registrado el <span className="tnum">{fechaCompleta(p.fechaCreacion)}</span>
+      </span>
+      {p.fechaEntrega && (
+        <span>
+          · Entregado el <span className="tnum">{fechaCompleta(p.fechaEntrega)}</span>
+        </span>
+      )}
+      {p.fechaAnulacion && (
+        <span>
+          · Anulado el <span className="tnum">{fechaCompleta(p.fechaAnulacion)}</span>
+        </span>
+      )}
+      {permisos.editarTodo && !esTerminal(p.estado) && (
+        <span className="ml-1">
+          <EditarDatos pedido={p} />
+        </span>
       )}
     </div>
   );

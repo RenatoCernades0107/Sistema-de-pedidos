@@ -46,14 +46,21 @@ import type { LineaDePedido } from "@/lib/pedido-lineas";
 
 type Campos = z.infer<typeof esquemaFormEstado>;
 
-export function AccionesPedido({
+/**
+ * Los botones para mover el pedido de estado (van en la cabecera del detalle) y
+ * los diálogos que piden lo que haga falta antes: el motivo, el comprobante, las
+ * planchas o los materiales usados al pasar a Listo.
+ */
+export function MoverPedido({
   pedido: p,
   cortes = [],
   terminados = [],
   stockDescontado = false,
   retazoMin,
+  className,
 }: {
   pedido: Pedido;
+  className?: string;
   /** Los cortes del pedido: al pasar a Listo se pregunta cuántas planchas se usaron. */
   cortes?: LineaDePedido[];
   /** Los productos terminados: al pasar a Listo se pregunta qué material se usó de verdad. */
@@ -62,14 +69,7 @@ export function AccionesPedido({
   /** El lado mínimo de un sobrante, para proponer los que vuelven al almacén. */
   retazoMin?: number;
 }) {
-  const {
-    permisos,
-    trabajadores,
-    pendiente,
-    cambiarEstado,
-    cambiarUbicacion,
-    asignarResponsable,
-  } = useStore();
+  const { permisos, pendiente, cambiarEstado } = useStore();
   const [destino, setDestino] = useState<Estado | null>(null);
   const [aListo, setAListo] = useState(false);
   /** Lo usado en los productos terminados: se pregunta antes que las planchas de los cortes. */
@@ -124,107 +124,31 @@ export function AccionesPedido({
 
   return (
     <>
-      <section className="bg-card rounded-xl border" aria-label="Estado del pedido">
-
-        <div className="flex flex-col gap-3 p-3">
-          <CampoBase grupo label="Mover el pedido a" claseEtiqueta="eyebrow">
-            {validas.length === 0 ? (
-              <p className="text-muted-foreground flex items-center gap-2 text-sm">
-                <Lock className="size-3.5 shrink-0" />
-                {p.estado === "entregado"
-                  ? "Entregado: el pedido está cerrado."
-                  : "Anulado: el pedido está cerrado."}
-              </p>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {validas.map((e) => (
-                  <Button
-                    key={e}
-                    variant={e === "anulado" ? "destructive" : "outline"}
-                    size="sm"
-                    onClick={() => pedirCambio(e)}
-                    disabled={pendiente}
-                    className="gap-1.5"
-                  >
-                    {e === "anulado" ? (
-                      <Ban className="size-3.5" />
-                    ) : (
-                      <ArrowRight className="size-3.5" />
-                    )}
-                    {ESTADOS[e]}
-                  </Button>
-                ))}
-              </div>
-            )}
-          </CampoBase>
-
-          <div className="grid grid-cols-2 gap-2">
-          <Campo
-            etiqueta="Ubicación actual"
-            bloqueado={!permisos.editarUbicacion}
-          >
-            {permisos.editarUbicacion ? (
-              <Select
-                value={p.ubicacion}
-                disabled={pendiente}
-                onValueChange={(v) =>
-                  v && cambiarUbicacion(p.codigo, v as Ubicacion)
-                }
-              >
-                <SelectTrigger size="sm" className="w-full">
-                  <SelectValue>{UBICACIONES[p.ubicacion]}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {(Object.keys(UBICACIONES) as Ubicacion[]).map((u) => (
-                    <SelectItem key={u} value={u}>
-                      {UBICACIONES[u]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <p className="text-sm">{UBICACIONES[p.ubicacion]}</p>
-            )}
-          </Campo>
-
-          <Campo
-            etiqueta="Responsable"
-            bloqueado={!permisos.asignarResponsable}
-          >
-            {permisos.asignarResponsable ? (
-              <Select
-                value={p.responsableId ?? "sin"}
-                disabled={pendiente}
-                onValueChange={(v) =>
-                  v && asignarResponsable(p.codigo, v === "sin" ? null : v)
-                }
-              >
-                <SelectTrigger size="sm" className="w-full">
-                  <SelectValue>{p.responsable ?? "Sin asignar"}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="sin">Sin asignar</SelectItem>
-                  {trabajadores.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <p
-                className={cn(
-                  "text-sm",
-                  !p.responsable && "text-muted-foreground",
-                )}
-              >
-                {p.responsable ?? "Sin asignar"}
-              </p>
-            )}
-          </Campo>
-          </div>
+      {validas.length === 0 ? (
+        <p className={cn("text-muted-foreground flex items-center gap-2 text-sm", className)}>
+          <Lock className="size-3.5 shrink-0" />
+          {p.estado === "entregado"
+            ? "Entregado: el pedido está cerrado."
+            : "Anulado: el pedido está cerrado."}
+        </p>
+      ) : (
+        <div role="group" aria-label="Mover el pedido a" className={cn("flex flex-wrap items-center gap-1.5", className)}>
+          <span className="text-muted-foreground mr-0.5 text-xs">Mover a</span>
+          {validas.map((e) => (
+            <Button
+              key={e}
+              variant={e === "anulado" ? "destructive" : "outline"}
+              size="sm"
+              onClick={() => pedirCambio(e)}
+              disabled={pendiente}
+              className="gap-1.5"
+            >
+              {e === "anulado" ? <Ban className="size-3.5" /> : <ArrowRight className="size-3.5" />}
+              {ESTADOS[e]}
+            </Button>
+          ))}
         </div>
-      </section>
+      )}
 
       <DialogoPlanchas
         abierto={aListo}
@@ -329,6 +253,80 @@ export function AccionesPedido({
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/** Dónde está el pedido y quién lo atiende en el taller. */
+export function AsignacionPedido({ pedido: p }: { pedido: Pedido }) {
+  const { permisos, trabajadores, pendiente, cambiarUbicacion, asignarResponsable } = useStore();
+  return (
+    <section className="bg-card rounded-xl border p-3" aria-label="Ubicación y responsable">
+      <div className="grid grid-cols-2 gap-2">
+        <Campo
+          etiqueta="Ubicación actual"
+          bloqueado={!permisos.editarUbicacion}
+        >
+          {permisos.editarUbicacion ? (
+            <Select
+              value={p.ubicacion}
+              disabled={pendiente}
+              onValueChange={(v) =>
+                v && cambiarUbicacion(p.codigo, v as Ubicacion)
+              }
+            >
+              <SelectTrigger size="sm" className="w-full">
+                <SelectValue>{UBICACIONES[p.ubicacion]}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(UBICACIONES) as Ubicacion[]).map((u) => (
+                  <SelectItem key={u} value={u}>
+                    {UBICACIONES[u]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <p className="text-sm">{UBICACIONES[p.ubicacion]}</p>
+          )}
+        </Campo>
+
+        <Campo
+          etiqueta="Responsable"
+          bloqueado={!permisos.asignarResponsable}
+        >
+          {permisos.asignarResponsable ? (
+            <Select
+              value={p.responsableId ?? "sin"}
+              disabled={pendiente}
+              onValueChange={(v) =>
+                v && asignarResponsable(p.codigo, v === "sin" ? null : v)
+              }
+            >
+              <SelectTrigger size="sm" className="w-full">
+                <SelectValue>{p.responsable ?? "Sin asignar"}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="sin">Sin asignar</SelectItem>
+                {trabajadores.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.nombre}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <p
+              className={cn(
+                "text-sm",
+                !p.responsable && "text-muted-foreground",
+              )}
+            >
+              {p.responsable ?? "Sin asignar"}
+            </p>
+          )}
+        </Campo>
+      </div>
+    </section>
   );
 }
 
