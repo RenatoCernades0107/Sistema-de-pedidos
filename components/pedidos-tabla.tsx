@@ -20,21 +20,20 @@ import {
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import {
+  CLASES_ITEM,
   LUGARES,
-  PRODUCTOS,
-  TIPOS,
   UBICACIONES,
-  etiquetaTipos,
   saldoDe,
+  textoItem,
   type Pedido,
 } from "@/lib/dominio";
 import {
-  cantidadCorta,
   diaMes,
   diaMesTexto,
   fechaCompleta,
   haceCuanto,
   money,
+  numero,
   urgenciaDe,
 } from "@/lib/formato";
 import { EstadoBadge } from "@/components/estado-badge";
@@ -130,25 +129,30 @@ export function PedidosTabla({
         },
       },
       {
-        id: "tipos",
-        accessorFn: (p) => etiquetaTipos(p.tipos),
-        header: "Trabajo",
+        id: "items",
+        accessorFn: (p) => p.items.map((i) => i.nombre).join(" · "),
+        header: "Ítems",
         cell: ({ row }) => {
           const p = row.original;
-          const [primero, ...resto] = p.tipos;
+          const [primero, ...resto] = p.items;
+          if (!primero) return <span className="text-muted-foreground">—</span>;
           return (
             <div className="min-w-0">
-              {/* Con varios tipos solo cabe el primero; el resto va como "+N"
-                  y el desglose completo está en el detalle. */}
-              <span className="block truncate" title={etiquetaTipos(p.tipos)}>
-                {TIPOS[primero]}
+              {/* Solo cabe el primero; el resto va como "+N" y la lista completa,
+                  en el título y en el detalle. */}
+              <span className="block truncate" title={p.items.map(textoItem).join("\n")}>
+                {primero.nombre}
                 {resto.length > 0 && (
                   <span className="text-muted-foreground ml-1 text-xs">+{resto.length}</span>
                 )}
               </span>
               <span className="text-muted-foreground block truncate text-xs">
-                <span className="tnum">{cantidadCorta(p)}</span>
-                {p.producto ? ` · ${PRODUCTOS[p.producto]}` : ""}
+                <span className="tnum">
+                  {primero.clase === "corte"
+                    ? `${numero(primero.cantidad)} ${primero.cantidad === 1 ? "pieza" : "piezas"}`
+                    : `${numero(primero.cantidad)} u.`}
+                </span>
+                {` · ${CLASES_ITEM[primero.clase]}`}
               </span>
             </div>
           );

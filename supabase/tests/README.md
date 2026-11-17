@@ -37,6 +37,10 @@ Dos scripts, los dos pensados para correr contra el proyecto de Supabase en la n
   `tiene_correo_recuperacion` no respondan sin la clave del servidor, el CHECK de formato y que
   `secretos_app` y `cerrar_sesiones_de` no sean accesibles a `anon`/`authenticated`. Necesita la
   seed (usa a `ana` y el secreto de desarrollo) y termina en `ROLLBACK`.
+- **`lineas_de_pedidos.sql`** — verifica la migración `20261203000100`: `lineas_de_pedidos(ids)`
+  trae las mismas líneas que `lineas_de_pedido(codigo)` pedido por pedido, cada una con su pedido;
+  Administración las ve con precios, el taller sin ellos, y una sesión sin perfil no ve nada.
+  Necesita el seed (entra como `ana` y `miguel`) y termina en `ROLLBACK`.
 - **`estado.sql`** — no verifica nada, solo reporta: cuántos pedidos, pagos y adjuntos
   hay, cómo se reparten los estados y si algún saldo quedó descuadrado.
 
@@ -91,7 +95,7 @@ cd web && npx playwright install chromium && npm run e2e
 ```
 
 Levanta `next dev` sola y corre contra la base real, pero cada prueba crea y borra sus
-propias filas: nunca toca los 23 pedidos del seed.
+propias filas: nunca toca los pedidos del seed.
 
 **Al escribir una prueba nueva:** `click()` vuelve en cuanto suelta el evento, no cuando
 la Server Action termina. Recargar justo después aborta el POST a media respuesta y la

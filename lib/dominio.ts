@@ -90,11 +90,29 @@ export interface Adjunto {
   lineaPosicion?: number | null;
 }
 
+/** De qué es una línea del pedido: un producto de Odoo tal cual, un corte o algo que fabrica el taller. */
+export type ClaseItem = "producto" | "corte" | "terminado";
+
+/**
+ * Una línea del pedido, resumida para la lista: qué es y cuánto. El detalle
+ * completo (piezas, ficha, planchas usadas) lo lee el detalle del pedido.
+ */
+export interface ItemPedido {
+  posicion: number;
+  clase: ClaseItem;
+  /** "Corte láser · Acrílico ECO · Cristal · 3 mm", "Caja para rifas y sorteos", "SOPORTES DE ACRILICO…". */
+  nombre: string;
+  /** En un corte, cuántas piezas; en lo demás, cuántas unidades. */
+  cantidad: number;
+}
+
 export interface Pedido {
   codigo: string;
   cliente: string;
   /** Contacto para coordinar la entrega. Dato personal: no lo ve el taller. */
   telefonoCliente: string | null;
+  /** Lo que lleva el pedido: sus líneas, en orden. Vacío si el pedido no tiene cotización. */
+  items: ItemPedido[];
   /** Un pedido puede combinar trabajos: corte láser más accesorios, por ejemplo. */
   tipos: TipoPedido[];
   producto: ProductoTerminado | null;
@@ -138,6 +156,31 @@ export interface Pedido {
 }
 
 /* ── Etiquetas ── */
+
+export const CLASES_ITEM: Record<ClaseItem, string> = {
+  producto: "Producto",
+  corte: "Corte",
+  terminado: "Producto terminado",
+};
+
+/** Para filtrar la lista: los pedidos que llevan al menos un ítem de esa clase. */
+export const FILTRO_CLASE_ITEM: Record<ClaseItem, string> = {
+  producto: "Con productos",
+  corte: "Con cortes",
+  terminado: "Con terminados",
+};
+
+const cantidadItem = (n: number) => String(+n.toFixed(2));
+
+/** Una línea en una frase, la cantidad delante: "12 pzs · Corte láser · Acrílico ECO…" o "48 × SOPORTES…". */
+export const textoItem = (i: ItemPedido) =>
+  i.clase === "corte"
+    ? `${cantidadItem(i.cantidad)} ${i.cantidad === 1 ? "pza" : "pzs"} · ${i.nombre}`
+    : `${cantidadItem(i.cantidad)} × ${i.nombre}`;
+
+/** Lo que lleva un pedido, en el espacio de una línea: el primer ítem y cuántos más. */
+export const resumenItems = (items: ItemPedido[]) =>
+  items.length === 0 ? "Sin ítems" : `${textoItem(items[0])}${items.length > 1 ? ` +${items.length - 1}` : ""}`;
 
 export const TIPOS: Record<TipoPedido, string> = {
   CL: "Corte láser",

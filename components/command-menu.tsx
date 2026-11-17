@@ -24,7 +24,7 @@ import {
 import { EstadoBadge } from "@/components/estado-badge";
 import { ICONOS_HERRAMIENTA } from "@/components/iconos-herramienta";
 import { useStore } from "@/lib/store";
-import { ALCANCES, etiquetaTipos, herramientasDe, rutaAlcance, type Alcance } from "@/lib/dominio";
+import { ALCANCES, herramientasDe, resumenItems, rutaAlcance, type Alcance } from "@/lib/dominio";
 import { camposBuscables, coincide } from "@/lib/busqueda";
 import { porUrgencia } from "@/lib/formato";
 
@@ -121,7 +121,7 @@ export function CommandMenu({
             >
               <span className="tnum text-primary shrink-0 text-xs font-medium">{p.codigo}</span>
               <span className="min-w-0 flex-1 truncate">
-                {permisos.verCliente ? p.cliente : etiquetaTipos(p.tipos)}
+                {permisos.verCliente ? p.cliente : resumenItems(p.items)}
               </span>
               <EstadoBadge estado={p.estado} size="sm" />
             </CommandItem>
