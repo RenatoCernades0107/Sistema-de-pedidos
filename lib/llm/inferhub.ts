@@ -14,6 +14,10 @@
  * │     `stream: true` con SSE (`data: {...}` y `data: [DONE]`), `tools` y   │
  * │     `tool_calls` que llegan en trozos por `index`, imágenes como partes  │
  * │     `image_url`.                                                         │
+ * │   - los PDF van como partes `file` (`file.filename`, `file.file_data`   │
+ * │     con un `data:` en base64), como en OpenAI/OpenRouter/LiteLLM. Si la  │
+ * │     pasarela no los acepta, `INFERHUB_PDF=texto` deja solo el texto      │
+ * │     que la app extrae del PDF (ver `lib/cad/adjuntos-servidor.ts`).      │
  * │   - el razonamiento ("pensamiento") se pide con `reasoning_effort` y     │
  * │     llega en `delta.reasoning_content` (o `reasoning` / `thinking`),     │
  * │     con los bloques firmados en `delta.thinking_blocks`, como lo hacen   │
@@ -30,8 +34,14 @@ const MODELO_POR_DEFECTO = "ag/claude-opus-5-5";
 
 /* ── La interfaz ───────────────────────────────────────────────────────────── */
 
-/** Un trozo del mensaje de quien escribe: texto, o una imagen (URL o `data:`). */
-export type ParteLlm = { tipo: "texto"; texto: string } | { tipo: "imagen"; url: string };
+/**
+ * Un trozo del mensaje de quien escribe: texto, una imagen (URL o `data:`) o un
+ * archivo (un PDF, en base64, que el modelo lee entero: texto y dibujos).
+ */
+export type ParteLlm =
+  | { tipo: "texto"; texto: string }
+  | { tipo: "imagen"; url: string }
+  | { tipo: "archivo"; nombre: string; mime: string; datos: string };
 
 /** Una herramienta que el modelo pidió usar, con sus argumentos ya leídos. */
 export type LlamadaLlm = {
@@ -131,13 +141,27 @@ export function llmConfigurado(): boolean {
 
 /* ── El formato de Inferhub (compatible con OpenAI, por confirmar) ─────────── */
 
+/**
+ * Si los PDF se le mandan al modelo como archivo: `INFERHUB_PDF` = `archivo`
+ * (por defecto) o `texto` (solo el texto que extrae la app, para pasarelas que
+ * no aceptan partes `file`).
+ */
+export function pdfComoArchivo(): boolean {
+  return process.env.INFERHUB_PDF?.trim().toLowerCase() !== "texto";
+}
+
 function contenidoDeUsuario(contenido: string | ParteLlm[]) {
   if (typeof contenido === "string") return contenido;
-  return contenido.map((p) =>
-    p.tipo === "texto"
-      ? { type: "text", text: p.texto }
-      : { type: "image_url", image_url: { url: p.url } },
-  );
+  return contenido.map((p) => {
+    switch (p.tipo) {
+      case "texto":
+        return { type: "text", text: p.texto };
+      case "imagen":
+        return { type: "image_url", image_url: { url: p.url } };
+      case "archivo":
+        return { type: "file", file: { filename: p.nombre, file_data: `data:${p.mime};base64,${p.datos}` } };
+    }
+  });
 }
 
 function mensajeDeCable(m: MensajeLlm): Record<string, unknown> {

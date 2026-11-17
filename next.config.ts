@@ -16,6 +16,9 @@ const VISTAS_ANTIGUAS: [string, string][] = [
 ];
 
 const nextConfig: NextConfig = {
+  // pdf.js lee los PDF que se adjuntan al chat de diseños (`lib/cad/adjuntos-servidor.ts`).
+  // Se carga con el `import` de Node: empaquetado no encuentra su worker.
+  serverExternalPackages: ["pdfjs-dist"],
   redirects() {
     return VISTAS_ANTIGUAS.map(([source, destination]) => ({
       source,

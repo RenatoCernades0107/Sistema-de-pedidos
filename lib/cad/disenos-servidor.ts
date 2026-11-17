@@ -11,6 +11,7 @@
  */
 
 import { clienteServidor } from "@/lib/supabase-servidor";
+import { deAdjuntos, type AdjuntoCad } from "@/lib/cad/adjuntos";
 import { mensajeDeError } from "@/lib/errores";
 import { leerMateriales, type MaterialesPorCopia } from "./materiales";
 import type { Json } from "@/lib/supabase-tipos";
@@ -49,6 +50,8 @@ export type MensajeCad = {
   herramientas: HerramientaUsada[];
   /** Las caras del visor que la persona señaló con el mensaje. */
   referencias: ReferenciaCara[];
+  /** Los archivos (imágenes, PDF) que la persona adjuntó al mensaje. */
+  adjuntos: AdjuntoCad[];
   creadoEn: string;
 };
 
@@ -354,7 +357,7 @@ export async function listarMensajes(disenoId: string, limite?: number): Promise
   const supabase = await clienteServidor();
   let consulta = supabase
     .from("cad_mensajes")
-    .select("id, rol, contenido, herramientas, referencias, creado_en")
+    .select("id, rol, contenido, herramientas, referencias, adjuntos, creado_en")
     .eq("diseno_id", disenoId)
     .order("creado_en", { ascending: false });
   if (limite) consulta = consulta.limit(limite);
@@ -368,6 +371,7 @@ export async function listarMensajes(disenoId: string, limite?: number): Promise
     contenido: m.contenido,
     herramientas: deHerramientas(m.herramientas),
     referencias: deReferencias(m.referencias),
+    adjuntos: deAdjuntos(m.adjuntos),
     creadoEn: m.creado_en,
   }));
 }
@@ -379,6 +383,7 @@ export async function agregarMensaje(entrada: {
   contenido: string;
   herramientas?: HerramientaUsada[];
   referencias?: ReferenciaCara[];
+  adjuntos?: AdjuntoCad[];
   /** Solo para ordenar los dos mensajes de un turno que se guardan a la vez. */
   creadoEn?: string;
 }): Promise<void> {
@@ -389,6 +394,7 @@ export async function agregarMensaje(entrada: {
     contenido: entrada.contenido,
     herramientas: entrada.herramientas?.length ? entrada.herramientas : null,
     referencias: entrada.referencias?.length ? (entrada.referencias as unknown as Json) : null,
+    adjuntos: entrada.adjuntos?.length ? (entrada.adjuntos as unknown as Json) : null,
     ...(entrada.creadoEn ? { creado_en: entrada.creadoEn } : {}),
   });
   if (error) throw new Error(mensajeDeError(error));

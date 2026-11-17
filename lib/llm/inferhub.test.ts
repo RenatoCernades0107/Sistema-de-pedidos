@@ -139,6 +139,34 @@ describe("lo que se envía", () => {
     expect(JSON.parse(init?.body as string).model).toBe("otro/modelo");
   });
 
+  it("un PDF adjunto va como parte `file` con su `data:`", () => {
+    const enviado = cuerpoDePeticion(
+      {
+        sistema: "S",
+        mensajes: [
+          {
+            rol: "usuario",
+            contenido: [
+              { tipo: "texto", texto: "Mira el plano" },
+              { tipo: "archivo", nombre: "plano.pdf", mime: "application/pdf", datos: "JVBERi0=" },
+            ],
+          },
+        ],
+      },
+      "m",
+    );
+    expect(enviado.messages).toEqual([
+      { role: "system", content: "S" },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Mira el plano" },
+          { type: "file", file: { filename: "plano.pdf", file_data: "data:application/pdf;base64,JVBERi0=" } },
+        ],
+      },
+    ]);
+  });
+
   it("traduce herramientas, imágenes y el ida y vuelta de una llamada", () => {
     const enviado = cuerpoDePeticion(
       {
