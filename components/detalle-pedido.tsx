@@ -115,6 +115,8 @@ export function DetallePedido({
   const params = useSearchParams();
   const items = lineas ?? [];
   const vista = vistaDeUrl(params, items);
+  // La pestaña Chat de la columna derecha. `?chat=1` es también lo que traen los avisos de menciones.
+  const enChat = params.get("chat") === "1";
 
   /* Cambiar de ítem no vuelve a pedir nada al servidor (el pedido, Odoo y el
      chat ya están): solo se reescribe la URL, para que el enlace lleve al
@@ -127,6 +129,17 @@ export function DetallePedido({
       if (v.tipo === "item") siguientes.set("item", String(v.posicion));
       else siguientes.set("ver", v.tipo);
       window.history.replaceState(null, "", `?${siguientes.toString()}`);
+    },
+    [params],
+  );
+
+  const cambiarPestana = useCallback(
+    (chat: boolean) => {
+      const siguientes = new URLSearchParams(params.toString());
+      if (chat) siguientes.set("chat", "1");
+      else siguientes.delete("chat");
+      const q = siguientes.toString();
+      window.history.replaceState(null, "", q ? `?${q}` : window.location.pathname);
     },
     [params],
   );
@@ -172,11 +185,11 @@ export function DetallePedido({
        arriba de 3.5rem) y cada columna se desplaza por su cuenta: el estado, la
        entrega, el pago y el chat quedan siempre a la vista. */
     <div className="px-4 py-5 md:px-6 md:py-6 lg:flex lg:h-[calc(100dvh-3.5rem-1px)] lg:min-h-[38rem] lg:flex-col lg:py-4">
-      {/* A la izquierda, de quién es el pedido; a la derecha, por dónde va y qué
-          se puede hacer con él: la línea de tiempo, la fecha prometida,
-          Compartir y, debajo, los botones para moverlo. */}
-      <header className="mb-4 flex flex-col gap-x-6 gap-y-3 lg:shrink-0 xl:flex-row xl:items-start xl:justify-between">
-        <div className="flex min-w-0 flex-col gap-1">
+      {/* Arriba, de quién es el pedido y su fecha comprometida. Debajo de los datos
+          del cliente, en una misma fila: la línea de tiempo (al centro en
+          pantallas muy anchas) y los botones para mover el pedido, a la derecha. */}
+      <header className="mb-4 flex flex-col gap-y-1.5 lg:shrink-0">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <Button
               render={<Link href="/pedidos" />}
@@ -199,12 +212,7 @@ export function DetallePedido({
             )}
             <EstadoBadge estado={p.estado} size="sm" />
           </div>
-          <h1 className="text-xl font-semibold tracking-tight">{titulo}</h1>
-          <DatosCliente pedido={p} documento={documentoCliente} />
-        </div>
-        <div className="flex flex-col gap-2.5 xl:items-end">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 xl:justify-end">
-            <Stepper pedido={p} />
+          <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
             <FechaPrometida pedido={p} />
             {tokenSeguimiento && permisos.verTelefonoCliente && (
               <CompartirMenu
@@ -216,14 +224,26 @@ export function DetallePedido({
               />
             )}
           </div>
-          <MoverPedido
-            pedido={p}
-            cortes={items.filter((l) => l.corte)}
-            terminados={items.filter((l) => l.terminado)}
-            stockDescontado={odoo?.stockDescontado ?? false}
-            retazoMin={retazoMin}
-            className="xl:justify-end"
-          />
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <h1 className="text-xl font-semibold tracking-tight">{titulo}</h1>
+          {permisos.editarTodo && !esTerminal(p.estado) && <EditarDatos pedido={p} />}
+        </div>
+        <div className="grid gap-x-6 gap-y-3 2xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] 2xl:items-center">
+          <DatosCliente pedido={p} documento={documentoCliente} />
+          <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 2xl:contents">
+            <div className="2xl:justify-self-center">
+              <Stepper pedido={p} />
+            </div>
+            <MoverPedido
+              pedido={p}
+              cortes={items.filter((l) => l.corte)}
+              terminados={items.filter((l) => l.terminado)}
+              stockDescontado={odoo?.stockDescontado ?? false}
+              retazoMin={retazoMin}
+              className="justify-end 2xl:justify-self-end"
+            />
+          </div>
         </div>
       </header>
 
@@ -249,7 +269,15 @@ export function DetallePedido({
         </div>
       )}
 
-      <div className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[18rem_minmax(0,1fr)_13rem] lg:grid-rows-[minmax(0,1fr)] xl:grid-cols-[21rem_minmax(0,1fr)_15rem]">
+      {/* Con el chat a la vista, la columna derecha se ensancha y el centro cede. */}
+      <div
+        className={cn(
+          "grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-rows-[minmax(0,1fr)] lg:transition-[grid-template-columns] lg:duration-200",
+          chat && enChat
+            ? "lg:grid-cols-[18rem_minmax(0,1fr)_22rem] xl:grid-cols-[21rem_minmax(0,1fr)_26rem]"
+            : "lg:grid-cols-[18rem_minmax(0,1fr)_13rem] xl:grid-cols-[21rem_minmax(0,1fr)_15rem]",
+        )}
+      >
         {/* A la izquierda, lo que se sigue a diario: el estado, la entrega y el
             pago. En el celular se reparte: el estado va antes de los ítems y la
             entrega y el pago, después. */}
@@ -309,30 +337,42 @@ export function DetallePedido({
         </div>
 
 
-        <NavegadorPedido
-          lineas={items}
-          pedido={p}
-          vista={vista}
-          archivos={archivosVisibles.length}
-          alElegir={elegir}
-          className="max-lg:order-2 lg:h-full lg:overflow-y-auto"
-        />
+        {chat ? (
+          <ChatPedido
+            conversacionId={chat.conversacionId}
+            codigo={p.codigo}
+            usuarioId={chat.usuarioId}
+            inicial={chat.inicial}
+            enChat={enChat}
+            alCambiar={cambiarPestana}
+            etiquetaItems={items.length > 0 ? `Ítems (${items.length})` : "Contenido"}
+            className="max-lg:order-2 lg:h-full"
+          >
+            <NavegadorPedido
+              lineas={items}
+              pedido={p}
+              vista={vista}
+              archivos={archivosVisibles.length}
+              alElegir={elegir}
+              incrustado
+            />
+          </ChatPedido>
+        ) : (
+          <NavegadorPedido
+            lineas={items}
+            pedido={p}
+            vista={vista}
+            archivos={archivosVisibles.length}
+            alElegir={elegir}
+            className="max-lg:order-2 lg:h-full lg:overflow-y-auto"
+          />
+        )}
       </div>
-
-      {chat && (
-        <ChatPedido
-          conversacionId={chat.conversacionId}
-          codigo={p.codigo}
-          usuarioId={chat.usuarioId}
-          inicial={chat.inicial}
-          abrirAlEntrar={chat.abrir}
-        />
-      )}
     </div>
   );
 }
 
-/** Bajo el nombre: el documento y el teléfono del cliente, cuándo se registró y el botón de editar. */
+/** Bajo el nombre: el documento y el teléfono del cliente y cuándo se registró. */
 function DatosCliente({ pedido: p, documento: documentoCliente }: { pedido: Pedido; documento: string | null }) {
   const { permisos } = useStore();
   return (
@@ -377,11 +417,6 @@ function DatosCliente({ pedido: p, documento: documentoCliente }: { pedido: Pedi
           · Anulado el <span className="tnum">{fechaCompleta(p.fechaAnulacion)}</span>
         </span>
       )}
-      {permisos.editarTodo && !esTerminal(p.estado) && (
-        <span className="ml-1">
-          <EditarDatos pedido={p} />
-        </span>
-      )}
     </div>
   );
 }
@@ -399,6 +434,7 @@ function NavegadorPedido({
   vista,
   archivos,
   alElegir,
+  incrustado = false,
   className,
 }: {
   lineas: LineaDePedido[];
@@ -406,6 +442,8 @@ function NavegadorPedido({
   vista: Vista;
   archivos: number;
   alElegir: (v: Vista) => void;
+  /** Va dentro de la tarjeta con pestañas: sin tarjeta propia ni título (lo dice la pestaña). */
+  incrustado?: boolean;
   className?: string;
 }) {
   const opciones: Vista[] = [
@@ -474,9 +512,12 @@ function NavegadorPedido({
         role="tablist"
         aria-orientation="vertical"
         onKeyDown={teclas}
-        className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 lg:mx-0 lg:flex-col lg:gap-0.5 lg:overflow-visible lg:rounded-xl lg:border lg:bg-card lg:p-1.5 lg:pb-1.5"
+        className={cn(
+          "-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 lg:mx-0 lg:flex-col lg:gap-0.5 lg:overflow-visible",
+          incrustado ? "lg:p-0" : "lg:bg-card lg:rounded-xl lg:border lg:p-1.5",
+        )}
       >
-        {lineas.length > 0 && (
+        {lineas.length > 0 && !incrustado && (
           <p className="eyebrow hidden px-2.5 pt-1.5 pb-1 lg:block">
             Ítems <span className="tnum">({lineas.length})</span>
           </p>
