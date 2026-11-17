@@ -29,7 +29,12 @@ export type Estado =
 export type LugarEntrega = "tienda" | "taller" | "domicilio" | "agencia";
 export type Ubicacion = "tienda" | "taller" | "agencia";
 export type TipoPago = "contado" | "a_cuenta" | "credito";
-export type MetodoPago = "efectivo" | "yape_plin" | "transferencia" | "tarjeta" | "otro";
+export type MetodoPago =
+  | "efectivo"
+  | "yape_plin"
+  | "transferencia"
+  | "tarjeta"
+  | "otro";
 export type TipoAdjunto = "diseno" | "factura" | "guia" | "foto_entrega";
 /** Los filtros de la vista de pedidos: a qué parte del trabajo se mira. */
 export type Alcance = "todos" | "mios" | "taller" | "tienda" | "logistica";
@@ -345,7 +350,8 @@ export const ROLES: Record<Rol, PermisosRol> = {
   },
   logistica: {
     nombre: "Logística",
-    descripcion: "Ve el pedido completo · edita estado, ubicación y responsable",
+    descripcion:
+      "Ve el pedido completo · edita estado, ubicación y responsable",
     alcances: ["logistica", "taller", "todos"],
     base: (p) => ALCANCES.logistica.filtro(p) || ALCANCES.taller.filtro(p),
     verCliente: true,
@@ -369,7 +375,8 @@ export const ROLES: Record<Rol, PermisosRol> = {
   },
   operaciones: {
     nombre: "Operaciones",
-    descripcion: "Ve el cliente y los datos de producción · solo edita el estado",
+    descripcion:
+      "Ve el cliente y los datos de producción · solo edita el estado",
     alcances: ["taller"],
     base: (p) => ALCANCES.taller.filtro(p),
     verCliente: true,
@@ -406,7 +413,9 @@ export function transicionesValidas(p: Pedido): Estado[] {
     case "observado":
       return ["en_proceso", "anulado"];
     case "listo":
-      return p.esProvincia ? ["en_transito", "anulado"] : ["entregado", "anulado"];
+      return p.esProvincia
+        ? ["en_transito", "anulado"]
+        : ["entregado", "anulado"];
     case "en_transito":
       return ["entregado", "anulado"];
     default:
@@ -420,7 +429,8 @@ export function pasosDelFlujo(esProvincia: boolean): Estado[] {
     : ["registrado", "en_proceso", "listo", "entregado"];
 }
 
-export const requiereMotivo = (e: Estado) => e === "anulado" || e === "observado";
+export const requiereMotivo = (e: Estado) =>
+  e === "anulado" || e === "observado";
 /** Al entregar, Administración puede anotar el comprobante. Es opcional. */
 export const ofreceComprobante = (e: Estado) => e === "entregado";
 
@@ -444,7 +454,10 @@ export const tipoComprobante = (n: string) =>
         ? "boleta"
         : "factura";
 
-const ETIQUETA_COMPROBANTE: Record<ReturnType<typeof tipoComprobante>, string> = {
+const ETIQUETA_COMPROBANTE: Record<
+  ReturnType<typeof tipoComprobante>,
+  string
+> = {
   factura: "Factura",
   boleta: "Boleta",
   proforma: "Proforma",
@@ -452,7 +465,8 @@ const ETIQUETA_COMPROBANTE: Record<ReturnType<typeof tipoComprobante>, string> =
 };
 
 /** `Boleta B001-004512`, para mostrar el número con su tipo. */
-export const etiquetaComprobante = (n: string) => `${ETIQUETA_COMPROBANTE[tipoComprobante(n)]} ${n}`;
+export const etiquetaComprobante = (n: string) =>
+  `${ETIQUETA_COMPROBANTE[tipoComprobante(n)]} ${n}`;
 
 /**
  * Los tipos de un pedido, deducidos de sus líneas: un corte láser es CL, uno
@@ -461,7 +475,10 @@ export const etiquetaComprobante = (n: string) => `${ETIQUETA_COMPROBANTE[tipoCo
  * anteriores, cuando se marcaba a mano.)
  */
 export function tiposDeLineas(
-  lineas: { corte?: { modalidad: string } | null; terminado?: unknown | null }[],
+  lineas: {
+    corte?: { modalidad: string } | null;
+    terminado?: unknown | null;
+  }[],
 ): TipoPedido[] {
   const tipos = new Set<TipoPedido>();
   for (const l of lineas) {
@@ -472,14 +489,17 @@ export function tiposDeLineas(
   return (Object.keys(TIPOS) as TipoPedido[]).filter((t) => tipos.has(t));
 }
 
-export const etiquetaTipos = (tipos: TipoPedido[]) => tipos.map((t) => TIPOS[t]).join(" · ");
+export const etiquetaTipos = (tipos: TipoPedido[]) =>
+  tipos.map((t) => TIPOS[t]).join(" · ");
 
 /** Media plancha se corta; media caja no existe. */
 export const admiteDecimales = (tipos: TipoPedido[]) => tipos.includes("SP");
-export const unidadDe = (tipos: TipoPedido[]) => (admiteDecimales(tipos) ? "planchas" : "unidades");
+export const unidadDe = (tipos: TipoPedido[]) =>
+  admiteDecimales(tipos) ? "planchas" : "unidades";
 
 /** Un pedido cerrado tiene una de las dos fechas, nunca las dos. */
-export const fechaCierreDe = (p: Pedido) => p.fechaEntrega ?? p.fechaAnulacion ?? null;
+export const fechaCierreDe = (p: Pedido) =>
+  p.fechaEntrega ?? p.fechaAnulacion ?? null;
 
 /**
  * Suma días a una fecha ISO. Se construye y se lee en hora local: pasar por UTC
@@ -552,33 +572,79 @@ export const esAlcance = (v: unknown): v is Alcance =>
 
 /** El alcance pedido si el rol lo tiene; si no, con el que abre el rol. */
 export const alcanceDe = (permisos: PermisosRol, pedido: unknown): Alcance =>
-  esAlcance(pedido) && permisos.alcances.includes(pedido) ? pedido : permisos.alcances[0];
+  esAlcance(pedido) && permisos.alcances.includes(pedido)
+    ? pedido
+    : permisos.alcances[0];
 
 /** La URL de la vista con un alcance; el inicial del rol no lleva parámetro. */
 export const rutaAlcance = (permisos: PermisosRol, a: Alcance) =>
   a === permisos.alcances[0] ? RUTA_PEDIDOS : `${RUTA_PEDIDOS}?ver=${a}`;
 
-/* ── Herramientas ──
-   Lo que no es una vista de pedidos pero cuelga del mismo menú. Están aquí, y no
+/* ── Vistas del menú ──
+   Las pantallas que, además de Pedidos, cuelgan del menú. Están aquí, y no
    escritas en el JSX de la navegación, porque las leen tres sitios: la barra
    lateral, el menú del celular y el buscador (⌘K). El icono no viene aquí: este
    archivo es el modelo, no la pantalla. */
+
+/**
+ * `principal` va junto a Pedidos, sin título: es el trabajo del día. Los demás
+ * llevan su título y solo se pintan si al rol le toca alguna de sus vistas.
+ */
+export type GrupoNav = "principal" | "taller" | "gestion";
+
+export const GRUPOS_NAV: { id: GrupoNav; titulo: string | null }[] = [
+  { id: "principal", titulo: null },
+  { id: "taller", titulo: "Taller" },
+  { id: "gestion", titulo: "Gestión" },
+];
 
 export interface ConfigHerramienta {
   titulo: string;
   href: string;
   /** El permiso del rol que la habilita. */
   permiso: keyof PermisosRol;
+  grupo: GrupoNav;
 }
 
 export const HERRAMIENTAS: ConfigHerramienta[] = [
-  { titulo: "Chat", href: "/chat", permiso: "usarChat" },
-  { titulo: "Cotizaciones", href: "/cotizaciones", permiso: "gestionarCotizaciones" },
-  { titulo: "Diseños", href: "/disenos", permiso: "usarCad" },
-  { titulo: "Sobrantes", href: "/sobrantes", permiso: "verSobrantes" },
-  { titulo: "Métricas", href: "/metricas", permiso: "verMetricas" },
-  { titulo: "Configuración", href: "/configuracion", permiso: "configurar" },
+  {
+    titulo: "Cotizaciones",
+    href: "/cotizaciones",
+    permiso: "gestionarCotizaciones",
+    grupo: "principal",
+  },
+  { titulo: "Chat", href: "/chat", permiso: "usarChat", grupo: "principal" },
+  { titulo: "Diseños", href: "/disenos", permiso: "usarCad", grupo: "taller" },
+  {
+    titulo: "Sobrantes",
+    href: "/sobrantes",
+    permiso: "verSobrantes",
+    grupo: "taller",
+  },
+  {
+    titulo: "Métricas",
+    href: "/metricas",
+    permiso: "verMetricas",
+    grupo: "gestion",
+  },
+  {
+    titulo: "Configuración",
+    href: "/configuracion",
+    permiso: "configurar",
+    grupo: "gestion",
+  },
 ];
 
 export const herramientasDe = (permisos: PermisosRol) =>
   HERRAMIENTAS.filter((h) => permisos[h.permiso] === true);
+
+/** Las vistas del rol, por grupo y sin grupos vacíos. `excluir` quita rutas ya pintadas en otro sitio. */
+export const gruposDe = (permisos: PermisosRol, excluir: string[] = []) => {
+  const vistas = herramientasDe(permisos).filter(
+    (h) => !excluir.includes(h.href),
+  );
+  return GRUPOS_NAV.map((g) => ({
+    ...g,
+    vistas: vistas.filter((h) => h.grupo === g.id),
+  })).filter((g) => g.vistas.length > 0);
+};
