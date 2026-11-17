@@ -472,6 +472,50 @@ export const esquemaCorreoRecuperacion = z.object({
     .pipe(z.email("Ese correo no es válido")),
 });
 
+/* ── Cuentas (vista /usuarios, solo Administración) ───────────────────────── */
+
+/** Mismo formato que el CHECK `usuarios_usuario_formato` de la base. */
+const formatoUsuario = /^[a-z0-9][a-z0-9._-]{2,29}$/;
+
+const campoCorreo = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(200, "Como máximo 200 caracteres");
+
+/**
+ * Alta de una cuenta. El correo es opcional: sin él la cuenta nace con uno interno
+ * y la persona lo registra al entrar por primera vez. La contraseña no se escribe:
+ * la genera la Edge Function y se muestra una sola vez.
+ */
+export const esquemaNuevoUsuario = z.object({
+  usuario: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(
+      formatoUsuario,
+      "De 3 a 30 caracteres: letras minúsculas, números, punto, guion o guion bajo",
+    ),
+  nombre: z
+    .string()
+    .trim()
+    .min(2, "Escribe el nombre")
+    .max(80, "Como máximo 80 caracteres"),
+  rol: z.enum(["administracion", "logistica", "operaciones"], "Elige un rol"),
+  correo: campoCorreo.refine(
+    (v) => v === "" || z.email().safeParse(v).success,
+    "Ese correo no es válido",
+  ),
+});
+
+export const esquemaIdUsuario = z.object({ id: z.uuid() });
+
+export const esquemaFijarCorreo = z.object({
+  id: z.uuid(),
+  correo: campoCorreo.pipe(z.email("Ese correo no es válido")),
+});
+
 /* ── Cotizaciones ───────────────────────────────────────────────────────────── */
 
 /**
@@ -748,6 +792,8 @@ export type RegistroPedido = z.output<typeof esquemaRegistroPedido>;
 export type DatosEditables = z.output<typeof esquemaDatosEditables>;
 export type DatosEnvio = z.output<typeof esquemaEnvio>;
 export type CambioEstado = z.output<typeof esquemaCambioEstado>;
+export type FormNuevoUsuario = z.input<typeof esquemaNuevoUsuario>;
+export type NuevoUsuario = z.output<typeof esquemaNuevoUsuario>;
 export type CorreoRecuperacion = z.output<typeof esquemaCorreoRecuperacion>;
 export type CambioPassword = z.output<typeof esquemaCambioPassword>;
 

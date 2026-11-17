@@ -1,5 +1,6 @@
 "use server";
 
+import { ERROR_LOGIN_SIN_CLAVE, claveDeLogin } from "@/lib/login-secreto";
 import { clienteServidor } from "@/lib/supabase-servidor";
 import { urlBase } from "@/lib/url-base";
 
@@ -27,15 +28,20 @@ export async function solicitarRecuperacion(
 
   if (!usuario) return { error: "Escribe tu usuario.", usuario };
 
+  const clave = claveDeLogin();
+  if (!clave) return { error: ERROR_LOGIN_SIN_CLAVE, usuario };
+
   const supabase = await clienteServidor();
 
   const { data: tiene } = await supabase.rpc("tiene_correo_recuperacion", {
     nombre_usuario: usuario,
+    clave,
   });
 
   if (tiene) {
     const { data: email } = await supabase.rpc("email_de_usuario", {
       nombre_usuario: usuario,
+      clave,
     });
 
     if (email) {

@@ -11,9 +11,20 @@ export interface Perfil {
   rol: Rol;
   /** Sigue usando la contraseña con la que le crearon la cuenta. */
   debeCambiarPassword: boolean;
+  /** Todavía no tiene un correo de recuperación confirmado. */
+  debeRegistrarCorreo: boolean;
 }
 
-/** Lo único que puede ver quien todavía no ha cambiado su contraseña. */
+/**
+ * Le falta algo de la pantalla de bienvenida: cambiar la contraseña con la que le
+ * crearon la cuenta o registrar su correo de recuperación. Mientras sea cierto, no
+ * hay vista que abrir.
+ */
+export const bienvenidaPendiente = (
+  perfil: Pick<Perfil, "debeCambiarPassword" | "debeRegistrarCorreo">,
+) => perfil.debeCambiarPassword || perfil.debeRegistrarCorreo;
+
+/** Lo único que puede ver quien todavía no ha terminado la bienvenida (contraseña y correo). */
 export const RUTA_CAMBIO_PASSWORD = "/cambiar-contrasena";
 
 /**
@@ -34,7 +45,7 @@ export const perfilActual = cache(async (): Promise<Perfil | null> => {
 
   const { data } = await supabase
     .from("usuarios")
-    .select("id, nombre, usuario, rol, activo, debe_cambiar_password")
+    .select("id, nombre, usuario, rol, activo, debe_cambiar_password, email_recuperacion")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -46,6 +57,7 @@ export const perfilActual = cache(async (): Promise<Perfil | null> => {
     usuario: data.usuario,
     rol: data.rol,
     debeCambiarPassword: data.debe_cambiar_password,
+    debeRegistrarCorreo: data.email_recuperacion === null,
   };
 });
 
@@ -64,7 +76,7 @@ export const perfilActual = cache(async (): Promise<Perfil | null> => {
 export async function exigirSesion(): Promise<Perfil> {
   const perfil = await perfilActual();
   if (!perfil) redirect("/login");
-  if (perfil.debeCambiarPassword) redirect(RUTA_CAMBIO_PASSWORD);
+  if (bienvenidaPendiente(perfil)) redirect(RUTA_CAMBIO_PASSWORD);
   return perfil;
 }
 
@@ -115,7 +127,7 @@ export async function exigirCotizaciones(): Promise<Perfil> {
  */
 export async function perfilConCotizaciones(): Promise<Perfil | null> {
   const perfil = await perfilActual();
-  if (!perfil || perfil.debeCambiarPassword) return null;
+  if (!perfil || bienvenidaPendiente(perfil)) return null;
   return ROLES[perfil.rol].gestionarCotizaciones ? perfil : null;
 }
 
@@ -140,7 +152,7 @@ export async function exigirCad(): Promise<Perfil> {
 /** Lo mismo para los route handlers de `/api/cad` y del chat de diseños. `null` si no puede. */
 export async function perfilConCad(): Promise<Perfil | null> {
   const perfil = await perfilActual();
-  if (!perfil || perfil.debeCambiarPassword) return null;
+  if (!perfil || bienvenidaPendiente(perfil)) return null;
   return ROLES[perfil.rol].usarCad ? perfil : null;
 }
 

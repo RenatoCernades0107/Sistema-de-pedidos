@@ -1,7 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
-import { ChevronDown, KeyRound, Mail, LogOut, UserRound, Users } from "lucide-react";
+import { ChevronDown, KeyRound, LogOut, Mail, UserCog, UserRound, Users } from "lucide-react";
 import Link from "next/link";
 import { cerrarSesion } from "@/app/login/acciones";
 import { useStore } from "@/lib/store";
@@ -49,10 +49,16 @@ export function MenuUsuario({ cuenta }: { cuenta: string }) {
           <DropdownMenuSeparator />
           {/* No va en la navegación principal: no es una vista de pedidos. */}
           {rol === "administracion" && (
-            <DropdownMenuItem render={<Link href="/equipo" />} className="gap-2">
-              <Users className="size-4 shrink-0" />
-              Equipo y avisos
-            </DropdownMenuItem>
+            <>
+              <DropdownMenuItem render={<Link href="/usuarios" />} className="gap-2">
+                <UserCog className="size-4 shrink-0" />
+                Usuarios
+              </DropdownMenuItem>
+              <DropdownMenuItem render={<Link href="/equipo" />} className="gap-2">
+                <Users className="size-4 shrink-0" />
+                Equipo y avisos
+              </DropdownMenuItem>
+            </>
           )}
           <DropdownMenuItem render={<Link href="/cuenta/contrasena" />} className="gap-2">
             <KeyRound className="size-4 shrink-0" />

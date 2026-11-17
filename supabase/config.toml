@@ -405,6 +405,11 @@ deno_version = 2
 [functions.enviar-push]
 verify_jwt = true
 
+# Altas, bajas y correos de las cuentas (vista /usuarios). verify_jwt en true, y la
+# función además exige que quien llama sea Administración activa.
+[functions.administrar-usuarios]
+verify_jwt = true
+
 [analytics]
 enabled = true
 port = 56327

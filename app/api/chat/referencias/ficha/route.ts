@@ -11,7 +11,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { fichaDeReferencia } from "@/lib/chat/referencias-servidor";
-import { perfilActual } from "@/lib/sesion";
+import { bienvenidaPendiente, perfilActual } from "@/lib/sesion";
 import { error } from "../comun";
 
 const esquemaEntrada = z.object({
@@ -22,7 +22,7 @@ const esquemaEntrada = z.object({
 
 export async function GET(request: NextRequest) {
   const perfil = await perfilActual();
-  if (!perfil || perfil.debeCambiarPassword) return error("Tu sesión expiró. Recarga la página.", 401);
+  if (!perfil || bienvenidaPendiente(perfil)) return error("Tu sesión expiró. Recarga la página.", 401);
 
   const p = request.nextUrl.searchParams;
   const entrada = esquemaEntrada.safeParse({

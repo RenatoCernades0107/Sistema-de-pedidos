@@ -887,3 +887,9 @@ begin
     raise exception 'El seed dejó % pedidos con el monto pagado descuadrado', descuadre;
   end if;
 end $$;
+
+-- Clave que comparte el servidor de Next con `email_de_usuario` (LOGIN_SECRET).
+-- Solo para desarrollo local: en el proyecto alojado se inserta a mano con otro valor.
+insert into public.secretos_app (nombre, valor)
+values ('login', 'plexi-login-dev-secreto')
+on conflict (nombre) do nothing;

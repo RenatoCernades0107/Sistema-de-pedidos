@@ -32,9 +32,11 @@ Dos scripts, los dos pensados para correr contra el proyecto de Supabase en la n
   código), el nombre de una versión, el autor firmado por la sesión y el aviso
   `diseno_modificado` (a otro autor sí, a uno mismo no, uno cada 30 minutos salvo que
   la persona vuelva a guardar). Crea sus propias personas de prueba; termina en `ROLLBACK`.
-- **`correo_recuperacion.sql`** — verifica la migración `20261201000100`: el trigger que copia el
-  correo de Auth al perfil, `tiene_correo_recuperacion` y el CHECK de formato. Necesita la seed
-  (usa a `ana`) y termina en `ROLLBACK`.
+- **`correo_recuperacion.sql`** — verifica las migraciones `20261201000100` y `20261202000100`: el
+  trigger que copia el correo de Auth al perfil, que `email_de_usuario` y
+  `tiene_correo_recuperacion` no respondan sin la clave del servidor, el CHECK de formato y que
+  `secretos_app` y `cerrar_sesiones_de` no sean accesibles a `anon`/`authenticated`. Necesita la
+  seed (usa a `ana` y el secreto de desarrollo) y termina en `ROLLBACK`.
 - **`estado.sql`** — no verifica nada, solo reporta: cuántos pedidos, pagos y adjuntos
   hay, cómo se reparten los estados y si algún saldo quedó descuadrado.
 

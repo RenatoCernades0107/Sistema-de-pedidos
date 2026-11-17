@@ -63,6 +63,22 @@ export async function marcarCambioPendiente(
 }
 
 /**
+ * Pone o quita el correo de recuperación de una cuenta. Sin él, la app no deja pasar
+ * de la bienvenida. `preparar.ts` les pone uno ficticio a las tres durante la corrida.
+ */
+export async function fijarCorreoRecuperacion(
+  usuario: keyof typeof USUARIOS,
+  correo: string | null,
+) {
+  const supabase = await sesionDe("administracion");
+  const { error } = await supabase
+    .from("usuarios")
+    .update({ email_recuperacion: correo })
+    .eq("usuario", USUARIOS[usuario]);
+  if (error) throw new Error(`No se pudo fijar el correo de ${usuario}: ${error.message}`);
+}
+
+/**
  * Registra un pedido a provincia con la misma función que usa la app y lo deja en
  * el taller, que es donde Operaciones puede verlo.
  *
