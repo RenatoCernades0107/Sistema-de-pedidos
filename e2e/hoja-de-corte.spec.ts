@@ -7,7 +7,7 @@
  */
 
 import { expect, test } from "@playwright/test";
-import { borrarCotizacionesDePrueba, entrar } from "./apoyo";
+import { borrarCotizacionesDePrueba, entrar, verMateriales } from "./apoyo";
 import { registrarPedidoConCorte } from "./pedido-con-corte";
 
 const ODOO = process.env.E2E_ODOO_FALSO ?? "http://127.0.0.1:8069";
@@ -33,7 +33,7 @@ test.afterAll(async () => {
 test("el taller abre la hoja desde el pedido: piezas, planchas, indicaciones y nada de precios", async ({ page }) => {
   await entrar(page, "operaciones");
   await page.goto(`/pedidos/${codigo}`);
-  await page.getByRole("button", { name: "Hoja de corte" }).click();
+  await (await verMateriales(page)).getByRole("button", { name: "Hoja de corte" }).click();
   await page.waitForURL(`**/pedidos/${codigo}/hoja-de-corte`);
 
   const hoja = page.getByRole("article");

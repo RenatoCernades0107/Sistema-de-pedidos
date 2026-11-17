@@ -10,6 +10,7 @@ import {
   Check,
   History,
   IdCard,
+  Layers,
   NotebookPen,
   Phone,
   Paperclip,
@@ -46,6 +47,7 @@ import { AdjuntosPedido } from "@/components/adjuntos-pedido";
 import { Button } from "@/components/ui/button";
 import {
   ICONO_CLASE,
+  MaterialesPedido,
   PanelItem,
   cantidadDeLinea,
   claseDeLinea,
@@ -59,12 +61,17 @@ import type { LineaDePedido, OdooDePedido } from "@/lib/pedido-lineas";
 import type { Sobrante } from "@/lib/sobrantes";
 
 /** Lo que se ve en el centro: un ítem, los archivos del pedido o su actividad. */
-type Vista = { tipo: "item"; posicion: number } | { tipo: "archivos" } | { tipo: "actividad" };
+type Vista =
+  | { tipo: "item"; posicion: number }
+  | { tipo: "archivos" }
+  | { tipo: "materiales" }
+  | { tipo: "actividad" };
 
-/** `?item=2`, `?ver=archivos` o `?ver=actividad`. Sin nada (o con un ítem que no existe): el primero. */
+/** `?item=2`, `?ver=archivos`, `?ver=materiales` o `?ver=actividad`. Sin nada (o con un ítem que no existe): el primero. */
 function vistaDeUrl(params: URLSearchParams, lineas: LineaDePedido[]): Vista {
   const ver = params.get("ver");
   if (ver === "archivos" || ver === "actividad") return { tipo: ver };
+  if (ver === "materiales" && lineas.length > 0) return { tipo: ver };
   const item = Number(params.get("item"));
   if (lineas.some((l) => l.posicion === item)) return { tipo: "item", posicion: item };
   return lineas.length > 0 ? { tipo: "item", posicion: lineas[0].posicion } : { tipo: "archivos" };
@@ -269,12 +276,14 @@ export function DetallePedido({
         </div>
       )}
 
-      {/* Con el chat a la vista, la columna derecha se ensancha y el centro cede. */}
+      {/* Con el chat a la vista, la columna derecha se ensancha. Si la pantalla no
+          da para tres columnas (menos de 1536 px), la de estado, entrega y pago se
+          oculta mientras se chatea: «Mover a» sigue arriba. */}
       <div
         className={cn(
           "grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-rows-[minmax(0,1fr)] lg:transition-[grid-template-columns] lg:duration-200",
           chat && enChat
-            ? "lg:grid-cols-[18rem_minmax(0,1fr)_22rem] xl:grid-cols-[21rem_minmax(0,1fr)_26rem]"
+            ? "lg:grid-cols-[minmax(0,1fr)_20rem] xl:grid-cols-[minmax(0,1fr)_24rem] 2xl:grid-cols-[21rem_minmax(0,1fr)_26rem]"
             : "lg:grid-cols-[18rem_minmax(0,1fr)_13rem] xl:grid-cols-[21rem_minmax(0,1fr)_15rem]",
         )}
       >
@@ -283,7 +292,10 @@ export function DetallePedido({
             entrega y el pago, después. */}
         <aside
           aria-label="Estado, entrega y pago"
-          className="max-lg:contents lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:gap-3 lg:overflow-y-auto"
+          className={cn(
+            "max-lg:contents lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:gap-3 lg:overflow-y-auto",
+            chat && enChat && "lg:hidden 2xl:flex",
+          )}
         >
           <div className="max-lg:order-1">
             <AsignacionPedido pedido={p} />
@@ -316,9 +328,7 @@ export function DetallePedido({
                 pedido={p}
                 lineas={items}
                 linea={linea}
-                odoo={odoo}
                 sobrantes={sobrantes}
-                archivos={<AdjuntosPedido pedido={p} lineas={items} posicion={linea.posicion} />}
                 alAnterior={indice > 0 ? () => elegir({ tipo: "item", posicion: items[indice - 1].posicion }) : undefined}
                 alSiguiente={
                   indice < items.length - 1
@@ -328,6 +338,8 @@ export function DetallePedido({
               />
             ) : vista.tipo === "actividad" ? (
               <Actividad pedido={p} />
+            ) : vista.tipo === "materiales" ? (
+              <MaterialesPedido pedido={p} lineas={items} odoo={odoo} />
             ) : (
               <Panel titulo="Archivos del pedido" extra="Diseños, factura, guía y fotos de entrega">
                 <AdjuntosPedido pedido={p} lineas={items} />
@@ -449,6 +461,7 @@ function NavegadorPedido({
   const opciones: Vista[] = [
     ...lineas.map((l) => ({ tipo: "item" as const, posicion: l.posicion })),
     { tipo: "archivos" },
+    ...(lineas.length > 0 ? [{ tipo: "materiales" as const }] : []),
     { tipo: "actividad" },
   ];
   const actual = claveDe(vista);
@@ -472,11 +485,12 @@ function NavegadorPedido({
 
   const archivosDeItem = (posicion: number) => p.adjuntos.filter((a) => a.lineaPosicion === posicion).length;
 
-  const boton = (o: Vista, contenido: React.ReactNode, etiqueta: string) => {
+  const boton = (o: Vista, contenido: React.ReactNode, etiqueta: string, oculto = false) => {
     const clave = claveDe(o);
     const activo = clave === actual;
     return (
       <button
+        hidden={oculto}
         key={clave}
         ref={(b) => {
           if (b) botones.current.set(clave, b);
@@ -569,6 +583,15 @@ function NavegadorPedido({
             </span>
           </>,
           `Archivos del pedido (${archivos})`,
+        )}
+        {boton(
+          { tipo: "materiales" },
+          <>
+            <Layers className="text-muted-foreground mt-0.5 size-4 shrink-0" aria-hidden />
+            <span className="text-sm">Materiales del pedido</span>
+          </>,
+          "Materiales del pedido: estimado, usado y hoja de corte",
+          lineas.length === 0,
         )}
         {boton(
           { tipo: "actividad" },

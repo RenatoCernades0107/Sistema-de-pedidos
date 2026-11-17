@@ -15,7 +15,7 @@
  */
 
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { borrarCotizacionesDePrueba, entrar, sesionDe } from "./apoyo";
+import { borrarCotizacionesDePrueba, entrar, sesionDe, verMateriales } from "./apoyo";
 
 const ODOO = process.env.E2E_ODOO_FALSO ?? "http://127.0.0.1:8069";
 /**
@@ -170,9 +170,10 @@ test("un estándar se arma del catálogo, reserva lo estimado y descuenta lo que
   const lineas = page.getByRole("region", { name: "Productos y cortes" });
   await expect(lineas.getByText("Caja con tapa removible")).toBeVisible();
   await expect(lineas.getByText("Grabado láser")).toBeVisible();
-  await expect(lineas.getByText("Material estimado")).toBeVisible();
   await expect(lineas.getByText("Cortes y acomodo en la plancha")).toBeVisible();
   await expect(lineas.getByText(/S\/\s/)).toHaveCount(0);
+  // El material estimado está en la vista de materiales del pedido.
+  await expect((await verMateriales(page)).getByText("0.25 planchas")).toBeVisible();
 
   // Y sus piezas entran a la hoja de corte.
   await page.goto(`/pedidos/${encodeURIComponent(codigo)}/hoja-de-corte`);
@@ -270,7 +271,7 @@ test("un personalizado sin reserva no toca el stock hasta que el pedido termina"
   await expect(dialogo.getByLabel(/^Cantidad usada de /)).toHaveValue("0.51");
   await dialogo.getByRole("button", { name: "Pasar a Listo" }).click();
   await expect(dialogo).toBeHidden();
-  await expect(lineas.getByText("Stock descontado en Odoo.")).toBeVisible();
+  await expect((await verMateriales(page)).getByText("Stock descontado en Odoo.")).toBeVisible();
 
   odoo = await estado();
   expect(odoo.producciones).toHaveLength(ordenesAntes + 1);

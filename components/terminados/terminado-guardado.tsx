@@ -7,7 +7,8 @@ import {
   type TerminadoGuardado,
 } from "@/lib/terminados/guardado";
 import { armadoDeCaja } from "@/lib/terminados/armado";
-import { ArmadoCaja, Caja3D } from "./armado-caja";
+import { Carrusel } from "@/components/ui/carrusel";
+import { Caja3D } from "./armado-caja";
 import { CortesTerminado } from "./cortes-terminado";
 
 const n = (x: number) => String(+x.toFixed(3));
@@ -23,6 +24,8 @@ export function TerminadoGuardadoVista({
   importe = null,
   usados = null,
   conPrecios,
+  sinMaterial = false,
+  imagenes = [],
 }: {
   terminado: TerminadoGuardado;
   cantidad: number;
@@ -30,17 +33,29 @@ export function TerminadoGuardadoVista({
   /** Lo que logística anotó que se usó de verdad. */
   usados?: MaterialUsado[] | null;
   conPrecios: boolean;
+  /** Sin el recuadro de material: el pedido lo junta de todos sus ítems en su propia vista. */
+  sinMaterial?: boolean;
+  /** Fotos del producto, para verlas junto a la caja en 3D (después de ella). */
+  imagenes?: { clave: string; nombre: string; contenido: React.ReactNode }[];
 }) {
   const renglones = renglonesDeTerminado(t);
+  const vistas = [
+    ...(armadoDeCaja(t.geometria, t.medidas)
+      ? [{ clave: "3d", nombre: "La caja en 3D", contenido: <Caja3D geometria={t.geometria} medidas={t.medidas} /> }]
+      : []),
+    ...imagenes,
+  ];
   return (
-    <div className="flex flex-col gap-2.5" data-testid="linea-terminado">
-      <div className="flex items-start gap-3">
+    // El diseño sigue al ancho de su columna, no al de la pantalla: con el chat
+    // abierto al lado (o en la cotización) la ficha se apila en vez de partirse.
+    <div className="@container flex flex-col gap-2.5" data-testid="linea-terminado">
+      <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
         <Package className="text-muted-foreground mt-0.5 size-4 shrink-0" aria-hidden />
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 basis-48">
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium">
             <span className="tnum">{n(cantidad)} ×</span>
             {t.productoCodigo && (
-              <span className="bg-muted/60 rounded border px-1.5 py-px font-mono text-xs font-normal">
+              <span className="bg-muted/60 rounded border px-1.5 py-px font-mono text-xs font-normal whitespace-nowrap">
                 {t.productoCodigo}
               </span>
             )}
@@ -51,7 +66,7 @@ export function TerminadoGuardadoVista({
           </p>
         </div>
         {conPrecios && importe !== null && (
-          <div className="shrink-0 text-right">
+          <div className="ml-auto shrink-0 pl-7 text-right">
             <p className="tnum text-sm font-medium">{money(importe)}</p>
             <p className="text-muted-foreground tnum text-xs">
               {money(t.precioUnitario)} c/u
@@ -61,11 +76,11 @@ export function TerminadoGuardadoVista({
         )}
       </div>
 
-      {/* La ficha a la izquierda y, si es una caja, cómo se ve armada a la derecha. */}
-      <div className="flex flex-col gap-3 pl-7 sm:flex-row sm:items-start">
+      {/* La ficha a la izquierda y, a la derecha, la caja en 3D y las fotos. */}
+      <div className="flex flex-col gap-3 pl-7 @xl:flex-row @xl:items-start">
         <div className="flex min-w-0 flex-1 flex-col gap-2.5">
           {renglones.length > 0 && (
-            <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
+            <dl className="grid gap-x-4 gap-y-1 text-sm @sm:grid-cols-[auto_1fr]">
               {renglones.map((r) => (
                 <div key={r.etiqueta} className="contents">
                   <dt className="text-muted-foreground">{r.etiqueta}</dt>
@@ -75,7 +90,7 @@ export function TerminadoGuardadoVista({
             </dl>
           )}
 
-          {(t.materiales.length > 0 || usados) && (
+          {!sinMaterial && (t.materiales.length > 0 || usados) && (
             <div className="bg-muted/30 rounded-lg border px-3 py-2 text-sm">
               <p className="text-xs font-medium">
                 {usados ? "Material usado" : "Material estimado"}
@@ -101,10 +116,10 @@ export function TerminadoGuardadoVista({
             </div>
           )}
         </div>
-        <Caja3D
-          geometria={t.geometria}
-          medidas={t.medidas}
-          className="order-first w-full shrink-0 sm:order-none sm:w-52"
+        <Carrusel
+          diapositivas={vistas}
+          etiqueta={`Vistas de ${t.nombre}`}
+          className="bg-muted/30 order-first w-full shrink-0 border @xl:order-none @xl:w-60"
         />
       </div>
 
@@ -120,12 +135,6 @@ export function TerminadoGuardadoVista({
         </details>
       )}
 
-      {armadoDeCaja(t.geometria, t.medidas) && (
-        <details className="ml-7 rounded-lg border px-3 py-2">
-          <summary className="cursor-pointer text-xs font-medium">Cómo se arma (3D)</summary>
-          <ArmadoCaja geometria={t.geometria} medidas={t.medidas} className="mt-2" />
-        </details>
-      )}
     </div>
   );
 }

@@ -12,7 +12,7 @@
  */
 
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { borrarCotizacionesDePrueba, entrar } from "./apoyo";
+import { borrarCotizacionesDePrueba, entrar, abrirCorte, verMateriales } from "./apoyo";
 import { registrarPedidoConCorte } from "./pedido-con-corte";
 
 const ODOO = process.env.E2E_ODOO_FALSO ?? "http://127.0.0.1:8069";
@@ -73,13 +73,15 @@ test("el taller ve el corte sin precios, anota las planchas usadas al pasar a Li
 
   const page = await comoTaller(browser, codigo);
 
-  const lineas = page.getByRole("region", { name: "Productos y cortes" });
-  await expect(lineas.getByText("Acrílico ECO · Cristal · 3 mm")).toBeVisible();
+  // El producto de Odoo está en la lista de ítems; el corte se abre para ver su plano.
+  await expect(page.getByRole("tab", { name: /ACRILICO F8 CRISTAL 3MM/ })).toBeVisible();
+  const lineas = await abrirCorte(page);
+  await expect(lineas.getByText("Acrílico ECO · Cristal · 3 mm").first()).toBeVisible();
   await expect(lineas.getByRole("img", { name: /Plancha 1 de 3/ })).toBeVisible();
-  await expect(lineas.getByText(/ACRILICO F8 CRISTAL 3MM/)).toBeVisible();
   // El taller no ve dinero.
   await expect(lineas.getByText(/S\/\s/)).toHaveCount(0);
-  await expect(lineas.getByText(/se descuentan del stock en Odoo al pasar a Listo/)).toBeVisible();
+  const materiales = await verMateriales(page);
+  await expect(materiales.getByText(/se descuentan del stock en Odoo al pasar a Listo/)).toBeVisible();
 
   await mover(page, "En proceso");
   await expect(page.getByText(`${codigo} → En proceso`)).toBeVisible();
@@ -97,10 +99,10 @@ test("el taller ve el corte sin precios, anota las planchas usadas al pasar a Li
   await expect(dialogo).toBeHidden();
   await expect(page.getByText(`${codigo} → Listo`)).toBeVisible();
 
-  await expect(lineas.getByText("Stock descontado en Odoo.")).toBeVisible();
-  await expect(lineas.getByText("Planchas usadas: 4 (calculadas: 3)")).toBeVisible();
+  await expect(materiales.getByText("Stock descontado en Odoo.")).toBeVisible();
+  await expect(materiales.getByRole("row", { name: /F7E024.*3 planchas.*4 planchas/ })).toBeVisible();
   // Ya descontadas, las planchas no se corrigen desde aquí.
-  await expect(lineas.getByRole("button", { name: "Planchas usadas" })).toHaveCount(0);
+  await expect(materiales.getByRole("button", { name: "Planchas usadas" })).toHaveCount(0);
 
   const orden = (await estado()).ordenes.at(-1)!;
   expect(orden.entregas.map((e) => e.state)).toEqual(["done"]);
@@ -120,13 +122,13 @@ test("si Odoo falla al pasar a Listo, el pedido pasa igual y el stock se descuen
 
   // Antes de terminar, el taller ya anotó lo usado; Listo llega con eso puesto.
   const page = await comoTaller(browser, codigo);
-  const lineas = page.getByRole("region", { name: "Productos y cortes" });
-  await lineas.getByRole("button", { name: "Planchas usadas" }).click();
+  const materiales = await verMateriales(page);
+  await materiales.getByRole("button", { name: "Planchas usadas" }).click();
   const anotar = page.getByRole("dialog", { name: "Planchas usadas" });
   await anotar.getByLabel("Planchas usadas (F7E024)").fill("2.5");
   await anotar.getByRole("button", { name: "Guardar" }).click();
   await expect(anotar).toBeHidden();
-  await expect(lineas.getByText("Planchas usadas: 2.5 (calculadas: 3)")).toBeVisible();
+  await expect(materiales.getByRole("row", { name: /F7E024.*3 planchas.*2\.5 planchas/ })).toBeVisible();
 
   await mover(page, "En proceso");
   await expect(page.getByText(`${codigo} → En proceso`)).toBeVisible();
@@ -138,12 +140,12 @@ test("si Odoo falla al pasar a Listo, el pedido pasa igual y el stock se descuen
 
   await expect(page.getByText(`${codigo} → Listo`)).toBeVisible();
   await expect(page.getByText(/No se descontó el stock en Odoo: Odoo falso: caído a propósito/).first()).toBeVisible();
-  await expect(lineas.getByRole("alert")).toContainText("caído a propósito");
+  await expect(materiales.getByRole("alert")).toContainText("caído a propósito");
   expect(await stockDe(20)).toBe(antes);
 
   await modo(null);
-  await lineas.getByRole("button", { name: "Reintentar" }).click();
-  await expect(lineas.getByText("Stock descontado en Odoo.")).toBeVisible();
+  await materiales.getByRole("button", { name: "Reintentar" }).click();
+  await expect(materiales.getByText("Stock descontado en Odoo.")).toBeVisible();
   expect(await stockDe(20)).toBe(antes! - 2.5);
 });
 
@@ -156,8 +158,8 @@ test("al anular un pedido sin terminar, su venta se cancela en Odoo", async ({ p
   await dialogo.getByRole("button", { name: "Confirmar cambio" }).click();
   await expect(page.getByText(`${codigo} → Anulado`)).toBeVisible();
 
-  const lineas = page.getByRole("region", { name: "Productos y cortes" });
-  await expect(lineas.getByText(/Venta cancelada en Odoo/)).toBeVisible();
+  const materiales = await verMateriales(page);
+  await expect(materiales.getByText(/Venta cancelada en Odoo/)).toBeVisible();
   const orden = (await estado()).ordenes.at(-1)!;
   expect(orden.state).toBe("cancel");
   expect(orden.entregas[0].state).toBe("cancel");
