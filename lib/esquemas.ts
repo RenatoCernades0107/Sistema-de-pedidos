@@ -461,6 +461,17 @@ export const esquemaCambioPassword = z
     message: "Las dos contraseñas no coinciden",
   });
 
+/** El correo real al que llega el enlace de "olvidé mi contraseña". */
+export const esquemaCorreoRecuperacion = z.object({
+  correo: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .min(1, "Escribe tu correo")
+    .max(200, "Como máximo 200 caracteres")
+    .pipe(z.email("Ese correo no es válido")),
+});
+
 /* ── Cotizaciones ───────────────────────────────────────────────────────────── */
 
 /**
@@ -737,6 +748,7 @@ export type RegistroPedido = z.output<typeof esquemaRegistroPedido>;
 export type DatosEditables = z.output<typeof esquemaDatosEditables>;
 export type DatosEnvio = z.output<typeof esquemaEnvio>;
 export type CambioEstado = z.output<typeof esquemaCambioEstado>;
+export type CorreoRecuperacion = z.output<typeof esquemaCorreoRecuperacion>;
 export type CambioPassword = z.output<typeof esquemaCambioPassword>;
 
 /* ── Sobrantes ──────────────────────────────────────────────────────────────── */

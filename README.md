@@ -47,6 +47,35 @@ dueño, después de cambiarla; la migración que la introdujo marcó también a 
 tests la bajan al empezar y la vuelven a dejar como estaba al terminar (`e2e/preparar.ts`); para
 trabajar en local sin pasar por esa pantalla, se baja a mano desde el panel de Supabase.
 
+## Correo de recuperación de contraseña
+
+Las cuentas nacen con un correo interno (`ana@plexiacril.test`) que no recibe nada. Cada persona
+registra su correo real en **menú de usuario → Correo de recuperación** (`/cuenta/correo`); Auth le
+manda un enlace de confirmación y, al abrirlo, ese correo pasa a ser el de la cuenta (un trigger lo
+copia a `usuarios.email` / `usuarios.email_recuperacion`; se sigue entrando con el usuario). Desde el
+login, **¿Olvidaste tu contraseña?** (`/olvide-contrasena`) pide el usuario y manda el enlace; quien no
+tiene correo registrado recibe el mismo aviso genérico y debe pedirle a Administración que le
+restablezca la contraseña.
+
+Hace falta configurar Supabase Auth (en local ya lo hace `supabase/config.toml`; en el proyecto
+alojado es a mano, en el panel):
+
+- **SMTP propio** (Authentication → SMTP). El de prueba de Supabase solo manda a miembros del equipo
+  y con un tope mínimo. En local, los correos se ven en Mailpit (`http://127.0.0.1:56324`, puerto de
+  la serie 563xx).
+- **Plantillas** *Reset password* y *Change email address* (Authentication → Email templates): el
+  enlace debe ser el de `supabase/templates/recovery.html` y `email_change.html`
+  (`{{ .SiteURL }}/auth/confirmar?token_hash={{ .TokenHash }}&type=…`). Con la plantilla por
+  defecto también funciona, pero solo si se abre en el mismo navegador donde se pidió.
+- **Secure email change: desactivado.** Si no, Auth exige confirmar también desde el correo viejo,
+  que es interno y no recibe nada: nadie podría registrar el suyo.
+- **Redirect URLs**: añadir `https://<tu-dominio>/auth/confirmar`, y como *Site URL* el dominio de
+  la app. Opcional: `NEXT_PUBLIC_SITE_URL` fija la dirección que se manda a Auth; sin ella se
+  deduce de la petición.
+
+Ojo: como el correo de la cuenta pasa a ser el real, `email_de_usuario()` (que cualquiera puede
+llamar sin sesión para entrar con usuario) devuelve ese correo a quien conozca el usuario.
+
 ## Datos de prueba en Odoo y Supabase
 
 `npm run seed:odoo` llena el **Odoo de pruebas** con productos (planchas, materiales, accesorios y

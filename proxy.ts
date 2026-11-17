@@ -11,7 +11,7 @@ import { createServerClient } from "@supabase/ssr";
  * En Next 16 este archivo se llama `proxy.ts`; `middleware.ts` quedó deprecado.
  */
 
-const PUBLICAS = ["/login"];
+const PUBLICAS = ["/login", "/olvide-contrasena"];
 
 /**
  * Lo que ve el cliente, que no tiene cuenta: el PDF de su cotización y el
@@ -19,6 +19,13 @@ const PUBLICAS = ["/login"];
  * login, quien tiene sesión también entra (para revisar el enlace que manda).
  */
 const ABIERTAS = ["/c", "/seguimiento"];
+
+/**
+ * Los enlaces de los correos de Auth (recuperar contraseña, confirmar el correo).
+ * Llegan sin sesión —la crean ellos— y quien ya la tiene también debe poder
+ * pasar, así que no son ni públicas como el login ni de las de arriba.
+ */
+const ENLACES_AUTH = ["/auth"];
 
 export async function proxy(request: NextRequest) {
   let respuesta = NextResponse.next({ request });
@@ -53,7 +60,9 @@ export async function proxy(request: NextRequest) {
 
   const ruta = request.nextUrl.pathname;
   const esPublica = PUBLICAS.some((p) => ruta === p || ruta.startsWith(`${p}/`));
-  const esAbierta = ABIERTAS.some((p) => ruta === p || ruta.startsWith(`${p}/`));
+  const esAbierta = [...ABIERTAS, ...ENLACES_AUTH].some(
+    (p) => ruta === p || ruta.startsWith(`${p}/`),
+  );
 
   if (!user && !esPublica && !esAbierta) {
     const login = request.nextUrl.clone();

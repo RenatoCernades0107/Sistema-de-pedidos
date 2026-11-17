@@ -1877,6 +1877,7 @@ export type Database = {
           creado_en: string
           debe_cambiar_password: boolean
           email: string
+          email_recuperacion: string | null
           id: string
           nombre: string
           rol: Database["public"]["Enums"]["rol"]
@@ -1887,6 +1888,7 @@ export type Database = {
           creado_en?: string
           debe_cambiar_password?: boolean
           email: string
+          email_recuperacion?: string | null
           id: string
           nombre: string
           rol: Database["public"]["Enums"]["rol"]
@@ -1897,6 +1899,7 @@ export type Database = {
           creado_en?: string
           debe_cambiar_password?: boolean
           email?: string
+          email_recuperacion?: string | null
           id?: string
           nombre?: string
           rol?: Database["public"]["Enums"]["rol"]
@@ -2544,6 +2547,7 @@ export type Database = {
         Returns: number
       }
       terminado_sin_precios: { Args: { t: Json }; Returns: Json }
+      tiene_correo_recuperacion: { Args: { nombre_usuario: string }; Returns: boolean }
       token_seguimiento: { Args: { p_codigo: string }; Returns: string }
       texto_notificacion: {
         Args: {
