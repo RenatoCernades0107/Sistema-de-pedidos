@@ -11,7 +11,9 @@
  * Cada acción revisa el permiso aquí, y la base lo vuelve a revisar con su RLS.
  */
 
+import { after } from "next/server";
 import { refresh } from "next/cache";
+import { z as zod } from "zod";
 import type { z } from "zod";
 import { guardarAlmacen as guardar } from "@/lib/almacenes-servidor";
 import { ROLES, type PermisosRol } from "@/lib/dominio";
@@ -27,6 +29,13 @@ import {
   esquemaTransferencia,
 } from "@/lib/inventario";
 import * as faltantes from "@/lib/faltantes-servidor";
+import { esquemaBaja, esquemaCierre, esquemaGuardarConteo, esquemaNuevoConteo } from "@/lib/casos";
+import * as casos from "@/lib/casos-servidor";
+import * as conteos from "@/lib/conteos-servidor";
+import { cargarKardex, type ResultadoKardex } from "@/lib/kardex-servidor";
+import { productosDeLotes } from "@/lib/odoo/sobrantes";
+import { clienteServidor } from "@/lib/supabase-servidor";
+import { despacharNotificaciones } from "../notificaciones-acciones";
 import * as transferencias from "@/lib/transferencias-servidor";
 import { buscarClientes } from "@/lib/odoo/catalogos";
 import { ErrorOdoo } from "@/lib/odoo/rpc";
@@ -40,6 +49,13 @@ import {
   type ResumenSincronizacion,
 } from "@/lib/sobrantes-servidor";
 import * as stock from "@/lib/stock-servidor";
+
+const esquemaKardex = zod.object({
+  productoId: zod.number().int().positive().nullable(),
+  sobrante: zod.string().trim().min(1).nullable(),
+  almacenId: zod.uuid().nullable(),
+  dias: zod.number().int().min(1).max(3650),
+});
 
 export type ResultadoAlmacen =
   | { ok: true; codigo?: string; aviso?: string; resumen?: ResumenSincronizacion }
@@ -56,7 +72,9 @@ async function puede(permiso: keyof PermisosRol): Promise<ResultadoAlmacen | nul
     error:
       permiso === "editarPrecios"
         ? "Solo Administración cambia los precios de venta."
-        : "Tu rol puede ver el almacén, pero no cambiarlo.",
+        : permiso === "cerrarCasos"
+          ? "Solo Administración cierra los casos de stock."
+          : "Tu rol puede ver el almacén, pero no cambiarlo.",
   };
 }
 
@@ -234,4 +252,105 @@ export async function revisarFaltantes(pedidoId?: unknown): Promise<ResultadoAlm
   }
   refresh();
   return problemas.length ? { ok: false, error: problemas[0] } : { ok: true };
+}
+
+/* ── Bajas, casos y conteos ────────────────────────────────────────────────── */
+
+/** Reporta una baja: queda pendiente hasta que Administración la cierra. */
+export async function reportarBaja(entrada: unknown) {
+  return con("gestionarStock", esquemaBaja, entrada, async (v) => {
+    const r = await casos.reportarBaja(v);
+    if (r.ok) after(despacharNotificaciones);
+    return r;
+  });
+}
+
+/**
+ * Administración reporta y cierra a la vez (lo vio ella misma): igual queda el
+ * caso, con su razón.
+ */
+export async function reportarYAplicarBaja(entrada: unknown, razon: unknown): Promise<ResultadoAlmacen> {
+  const no = await puede("cerrarCasos");
+  if (no) return no;
+  const datos = esquemaBaja.safeParse(entrada);
+  if (!datos.success) return { ok: false, error: primerError(datos.error) };
+  if (typeof razon !== "string" || razon.trim().length < 5) return { ok: false, error: "Escribe la razón (al menos 5 letras)." };
+  const r = await casos.reportarBaja(datos.data);
+  if (!r.ok) return r;
+  const supabase = await clienteServidor();
+  const { data } = await supabase.from("casos_stock").select("id").eq("codigo", r.codigo!).single();
+  const cierre = await casos.cerrarCaso({ id: data!.id, decision: "aplicar", razon: razon.trim() });
+  refresh();
+  return cierre.ok ? { ok: true, codigo: r.codigo } : { ok: true, codigo: r.codigo, aviso: `Quedó reportada, pero no se aplicó: ${cierre.error}` };
+}
+
+export async function cerrarCaso(entrada: unknown) {
+  return con("cerrarCasos", esquemaCierre, entrada, casos.cerrarCaso);
+}
+
+export async function crearConteo(entrada: unknown) {
+  return con("gestionarStock", esquemaNuevoConteo, entrada, conteos.crearConteo);
+}
+
+export async function guardarConteo(entrada: unknown) {
+  return con("gestionarStock", esquemaGuardarConteo, entrada, conteos.guardarConteo);
+}
+
+export async function agregarAlConteo(id: unknown, productoId: unknown): Promise<ResultadoAlmacen> {
+  const no = await puede("gestionarStock");
+  if (no) return no;
+  if (typeof id !== "string" || typeof productoId !== "number") return { ok: false, error: "Ese producto no se puede agregar." };
+  const r = await conteos.agregarAlConteo(id, productoId);
+  refresh();
+  return r;
+}
+
+/** Guarda lo último contado y lo envía a revisión. */
+export async function enviarConteo(entrada: unknown) {
+  return con("gestionarStock", esquemaGuardarConteo, entrada, async (v) => {
+    const guardado = await conteos.guardarConteo(v);
+    if (!guardado.ok) return guardado;
+    const r = await conteos.enviarConteo(v.id);
+    if (r.ok && r.diferencias) after(despacharNotificaciones);
+    return r.ok
+      ? {
+          ok: true as const,
+          codigo: r.codigo,
+          aviso:
+            `${r.diferencias} ${r.diferencias === 1 ? "diferencia" : "diferencias"}, ${r.coinciden} ${r.coinciden === 1 ? "coincide" : "coinciden"}` +
+            (r.sinContar ? ` y ${r.sinContar} sin contar` : ""),
+        }
+      : r;
+  });
+}
+
+export async function anularConteo(id: unknown): Promise<ResultadoAlmacen> {
+  const no = await puede("gestionarStock");
+  if (no) return no;
+  if (typeof id !== "string") return { ok: false, error: "Ese conteo no existe." };
+  const r = await conteos.anularConteo(id);
+  refresh();
+  return r;
+}
+
+/** El kárdex de un producto (o del lote de un sobrante). Lo ven los tres roles. */
+export async function leerKardex(entrada: unknown): Promise<ResultadoKardex> {
+  const perfil = await exigirSesion();
+  if (!ROLES[perfil.rol].verAlmacen) return { ok: false, error: "Tu rol no ve el almacén." };
+  const datos = esquemaKardex.safeParse(entrada);
+  if (!datos.success) return { ok: false, error: primerError(datos.error) };
+  const v = datos.data;
+  let sobrante: { loteId: number; almacenId: string; vigente: boolean } | null = null;
+  let productoId = v.productoId;
+  if (v.sobrante) {
+    const supabase = await clienteServidor();
+    const { data: s } = await supabase.from("sobrantes").select("odoo_lot_id, almacen_id, estado").eq("codigo", v.sobrante).maybeSingle();
+    if (!s?.odoo_lot_id) return { ok: false, error: "Ese sobrante no tiene lote en Odoo." };
+    const producto = (await productosDeLotes([s.odoo_lot_id])).get(s.odoo_lot_id);
+    if (!producto) return { ok: false, error: "El lote de ese sobrante ya no está en Odoo." };
+    productoId = producto;
+    sobrante = { loteId: s.odoo_lot_id, almacenId: s.almacen_id, vigente: s.estado === "disponible" || s.estado === "reservado" };
+  }
+  if (!productoId) return { ok: false, error: "Elige un producto." };
+  return cargarKardex({ productoId, almacenId: v.almacenId, dias: v.dias, sobrante });
 }

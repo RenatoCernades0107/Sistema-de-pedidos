@@ -258,6 +258,25 @@ E2E_URL=https://<dominio>.vercel.app npm run e2e
   `avisar_faltantes()` encola un aviso `mover_stock` para Administración y Logística. Se resuelve
   desde la pestaña **Por mover**, con la transferencia ya armada; al recibirla, el aviso queda
   resuelto. El pedido muestra lo que le falta, y la cotización, lo que faltaría con su despacho.
+- **Bajas, conteos y casos** (migración `20261201000100`): nada de esto cambia el stock por sí solo.
+  Logística (o Administración) **reporta una baja** —una plancha rota, un accesorio fallado, un
+  sobrante perdido— y queda un **caso** pendiente (`casos_stock`, `CAS-00001`). Un **conteo físico**
+  (`conteos_stock`, `CNT-00001`; pestaña Conteos) es de un almacén y de lo que se elija (planchas de un
+  material, accesorios de una categoría, sus sobrantes) y es **ciego**: la lista no dice cuánto
+  debería haber. Se guarda en varias vueltas y, al enviarlo, se compara con el stock de Odoo en ese
+  almacén; cada diferencia (y cada sobrante que "no está") es otro caso. Se avisa a Administración
+  (`avisar_casos()`, aviso `caso_stock`), que investiga y **cierra cada caso con una razón obligatoria**
+  (`cerrar_caso()`, solo Administración): **aplicarlo** cambia Odoo —una baja es un desecho
+  (`stock.scrap`), una diferencia es una transferencia interna desde o hacia la ubicación de ajustes,
+  por la diferencia y no por lo contado, para no pisar lo que se movió desde el conteo—, las dos con
+  el código del caso como origen para que reintentar no duplique; **descartarlo** deja el stock como
+  está (apareció, se contó mal). Un sobrante dado de baja sale del almacén (`lib/casos-servidor.ts`,
+  `lib/conteos-servidor.ts`).
+- **Kárdex** (clic en el código de una plancha o accesorio; "Historia" en un sobrante; los tres roles):
+  los movimientos hechos en Odoo (`stock.move.line`) en los almacenes de la app, con su nombre —compra,
+  ajuste, transferencia, baja, ajuste de conteo, venta o producción de un pedido (con enlace), o lo
+  que alguien hizo directo en Odoo— y el saldo calculado hacia atrás desde el stock de hoy
+  (`lib/kardex.ts`, `lib/kardex-servidor.ts`).
 - **Sobrantes** (pestaña del almacén; `/sobrantes` lleva ahí): los pedazos de plancha que vuelven a
   un almacén. En Odoo cada uno es un lote del producto *Sobrante* de su material (`SOB-<código de la
   plancha más chica del grupo>`, almacenable y con lotes), con una unidad en stock **en la ubicación

@@ -70,6 +70,8 @@ export function PantallaSobrantes({
   permisos,
   odooConectado,
   alTransferir,
+  alReportarBaja,
+  alVerHistoria,
 }: {
   sobrantes: Sobrante[];
   catalogo: GrupoPlancha[];
@@ -80,6 +82,10 @@ export function PantallaSobrantes({
   odooConectado: boolean;
   /** Llevarlo a otro almacén: abre la transferencia con este sobrante. */
   alTransferir?: (s: Sobrante) => void;
+  /** Reportar que se rompió o se perdió. */
+  alReportarBaja?: (s: Sobrante) => void;
+  /** Su historia en Odoo (el kárdex de su lote). */
+  alVerHistoria?: (s: Sobrante) => void;
 }) {
   const router = useRouter();
   const [texto, setTexto] = useState("");
@@ -293,6 +299,22 @@ export function PantallaSobrantes({
                     disabled={!odooConectado}
                   >
                     A otro almacén
+                  </Button>
+                )}
+                {permisos.gestionarStock && alReportarBaja && (s.estado === "disponible" || s.estado === "reservado") && s.odooLotId && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => alReportarBaja(s)}
+                    aria-label={`Reportar baja de ${s.codigo}`}
+                    disabled={!odooConectado}
+                  >
+                    Baja
+                  </Button>
+                )}
+                {alVerHistoria && s.odooLotId && (
+                  <Button variant="ghost" size="sm" onClick={() => alVerHistoria(s)} aria-label={`Historia de ${s.codigo}`} disabled={!odooConectado}>
+                    Historia
                   </Button>
                 )}
                 <Button

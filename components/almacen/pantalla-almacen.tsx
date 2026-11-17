@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { ArrowLeftRight, CircleAlert, PackagePlus, Plus, Warehouse } from "lucide-react";
+import { ArrowLeftRight, CircleAlert, PackageMinus, PackagePlus, Plus, Warehouse } from "lucide-react";
 import { TIPOS_ALMACEN } from "@/lib/almacenes";
 import type { GrupoPlancha } from "@/lib/cortes/catalogo";
+import type { Caso, Conteo, ConteoResumen } from "@/lib/casos";
 import type { FaltanteGuardado } from "@/lib/faltantes";
 import type { IngresoResumen, TransferenciaResumen } from "@/lib/inventario";
 import type { Sobrante } from "@/lib/sobrantes";
@@ -12,10 +13,14 @@ import type { Inventario } from "@/lib/stock-servidor";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PantallaSobrantes } from "@/components/sobrantes/pantalla-sobrantes";
-import type { PermisosAlmacen } from "./comun";
+import type { PedidoKardex, PermisosAlmacen } from "./comun";
 import { DialogoAlmacenes } from "./dialogo-almacenes";
 import { DialogoIngreso, ingresables } from "./dialogo-ingreso";
 import { DialogoProducto } from "./dialogo-producto";
+import { DialogoBaja, type BajaInicial } from "./dialogo-baja";
+import { ListaCasos } from "./lista-casos";
+import { ListaConteos, PantallaConteo } from "./conteos";
+import { PanelKardex } from "./panel-kardex";
 import { DialogoTransferencia, type TransferenciaInicial } from "./dialogo-transferencia";
 import { ListaIngresos } from "./lista-ingresos";
 import { ListaTransferencias } from "./lista-transferencias";
@@ -23,7 +28,7 @@ import { PorMover } from "./por-mover";
 import { TablaAccesorios } from "./tabla-accesorios";
 import { TablaPlanchas } from "./tabla-planchas";
 
-export type Vista = "planchas" | "accesorios" | "sobrantes" | "mover" | "movimientos";
+export type Vista = "planchas" | "accesorios" | "sobrantes" | "mover" | "movimientos" | "casos" | "conteos";
 
 /**
  * El almacén: el stock de planchas y accesorios en cada almacén, los sobrantes,
@@ -41,6 +46,9 @@ export function PantallaAlmacen({
   transferencias,
   faltantes,
   enCamino,
+  casos,
+  conteos,
+  conteo,
   permisos,
   odooConectado,
 }: {
@@ -54,13 +62,19 @@ export function PantallaAlmacen({
   faltantes: FaltanteGuardado[];
   /** Lo que viene en camino, por producto y almacén de destino. */
   enCamino: Record<number, Record<string, number>>;
-  permisos: PermisosAlmacen;
+  casos: Caso[];
+  conteos: ConteoResumen[];
+  /** El conteo abierto (`?conteo=`), para contar. */
+  conteo: Conteo | null;
+  permisos: PermisosAlmacen & { cerrarCasos: boolean };
   odooConectado: boolean;
 }) {
   const router = useRouter();
   const ruta = usePathname();
   const [vista, setVista] = useState<Vista>(inicial);
-  const [dialogo, setDialogo] = useState<"ingreso" | "producto" | "almacenes" | "transferencia" | null>(null);
+  const [dialogo, setDialogo] = useState<"ingreso" | "producto" | "almacenes" | "transferencia" | "baja" | null>(null);
+  const [baja, setBaja] = useState<BajaInicial | undefined>(undefined);
+  const [kardex, setKardex] = useState<PedidoKardex | null>(null);
   const [transferencia, setTransferencia] = useState<TransferenciaInicial | undefined>(undefined);
   const { almacenes, planchas, accesorios, categorias, errorOdoo, hayFuera } = inventario;
   const activos = almacenes.filter((a) => a.activo);
@@ -76,6 +90,12 @@ export function PantallaAlmacen({
     setDialogo("transferencia");
   };
   const pendientes = faltantes.filter((f) => f.estado === "pendiente").length;
+  const casosPendientes = casos.filter((c) => c.estado === "pendiente").length;
+  const reportarBaja = (inicial?: BajaInicial) => {
+    setBaja(inicial);
+    setDialogo("baja");
+  };
+  const materiales = [...new Set(planchas.filter((p) => p.activo).map((p) => p.material))].sort();
   const enCaminoAqui = transferencias.filter((t) => t.estado === "enviada").length;
 
   const sobrantesEn = (id: string) =>
@@ -100,6 +120,10 @@ export function PantallaAlmacen({
             <Button variant="outline" className="gap-1.5" onClick={() => setDialogo("producto")} disabled={!odooConectado}>
               <Plus className="size-4" />
               Nuevo producto
+            </Button>
+            <Button variant="outline" className="gap-1.5" onClick={() => reportarBaja()} disabled={!odooConectado}>
+              <PackageMinus className="size-4" />
+              Reportar baja
             </Button>
             <Button variant="outline" className="gap-1.5" onClick={() => transferir()} disabled={!odooConectado}>
               <ArrowLeftRight className="size-4" />
@@ -164,6 +188,15 @@ export function PantallaAlmacen({
               )}
             </TabsTrigger>
           )}
+          {permisos.gestionarStock && (
+            <TabsTrigger value="casos">
+              Casos
+              {casosPendientes > 0 && (
+                <span className="bg-st-observado ml-1.5 rounded-full px-1.5 text-[0.68rem] font-semibold text-white">{casosPendientes}</span>
+              )}
+            </TabsTrigger>
+          )}
+          {permisos.gestionarStock && <TabsTrigger value="conteos">Conteos</TabsTrigger>}
           <TabsTrigger value="movimientos">
             Movimientos
             {enCaminoAqui > 0 && (
@@ -172,7 +205,14 @@ export function PantallaAlmacen({
           </TabsTrigger>
         </TabsList>
         <TabsContent value="planchas">
-          <TablaPlanchas planchas={planchas} almacenes={almacenes} permisos={permisos} conFuera={hayFuera} enCamino={enCamino} />
+          <TablaPlanchas
+            planchas={planchas}
+            almacenes={almacenes}
+            permisos={permisos}
+            conFuera={hayFuera}
+            enCamino={enCamino}
+            alVerKardex={odooConectado ? setKardex : undefined}
+          />
         </TabsContent>
         <TabsContent value="accesorios">
           <TablaAccesorios
@@ -182,6 +222,7 @@ export function PantallaAlmacen({
             permisos={permisos}
             conFuera={hayFuera}
             enCamino={enCamino}
+            alVerKardex={odooConectado ? setKardex : undefined}
           />
         </TabsContent>
         <TabsContent value="sobrantes">
@@ -195,11 +236,29 @@ export function PantallaAlmacen({
             alTransferir={(s) =>
               transferir({ desdeId: s.almacenId, haciaId: null, lineas: [], sobrantes: [s.codigo], faltanteIds: [], pedidoId: null })
             }
+            alReportarBaja={(s) => reportarBaja({ almacenId: s.almacenId, sobrante: s.codigo })}
+            alVerHistoria={(s) =>
+              setKardex({ productoId: null, sobrante: s.codigo, codigo: s.codigo, titulo: `${s.material} · ${s.largo}×${s.ancho} cm` })
+            }
           />
         </TabsContent>
         {permisos.gestionarStock && (
           <TabsContent value="mover">
             <PorMover faltantes={faltantes} almacenes={almacenes} productos={productos} alTransferir={transferir} />
+          </TabsContent>
+        )}
+        {permisos.gestionarStock && (
+          <TabsContent value="casos">
+            <ListaCasos casos={casos} cierra={permisos.cerrarCasos} />
+          </TabsContent>
+        )}
+        {permisos.gestionarStock && (
+          <TabsContent value="conteos">
+            {conteo ? (
+              <PantallaConteo key={conteo.id} conteo={conteo} productos={productos} />
+            ) : (
+              <ListaConteos conteos={conteos} almacenes={almacenes} materiales={materiales} categorias={categorias} />
+            )}
           </TabsContent>
         )}
         <TabsContent value="movimientos">
@@ -232,6 +291,17 @@ export function PantallaAlmacen({
         />
       )}
       {dialogo === "almacenes" && <DialogoAlmacenes almacenes={almacenes} alCerrar={() => setDialogo(null)} />}
+      {dialogo === "baja" && (
+        <DialogoBaja
+          almacenes={almacenes}
+          productos={productos}
+          sobrantes={sobrantes}
+          inicial={baja}
+          cierraCasos={permisos.cerrarCasos}
+          alCerrar={() => setDialogo(null)}
+        />
+      )}
+      {kardex && <PanelKardex pedido={kardex} almacenes={almacenes} alCerrar={() => setKardex(null)} />}
       {dialogo === "transferencia" && (
         <DialogoTransferencia
           almacenes={almacenes}

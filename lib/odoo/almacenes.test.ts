@@ -7,7 +7,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { BASE, CLAVE, USUARIO, crearOdooFalso } from "../../e2e/odoo-falso.mjs";
 import {
   ajustarInventario,
+  ajustarPorDiferencia,
   asegurarAlmacen,
+  darDeBaja,
+  movimientosDeProducto,
   asegurarTransito,
   enviarATransito,
   ingresarCompra,
@@ -168,5 +171,49 @@ describe("leerAlmacen", () => {
     await expect(leerAlmacen(tienda.warehouseId, "AND")).resolves.toEqual(tienda);
     await expect(leerAlmacen(tienda.warehouseId, "CAT")).rejects.toThrow(/ya no es CAT/);
     await expect(leerAlmacen(999, "AND")).rejects.toThrow(/ya no existe/);
+  });
+});
+
+describe("bajas, diferencias y kárdex", () => {
+  it("una baja es un desecho validado; repetirla con el mismo origen no la duplica", async () => {
+    const taller = await asegurarAlmacen({ nombre: "Católica", codigo: "CAT" });
+    await ajustarInventario({ ubicacionId: taller.ubicacionId, lineas: [{ productoId: 20, cantidad: 5 }] });
+    const baja = { ubicacionId: taller.ubicacionId, productoId: 20, cantidad: 2, origen: "App Plexiacril CAS-1" };
+    const id = await darDeBaja(baja);
+    expect(await darDeBaja(baja)).toBe(id);
+    const stock = await stockPorAlmacen([20], [{ almacenId: "cat", ubicacionId: taller.ubicacionId }]);
+    expect(stock.get(20)?.porAlmacen.cat).toBe(3);
+  });
+
+  it("no da de baja más de lo que hay", async () => {
+    const taller = await asegurarAlmacen({ nombre: "Católica", codigo: "CAT" });
+    await expect(darDeBaja({ ubicacionId: taller.ubicacionId, productoId: 22, cantidad: 1, origen: "App Plexiacril CAS-2" })).rejects.toThrow(
+      /no hay suficiente stock/,
+    );
+  });
+
+  it("una diferencia suma o quita sobre lo que hay ahora, no sobre lo contado", async () => {
+    const taller = await asegurarAlmacen({ nombre: "Católica", codigo: "CAT" });
+    await ajustarInventario({ ubicacionId: taller.ubicacionId, lineas: [{ productoId: 21, cantidad: 5 }] });
+    // Se contaron 4 (falta 1), y mientras tanto salieron 2: quedan 3, y al aplicar, 2.
+    await ajustarInventario({ ubicacionId: taller.ubicacionId, lineas: [{ productoId: 21, cantidad: 3 }] });
+    await ajustarPorDiferencia({ almacen: taller, productoId: 21, delta: -1, origen: "App Plexiacril CAS-3" });
+    await ajustarPorDiferencia({ almacen: taller, productoId: 21, delta: -1, origen: "App Plexiacril CAS-3" });
+    await ajustarPorDiferencia({ almacen: taller, productoId: 21, delta: 2, origen: "App Plexiacril CAS-4" });
+    const stock = await stockPorAlmacen([21], [{ almacenId: "cat", ubicacionId: taller.ubicacionId }]);
+    expect(stock.get(21)?.porAlmacen.cat).toBe(4);
+  });
+
+  it("el kárdex trae cada movimiento hecho con su origen, del más nuevo al más viejo", async () => {
+    const taller = await asegurarAlmacen({ nombre: "Católica", codigo: "CAT" });
+    await ajustarInventario({ ubicacionId: taller.ubicacionId, lineas: [{ productoId: 20, cantidad: 5 }] });
+    await darDeBaja({ ubicacionId: taller.ubicacionId, productoId: 20, cantidad: 1, origen: "App Plexiacril CAS-9" });
+    await ajustarPorDiferencia({ almacen: taller, productoId: 20, delta: 2, origen: "App Plexiacril CAS-10" });
+    const movs = await movimientosDeProducto({ productoId: 20, ubicaciones: [taller.ubicacionId] });
+    expect(movs.map((m) => ({ c: m.cantidad, o: m.origen, b: m.baja, i: m.inventario, h: m.hacia === taller.ubicacionId }))).toEqual([
+      { c: 2, o: "App Plexiacril CAS-10", b: false, i: false, h: true },
+      { c: 1, o: "App Plexiacril CAS-9", b: true, i: false, h: false },
+      { c: 5, o: null, b: false, i: true, h: true },
+    ]);
   });
 });

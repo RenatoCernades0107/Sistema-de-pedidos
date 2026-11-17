@@ -219,3 +219,45 @@ export function EncabezadosStock({ almacenes, conFuera }: { almacenes: Almacen[]
     </>
   );
 }
+
+/** Lo que abre el kárdex: un producto (o el lote de un sobrante). */
+export interface PedidoKardex {
+  productoId: number | null;
+  sobrante: string | null;
+  codigo: string;
+  titulo: string;
+}
+
+/** El código de un producto en una tabla: si existe en Odoo, abre su kárdex. */
+export function CodigoConKardex({
+  productoId,
+  codigo,
+  titulo,
+  alVerKardex,
+  className,
+}: {
+  productoId: number | null;
+  codigo: string;
+  titulo: string;
+  alVerKardex?: (k: PedidoKardex) => void;
+  className?: string;
+}) {
+  if (!productoId || !alVerKardex) {
+    return (
+      <span className={`font-mono text-xs ${productoId ? "" : "text-destructive"} ${className ?? ""}`} title={productoId ? titulo : "No existe en Odoo"}>
+        {codigo}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className={`text-primary font-mono text-xs underline-offset-2 hover:underline ${className ?? ""}`}
+      aria-label={`Kárdex de ${codigo}`}
+      title={`${titulo}: ver sus movimientos`}
+      onClick={() => alVerKardex({ productoId, sobrante: null, codigo, titulo })}
+    >
+      {codigo}
+    </button>
+  );
+}

@@ -2,13 +2,15 @@ import { exigirAlmacen } from "@/lib/sesion";
 import { ROLES } from "@/lib/dominio";
 import { cargarCatalogoPlanchas } from "@/lib/cortes-servidor";
 import { odooConfigurado } from "@/lib/odoo/rpc";
+import { cargarCasos } from "@/lib/casos-servidor";
+import { cargarConteo, cargarConteos } from "@/lib/conteos-servidor";
 import { cargarFaltantes } from "@/lib/faltantes-servidor";
 import { cargarSobrantes } from "@/lib/sobrantes-servidor";
 import { cargarIngresos, cargarInventario, preciosDeSobrantes } from "@/lib/stock-servidor";
 import { cargarTransferencias, enCamino } from "@/lib/transferencias-servidor";
 import { PantallaAlmacen, type Vista } from "@/components/almacen/pantalla-almacen";
 
-const VISTAS: Vista[] = ["planchas", "accesorios", "sobrantes", "mover", "movimientos"];
+const VISTAS: Vista[] = ["planchas", "accesorios", "sobrantes", "mover", "movimientos", "casos", "conteos"];
 
 /**
  * El almacén: lo que hay de cada plancha y cada accesorio en cada almacén
@@ -23,18 +25,24 @@ const VISTAS: Vista[] = ["planchas", "accesorios", "sobrantes", "mover", "movimi
 export default async function Page({ searchParams }: PageProps<"/almacen">) {
   const perfil = await exigirAlmacen();
   const permisos = ROLES[perfil.rol];
-  const pedida = (await searchParams).vista;
+  const params = await searchParams;
+  const pedida = params.vista;
+  const codigoConteo = typeof params.conteo === "string" ? params.conteo : null;
   // "ingresos" era la pestaña de antes: ahora está en Movimientos.
   const vista = pedida === "ingresos" ? "movimientos" : (VISTAS.find((v) => v === pedida) ?? "planchas");
 
   const verPrecios = permisos.gestionarStock;
-  const [inventario, sobrantes, catalogo, ingresos, transferencias, faltantes] = await Promise.all([
+  const gestiona = permisos.gestionarStock;
+  const [inventario, sobrantes, catalogo, ingresos, transferencias, faltantes, casos, conteos, conteo] = await Promise.all([
     cargarInventario({ verPrecios, gestionaStock: permisos.gestionarStock }),
     cargarSobrantes(),
     cargarCatalogoPlanchas(true),
     permisos.gestionarStock ? cargarIngresos() : Promise.resolve([]),
     cargarTransferencias(),
     permisos.gestionarStock ? cargarFaltantes() : Promise.resolve([]),
+    gestiona ? cargarCasos() : Promise.resolve([]),
+    gestiona ? cargarConteos() : Promise.resolve([]),
+    gestiona && codigoConteo ? cargarConteo(codigoConteo) : Promise.resolve(null),
   ]);
   const precios = verPrecios ? await preciosDeSobrantes(sobrantes, catalogo) : {};
 
@@ -49,9 +57,13 @@ export default async function Page({ searchParams }: PageProps<"/almacen">) {
       transferencias={transferencias}
       faltantes={faltantes}
       enCamino={enCamino(transferencias)}
+      casos={casos}
+      conteos={conteos}
+      conteo={conteo}
       permisos={{
         gestionarStock: permisos.gestionarStock,
         editarPrecios: permisos.editarPrecios,
+        cerrarCasos: permisos.cerrarCasos,
         verPrecios,
       }}
       odooConectado={odooConfigurado()}

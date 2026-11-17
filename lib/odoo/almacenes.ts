@@ -451,3 +451,164 @@ export async function recibirDeTransito(t: Transferencia): Promise<number> {
     lineas: t.lineas,
   });
 }
+
+/* ── Sacar stock: bajas y diferencias ──────────────────────────────────────── */
+
+export interface Baja {
+  ubicacionId: number;
+  productoId: number;
+  cantidad: number;
+  /** Un sobrante: su lote. */
+  loteId?: number | null;
+  /** "App Plexiacril CAS-00001": reintentar no duplica. */
+  origen: string;
+}
+
+/**
+ * Da de baja: un desecho (`stock.scrap`) validado, desde la ubicación del
+ * almacén. Devuelve su id. Si ya hay uno hecho con ese origen, es ese.
+ */
+export async function darDeBaja(b: Baja): Promise<number> {
+  const [previo] = await ejecutar<Fila[]>("stock.scrap", "search_read", [[["origin", "=", b.origen]]], {
+    fields: ["state"],
+    limit: 1,
+  });
+  if (previo && texto(previo.state) === "done") return previo.id as number;
+
+  const id =
+    (previo?.id as number | undefined) ??
+    (await ejecutar<number>("stock.scrap", "create", [
+      {
+        product_id: b.productoId,
+        scrap_qty: b.cantidad,
+        location_id: b.ubicacionId,
+        origin: b.origen,
+        ...(b.loteId ? { lot_id: b.loteId } : {}),
+      },
+    ]));
+  const r = await ejecutar("stock.scrap", "action_validate", [[id]]);
+  if (esAsistente(r)) {
+    throw new ErrorOdoo("En Odoo no hay suficiente stock de eso en ese almacén para darlo de baja. Revisa el stock antes de cerrar el caso.");
+  }
+  return id;
+}
+
+/** La ubicación virtual de los ajustes de inventario (de donde sale lo que sobra y a donde va lo que falta). */
+async function ubicacionDeAjustes(): Promise<number> {
+  const [id] = await ejecutar<number[]>("stock.location", "search", [[["usage", "=", "inventory"]]], { limit: 1 });
+  if (!id) throw new ErrorOdoo("Odoo no tiene la ubicación de ajustes de inventario.");
+  return id;
+}
+
+export interface Diferencia {
+  almacen: AlmacenOdoo;
+  productoId: number;
+  /** Lo que se suma (positivo) o se quita (negativo). */
+  delta: number;
+  loteId?: number | null;
+  origen: string;
+}
+
+/**
+ * Aplica una diferencia de conteo: suma o quita `delta` en el almacén, sin
+ * importar lo que se movió desde que se contó (una venta en medio no se pisa).
+ * Es una transferencia interna desde o hacia la ubicación de ajustes, con su
+ * origen: queda en el kárdex con el código del caso y reintentar no duplica.
+ * Devuelve el id del picking.
+ */
+export async function ajustarPorDiferencia(d: Diferencia): Promise<number> {
+  if (d.delta === 0) throw new ErrorOdoo("No hay diferencia que aplicar.");
+  const ajustes = await ubicacionDeAjustes();
+  const sobra = d.delta > 0;
+  return moverEntreUbicaciones({
+    tipoOperacion: d.almacen.internoId,
+    desde: sobra ? ajustes : d.almacen.ubicacionId,
+    hacia: sobra ? d.almacen.ubicacionId : ajustes,
+    origen: d.origen,
+    lineas: [{ productoId: d.productoId, cantidad: Math.abs(d.delta), loteId: d.loteId ?? null }],
+  });
+}
+
+/* ── El kárdex ─────────────────────────────────────────────────────────────── */
+
+export interface MovimientoOdoo {
+  id: number;
+  fecha: string;
+  cantidad: number;
+  desde: number | null;
+  hacia: number | null;
+  loteId: number | null;
+  /** "WH/OUT/00012", "SP/00003", "Cantidad de producto actualizada". */
+  referencia: string | null;
+  /** El origen del movimiento: "App Plexiacril ING-00001", "S00042"… */
+  origen: string | null;
+  baja: boolean;
+  inventario: boolean;
+  /** Si es de una orden de fabricación: su origen (la cotización y la línea). */
+  origenProduccion: string | null;
+}
+
+/**
+ * Los movimientos hechos de un producto que entran o salen de unas ubicaciones
+ * (y sus hijas), del más nuevo al más viejo. Con `loteId`, solo los de ese lote.
+ */
+export async function movimientosDeProducto(f: {
+  productoId: number;
+  ubicaciones: number[];
+  desde?: string | null;
+  loteId?: number | null;
+  limite?: number;
+}): Promise<MovimientoOdoo[]> {
+  if (f.ubicaciones.length === 0) return [];
+  const { campoLinea } = await campoCantidad();
+  const dominio: unknown[] = [
+    ["product_id", "=", f.productoId],
+    ["state", "=", "done"],
+    "|",
+    ["location_id", "child_of", f.ubicaciones],
+    ["location_dest_id", "child_of", f.ubicaciones],
+  ];
+  if (f.loteId) dominio.push(["lot_id", "=", f.loteId]);
+  if (f.desde) dominio.push(["date", ">=", f.desde]);
+  const lineas = await ejecutar<Fila[]>("stock.move.line", "search_read", [dominio], {
+    fields: ["date", campoLinea, "location_id", "location_dest_id", "lot_id", "reference", "move_id"],
+    order: "date desc, id desc",
+    limit: f.limite ?? 500,
+  });
+
+  const moveIds = [...new Set(lineas.map((l) => idDe(l.move_id)).filter((x): x is number => !!x))];
+  const camposMov = await camposExistentes("stock.move", ["origin", "scrapped", "is_inventory", "raw_material_production_id", "production_id"]);
+  const movs = moveIds.length ? await ejecutar<Fila[]>("stock.move", "read", [moveIds], { fields: camposMov }) : [];
+  const deMov = new Map(movs.map((m) => [m.id as number, m]));
+  const producciones = [
+    ...new Set(movs.flatMap((m) => [idDe(m.raw_material_production_id), idDe(m.production_id)]).filter((x): x is number => !!x)),
+  ];
+  const origenesMo = producciones.length
+    ? new Map(
+        (await ejecutar<Fila[]>("mrp.production", "read", [producciones], { fields: ["origin"] })).map((p) => [
+          p.id as number,
+          texto(p.origin),
+        ]),
+      )
+    : new Map<number, string | null>();
+
+  return lineas
+    .map((l): MovimientoOdoo => {
+      const m = deMov.get(idDe(l.move_id) ?? 0);
+      const mo = m ? (idDe(m.raw_material_production_id) ?? idDe(m.production_id)) : null;
+      return {
+        id: l.id as number,
+        fecha: texto(l.date) ?? "",
+        cantidad: numero(l[campoLinea]),
+        desde: idDe(l.location_id),
+        hacia: idDe(l.location_dest_id),
+        loteId: idDe(l.lot_id),
+        referencia: texto(l.reference),
+        origen: m ? texto(m.origin) : null,
+        baja: m?.scrapped === true,
+        inventario: m?.is_inventory === true,
+        origenProduccion: mo ? (origenesMo.get(mo) ?? null) : null,
+      };
+    })
+    .sort((a, b) => b.fecha.localeCompare(a.fecha) || b.id - a.id);
+}

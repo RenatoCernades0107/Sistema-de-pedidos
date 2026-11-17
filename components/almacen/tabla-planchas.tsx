@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CeldasStock, DialogoPrecio, EncabezadosStock, type PermisosAlmacen } from "./comun";
+import { CeldasStock, CodigoConKardex, DialogoPrecio, EncabezadosStock, type PedidoKardex, type PermisosAlmacen } from "./comun";
 
 const TODOS = "__todos";
 
@@ -62,6 +62,7 @@ export function TablaPlanchas({
   permisos,
   conFuera,
   enCamino = {},
+  alVerKardex,
 }: {
   planchas: PlanchaInventario[];
   almacenes: Almacen[];
@@ -69,6 +70,7 @@ export function TablaPlanchas({
   conFuera: boolean;
   /** Lo que viene en camino a cada almacén, por producto. */
   enCamino?: Record<number, Record<string, number>>;
+  alVerKardex?: (k: PedidoKardex) => void;
 }) {
   const [texto, setTexto] = useState("");
   const [material, setMaterial] = useState<string | null>(null);
@@ -201,9 +203,7 @@ export function TablaPlanchas({
                       {!p.activo && <span className="ml-1.5 text-2xs">(desactivado)</span>}
                     </td>
                     <td className="px-2 py-2">
-                      <span className={cn("font-mono text-xs", !p.productoId && "text-destructive")} title={p.productoId ? p.nombre : "No existe en Odoo"}>
-                        {p.codigo}
-                      </span>
+<CodigoConKardex productoId={p.productoId} codigo={p.codigo} titulo={p.nombre} alVerKardex={alVerKardex} />
                     </td>
                     <CeldasStock stock={p.stock} almacenes={activos} conFuera={conFuera} enCamino={p.productoId ? enCamino[p.productoId] : undefined} />
                     {permisos.verPrecios && (

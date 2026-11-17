@@ -277,6 +277,11 @@ export interface PermisosRol {
   gestionarStock: boolean;
   /** Cambiar el precio de venta de planchas, accesorios y sobrantes. */
   editarPrecios: boolean;
+  /**
+   * Cerrar los casos de stock (bajas reportadas y diferencias de conteo) con una
+   * razón, aplicándolos en Odoo o descartándolos. Como `cerrar_caso()` en la base.
+   */
+  cerrarCasos: boolean;
   /** Diseñar piezas con el motor CAD (chat, render 3D y exportación DXF/STEP) en `/disenos`. */
   usarCad: boolean;
 }
@@ -305,6 +310,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     verAlmacen: true,
     gestionarStock: true,
     editarPrecios: true,
+    cerrarCasos: true,
     usarCad: true,
   },
   logistica: {
@@ -330,6 +336,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     verAlmacen: true,
     gestionarStock: true,
     editarPrecios: false,
+    cerrarCasos: false,
     usarCad: false,
   },
   operaciones: {
@@ -355,6 +362,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     verAlmacen: true,
     gestionarStock: false,
     editarPrecios: false,
+    cerrarCasos: false,
     usarCad: false,
   },
 };

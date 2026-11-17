@@ -40,6 +40,12 @@ Dos scripts, los dos pensados para correr contra el proyecto de Supabase en la n
   almacén nuevo) pero no crea ni anula transferencias ni escribe faltantes; un solo faltante abierto
   por pedido, producto y almacén; y que `avisar_faltantes()` avisa a todo Administración y Logística
   diciendo qué falta. Termina en `ROLLBACK`.
+- **`casos.sql`** — verifica la migración `20261201000100`: RLS en las tablas nuevas y que el estado
+  de un caso no se cambia sin `cerrar_caso`; que Logística reporta (una baja es negativa, no nace
+  cerrada, un sobrante no tiene dos casos abiertos) y cuenta (un conteo enviado no se toca ni se
+  envía dos veces) pero no cierra; que el taller no ve casos ni conteos; que Administración cierra
+  solo con razón y una sola vez, y que el sobrante dado de baja sale del almacén; y que
+  `avisar_casos()` avisa a toda Administración. Termina en `ROLLBACK`.
 - **`estado.sql`** — no verifica nada, solo reporta: cuántos pedidos, pagos y adjuntos
   hay, cómo se reparten los estados y si algún saldo quedó descuadrado.
 

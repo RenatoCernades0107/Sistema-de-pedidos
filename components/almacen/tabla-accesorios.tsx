@@ -8,7 +8,6 @@ import type { Almacen } from "@/lib/almacenes";
 import { compactar } from "@/lib/busqueda-inteligente";
 import { money } from "@/lib/formato";
 import type { AccesorioInventario, CategoriaAccesorio } from "@/lib/inventario";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Campo } from "@/components/ui/campo";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -23,7 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CeldasStock, DialogoPrecio, EncabezadosStock, type PermisosAlmacen } from "./comun";
+import { CeldasStock, CodigoConKardex, DialogoPrecio, EncabezadosStock, type PedidoKardex, type PermisosAlmacen } from "./comun";
 
 const TODAS = "__todas";
 
@@ -72,6 +71,7 @@ export function TablaAccesorios({
   permisos,
   conFuera,
   enCamino = {},
+  alVerKardex,
 }: {
   accesorios: AccesorioInventario[];
   categorias: CategoriaAccesorio[];
@@ -80,6 +80,7 @@ export function TablaAccesorios({
   conFuera: boolean;
   /** Lo que viene en camino a cada almacén, por producto. */
   enCamino?: Record<number, Record<string, number>>;
+  alVerKardex?: (k: PedidoKardex) => void;
 }) {
   const [texto, setTexto] = useState("");
   const [categoria, setCategoria] = useState<string | null>(null);
@@ -182,7 +183,7 @@ export function TablaAccesorios({
                 {lista.map((a) => (
                   <tr key={a.id} className="border-t">
                     <td className="px-4 py-2">
-                      <span className={cn("font-mono text-xs", !a.productoId && "text-destructive")}>{a.codigo}</span>
+<CodigoConKardex productoId={a.productoId} codigo={a.codigo} titulo={a.nombre} alVerKardex={alVerKardex} />
                     </td>
                     <td className="min-w-48 px-2 py-2">
                       {a.nombre}
