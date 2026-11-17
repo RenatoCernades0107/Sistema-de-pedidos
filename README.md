@@ -47,6 +47,59 @@ dueño, después de cambiarla; la migración que la introdujo marcó también a 
 tests la bajan al empezar y la vuelven a dejar como estaba al terminar (`e2e/preparar.ts`); para
 trabajar en local sin pasar por esa pantalla, se baja a mano desde el panel de Supabase.
 
+## Cuentas y recuperación de contraseña
+
+Las cuentas las gestiona Administración desde **menú de usuario → Usuarios** (`/usuarios`): crear
+(usuario, nombre, rol y, si se tiene, el correo), registrar o cambiar el correo de recuperación,
+enviarle el correo de recuperación, ponerle una **contraseña temporal** y desactivar o reactivar la
+cuenta. Desactivar no borra nada: los pedidos y el historial conservan al autor. Todo eso va por la
+Edge Function `administrar-usuarios`, que es la única que tiene la clave de servicio; la app web no
+la guarda.
+
+- **Correo de recuperación.** Al crear la cuenta, Administración puede ponerlo y queda confirmado de
+  una vez. Si no, **la persona no pasa de la pantalla de bienvenida** (`/cambiar-contrasena`) hasta
+  cambiar la contraseña inicial y registrar su correo (le llega un enlace de confirmación). Con él,
+  *¿Olvidaste tu contraseña?* en el login (`/olvide-contrasena`) le manda un enlace para elegir otra.
+  El correo de la cuenta *es* el de recuperación: Supabase Auth solo escribe a esa dirección, y un
+  trigger copia el cambio a `usuarios.email` / `usuarios.email_recuperacion`. Se sigue entrando con
+  el usuario, nunca con el correo.
+- **Sin correo, o si no llega:** Administración usa **Contraseña temporal**. Se muestra una sola vez,
+  se cierran las sesiones de esa cuenta y la persona debe cambiarla al entrar.
+- **El correo no se revela.** La traducción usuario → correo (`email_de_usuario`) exige una clave que
+  solo conoce el servidor de Next (`LOGIN_SECRET`), así que quien tenga la clave anon pública no
+  puede sacar el correo de nadie. Esa clave está en la tabla `secretos_app` (fila `login`).
+
+Configuración (en local ya la hacen `supabase/config.toml` y `seed.sql`; en el proyecto alojado es a
+mano):
+
+- **`LOGIN_SECRET`** en el hosting, igual al valor de la fila `login` de `secretos_app`. Se inserta una
+  vez en el SQL Editor, con un valor aleatorio de al menos 16 caracteres, y nunca va en una migración:
+
+  ```sql
+  insert into public.secretos_app (nombre, valor) values ('login', '<valor aleatorio>');
+  ```
+
+  En local no hace falta definirla: `npm run dev` usa `plexi-login-dev-secreto`, el valor que pone
+  `seed.sql` (hay que haber aplicado las migraciones y la seed, `npx supabase db reset`). Con un
+  Supabase alojado sí hay que definirla en `.env.local` con el valor de `secretos_app`. En producción
+  es obligatoria: sin ella el login avisa de que no está configurado.
+- **Edge Function**: `npx supabase functions deploy administrar-usuarios`.
+- **SMTP propio** (Authentication → SMTP). El de prueba de Supabase solo manda a miembros del equipo
+  y con un tope mínimo. En local, los correos se ven en Mailpit (`http://127.0.0.1:56324`).
+- **Plantillas** *Reset password* y *Change email address* (Authentication → Email templates): el
+  enlace debe ser el de `supabase/templates/recovery.html` y `email_change.html`
+  (`{{ .SiteURL }}/auth/confirmar?token_hash={{ .TokenHash }}&type=…`). Con la plantilla por
+  defecto también funciona, pero solo si se abre en el mismo navegador donde se pidió.
+- **Secure email change: desactivado.** Si no, Auth exige confirmar también desde el correo viejo,
+  que puede ser interno (`@plexiacril.test`) y no recibe nada.
+- **Redirect URLs**: añadir `https://<tu-dominio>/auth/confirmar`, y como *Site URL* el dominio de
+  la app. Opcional: `NEXT_PUBLIC_SITE_URL` fija la dirección que se manda a Auth; sin ella se
+  deduce de la petición.
+
+Al desplegar esto, las cuentas que ya existen sin correo quedan en la pantalla de bienvenida hasta
+registrarlo: pon primero el SMTP, y registra sus correos desde `/usuarios` o avísales. Los tests de
+punta a punta les ponen un correo ficticio mientras corren y lo quitan al terminar (`e2e/preparar.ts`).
+
 ## Datos de prueba en Odoo y Supabase
 
 `npm run seed:odoo` llena el **Odoo de pruebas** con productos (planchas, materiales, accesorios y

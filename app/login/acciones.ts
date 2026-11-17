@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { ERROR_LOGIN_SIN_CLAVE, claveDeLogin } from "@/lib/login-secreto";
 import { clienteServidor } from "@/lib/supabase-servidor";
 
 export interface EstadoLogin {
@@ -14,7 +15,9 @@ export interface EstadoLogin {
  * perfil ligado a la cuenta.
  *
  * Supabase Auth solo autentica por correo, así que el usuario se traduce a su
- * correo interno con `email_de_usuario` antes de autenticar.
+ * correo con `email_de_usuario` antes de autenticar. Esa función exige la clave del
+ * servidor (`LOGIN_SECRET`): el correo puede ser el real de la persona y no se le
+ * entrega a nadie que solo conozca su usuario.
  *
  * Los errores no distinguen entre usuario inexistente y contraseña equivocada:
  * decir "ese usuario no existe" le regala a cualquiera la lista de cuentas.
@@ -31,10 +34,14 @@ export async function iniciarSesion(
     return { error: "Escribe tu usuario y tu contraseña.", usuario };
   }
 
+  const clave = claveDeLogin();
+  if (!clave) return { error: ERROR_LOGIN_SIN_CLAVE, usuario };
+
   const supabase = await clienteServidor();
 
   const { data: email } = await supabase.rpc("email_de_usuario", {
     nombre_usuario: usuario,
+    clave,
   });
 
   if (!email) {

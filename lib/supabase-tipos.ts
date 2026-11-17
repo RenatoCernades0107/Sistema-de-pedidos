@@ -1877,6 +1877,7 @@ export type Database = {
           creado_en: string
           debe_cambiar_password: boolean
           email: string
+          email_recuperacion: string | null
           id: string
           nombre: string
           rol: Database["public"]["Enums"]["rol"]
@@ -1887,6 +1888,7 @@ export type Database = {
           creado_en?: string
           debe_cambiar_password?: boolean
           email: string
+          email_recuperacion?: string | null
           id: string
           nombre: string
           rol: Database["public"]["Enums"]["rol"]
@@ -1897,6 +1899,7 @@ export type Database = {
           creado_en?: string
           debe_cambiar_password?: boolean
           email?: string
+          email_recuperacion?: string | null
           id?: string
           nombre?: string
           rol?: Database["public"]["Enums"]["rol"]
@@ -2366,6 +2369,8 @@ export type Database = {
         Returns: string
       }
       despachar_push: { Args: never; Returns: undefined }
+      cerrar_sesiones_de: { Args: { p_usuario_id: string }; Returns: undefined }
+      clave_de_login_valida: { Args: { clave: string }; Returns: boolean }
       directorio_usuarios: {
         Args: never
         Returns: {
@@ -2383,7 +2388,7 @@ export type Database = {
         Args: { p_conversacion_id: string }
         Returns: undefined
       }
-      email_de_usuario: { Args: { nombre_usuario: string }; Returns: string }
+      email_de_usuario: { Args: { clave: string; nombre_usuario: string }; Returns: string }
       enviar_mensaje: {
         Args: {
           p_adjuntos?: Json
@@ -2544,6 +2549,7 @@ export type Database = {
         Returns: number
       }
       terminado_sin_precios: { Args: { t: Json }; Returns: Json }
+      tiene_correo_recuperacion: { Args: { clave: string; nombre_usuario: string }; Returns: boolean }
       token_seguimiento: { Args: { p_codigo: string }; Returns: string }
       texto_notificacion: {
         Args: {

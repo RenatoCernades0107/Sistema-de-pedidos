@@ -23,7 +23,7 @@
  */
 
 import { z } from "zod";
-import { perfilActual, perfilConCad } from "@/lib/sesion";
+import { bienvenidaPendiente, perfilActual, perfilConCad } from "@/lib/sesion";
 import { cargarCatalogoPlanchas, cargarConfigCortes } from "@/lib/cortes-servidor";
 import { productosPorCodigo } from "@/lib/odoo/catalogos";
 import type { Json } from "@/lib/supabase-tipos";
@@ -182,7 +182,7 @@ export async function POST(request: Request) {
   if (!perfil) {
     // Solo para decir cuál de las dos cosas pasó: sin sesión, o sin permiso.
     const actual = await perfilActual();
-    return actual && !actual.debeCambiarPassword
+    return actual && !bienvenidaPendiente(actual)
       ? error("Tu rol no puede usar el asistente de diseños.", 403)
       : error("Tu sesión caducó. Recarga la página.", 401);
   }

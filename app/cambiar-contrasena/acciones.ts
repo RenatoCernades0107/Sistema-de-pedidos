@@ -3,8 +3,9 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { actualizarPasswordAuth } from "@/lib/contrasena";
+import { pedirCambioDeCorreo, type ResultadoCorreo } from "@/lib/correo-recuperacion";
 import { esquemaCambioPassword } from "@/lib/esquemas";
-import { perfilActual } from "@/lib/sesion";
+import { RUTA_CAMBIO_PASSWORD, bienvenidaPendiente, perfilActual } from "@/lib/sesion";
 import { clienteServidor } from "@/lib/supabase-servidor";
 
 export interface EstadoCambioPassword {
@@ -28,7 +29,7 @@ export async function cambiarPassword(
 ): Promise<EstadoCambioPassword> {
   const perfil = await perfilActual();
   if (!perfil) redirect("/login");
-  if (!perfil.debeCambiarPassword) redirect("/");
+  if (!perfil.debeCambiarPassword) redirect(RUTA_CAMBIO_PASSWORD);
 
   const analisis = esquemaCambioPassword.safeParse({
     password: String(datos.get("password") ?? ""),
@@ -55,6 +56,45 @@ export async function cambiarPassword(
         "Tu contraseña sí cambió, pero no se pudo terminar el ingreso. Entra con " +
         "la contraseña nueva y elige otra distinta cuando vuelva a pedírtelo.",
     };
+  }
+
+  revalidatePath("/", "layout");
+  redirect("/");
+}
+
+export type EstadoCorreoBienvenida = ResultadoCorreo;
+
+/**
+ * Paso 2 de la bienvenida: registrar el correo de recuperación. Solo cuando la
+ * contraseña ya es la propia —el orden del formulario— y no hay correo todavía.
+ */
+export async function registrarCorreoBienvenida(
+  _previo: EstadoCorreoBienvenida,
+  datos: FormData,
+): Promise<EstadoCorreoBienvenida> {
+  const perfil = await perfilActual();
+  if (!perfil) redirect("/login");
+  if (perfil.debeCambiarPassword) return { error: "Primero cambia tu contraseña." };
+  if (!perfil.debeRegistrarCorreo) redirect("/");
+
+  return pedirCambioDeCorreo(await clienteServidor(), String(datos.get("correo") ?? ""));
+}
+
+export interface EstadoConfirmacion {
+  error?: string;
+}
+
+/**
+ * "Ya lo confirmé": el enlace del correo se abre fuera de esta pantalla (a veces
+ * en otro aparato), así que la página no se entera sola. Aquí se vuelve a leer el
+ * perfil: si el correo ya quedó, se entra; si no, se dice.
+ */
+export async function comprobarCorreoConfirmado(): Promise<EstadoConfirmacion> {
+  const perfil = await perfilActual();
+  if (!perfil) redirect("/login");
+
+  if (bienvenidaPendiente(perfil)) {
+    return { error: "Todavía no vemos tu correo confirmado. Abre el enlace que te enviamos y vuelve a intentar." };
   }
 
   revalidatePath("/", "layout");
