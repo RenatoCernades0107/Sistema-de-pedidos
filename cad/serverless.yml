@@ -92,6 +92,23 @@ resources:
         ManagedPolicyArns:
           # Lo mínimo para una Lambda en VPC: crear/borrar sus ENI y escribir logs.
           - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+    # Desde oct-2025 una Function URL con authType NONE exige DOS permisos:
+    # lambda:InvokeFunctionUrl (lo crea Serverless) y lambda:InvokeFunction con
+    # InvokedViaFunctionUrl. Sin el segundo la URL responde 403 Forbidden.
+    MotorInvokeViaUrlPermission:
+      Type: AWS::Lambda::Permission
+      Properties:
+        Action: lambda:InvokeFunction
+        FunctionName: !Ref MotorLambdaFunction
+        Principal: "*"
+        InvokedViaFunctionUrl: true
+    SandboxInvokeViaUrlPermission:
+      Type: AWS::Lambda::Permission
+      Properties:
+        Action: lambda:InvokeFunction
+        FunctionName: !Ref SandboxLambdaFunction
+        Principal: "*"
+        InvokedViaFunctionUrl: true
   Outputs:
     MotorUrl:
       Value: !GetAtt MotorLambdaFunctionUrl.FunctionUrl
