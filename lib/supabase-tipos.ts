@@ -2304,6 +2304,12 @@ export type Database = {
           ultimo: string
         }[]
       }
+      cliente_de_pedido: {
+        Args: { p_codigo: string }
+        Returns: {
+          documento: string
+        }[]
+      }
       conversacion_de_pedido: {
         Args: { p_pedido_id: string }
         Returns: string

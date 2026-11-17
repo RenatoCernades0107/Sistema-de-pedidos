@@ -124,15 +124,9 @@ export function AccionesPedido({
 
   return (
     <>
-      <section className="bg-card rounded-xl border">
-        <header className="flex items-center gap-2 border-b px-4 py-3">
-          <h2 className="text-sm font-medium">Acciones</h2>
-          <span className="text-muted-foreground ml-auto text-xs">
-            {permisos.nombre}
-          </span>
-        </header>
+      <section className="bg-card rounded-xl border" aria-label="Estado del pedido">
 
-        <div className="flex flex-col gap-4 p-4">
+        <div className="flex flex-col gap-3 p-3">
           <CampoBase grupo label="Mover el pedido a" claseEtiqueta="eyebrow">
             {validas.length === 0 ? (
               <p className="text-muted-foreground flex items-center gap-2 text-sm">
@@ -142,7 +136,7 @@ export function AccionesPedido({
                   : "Anulado: el pedido está cerrado."}
               </p>
             ) : (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-1.5">
                 {validas.map((e) => (
                   <Button
                     key={e}
@@ -164,6 +158,7 @@ export function AccionesPedido({
             )}
           </CampoBase>
 
+          <div className="grid grid-cols-2 gap-2">
           <Campo
             etiqueta="Ubicación actual"
             bloqueado={!permisos.editarUbicacion}
@@ -176,7 +171,7 @@ export function AccionesPedido({
                   v && cambiarUbicacion(p.codigo, v as Ubicacion)
                 }
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger size="sm" className="w-full">
                   <SelectValue>{UBICACIONES[p.ubicacion]}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -193,7 +188,7 @@ export function AccionesPedido({
           </Campo>
 
           <Campo
-            etiqueta="Responsable en taller"
+            etiqueta="Responsable"
             bloqueado={!permisos.asignarResponsable}
           >
             {permisos.asignarResponsable ? (
@@ -204,7 +199,7 @@ export function AccionesPedido({
                   v && asignarResponsable(p.codigo, v === "sin" ? null : v)
                 }
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger size="sm" className="w-full">
                   <SelectValue>{p.responsable ?? "Sin asignar"}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -227,6 +222,7 @@ export function AccionesPedido({
               </p>
             )}
           </Campo>
+          </div>
         </div>
       </section>
 

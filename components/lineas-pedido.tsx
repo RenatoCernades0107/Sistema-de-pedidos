@@ -129,7 +129,7 @@ export function PanelItem({
     );
 
   return (
-    <section className="bg-card shadow-card rounded-xl border" aria-labelledby="titulo-item">
+    <section className="bg-card shadow-card rounded-xl border" aria-label="Productos y cortes" aria-describedby="titulo-item">
       <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-4 py-3">
         <span className="bg-primary text-primary-foreground tnum grid size-8 shrink-0 place-items-center rounded-lg text-sm font-semibold">
           {l.posicion}
