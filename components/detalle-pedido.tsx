@@ -73,10 +73,10 @@ function vistaDeUrl(params: URLSearchParams, lineas: LineaDePedido[]): Vista {
 const claveDe = (v: Vista) => (v.tipo === "item" ? `item-${v.posicion}` : v.tipo);
 
 /**
- * El pedido como hoja de trabajo: a la izquierda sus ítems, en el centro el
- * ítem que se está mirando (plano, indicaciones y archivos) y a la derecha lo
- * que se sigue a diario: el estado, la entrega, el pago y el chat, fijos a la
- * altura de la pantalla para no tener que bajar a buscarlos. El cliente va en
+ * El pedido como hoja de trabajo: en el centro el
+ * ítem que se está mirando (plano, indicaciones y archivos), a la derecha sus
+ * ítems y a la izquierda lo que se sigue a diario: el estado, la entrega y el
+ * pago. El chat, cerrado, en un botón de la esquina. El cliente va en
  * la cabecera, con su documento y su teléfono junto al nombre.
  */
 export function DetallePedido({
@@ -282,16 +282,28 @@ export function DetallePedido({
         </div>
       )}
 
-      <div className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[14rem_minmax(0,1fr)_20rem] lg:grid-rows-[minmax(0,1fr)] xl:grid-cols-[16rem_minmax(0,1fr)_22rem]">
-
-        <NavegadorPedido
-          lineas={items}
-          pedido={p}
-          vista={vista}
-          archivos={archivosVisibles.length}
-          alElegir={elegir}
-          className="max-lg:order-2 lg:h-full lg:overflow-y-auto"
-        />
+      <div className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[18rem_minmax(0,1fr)_13rem] lg:grid-rows-[minmax(0,1fr)] xl:grid-cols-[21rem_minmax(0,1fr)_15rem]">
+        {/* A la izquierda, lo que se sigue a diario: el estado, la entrega y el
+            pago. En el celular se reparte: el estado va antes de los ítems y la
+            entrega y el pago, después. */}
+        <aside
+          aria-label="Estado, entrega y pago"
+          className="max-lg:contents lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:gap-3 lg:overflow-y-auto"
+        >
+          <div className="max-lg:order-1">
+            <AccionesPedido
+              pedido={p}
+              cortes={items.filter((l) => l.corte)}
+              terminados={items.filter((l) => l.terminado)}
+              stockDescontado={odoo?.stockDescontado ?? false}
+              retazoMin={retazoMin}
+            />
+          </div>
+          <div className="flex flex-col gap-3 max-lg:order-4">
+            <PanelEntrega pedido={p} cerrado={esTerminal(p.estado)} />
+            {permisos.verMontos && <PanelPago pedido={p} />}
+          </div>
+        </aside>
 
         <div className="min-w-0 max-lg:order-3 lg:h-full lg:overflow-y-auto lg:rounded-xl">
           {lineas === null && vista.tipo === "archivos" && (
@@ -335,41 +347,26 @@ export function DetallePedido({
           </motion.div>
         </div>
 
-        {/* En pantalla ancha, una columna fija a la altura de la pantalla: estado,
-            entrega y pago arriba y el chat llenando lo que sobra (si la pantalla
-            es baja, la columna se desplaza). En el celular se reparte: el estado va antes
-            de los ítems y la entrega y el pago, después. */}
-        <aside
-          aria-label="Estado, entrega y pago"
-          className="max-lg:contents lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:gap-3 lg:overflow-y-auto"
-        >
-          <div className="max-lg:contents lg:flex lg:shrink-0 lg:flex-col lg:gap-3">
-            <div className="max-lg:order-1">
-              <AccionesPedido
-                pedido={p}
-                cortes={items.filter((l) => l.corte)}
-                terminados={items.filter((l) => l.terminado)}
-                stockDescontado={odoo?.stockDescontado ?? false}
-                retazoMin={retazoMin}
-              />
-            </div>
-            <div className="flex flex-col gap-3 max-lg:order-4">
-              <PanelEntrega pedido={p} cerrado={esTerminal(p.estado)} />
-              {permisos.verMontos && <PanelPago pedido={p} />}
-            </div>
-          </div>
-          {chat && (
-            <ChatPedido
-              conversacionId={chat.conversacionId}
-              codigo={p.codigo}
-              usuarioId={chat.usuarioId}
-              inicial={chat.inicial}
-              abrirAlEntrar={chat.abrir}
-              className="lg:min-h-52 lg:flex-1"
-            />
-          )}
-        </aside>
+
+        <NavegadorPedido
+          lineas={items}
+          pedido={p}
+          vista={vista}
+          archivos={archivosVisibles.length}
+          alElegir={elegir}
+          className="max-lg:order-2 lg:h-full lg:overflow-y-auto"
+        />
       </div>
+
+      {chat && (
+        <ChatPedido
+          conversacionId={chat.conversacionId}
+          codigo={p.codigo}
+          usuarioId={chat.usuarioId}
+          inicial={chat.inicial}
+          abrirAlEntrar={chat.abrir}
+        />
+      )}
     </div>
   );
 }
@@ -750,9 +747,8 @@ function FechaPrometida({ pedido: p }: { pedido: Pedido }) {
 /* ── Piezas ── */
 
 /**
- * Por dónde va el pedido, en una línea corta: un punto por paso, unidos por un
- * trazo. El nombre del estado ya está en la etiqueta junto al código: los de
- * cada paso se leen al pasar el mouse (y el lector de pantalla los lee todos).
+ * Por dónde va el pedido: un punto por paso con su nombre, unidos por un
+ * trazo que se pinta de verde hasta el paso actual.
  */
 function Stepper({ pedido: p }: { pedido: Pedido }) {
   if (p.estado === "anulado") return null;
@@ -760,21 +756,21 @@ function Stepper({ pedido: p }: { pedido: Pedido }) {
   const actual = pasos.indexOf(p.estado);
 
   return (
-    <ol className="flex items-center gap-1.5" aria-label="Avance del pedido">
+    <ol className="flex flex-wrap items-center gap-x-2 gap-y-1" aria-label="Avance del pedido">
       {pasos.map((paso, i) => {
         const hecho = actual > i;
         const activo = actual === i;
         return (
-          <li key={paso} className="flex items-center gap-1.5" title={ESTADOS[paso]}>
+          <li key={paso} className="flex items-center gap-2">
             {i > 0 && (
               <span
-                className={cn("h-px w-3 sm:w-5", hecho || activo ? "bg-st-entregado" : "bg-border")}
+                className={cn("h-px w-4", hecho || activo ? "bg-st-entregado" : "bg-border")}
                 aria-hidden
               />
             )}
             <span
               className={cn(
-                "grid size-3.5 shrink-0 place-items-center rounded-full border",
+                "grid size-4 shrink-0 place-items-center rounded-full border",
                 hecho && "bg-st-entregado border-transparent text-white",
                 activo && "border-primary bg-primary ring-primary/20 ring-3",
                 !hecho && !activo && "bg-card",
@@ -783,7 +779,12 @@ function Stepper({ pedido: p }: { pedido: Pedido }) {
             >
               {hecho && <Check className="size-2.5" strokeWidth={3} />}
             </span>
-            <span className="sr-only">
+            <span
+              className={cn(
+                "text-xs whitespace-nowrap",
+                activo ? "text-foreground font-semibold" : "text-muted-foreground",
+              )}
+            >
               {ESTADOS[paso]}
               <span className="sr-only">{hecho ? " (hecho)" : activo ? " (actual)" : " (pendiente)"}</span>
             </span>

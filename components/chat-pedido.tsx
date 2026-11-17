@@ -7,14 +7,14 @@
  * los tres roles): mismos mensajes, archivos, referencias @ y vistos que en
  * `/chat`, y también se abre desde ahí.
  *
- * En pantallas anchas va incrustado al pie de la columna derecha del pedido y
- * ocupa la altura que sobra; en las demás, un botón flotante lo abre como panel
- * lateral. El estado de la conversación vive
- * aquí arriba, montado siempre, para que el globo del botón cuente los mensajes
- * sin leer de verdad (los que esta persona no vio) aunque el panel esté cerrado.
+ * Empieza cerrado: un botón en la esquina lo abre como panel lateral derecho.
+ * El estado de la conversación vive aquí arriba, montado siempre y en vivo,
+ * para que la bolita roja del botón cuente los mensajes sin leer de verdad (los
+ * que esta persona no vio) aunque el panel esté cerrado. Solo con el panel
+ * abierto lo que llega se marca como visto.
  */
 
-import { useState, useSyncExternalStore } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { ExternalLink, MessageCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -23,21 +23,6 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { VistaConversacion } from "@/components/chat/chat-conversacion";
 import { useConversacion } from "@/components/chat/use-conversacion";
-
-/** El mismo corte que `lg:` de Tailwind (64rem). */
-const ANCHO_COLUMNA = "(min-width: 64rem)";
-
-function useEsAncho() {
-  return useSyncExternalStore(
-    (aviso) => {
-      const consulta = window.matchMedia(ANCHO_COLUMNA);
-      consulta.addEventListener("change", aviso);
-      return () => consulta.removeEventListener("change", aviso);
-    },
-    () => window.matchMedia(ANCHO_COLUMNA).matches,
-    () => false,
-  );
-}
 
 const VACIO = "Todavía no hay mensajes. Escribe aquí lo que el equipo tenga que saber de este pedido.";
 
@@ -58,57 +43,54 @@ export function ChatPedido({
   abrirAlEntrar?: boolean;
   className?: string;
 }) {
-  const ancho = useEsAncho();
   const [abierto, setAbierto] = useState(abrirAlEntrar);
-  const chat = useConversacion({ conversacionId, usuarioId, inicial, activa: ancho || abierto });
+  const chat = useConversacion({ conversacionId, usuarioId, inicial, activa: abierto });
   const sinLeer = chat.sinLeer;
 
   return (
     <>
-      <section
-        className={cn("bg-card hidden flex-col overflow-hidden rounded-xl border lg:flex", className)}
-        aria-label={`Chat del pedido ${codigo}`}
-      >
-        <header className="flex items-center gap-2 border-b py-1.5 pr-2 pl-4">
-          <MessageCircle className="text-muted-foreground size-4" />
-          <h2 className="text-sm font-medium">Chat del pedido</h2>
-          <Button
-            render={<Link href={`/chat/${conversacionId}`} />}
-            nativeButton={false}
-            variant="ghost"
-            size="icon-xs"
-            className="text-muted-foreground ml-auto"
-            aria-label="Abrir en el chat del equipo"
-          >
-            <ExternalLink />
-          </Button>
-        </header>
-        {/* Una sola vista a la vez: dos compositores sobre el mismo chat se pisarían el foco. */}
-        {ancho && <VistaConversacion chat={chat} vacio={VACIO} autoFoco={abrirAlEntrar} />}
-      </section>
-
       <Button
         type="button"
         onClick={() => setAbierto(true)}
-        className="fixed right-4 bottom-20 z-20 h-11 gap-2 rounded-full px-4 shadow-lg md:bottom-6 lg:hidden print:hidden"
+        className={cn(
+          "fixed right-4 bottom-20 z-20 h-11 gap-2 rounded-full px-4 shadow-lg md:right-6 md:bottom-6 print:hidden",
+          abierto && "hidden",
+          className,
+        )}
         aria-label={`Abrir el chat del pedido${sinLeer ? ` (${sinLeer} sin leer)` : ""}`}
       >
         <MessageCircle className="size-4" />
         Chat
         {sinLeer > 0 && (
-          <span className="bg-destructive tnum grid min-w-5 place-items-center rounded-full px-1 text-2xs font-semibold text-white">
-            {sinLeer > 99 ? "99+" : sinLeer}
+          <span className="absolute -top-1.5 -right-1.5 grid" aria-hidden>
+            <span className="bg-destructive col-start-1 row-start-1 size-full animate-ping rounded-full opacity-60 motion-reduce:hidden" />
+            <span className="bg-destructive ring-background tnum col-start-1 row-start-1 grid h-5 min-w-5 place-items-center rounded-full px-1 text-2xs font-semibold text-white ring-2">
+              {sinLeer > 99 ? "99+" : sinLeer}
+            </span>
           </span>
         )}
       </Button>
 
-      <Sheet open={abierto && !ancho} onOpenChange={setAbierto}>
-        <SheetContent side="right" className="w-full gap-0 p-0 sm:max-w-md lg:hidden">
-          <SheetHeader className="border-b">
-            <SheetTitle>Chat del pedido {codigo}</SheetTitle>
-            <SheetDescription>Lo ven Administración, Logística y el taller.</SheetDescription>
+      <Sheet open={abierto} onOpenChange={setAbierto}>
+        <SheetContent side="right" className="w-full gap-0 p-0 sm:max-w-md">
+          <SheetHeader className="flex-row items-start gap-2 border-b">
+            <div className="min-w-0 flex-1">
+              <SheetTitle>Chat del pedido {codigo}</SheetTitle>
+              <SheetDescription>Lo ven Administración, Logística y el taller.</SheetDescription>
+            </div>
+            <Button
+              render={<Link href={`/chat/${conversacionId}`} />}
+              nativeButton={false}
+              variant="ghost"
+              size="icon-sm"
+              className="text-muted-foreground mr-8"
+              aria-label="Abrir en el chat del equipo"
+              title="Abrir en el chat del equipo"
+            >
+              <ExternalLink />
+            </Button>
           </SheetHeader>
-          {!ancho && <VistaConversacion chat={chat} vacio={VACIO} autoFoco />}
+          {abierto && <VistaConversacion chat={chat} vacio={VACIO} autoFoco />}
         </SheetContent>
       </Sheet>
     </>
