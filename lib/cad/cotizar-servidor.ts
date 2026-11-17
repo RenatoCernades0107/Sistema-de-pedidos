@@ -1,7 +1,7 @@
 /**
  * Lo que la nueva cotización necesita leer de un diseño CAD para agregarlo como
- * línea. Con la sesión de quien pide: la RLS de `cad_*` solo deja a
- * Administración, así que para los demás el diseño "no existe".
+ * línea. Con la sesión de quien pide (la RLS de `cad_*` deja a los tres roles;
+ * cotizar, solo a Administración: lo exigen quienes llaman).
  */
 
 import { clienteServidor } from "@/lib/supabase-servidor";

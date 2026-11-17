@@ -44,8 +44,11 @@ export function InsigniaLibre() {
 
 /** El contenido de la pestaña de parámetros para un diseño libre. */
 export function DisenoLibre() {
-  const { resultado, disenoId, aplicar, cargando } = useDiseno();
+  const { resultado, disenoId, aplicar, cargando, usuario, vistaPrevia } = useDiseno();
   const [aprobando, setAprobando] = useState(false);
+  // Aprobar para producción sigue siendo de Administración (la base lo vuelve a exigir).
+  // Sin `usuario` (fuera de /disenos) se ofrece y decide la base.
+  const puedeAprobar = (usuario?.puedeAprobar ?? true) && vistaPrevia === null;
   const libre = versionLibre(resultado);
 
   if (!libre) {
@@ -80,13 +83,13 @@ export function DisenoLibre() {
         {libre.estado === "borrador" &&
           " Antes de mandarlo a producción, Administración tiene que revisarlo y aprobarlo."}
       </p>
-      {libre.estado === "borrador" && (
+      {libre.estado === "borrador" && puedeAprobar && (
         <Button size="sm" className="gap-1.5" onClick={() => void aprobar()} disabled={aprobando || cargando || errores > 0}>
           {aprobando ? <Loader2 className="animate-spin" /> : <BadgeCheck />}
           Aprobar
         </Button>
       )}
-      {libre.estado === "borrador" && errores > 0 && (
+      {libre.estado === "borrador" && puedeAprobar && errores > 0 && (
         <p className="text-destructive text-xs">Tiene errores de validación: corrígelos antes de aprobar.</p>
       )}
       <details className="rounded-md border">

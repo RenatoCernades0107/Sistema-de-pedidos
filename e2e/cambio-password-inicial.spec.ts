@@ -11,12 +11,13 @@
  */
 
 import { expect, test } from "@playwright/test";
-import { CONTRASENA, USUARIOS, entrar, marcarCambioPendiente } from "./apoyo";
+import { CONTRASENA, USUARIOS, entrar, fijarCorreoRecuperacion, marcarCambioPendiente } from "./apoyo";
 
 test.describe.configure({ mode: "serial" });
 
 test.afterAll(async () => {
   await marcarCambioPendiente("operaciones", false);
+  await fijarCorreoRecuperacion("operaciones", `e2e.${USUARIOS.operaciones}@example.com`);
 });
 
 test("con la marca puesta, el ingreso acaba en el cambio de contraseña", async ({ page }) => {
@@ -51,4 +52,16 @@ test("sin la marca, el ingreso va directo a la vista del rol", async ({ page }) 
 
   await entrar(page, "operaciones");
   await expect(page).toHaveURL(/\/pedidos$/);
+});
+
+test("sin correo de recuperación, el ingreso pide registrarlo antes de pasar", async ({ page }) => {
+  await marcarCambioPendiente("operaciones", false);
+  await fijarCorreoRecuperacion("operaciones", null);
+
+  await entrar(page, "operaciones");
+  await expect(page).toHaveURL(/\/cambiar-contrasena/);
+  await expect(page.getByRole("heading", { name: "Registra tu correo" })).toBeVisible();
+
+  await page.goto("/pedidos");
+  await expect(page).toHaveURL(/\/cambiar-contrasena/);
 });

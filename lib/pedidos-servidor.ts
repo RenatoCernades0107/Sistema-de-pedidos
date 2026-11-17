@@ -1,5 +1,6 @@
 import { ROLES, type Pedido, type Rol } from "./dominio";
 import { diaEnLima, momentoEnLima } from "./fecha";
+import { itemDeLinea } from "./pedido-lineas";
 import { clienteServidor } from "./supabase-servidor";
 
 /**
@@ -50,7 +51,7 @@ export async function cargarPedidos(rol: Rol, usuarioId: string): Promise<Pedido
 
   // Las colecciones se piden de una vez para todos los pedidos, no una consulta
   // por tarjeta. La RLS ya recorta lo que cada rol puede ver de cada tabla.
-  const [adjuntos, historial, abonos, auditoria] = await Promise.all([
+  const [adjuntos, historial, abonos, auditoria, lineas] = await Promise.all([
     supabase
       .from("adjuntos")
       .select("id, pedido_id, tipo, nombre_archivo, tamano_bytes, linea_posicion")
@@ -75,7 +76,12 @@ export async function cargarPedidos(rol: Rol, usuarioId: string): Promise<Pedido
           .in("pedido_id", ids)
           .order("creado_en", { ascending: false })
       : null,
+    // Lo que lleva cada pedido. La función ya quita los precios a quien no es
+    // Administración; aquí solo se usan el nombre y la cantidad.
+    supabase.rpc("lineas_de_pedidos", { p_ids: ids }),
   ]);
+
+  if (lineas.error) throw new Error(`No se pudieron leer las líneas de los pedidos: ${lineas.error.message}`);
 
   const agrupar = <T extends { pedido_id: string | null }>(datos: T[] | null | undefined) => {
     const mapa = new Map<string, T[]>();
@@ -93,6 +99,7 @@ export async function cargarPedidos(rol: Rol, usuarioId: string): Promise<Pedido
     historial: agrupar(historial.data),
     abonos: agrupar(abonos?.data),
     auditoria: agrupar(auditoria?.data),
+    lineas: agrupar(lineas.data),
   };
 
   return filas.map((cruda) => {
@@ -103,6 +110,7 @@ export async function cargarPedidos(rol: Rol, usuarioId: string): Promise<Pedido
       codigo: texto(f.codigo),
       cliente: texto(f.nombre_cliente),
       telefonoCliente: textoONulo(f.telefono_cliente),
+      items: (porPedido.lineas.get(id) ?? []).map(itemDeLinea).sort((a, b) => a.posicion - b.posicion),
       tipos: (f.tipos_pedido as Pedido["tipos"]) ?? [],
       producto: (f.tipo_producto_terminado as Pedido["producto"]) ?? null,
       cantidad: numero(f.cantidad),

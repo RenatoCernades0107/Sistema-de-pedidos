@@ -4,19 +4,51 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "motion/react";
-import { Ellipsis, LayoutList, Plus, Search } from "lucide-react";
+import {
+  Ellipsis,
+  LayoutList,
+  MessageCircle,
+  Plus,
+  Search,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
-import { RUTA_PEDIDOS, esTerminal, herramientasDe, type ConfigHerramienta } from "@/lib/dominio";
+import {
+  RUTA_PEDIDOS,
+  esTerminal,
+  gruposDe,
+  type ConfigHerramienta,
+} from "@/lib/dominio";
 import { Button } from "@/components/ui/button";
 import { MenuUsuario } from "@/components/menu-usuario";
 import { ActivarNotificaciones } from "@/components/activar-notificaciones";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ICONOS_HERRAMIENTA } from "@/components/iconos-herramienta";
 import { CommandMenu, useCommandMenu } from "@/components/command-menu";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import { useNoLeidos } from "@/components/chat/use-no-leidos";
 
-/** Un enlace de la barra lateral: vistas y herramientas se pintan igual. */
+/** El globo de "Chat": cuántos mensajes sin leer, con @ si alguno te menciona. */
+function GloboChat({ total, menciones }: { total: number; menciones: number }) {
+  if (total === 0) return null;
+  return (
+    <span
+      className="bg-primary text-primary-foreground tnum ml-auto grid h-5 min-w-5 place-items-center rounded-full px-1.5 text-2xs font-semibold"
+      aria-label={`${total} sin leer${menciones ? `, te mencionaron` : ""}`}
+    >
+      {menciones > 0 && "@"}
+      {total > 99 ? "99+" : total}
+    </span>
+  );
+}
+
+/** Un enlace de la barra lateral: Pedidos y las demás vistas se pintan igual. */
 const claseEnlaceLateral = (activo: boolean) =>
   cn(
     "group relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors",
@@ -36,7 +68,8 @@ const CLASE_TAB =
  */
 function useActivos() {
   const { permisos, pedidos } = useStore();
-  return pedidos.filter((p) => permisos.base(p) && !esTerminal(p.estado)).length;
+  return pedidos.filter((p) => permisos.base(p) && !esTerminal(p.estado))
+    .length;
 }
 
 /** El detalle de un pedido también es "Pedidos"; el alta tiene su propio botón. */
@@ -47,6 +80,39 @@ const enPedidos = (pathname: string) =>
 /** Una herramienta sigue marcada en sus subrutas: `/cotizaciones/nueva` es Cotizaciones. */
 const enRuta = (pathname: string, href: string) =>
   pathname === href || pathname.startsWith(`${href}/`);
+
+/** Una vista del menú: la misma en la barra lateral y en la hoja "Más". */
+function EnlaceVista({
+  vista,
+  pathname,
+  noLeidos,
+  onClick,
+}: {
+  vista: ConfigHerramienta;
+  pathname: string;
+  noLeidos: { total: number; menciones: number };
+  onClick?: () => void;
+}) {
+  const activo = enRuta(pathname, vista.href);
+  const Icono = ICONOS_HERRAMIENTA[vista.href];
+  return (
+    <Link
+      href={vista.href}
+      aria-current={activo ? "page" : undefined}
+      onClick={onClick}
+      className={claseEnlaceLateral(activo)}
+    >
+      <Icono
+        className={cn(
+          "size-4 shrink-0",
+          activo ? "text-primary" : "opacity-70",
+        )}
+      />
+      {vista.titulo}
+      {vista.href === "/chat" && <GloboChat {...noLeidos} />}
+    </Link>
+  );
+}
 
 export function AppShell({
   children,
@@ -60,11 +126,18 @@ export function AppShell({
   const activos = useActivos();
   const cmd = useCommandMenu();
   const [masAbierto, setMasAbierto] = useState(false);
+  const noLeidos = useNoLeidos();
 
-  const herramientas = herramientasDe(permisos);
+  const grupos = gruposDe(permisos);
+  // En el celular el Chat tiene pestaña propia; "Más" se queda con el resto.
+  const chatEnBarra = permisos.usarChat;
+  const gruposMas = gruposDe(permisos, chatEnBarra ? ["/chat"] : []);
   const pedidosActivo = enPedidos(pathname);
+  const chatActivo = enRuta(pathname, "/chat");
   // Sin esto, estando en Cotizaciones no habría nada marcado en la barra.
-  const menuActivo = herramientas.some((h) => enRuta(pathname, h.href));
+  const menuActivo = gruposMas.some((g) =>
+    g.vistas.some((h) => enRuta(pathname, h.href)),
+  );
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -124,7 +197,17 @@ export function AppShell({
         {/* Sidebar */}
         <aside className="bg-sidebar hidden w-56 shrink-0 border-r p-3 md:block print:hidden">
           <nav aria-label="Menú principal" className="flex flex-col gap-0.5">
-            <p className="eyebrow px-2.5 pt-2 pb-2">{permisos.nombre}</p>
+            {permisos.crearPedido && (
+              <Button
+                render={<Link href="/pedidos/nuevo" />}
+                nativeButton={false}
+                className="mt-1 mb-3 w-full justify-start gap-2"
+              >
+                <Plus className="size-4" />
+                Nuevo pedido
+              </Button>
+            )}
+
             {/* Una sola entrada: Todos, Míos, Taller, Tienda, Logística e
                 Historial son filtros dentro de la vista, no pantallas. */}
             <Link
@@ -144,53 +227,42 @@ export function AppShell({
                 />
               )}
               <LayoutList
-                className={cn("size-4 shrink-0", pedidosActivo ? "text-primary" : "opacity-70")}
+                className={cn(
+                  "size-4 shrink-0",
+                  pedidosActivo ? "text-primary" : "opacity-70",
+                )}
               />
               Pedidos
-              <span className="tnum text-muted-foreground ml-auto text-xs">{activos}</span>
+              <span className="tnum text-muted-foreground ml-auto text-xs">
+                {activos}
+              </span>
             </Link>
 
-            {permisos.crearPedido && (
-              <>
-                <p className="eyebrow px-2.5 pt-5 pb-2">Acciones</p>
-                <Button
-                  render={<Link href="/pedidos/nuevo" />}
-                  nativeButton={false}
-                  className="w-full justify-start gap-2"
-                >
-                  <Plus className="size-4" />
-                  Nuevo pedido
-                </Button>
-              </>
-            )}
-
-            {herramientas.length > 0 && (
-              <>
-                <p className="eyebrow px-2.5 pt-5 pb-2">Herramientas</p>
-                {herramientas.map((h) => {
-                  const activo = enRuta(pathname, h.href);
-                  const Icono = ICONOS_HERRAMIENTA[h.href];
-                  return (
-                    <Link
-                      key={h.href}
-                      href={h.href}
-                      aria-current={activo ? "page" : undefined}
-                      className={claseEnlaceLateral(activo)}
-                    >
-                      <Icono
-                        className={cn("size-4 shrink-0", activo ? "text-primary" : "opacity-70")}
-                      />
-                      {h.titulo}
-                    </Link>
-                  );
-                })}
-              </>
-            )}
+            {/* El grupo principal sigue a Pedidos sin título; los demás lo llevan. */}
+            {grupos.map((g) => (
+              <div key={g.id} className="flex flex-col gap-0.5">
+                {g.titulo && (
+                  <p className="eyebrow px-2.5 pt-5 pb-2">{g.titulo}</p>
+                )}
+                {g.vistas.map((h) => (
+                  <EnlaceVista
+                    key={h.href}
+                    vista={h}
+                    pathname={pathname}
+                    noLeidos={noLeidos}
+                  />
+                ))}
+              </div>
+            ))}
           </nav>
         </aside>
 
         {/* `tabIndex={-1}` para que el enlace de salto pueda dejar el foco aquí. */}
-        <main id="contenido" tabIndex={-1} className="min-w-0 flex-1 pb-20 md:pb-0 print:pb-0">
+        <main
+          id="contenido"
+          tabIndex={-1}
+          className="min-w-0 flex-1 pb-20 md:pb-0 print:pb-0"
+        >
           {children}
         </main>
       </div>
@@ -203,7 +275,10 @@ export function AppShell({
         <Link
           href={RUTA_PEDIDOS}
           aria-current={pathname === RUTA_PEDIDOS ? "page" : undefined}
-          className={cn(CLASE_TAB, pedidosActivo ? "text-primary" : "text-muted-foreground")}
+          className={cn(
+            CLASE_TAB,
+            pedidosActivo ? "text-primary" : "text-muted-foreground",
+          )}
         >
           <LayoutList className="size-5 shrink-0" />
           <span className="w-full truncate text-center">Pedidos</span>
@@ -213,7 +288,9 @@ export function AppShell({
             href="/pedidos/nuevo"
             className={cn(
               CLASE_TAB,
-              pathname === "/pedidos/nuevo" ? "text-primary" : "text-muted-foreground",
+              pathname === "/pedidos/nuevo"
+                ? "text-primary"
+                : "text-muted-foreground",
             )}
           >
             <Plus className="size-5 shrink-0" />
@@ -221,13 +298,47 @@ export function AppShell({
           </Link>
         )}
 
-        {/* Las herramientas. Operaciones, sin ninguna, no llega a ver este botón. */}
-        {herramientas.length > 0 && (
+        {chatEnBarra && (
+          <Link
+            href="/chat"
+            aria-current={chatActivo ? "page" : undefined}
+            className={cn(
+              CLASE_TAB,
+              chatActivo ? "text-primary" : "text-muted-foreground",
+            )}
+          >
+            <span className="relative">
+              <MessageCircle className="size-5 shrink-0" />
+              {noLeidos.total > 0 && (
+                <span
+                  className="bg-primary text-primary-foreground ring-background tnum absolute -top-1.5 -right-2.5 grid h-4 min-w-4 place-items-center rounded-full px-1 text-2xs leading-none font-semibold ring-2"
+                  aria-label={`${noLeidos.total} sin leer${noLeidos.menciones ? ", te mencionaron" : ""}`}
+                >
+                  {noLeidos.menciones > 0 && "@"}
+                  {noLeidos.total > 99 ? "99+" : noLeidos.total}
+                </span>
+              )}
+            </span>
+            <span className="w-full truncate text-center">Chat</span>
+          </Link>
+        )}
+
+        {/* Lo que no cabe en la barra, con los mismos grupos que la lateral. */}
+        {gruposMas.length > 0 && (
           <Sheet open={masAbierto} onOpenChange={setMasAbierto}>
             <SheetTrigger
-              className={cn(CLASE_TAB, menuActivo ? "text-primary" : "text-muted-foreground")}
+              className={cn(
+                CLASE_TAB,
+                menuActivo ? "text-primary" : "text-muted-foreground",
+              )}
             >
-              <Ellipsis className="size-5 shrink-0" />
+              <span className="relative">
+                <Ellipsis className="size-5 shrink-0" />
+                {/* Solo si el Chat no tiene pestaña propia y vive aquí dentro. */}
+                {!chatEnBarra && noLeidos.total > 0 && (
+                  <span className="bg-primary ring-background absolute -top-0.5 -right-1 size-2 rounded-full ring-2" />
+                )}
+              </span>
               <span className="w-full truncate text-center">Más</span>
             </SheetTrigger>
 
@@ -236,29 +347,26 @@ export function AppShell({
               className="max-h-[80dvh] gap-0 overflow-y-auto rounded-t-xl pb-[env(safe-area-inset-bottom)]"
             >
               <SheetHeader className="pb-2">
-                <SheetTitle>Menú</SheetTitle>
+                <SheetTitle>Más</SheetTitle>
               </SheetHeader>
 
               <div className="flex flex-col gap-0.5 px-2 pb-4">
-                <p className="eyebrow px-2.5 pt-2 pb-2">Herramientas</p>
-                {herramientas.map((h: ConfigHerramienta) => {
-                  const activo = enRuta(pathname, h.href);
-                  const Icono = ICONOS_HERRAMIENTA[h.href];
-                  return (
-                    <Link
-                      key={h.href}
-                      href={h.href}
-                      aria-current={activo ? "page" : undefined}
-                      onClick={() => setMasAbierto(false)}
-                      className={claseEnlaceLateral(activo)}
-                    >
-                      <Icono
-                        className={cn("size-4 shrink-0", activo ? "text-primary" : "opacity-70")}
+                {gruposMas.map((g) => (
+                  <div key={g.id} className="flex flex-col gap-0.5">
+                    {g.titulo && (
+                      <p className="eyebrow px-2.5 pt-4 pb-2">{g.titulo}</p>
+                    )}
+                    {g.vistas.map((h) => (
+                      <EnlaceVista
+                        key={h.href}
+                        vista={h}
+                        pathname={pathname}
+                        noLeidos={noLeidos}
+                        onClick={() => setMasAbierto(false)}
                       />
-                      {h.titulo}
-                    </Link>
-                  );
-                })}
+                    ))}
+                  </div>
+                ))}
               </div>
             </SheetContent>
           </Sheet>

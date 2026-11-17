@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import type { Metadata } from "next";
 import { ClipboardList, Factory, Truck } from "lucide-react";
 import { FondoAcrilico } from "@/components/fondo-acrilico";
@@ -80,7 +81,13 @@ export default function LoginPage() {
             <FormularioLogin />
           </Suspense>
 
-          <p className="text-muted-foreground mt-10 text-center text-xs lg:text-left">
+          <p className="mt-6 text-center text-sm lg:text-left">
+            <Link href="/olvide-contrasena" className="text-primary font-medium underline-offset-4 hover:underline">
+              ¿Olvidaste tu contraseña?
+            </Link>
+          </p>
+
+          <p className="text-muted-foreground mt-6 text-center text-xs lg:text-left">
             ¿Problemas para entrar? Contacta al administrador del sistema.
           </p>
         </div>

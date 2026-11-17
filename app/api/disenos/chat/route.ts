@@ -1,7 +1,10 @@
 /**
  * Un turno de conversación con el asistente de diseños, en streaming.
  *
- * `POST { disenoId, mensaje, referencias? }` → `text/event-stream`. Cada `data:` es un JSON con
+ * `POST { disenoId, mensaje, referencias?, adjuntos? }` → `text/event-stream`.
+ * Los adjuntos (imágenes y PDF) ya están en el bucket `cad_adjuntos`: los subió
+ * el navegador; aquí llega su lista y se le pasan al modelo
+ * (`lib/cad/adjuntos-servidor.ts`). Cada `data:` es un JSON con
  * `tipo` (`components/disenos/chat-sse.ts`): el razonamiento del modelo y el
  * texto según llegan, las
  * herramientas que usa, `diseno` cuando generó uno (para que el visor lo
@@ -23,7 +26,7 @@
  */
 
 import { z } from "zod";
-import { perfilActual, perfilConCad } from "@/lib/sesion";
+import { bienvenidaPendiente, perfilActual, perfilConCad } from "@/lib/sesion";
 import { cargarCatalogoPlanchas, cargarConfigCortes } from "@/lib/cortes-servidor";
 import { productosPorCodigo } from "@/lib/odoo/catalogos";
 import type { Json } from "@/lib/supabase-tipos";
@@ -59,6 +62,8 @@ import { PLANTILLA_LIBRE } from "@/lib/cad/tipos";
 import { promptDeTurno } from "@/lib/cad/prompt";
 import { NOMBRE_POR_DEFECTO, generarTitulo } from "@/lib/cad/titulo";
 import { esquemaReferencias, mensajeConReferencias } from "@/lib/cad/caras";
+import { esquemaAdjuntos, rutaDeDiseno, rutasAReenviar, type AdjuntoCad } from "@/lib/cad/adjuntos";
+import { AdjuntoNoDisponible, partesDeAdjuntos } from "@/lib/cad/adjuntos-servidor";
 import {
   ErrorLlm,
   LLM_NO_CONFIGURADO,
@@ -67,6 +72,7 @@ import {
   type BloqueRazonamiento,
   type LlamadaLlm,
   type MensajeLlm,
+  type ParteLlm,
 } from "@/lib/llm/inferhub";
 import { serializarEvento, type EventoChat } from "@/components/disenos/chat-sse";
 
@@ -84,12 +90,53 @@ const MAX_VUELTAS_LIBRE = 16;
 /** Cuántos mensajes anteriores se le reenvían al modelo. */
 const MAX_HISTORIAL = 40;
 
-const esquemaCuerpo = z.object({
-  disenoId: z.uuid(),
-  mensaje: z.string().trim().min(1).max(4000),
-  /** Caras del visor 3D que la persona señaló con este mensaje. */
-  referencias: esquemaReferencias.optional(),
-});
+/**
+ * Cuántos archivos adjuntos (los más recientes, contando los de este mensaje)
+ * se le reenvían enteros al modelo en cada turno. Los más viejos solo se nombran.
+ */
+const MAX_ADJUNTOS_REENVIADOS = 8;
+
+const esquemaCuerpo = z
+  .object({
+    disenoId: z.uuid(),
+    mensaje: z.string().trim().max(4000),
+    /** Caras del visor 3D que la persona señaló con este mensaje. */
+    referencias: esquemaReferencias.optional(),
+    /** Imágenes y PDF ya subidos a `cad_adjuntos`, en la carpeta de este diseño. */
+    adjuntos: esquemaAdjuntos.optional(),
+  })
+  // Un archivo sin texto es un mensaje válido ("aquí está el plano").
+  .refine((c) => c.mensaje.length > 0 || (c.adjuntos?.length ?? 0) > 0, { path: ["mensaje"] })
+  .refine((c) => (c.adjuntos ?? []).every((a) => rutaDeDiseno(a.ruta, c.disenoId)), { path: ["adjuntos"] });
+
+/** El texto de un mensaje de la persona tal como lo lee el modelo, sin los archivos. */
+function textoDeUsuario(mensaje: string, adjuntos: AdjuntoCad[]): string {
+  if (mensaje) return mensaje;
+  return adjuntos.length === 1 ? "(Te adjunto este archivo.)" : "(Te adjunto estos archivos.)";
+}
+
+/**
+ * Un mensaje de la persona para el modelo: su texto (con las caras) y, si
+ * adjuntó algo, los archivos. Los que no se reenvían enteros solo se nombran.
+ */
+async function mensajeDeUsuario(
+  texto: string,
+  adjuntos: AdjuntoCad[],
+  reenviar: Set<string>,
+  estricto: boolean,
+): Promise<MensajeLlm> {
+  if (!adjuntos.length) return { rol: "usuario", contenido: texto };
+  const enteros = adjuntos.filter((a) => reenviar.has(a.ruta));
+  const nombrados = adjuntos.filter((a) => !reenviar.has(a.ruta));
+  const partes: ParteLlm[] = [{ tipo: "texto", texto }, ...(await partesDeAdjuntos(enteros, estricto))];
+  if (nombrados.length) {
+    partes.push({
+      tipo: "texto",
+      texto: `[Adjuntó también, en un mensaje anterior: ${nombrados.map((a) => a.nombre).join(", ")}]`,
+    });
+  }
+  return { rol: "usuario", contenido: partes };
+}
 
 function error(mensaje: string, status: number, codigo?: string) {
   return Response.json({ error: mensaje, ...(codigo ? { codigo } : {}) }, { status });
@@ -182,7 +229,7 @@ export async function POST(request: Request) {
   if (!perfil) {
     // Solo para decir cuál de las dos cosas pasó: sin sesión, o sin permiso.
     const actual = await perfilActual();
-    return actual && !actual.debeCambiarPassword
+    return actual && !bienvenidaPendiente(actual)
       ? error("Tu rol no puede usar el asistente de diseños.", 403)
       : error("Tu sesión caducó. Recarga la página.", 401);
   }
@@ -195,14 +242,19 @@ export async function POST(request: Request) {
   }
   const cuerpo = esquemaCuerpo.safeParse(crudo);
   if (!cuerpo.success) {
-    const porCaras = cuerpo.error.issues.some((i) => i.path[0] === "referencias");
+    const campo = cuerpo.error.issues[0]?.path[0];
     return error(
-      porCaras ? "Las caras señaladas no son válidas. Vuelve a señalarlas." : "Escribe un mensaje (hasta 4000 caracteres).",
+      campo === "referencias"
+        ? "Las caras señaladas no son válidas. Vuelve a señalarlas."
+        : campo === "adjuntos"
+          ? "Los archivos adjuntos no son válidos. Vuelve a adjuntarlos."
+          : "Escribe un mensaje (hasta 4000 caracteres) o adjunta un archivo.",
       400,
     );
   }
   const { disenoId, mensaje } = cuerpo.data;
   const referencias = cuerpo.data.referencias ?? [];
+  const adjuntos = cuerpo.data.adjuntos ?? [];
 
   if (!llmConfigurado()) return error(LLM_NO_CONFIGURADO, 503, "llm_no_configurado");
 
@@ -230,13 +282,27 @@ export async function POST(request: Request) {
     ]);
     ponerTitulo = historial.length === 0 && diseno.nombre === NOMBRE_POR_DEFECTO;
     sistema = promptDeTurno(actual, { disenoLibre: libreActivo });
-    mensajes = [
-      ...historial
-        .filter((m) => m.contenido.trim())
-        .map((m): MensajeLlm => ({ rol: m.rol, contenido: mensajeConReferencias(m.contenido, m.referencias) })),
-      { rol: "usuario", contenido: mensajeConReferencias(mensaje, referencias) },
-    ];
+    const anteriores = historial.filter((m) => m.contenido.trim() || m.adjuntos.length);
+    const reenviar = rutasAReenviar(
+      [...anteriores.map((m) => m.adjuntos), adjuntos],
+      MAX_ADJUNTOS_REENVIADOS,
+    );
+    mensajes = await Promise.all([
+      ...anteriores.map(
+        (m): Promise<MensajeLlm> =>
+          m.rol === "usuario"
+            ? mensajeDeUsuario(
+                mensajeConReferencias(textoDeUsuario(m.contenido, m.adjuntos), m.referencias),
+                m.adjuntos,
+                reenviar,
+                false,
+              )
+            : Promise.resolve({ rol: "asistente", contenido: m.contenido }),
+      ),
+      mensajeDeUsuario(mensajeConReferencias(textoDeUsuario(mensaje, adjuntos), referencias), adjuntos, reenviar, true),
+    ]);
   } catch (e) {
+    if (e instanceof AdjuntoNoDisponible) return error(`${e.message} Vuelve a adjuntarlo.`, 400);
     console.error("[cad] chat: preparar el turno", e);
     return error("No se pudo abrir la conversación. Intenta de nuevo.", 500);
   }
@@ -246,7 +312,9 @@ export async function POST(request: Request) {
 
   // El título se pide a la vez que la respuesta, para no hacer esperar al
   // final del turno. Nunca falla: si el modelo no contesta, sale del mensaje.
-  const titulo = ponerTitulo ? generarTitulo(mensaje) : null;
+  const titulo = ponerTitulo
+    ? generarTitulo(mensaje || adjuntos.map((a) => a.nombre.replace(/\.[a-z0-9]+$/i, "")).join(", "))
+    : null;
 
   // Dos formas de que quien escucha se vaya: la petición se aborta, o el
   // navegador cancela la lectura. Las dos cortan la llamada al modelo.
@@ -390,6 +458,7 @@ export async function POST(request: Request) {
             rol: "usuario",
             contenido: mensaje,
             referencias,
+            adjuntos,
             creadoEn: inicio.toISOString(),
           });
           await agregarMensaje({

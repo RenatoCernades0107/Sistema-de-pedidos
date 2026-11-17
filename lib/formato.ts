@@ -49,10 +49,6 @@ export const numero = (n: number) => cantidades.format(n);
 /** "2,5 planchas" · "12 unidades" */
 export const cantidadTexto = (p: Pedido) => `${numero(p.cantidad)} ${unidadDe(p.tipos)}`;
 
-/** Igual, abreviado para tablas y tarjetas: "2,5 pl." · "12 u." */
-export const cantidadCorta = (p: Pedido) =>
-  `${numero(p.cantidad)} ${unidadDe(p.tipos) === "planchas" ? "pl." : "u."}`;
-
 /** 2026-08-30 → 30/08 */
 export const diaMes = (iso: string) => {
   const [, m, d] = iso.slice(0, 10).split("-");

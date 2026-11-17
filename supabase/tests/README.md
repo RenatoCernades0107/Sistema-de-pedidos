@@ -24,9 +24,24 @@ Dos scripts, los dos pensados para correr contra el proyecto de Supabase en la n
   y que los que ninguna plantilla cubre quedan en null. Termina en `ROLLBACK`.
 - **`cad.sql`** — verifica la migración `20261116000100` (y la columna `referencias` de `20261123000100`): las tablas de los diseños CAD
   y su RLS, la numeración de versiones de `guardar_version_diseno`, los CHECK de origen
-  y rol, la cascada al borrar un diseño y que quien no es Administración no ve ni
-  escribe nada. Tampoco necesita las cuentas del seed, y termina en `ROLLBACK`.
-- **`almacenes.sql`** — verifica las migraciones `20261129000100`–`200`: los tres almacenes con su
+  y rol, la cascada al borrar un diseño y que desde `20261129000300` los otros roles
+  también ven y editan (pero no borran el diseño de otra persona ni aprueban un
+  diseño libre). Tampoco necesita las cuentas del seed, y termina en `ROLLBACK`.
+- **`cad_versiones.sql`** — verifica la migración `20261129000300`: restaurar una versión
+  (numera, copia, `origen`/`restaurada_de`, la aprobación de un libre solo con el mismo
+  código), el nombre de una versión, el autor firmado por la sesión y el aviso
+  `diseno_modificado` (a otro autor sí, a uno mismo no, uno cada 30 minutos salvo que
+  la persona vuelva a guardar). Crea sus propias personas de prueba; termina en `ROLLBACK`.
+- **`correo_recuperacion.sql`** — verifica las migraciones `20261201000100` y `20261202000100`: el
+  trigger que copia el correo de Auth al perfil, que `email_de_usuario` y
+  `tiene_correo_recuperacion` no respondan sin la clave del servidor, el CHECK de formato y que
+  `secretos_app` y `cerrar_sesiones_de` no sean accesibles a `anon`/`authenticated`. Necesita la
+  seed (usa a `ana` y el secreto de desarrollo) y termina en `ROLLBACK`.
+- **`lineas_de_pedidos.sql`** — verifica la migración `20261203000100`: `lineas_de_pedidos(ids)`
+  trae las mismas líneas que `lineas_de_pedido(codigo)` pedido por pedido, cada una con su pedido;
+  Administración las ve con precios, el taller sin ellos, y una sesión sin perfil no ve nada.
+  Necesita el seed (entra como `ana` y `miguel`) y termina en `ROLLBACK`.
+- **`almacenes.sql`** — verifica las migraciones `20261205000100`–`200`: los tres almacenes con su
   papel (un solo taller y una sola tienda), que ya no hay código compartido entre colores y todos los
   materiales registran sobrantes, los accesorios sembrados en sus categorías, que un sobrante necesita
   su almacén, y por rol: el taller ve los almacenes pero no crea almacenes, ingresos ni accesorios, ni
@@ -34,13 +49,13 @@ Dos scripts, los dos pensados para correr contra el proyecto de Supabase en la n
   sin cambiar el catálogo ni los precios; Administración fija y devuelve al calculado el precio de un
   sobrante. Entra como el primer usuario activo de cada rol, así que no necesita las cuentas del seed.
   Termina en `ROLLBACK`.
-- **`transferencias.sql`** — verifica la migración `20261130000100`: RLS en las tablas nuevas; que
+- **`transferencias.sql`** — verifica la migración `20261205000300`: RLS en las tablas nuevas; que
   Logística envía (el sobrante queda en tránsito y no sale dos veces), no transfiere a sí mismo y
   anula solo lo que no salió en Odoo; que el taller recibe (el sobrante queda disponible en su
   almacén nuevo) pero no crea ni anula transferencias ni escribe faltantes; un solo faltante abierto
   por pedido, producto y almacén; y que `avisar_faltantes()` avisa a todo Administración y Logística
   diciendo qué falta. Termina en `ROLLBACK`.
-- **`casos.sql`** — verifica la migración `20261201000100`: RLS en las tablas nuevas y que el estado
+- **`casos.sql`** — verifica la migración `20261205000400`: RLS en las tablas nuevas y que el estado
   de un caso no se cambia sin `cerrar_caso`; que Logística reporta (una baja es negativa, no nace
   cerrada, un sobrante no tiene dos casos abiertos) y cuenta (un conteo enviado no se toca ni se
   envía dos veces) pero no cierra; que el taller no ve casos ni conteos; que Administración cierra
@@ -100,7 +115,7 @@ cd web && npx playwright install chromium && npm run e2e
 ```
 
 Levanta `next dev` sola y corre contra la base real, pero cada prueba crea y borra sus
-propias filas: nunca toca los 23 pedidos del seed.
+propias filas: nunca toca los pedidos del seed.
 
 **Al escribir una prueba nueva:** `click()` vuelve en cuanto suelta el evento, no cuando
 la Server Action termina. Recargar justo después aborta el POST a media respuesta y la

@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { KeyRound } from "lucide-react";
-import { perfilActual } from "@/lib/sesion";
-import { FormularioCambioPassword } from "./formulario";
+import { bienvenidaPendiente, perfilActual } from "@/lib/sesion";
+import { FormularioCambioPassword, FormularioCorreoBienvenida } from "./formulario";
 
 export const metadata: Metadata = {
   title: "Cambia tu contraseña · Plexiacril",
@@ -20,7 +20,9 @@ export default async function CambiarContrasenaPage() {
   const perfil = await perfilActual();
 
   if (!perfil) redirect("/login");
-  if (!perfil.debeCambiarPassword) redirect("/");
+  if (!bienvenidaPendiente(perfil)) redirect("/");
+
+  const cambiaPassword = perfil.debeCambiarPassword;
 
   return (
     <main className="flex min-h-dvh items-center justify-center px-4 py-10">
@@ -31,16 +33,17 @@ export default async function CambiarContrasenaPage() {
           </span>
           <div>
             <h1 className="text-lg font-semibold tracking-tight">
-              Cambia tu contraseña
+              {cambiaPassword ? "Cambia tu contraseña" : "Registra tu correo"}
             </h1>
             <p className="text-muted-foreground mt-1 text-sm">
-              Hola, {perfil.nombre}. Entraste con la contraseña que te dieron al crear
-              tu cuenta. Elige una que sepas solo tú para poder continuar.
+              {cambiaPassword
+                ? `Hola, ${perfil.nombre}. Entraste con la contraseña que te dieron al crear tu cuenta. Elige una que sepas solo tú para poder continuar.`
+                : `Hola, ${perfil.nombre}. Falta un paso: tu correo de recuperación. Si algún día olvidas tu contraseña, el enlace para elegir otra llega ahí.`}
             </p>
           </div>
         </div>
 
-        <FormularioCambioPassword />
+        {cambiaPassword ? <FormularioCambioPassword /> : <FormularioCorreoBienvenida />}
       </div>
     </main>
   );

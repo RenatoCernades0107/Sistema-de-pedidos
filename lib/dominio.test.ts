@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { tiposDeLineas } from "./dominio";
+import { ROLES, gruposDe, tiposDeLineas } from "./dominio";
 import { FORMATO_CODIGO } from "./esquemas";
 
 describe("tiposDeLineas", () => {
@@ -15,7 +15,12 @@ describe("tiposDeLineas", () => {
 
   it("combina sin repetir y siempre en el mismo orden", () => {
     expect(
-      tiposDeLineas([{ terminado: {} }, {}, { corte: { modalidad: "laser" } }, { corte: { modalidad: "laser" } }]),
+      tiposDeLineas([
+        { terminado: {} },
+        {},
+        { corte: { modalidad: "laser" } },
+        { corte: { modalidad: "laser" } },
+      ]),
     ).toEqual(["CL", "SP", "PT"]);
   });
 });
@@ -32,5 +37,34 @@ describe("FORMATO_CODIGO", () => {
     expect(FORMATO_CODIGO.test("P2611-1000")).toBe(false);
     expect(FORMATO_CODIGO.test("P2611-01")).toBe(false);
     expect(FORMATO_CODIGO.test("p2611-001")).toBe(false);
+  });
+});
+
+describe("gruposDe", () => {
+  const resumen = (rol: keyof typeof ROLES, excluir?: string[]) =>
+    gruposDe(ROLES[rol], excluir).map((g) => [
+      g.id,
+      g.vistas.map((v) => v.titulo),
+    ]);
+
+  it("a Administración le da las tres secciones en orden", () => {
+    expect(resumen("administracion")).toEqual([
+      ["principal", ["Cotizaciones", "Chat"]],
+      ["taller", ["Diseños", "Almacén"]],
+      ["gestion", ["Métricas", "Configuración"]],
+    ]);
+  });
+
+  it("a Logística no le pinta Gestión, que se le quedaría vacía", () => {
+    expect(resumen("logistica")).toEqual([
+      ["principal", ["Chat"]],
+      ["taller", ["Diseños", "Almacén"]],
+    ]);
+  });
+
+  it("sin el Chat, que en el celular tiene pestaña propia, el grupo principal desaparece", () => {
+    expect(resumen("operaciones", ["/chat"])).toEqual([
+      ["taller", ["Diseños", "Almacén"]],
+    ]);
   });
 });

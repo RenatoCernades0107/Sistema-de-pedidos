@@ -156,7 +156,7 @@ begin
     raise exception 'FALLO: otro rol pudo escribir la configuración';
   exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
 
-  -- Crear planchas nuevas es de quien gestiona el stock (20261129000100): el
+  -- Crear planchas nuevas es de quien gestiona el stock (20261205000100): el
   -- taller no puede; Logística sí.
   if not public.gestiona_stock() then
     begin

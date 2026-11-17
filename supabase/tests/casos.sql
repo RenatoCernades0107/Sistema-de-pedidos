@@ -1,4 +1,4 @@
--- Verificación de la migración 20261201000100 (casos y conteos), contra el
+-- Verificación de la migración 20261205000400 (casos y conteos), contra el
 -- proyecto real.
 --
 --   npx supabase db query --linked -f supabase/tests/casos.sql

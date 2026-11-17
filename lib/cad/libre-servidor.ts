@@ -58,6 +58,28 @@ export async function obtenerVersionLibre(disenoId: string): Promise<VersionLibr
 }
 
 /**
+ * Una versión concreta si es libre (la vista previa del historial); `null` si
+ * es de plantilla o no existe. Solo para mirarla: guardar siempre parte de la vigente.
+ */
+export async function obtenerVersionLibreNumero(disenoId: string, version: number): Promise<VersionLibreCad | null> {
+  const supabase = await clienteServidor();
+  const { data: v, error } = await supabase
+    .from("cad_diseno_versiones")
+    .select("version, codigo, estado, aprobado_en")
+    .eq("diseno_id", disenoId)
+    .eq("version", version)
+    .maybeSingle();
+  if (error) throw new Error(`No se pudo leer el diseño: ${error.message}`);
+  if (!v?.codigo) return null;
+  return {
+    version: v.version,
+    codigo: v.codigo,
+    estado: v.estado === "aprobado" ? "aprobado" : "borrador",
+    aprobadoEn: v.aprobado_en,
+  };
+}
+
+/**
  * Guarda el código como versión nueva. Nace en borrador, salvo que sea el mismo
  * código que la versión anterior ya aprobada (elegir material no cambia la
  * geometría): entonces conserva la aprobación. Lo decide la base.
@@ -111,7 +133,7 @@ export async function guardarMaterialLibre(entrada: {
   });
 }
 
-/** Aprueba una versión libre. La base exige Administración. */
+/** Aprueba una versión libre. La base exige Administración (los otros roles editan, no aprueban). */
 export async function aprobarVersionLibre(disenoId: string, version: number): Promise<void> {
   const supabase = await clienteServidor();
   const { error } = await supabase.rpc("aprobar_version_diseno", {

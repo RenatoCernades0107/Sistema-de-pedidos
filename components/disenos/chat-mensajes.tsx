@@ -5,7 +5,9 @@ import { Brain, Check, ChevronRight, LoaderCircle, TriangleAlert } from "lucide-
 import { cn } from "@/lib/utils";
 import { TextoAgente } from "@/components/cotizaciones/texto-agente";
 import { aliasEnTexto, type ReferenciaCara } from "@/lib/cad/caras";
+import type { AdjuntoCad } from "@/lib/cad/adjuntos";
 import { ChipCara, TextoConCaras } from "./chip-cara";
+import { AdjuntosMensaje } from "./adjuntos-mensaje";
 
 /** Una herramienta que el asistente está usando o ya usó en un turno. */
 export interface ActividadChat {
@@ -22,6 +24,8 @@ export interface MensajeChat {
   actividad: ActividadChat[];
   /** Las caras del visor que la persona señaló con este mensaje. */
   referencias?: ReferenciaCara[];
+  /** Las imágenes y PDF que la persona adjuntó (ya subidos). */
+  adjuntos?: AdjuntoCad[];
   /** Lo que el modelo pensó en este turno. Solo en vivo: no se guarda. */
   razonamiento?: string;
   /** Lo último que llegó fue razonamiento: está pensando ahora mismo. */
@@ -163,9 +167,12 @@ export function ChatMensajes({
                     ))}
                   </ul>
                 )}
-                <div className="bg-primary text-primary-foreground max-w-full min-w-0 rounded-xl px-3.5 py-2 text-sm break-words whitespace-pre-wrap">
-                  <TextoConCaras texto={m.contenido} caras={m.referencias ?? []} />
-                </div>
+                <AdjuntosMensaje adjuntos={m.adjuntos ?? []} />
+                {m.contenido && (
+                  <div className="bg-primary text-primary-foreground max-w-full min-w-0 rounded-xl px-3.5 py-2 text-sm break-words whitespace-pre-wrap">
+                    <TextoConCaras texto={m.contenido} caras={m.referencias ?? []} />
+                  </div>
+                )}
               </div>
             );
           }

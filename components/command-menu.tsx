@@ -24,7 +24,13 @@ import {
 import { EstadoBadge } from "@/components/estado-badge";
 import { ICONOS_HERRAMIENTA } from "@/components/iconos-herramienta";
 import { useStore } from "@/lib/store";
-import { ALCANCES, etiquetaTipos, herramientasDe, rutaAlcance, type Alcance } from "@/lib/dominio";
+import {
+  ALCANCES,
+  herramientasDe,
+  resumenItems,
+  rutaAlcance,
+  type Alcance,
+} from "@/lib/dominio";
 import { camposBuscables, coincide } from "@/lib/busqueda";
 import { porUrgencia } from "@/lib/formato";
 
@@ -75,10 +81,7 @@ export function CommandMenu({
 
   // El buscador no puede enseñar lo que la vista del rol esconde.
   const visibles = useMemo(
-    () =>
-      [...pedidos]
-        .filter(permisos.base)
-        .sort(porUrgencia),
+    () => [...pedidos].filter(permisos.base).sort(porUrgencia),
     [pedidos, permisos.base],
   );
 
@@ -119,9 +122,11 @@ export function CommandMenu({
               onSelect={() => ir(`/pedidos/${p.codigo}`)}
               className="gap-3"
             >
-              <span className="tnum text-primary shrink-0 text-xs font-medium">{p.codigo}</span>
+              <span className="tnum text-primary shrink-0 text-xs font-medium">
+                {p.codigo}
+              </span>
               <span className="min-w-0 flex-1 truncate">
-                {permisos.verCliente ? p.cliente : etiquetaTipos(p.tipos)}
+                {permisos.verCliente ? p.cliente : resumenItems(p.items)}
               </span>
               <EstadoBadge estado={p.estado} size="sm" />
             </CommandItem>
@@ -145,7 +150,10 @@ export function CommandMenu({
             );
           })}
           {permisos.crearPedido && (
-            <CommandItem value="nuevo pedido crear" onSelect={() => ir("/pedidos/nuevo")}>
+            <CommandItem
+              value="nuevo pedido crear"
+              onSelect={() => ir("/pedidos/nuevo")}
+            >
               <Plus className="size-4" />
               Nuevo pedido
             </CommandItem>
@@ -159,12 +167,16 @@ export function CommandMenu({
               Nueva cotización
             </CommandItem>
           )}
-          {/* Las herramientas de `lib/dominio.ts`, las mismas que pinta el menú
-              lateral. Son pocas, así que no se separan en otro grupo. */}
+          {/* Las vistas de `lib/dominio.ts`, las mismas que pinta el menú
+              lateral. Son pocas, así que aquí no se separan por grupo. */}
           {herramientasDe(permisos).map((h) => {
             const Icono = ICONOS_HERRAMIENTA[h.href];
             return (
-              <CommandItem key={h.href} value={`ir ${h.titulo}`} onSelect={() => ir(h.href)}>
+              <CommandItem
+                key={h.href}
+                value={`ir ${h.titulo}`}
+                onSelect={() => ir(h.href)}
+              >
                 <Icono className="size-4" />
                 {h.titulo}
               </CommandItem>

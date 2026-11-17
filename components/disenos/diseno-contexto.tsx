@@ -11,7 +11,13 @@ import {
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
-import { guardarMaterialDisenoLibre, guardarVersion } from "@/app/(app)/disenos/acciones";
+import {
+  guardarMaterialDisenoLibre,
+  guardarVersion,
+  restaurarVersionDiseno,
+  revisarCambiosAjenos,
+} from "@/app/(app)/disenos/acciones";
+import { primerNombre, type VersionHistorial } from "@/lib/cad/historial";
 import { PARAMETRO_ESPESOR } from "@/lib/cad/acomodo";
 import { MAX_REFERENCIAS, siguienteAlias, type ReferenciaCara } from "@/lib/cad/caras";
 import { tinteDeColor, type TinteAcrilico } from "@/lib/cad/colores";
@@ -98,8 +104,39 @@ export interface EstadoDiseno {
   aplicar: (
     plantilla: string,
     parametros: ParametrosCad,
-    opciones?: { guardar?: boolean },
+    /** `version`: solo para mirar una versión libre vieja (el código lo lee el servidor). */
+    opciones?: { guardar?: boolean; version?: number },
   ) => Promise<void>;
+
+  /* ── Versiones (historial) ── */
+  /**
+   * La versión vigente que conoce esta pantalla: la que abrió, más las que
+   * guardó ella (formulario, material, asistente) o restauró. 0 sin versión.
+   */
+  versionVigente: number;
+  /** La versión vieja que se está mirando sin guardar. `null`: se ve la vigente. */
+  vistaPrevia: VersionHistorial | null;
+  /**
+   * Muestra una versión en el visor y en las pestañas SIN guardar nada. Mientras
+   * dura, no se edita: guardar encima de una versión vieja la restauraría a medias.
+   * `actual` es la vigente según el historial, a la que se vuelve después.
+   */
+  verVersion: (v: VersionHistorial, actual: VersionHistorial | null) => Promise<void>;
+  /** Deja la vista previa y vuelve a cargar la versión vigente. */
+  volverALaActual: () => Promise<void>;
+  /** Restaura `v` (la copia como versión nueva) y la carga. `false` si falló (ya avisó). */
+  restaurar: (v: VersionHistorial) => Promise<boolean>;
+  /**
+   * Se lo pregunta a la base: si alguien más guardó después de lo que se
+   * conoce, lo avisa una vez. Lo usan el chat al terminar un cambio y el volver
+   * a la pestaña.
+   */
+  revisarAjenos: (opciones?: { alGuardar?: boolean }) => Promise<void>;
+  /** Abre el historial (la pantalla registra cómo con `alAbrirHistorial`). */
+  abrirHistorial: () => void;
+  alAbrirHistorial: (abrir: (() => void) | null) => void;
+  /** Quién mira: su id (para el "Tú" del historial) y si puede aprobar diseños libres. */
+  usuario: UsuarioDiseno | null;
 
   /**
    * Espera a que termine de guardarse la última versión pedida desde aquí (el
@@ -154,6 +191,15 @@ export interface EstadoDiseno {
   costos: CostosDiseno | null;
 }
 
+export interface UsuarioDiseno {
+  id: string;
+  /** Aprobar un diseño libre para producción sigue siendo de Administración. */
+  puedeAprobar: boolean;
+}
+
+/** Lo que se avisa cuando se intenta editar mientras se mira una versión vieja. */
+const AVISO_VISTA_PREVIA = "Estás viendo una versión anterior. Vuelve a la actual o restáurala para editar.";
+
 export interface CostosDiseno {
   config: ConfigCortes;
   precios: Record<string, number>;
@@ -203,6 +249,8 @@ export function DisenoProvider({
   corte = SIN_KERF,
   costos = null,
   unidades: unidadesIniciales = 1,
+  versionInicial = 0,
+  usuario = null,
   children,
 }: {
   disenoId: string;
@@ -218,6 +266,9 @@ export function DisenoProvider({
   costos?: CostosDiseno | null;
   /** Las unidades del lote al abrir (la cantidad de la línea). */
   unidades?: number;
+  /** La versión vigente al abrir: para notar si alguien más guarda mientras se edita. */
+  versionInicial?: number;
+  usuario?: UsuarioDiseno | null;
   children: ReactNode;
 }) {
   const [unidades, setUnidadesCrudas] = useState(() => Math.max(1, Math.floor(unidadesIniciales)));
@@ -254,6 +305,19 @@ export function DisenoProvider({
   const [porCopia, setPorCopia] = useState<MaterialesPorCopia>(inicial.materiales ?? {});
   const porCopiaRef = useRef(porCopia);
   const [copiaActiva, setCopiaActiva] = useState<string | null>(null);
+  const [versionVigente, setVersionVigente] = useState(versionInicial);
+  const conocida = useRef(versionInicial);
+  /** La versión ajena más nueva de la que ya se avisó: un aviso por cambio, no uno por guardado. */
+  const avisada = useRef(versionInicial);
+  const [vistaPrevia, setVistaPrevia] = useState<VersionHistorial | null>(null);
+  const vistaPreviaRef = useRef<number | null>(null);
+  /** La vigente cuando empezó la vista previa: a la que se vuelve. */
+  const actualAntesDeVer = useRef<VersionHistorial | null>(null);
+  const abrirHistorialRef = useRef<(() => void) | null>(null);
+  const abrirHistorial = useCallback(() => abrirHistorialRef.current?.(), []);
+  const alAbrirHistorial = useCallback((abrir: (() => void) | null) => {
+    abrirHistorialRef.current = abrir;
+  }, []);
   const contexto = useRef({ catalogo, corte });
   useEffect(() => {
     contexto.current = { catalogo, corte };
@@ -276,6 +340,51 @@ export function DisenoProvider({
     return promesa;
   }, []);
   const enCurso = useRef<AbortController | null>(null);
+
+  const revisarAjenos = useCallback<EstadoDiseno["revisarAjenos"]>(
+    async (opciones) => {
+      try {
+        const { actual, ajena } = await revisarCambiosAjenos(disenoId, conocida.current);
+        // Lo del chat o de otra pestaña propia también mueve la vigente conocida.
+        if (!ajena) {
+          conocida.current = Math.max(conocida.current, actual);
+          setVersionVigente(conocida.current);
+          return;
+        }
+        if (ajena.version <= avisada.current) return;
+        avisada.current = ajena.version;
+        const quien = primerNombre(ajena.autorNombre);
+        toast.warning(
+          opciones?.alGuardar
+            ? `${quien} guardó cambios en este diseño mientras lo editabas.`
+            : `${quien} guardó cambios en este diseño (v${ajena.version}).`,
+          {
+            description: "Nada se perdió: todas las versiones quedan en el historial.",
+            action: { label: "Ver historial", onClick: () => abrirHistorialRef.current?.() },
+            duration: 12_000,
+          },
+        );
+      } catch (e) {
+        // Es solo un aviso: si falla, el guardado sigue bien.
+        console.error("[disenos] revisar cambios ajenos", e);
+      }
+    },
+    [disenoId],
+  );
+
+  /** Un guardado propio devolvió `nueva`: si no es la siguiente, alguien más guardó en medio. */
+  const anotarGuardado = useCallback(
+    (nueva: number) => {
+      const antes = conocida.current;
+      const fijar = () => {
+        conocida.current = Math.max(conocida.current, nueva);
+        setVersionVigente(conocida.current);
+      };
+      if (nueva === antes + 1) fijar();
+      else void revisarAjenos({ alGuardar: true }).then(fijar);
+    },
+    [revisarAjenos],
+  );
 
   /** Deja huérfana la llamada en curso: su respuesta, si llega, se descarta. */
   const cancelar = useCallback(() => {
@@ -307,7 +416,11 @@ export function DisenoProvider({
         const res = await fetch(libre ? "/api/cad/libre" : "/api/cad/generar", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(libre ? { disenoId } : { plantilla: nuevaPlantilla, parametros: nuevosParametros }),
+          body: JSON.stringify(
+            libre
+              ? { disenoId, ...(opciones?.version ? { version: opciones.version } : {}) }
+              : { plantilla: nuevaPlantilla, parametros: nuevosParametros },
+          ),
           signal: control.signal,
         });
         if (!vigente()) return;
@@ -346,13 +459,18 @@ export function DisenoProvider({
 
       // Las versiones libres las guarda el chat; aquí solo se muestran.
       if (opciones?.guardar === false || generado.plantilla === PLANTILLA_LIBRE) return;
+      // Mirando una versión vieja no se guarda: sería restaurarla a medias.
+      if (vistaPreviaRef.current !== null) {
+        toast.info(AVISO_VISTA_PREVIA);
+        return;
+      }
       try {
         // Se guarda lo que devolvió el motor, ya normalizado, no lo que se escribió.
         const elegido = materialRef.current;
         const materiales = podar(porCopiaRef.current, generado.piezas);
         const { catalogo: cat, corte: c } = contexto.current;
         const { grupos } = calcularPlanchas(cat, elegido, materiales, generado.parametros, generado.piezas, c);
-        await registrar(
+        const { version } = await registrar(
           guardarVersion(
             disenoId,
             generado.plantilla,
@@ -362,11 +480,12 @@ export function DisenoProvider({
             materiales,
           ),
         );
+        anotarGuardado(version);
       } catch {
         toast.error("El diseño se generó, pero no se pudo guardar esta versión.");
       }
     },
-    [disenoId, registrar],
+    [anotarGuardado, disenoId, registrar],
   );
 
   // El diseño guardado se regenera al abrir: el GLB no se persiste, solo los
@@ -381,6 +500,10 @@ export function DisenoProvider({
 
   const elegirMaterial = useCallback<EstadoDiseno["elegirMaterial"]>(
     async (nuevo) => {
+      if (vistaPreviaRef.current !== null) {
+        toast.info(AVISO_VISTA_PREVIA);
+        return;
+      }
       const anterior = materialRef.current;
       materialRef.current = nuevo;
       setMaterial(nuevo);
@@ -401,6 +524,7 @@ export function DisenoProvider({
           );
           // La versión nueva (mismo código) pasa a ser la vigente: sin volver a ejecutarlo.
           if (libre) {
+            anotarGuardado(libre.version);
             setResultado((r) =>
               r && r.plantilla === PLANTILLA_LIBRE ? ({ ...r, libre } as ResultadoGeneracion & { libre: VersionLibreCad }) : r,
             );
@@ -421,7 +545,7 @@ export function DisenoProvider({
         conEspesor ? { ...parametros, [PARAMETRO_ESPESOR]: grupo.espesorMm } : parametros,
       );
     },
-    [aplicar, catalogo, corte, disenoId, parametros, plantilla, plantillas, registrar, resultado],
+    [anotarGuardado, aplicar, catalogo, corte, disenoId, parametros, plantilla, plantillas, registrar, resultado],
   );
 
   const mostrarMaterial = useCallback<EstadoDiseno["mostrarMaterial"]>((nuevo, materiales) => {
@@ -438,6 +562,10 @@ export function DisenoProvider({
   const cambiarEspesor = useCallback<EstadoDiseno["cambiarEspesor"]>(
     async (nodos, mm) => {
       if (plantilla === null || plantilla === PLANTILLA_LIBRE || nodos.length === 0) return;
+      if (vistaPreviaRef.current !== null) {
+        toast.info(AVISO_VISTA_PREVIA);
+        return;
+      }
       await aplicar(plantilla, conEspesor(parametros, nodos, mm));
     },
     [aplicar, parametros, plantilla],
@@ -446,6 +574,10 @@ export function DisenoProvider({
   const cambiarMaterial = useCallback<EstadoDiseno["cambiarMaterial"]>(
     async (nodos, ref) => {
       if (plantilla === null || nodos.length === 0) return;
+      if (vistaPreviaRef.current !== null) {
+        toast.info(AVISO_VISTA_PREVIA);
+        return;
+      }
       const anterior = porCopiaRef.current;
       const siguiente: MaterialesPorCopia = { ...anterior };
       for (const nodo of nodos) {
@@ -462,13 +594,17 @@ export function DisenoProvider({
         if (plantilla === PLANTILLA_LIBRE) {
           const libre = await registrar(guardarMaterialDisenoLibre(disenoId, materialRef.current, acomodo, materiales));
           if (libre) {
+            anotarGuardado(libre.version);
             setResultado((r) =>
               r && r.plantilla === PLANTILLA_LIBRE ? ({ ...r, libre } as ResultadoGeneracion & { libre: VersionLibreCad }) : r,
             );
           }
         } else {
           // El mismo diseño con otro material: no hace falta regenerar.
-          await registrar(guardarVersion(disenoId, plantilla, parametros, materialRef.current, acomodo, materiales));
+          const { version } = await registrar(
+            guardarVersion(disenoId, plantilla, parametros, materialRef.current, acomodo, materiales),
+          );
+          anotarGuardado(version);
         }
       } catch (e) {
         porCopiaRef.current = anterior;
@@ -476,8 +612,76 @@ export function DisenoProvider({
         toast.error(e instanceof Error ? e.message : "No se pudo guardar el material.");
       }
     },
-    [catalogo, corte, disenoId, parametros, plantilla, registrar, resultado],
+    [anotarGuardado, catalogo, corte, disenoId, parametros, plantilla, registrar, resultado],
   );
+
+  /** Pone tal cual el material de una versión (también ninguno) y genera su geometría sin guardar. */
+  const cargarVersion = useCallback(
+    async (v: VersionHistorial, opciones?: { version?: number }) => {
+      materialRef.current = v.material;
+      setMaterial(v.material);
+      porCopiaRef.current = v.materiales;
+      setPorCopia(v.materiales);
+      setCopiaActiva(null);
+      await aplicar(v.plantilla, v.parametros, { guardar: false, ...opciones });
+    },
+    [aplicar],
+  );
+
+  const verVersion = useCallback<EstadoDiseno["verVersion"]>(
+    async (v, actual) => {
+      // Lo que se está guardando termina antes: si no, se guardaría con el material de la vieja.
+      await esperarGuardado();
+      if (vistaPreviaRef.current === null) actualAntesDeVer.current = actual;
+      vistaPreviaRef.current = v.version;
+      setVistaPrevia(v);
+      await cargarVersion(v, { version: v.version });
+    },
+    [cargarVersion, esperarGuardado],
+  );
+
+  const volverALaActual = useCallback<EstadoDiseno["volverALaActual"]>(
+    async () => {
+      vistaPreviaRef.current = null;
+      setVistaPrevia(null);
+      const actual = actualAntesDeVer.current;
+      actualAntesDeVer.current = null;
+      if (actual) await cargarVersion(actual);
+    },
+    [cargarVersion],
+  );
+
+  const restaurar = useCallback<EstadoDiseno["restaurar"]>(
+    async (v) => {
+      await esperarGuardado();
+      let nueva: number;
+      try {
+        ({ version: nueva } = await restaurarVersionDiseno(disenoId, v.version));
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "No se pudo restaurar la versión.");
+        return false;
+      }
+      vistaPreviaRef.current = null;
+      actualAntesDeVer.current = null;
+      setVistaPrevia(null);
+      anotarGuardado(nueva);
+      // La nueva vigente es una copia de `v`: se carga sin volver a pedirla (la
+      // libre la lee el servidor, y la vigente ya es la copia).
+      await cargarVersion(v);
+      toast.success(`Listo: volviste a la v${v.version} (guardada como v${nueva}).`);
+      return true;
+    },
+    [anotarGuardado, cargarVersion, disenoId, esperarGuardado],
+  );
+
+  // Al volver a la pestaña se pregunta si alguien más guardó mientras tanto.
+  useEffect(() => {
+    const alVolver = () => {
+      if (document.visibilityState === "visible") void revisarAjenos();
+    };
+    document.addEventListener("visibilitychange", alVolver);
+    return () => document.removeEventListener("visibilitychange", alVolver);
+  }, [revisarAjenos]);
 
   const grupo = useMemo(
     () => (material ? (catalogo.find((g) => g.id === material.grupoPlanchaId) ?? null) : null),
@@ -539,6 +743,15 @@ export function DisenoProvider({
       tinte,
       tintes,
       costos,
+      versionVigente,
+      vistaPrevia,
+      verVersion,
+      volverALaActual,
+      restaurar,
+      revisarAjenos,
+      abrirHistorial,
+      alAbrirHistorial,
+      usuario,
     }),
     [
       disenoId,
@@ -572,6 +785,15 @@ export function DisenoProvider({
       tinte,
       tintes,
       costos,
+      versionVigente,
+      vistaPrevia,
+      verVersion,
+      volverALaActual,
+      restaurar,
+      revisarAjenos,
+      abrirHistorial,
+      alAbrirHistorial,
+      usuario,
     ],
   );
 

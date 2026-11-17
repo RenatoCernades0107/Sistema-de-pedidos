@@ -6,7 +6,7 @@
  * ni los separadores del código ni los acentos pueden decidir si algo aparece.
  */
 
-import { PRODUCTOS, TIPOS, type PermisosRol, type Pedido } from "./dominio";
+import { CLASES_ITEM, type PermisosRol, type Pedido } from "./dominio";
 
 /**
  * Baja a minúsculas, quita acentos y unifica `_`, `-` y espacios.
@@ -48,10 +48,9 @@ export function camposBuscables(p: Pedido, permisos: Visibilidad = TODO) {
     p.codigo,
     permisos.verCliente ? p.cliente : "",
     permisos.verTelefonoCliente ? (p.telefonoCliente ?? "") : "",
-    ...p.tipos.map((t) => TIPOS[t]),
-    p.producto ? PRODUCTOS[p.producto] : "",
+    // Lo que lleva: "corte acrilico eco" o "caja rifas" encuentran el pedido.
+    ...p.items.flatMap((i) => [CLASES_ITEM[i.clase], i.nombre]),
     p.responsable ?? "",
-    p.detalle,
     p.observaciones ?? "",
     p.numeroComprobante ?? "",
     p.envio?.departamento ?? "",

@@ -1,4 +1,4 @@
--- Verificación de la migración 20261130000100 (transferencias y faltantes),
+-- Verificación de la migración 20261205000300 (transferencias y faltantes),
 -- contra el proyecto real.
 --
 --   npx supabase db query --linked -f supabase/tests/transferencias.sql

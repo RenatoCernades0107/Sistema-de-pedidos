@@ -7,9 +7,42 @@
  * también los componentes del navegador.
  */
 
-import { planchasNuevas, type CorteGuardado } from "./cortes/guardado";
-import type { MaterialUsado, TerminadoGuardado } from "./terminados/guardado";
+import { leerCorte, planchasNuevas, tituloCorte, totalPiezas, type CorteGuardado } from "./cortes/guardado";
+import { leerTerminado, type MaterialUsado, type TerminadoGuardado } from "./terminados/guardado";
 import type { ReferenciaDiseno } from "./cad/referencia";
+import type { ItemPedido } from "./dominio";
+
+/** Lo que trae `lineas_de_pedidos()` de cada línea y basta para resumirla. */
+export interface FilaDeLinea {
+  posicion: number;
+  tipo: string | null;
+  producto_nombre: string | null;
+  cantidad: number | null;
+  corte: unknown;
+  terminado: unknown;
+}
+
+/**
+ * Una línea como ítem de la lista: un corte se nombra por su modalidad y su
+ * material y se cuenta en piezas; un terminado, por su nombre; un producto de
+ * Odoo, por el suyo. Si el JSON de un corte o una ficha no se puede leer, la
+ * línea no se pierde: queda con el nombre del producto de Odoo.
+ */
+export function itemDeLinea(f: FilaDeLinea): ItemPedido {
+  const nombreOdoo = f.producto_nombre ?? "Producto";
+  const unidades = Number(f.cantidad ?? 0) || 0;
+  if (f.tipo === "corte") {
+    const corte = leerCorte(f.corte);
+    return corte
+      ? { posicion: f.posicion, clase: "corte", nombre: tituloCorte(corte), cantidad: totalPiezas(corte.piezas) }
+      : { posicion: f.posicion, clase: "corte", nombre: nombreOdoo, cantidad: unidades };
+  }
+  if (f.tipo === "terminado") {
+    const ficha = leerTerminado(f.terminado);
+    return { posicion: f.posicion, clase: "terminado", nombre: ficha?.nombre ?? nombreOdoo, cantidad: unidades };
+  }
+  return { posicion: f.posicion, clase: "producto", nombre: nombreOdoo, cantidad: unidades };
+}
 
 export interface LineaDePedido {
   posicion: number;

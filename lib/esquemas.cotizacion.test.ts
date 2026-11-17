@@ -54,6 +54,15 @@ describe("esquemaNuevoClienteOdoo", () => {
     expect(mensaje(esquemaNuevoClienteOdoo.safeParse({ ...cliente, documento: "1234567" }))).toMatch(/DNI \(8 dígitos\) o un RUC/);
   });
 
+  it("valida lo tecleado, no su resultado: el formulario debe mandar los valores crudos", () => {
+    // Regresión: se mandaba la salida del esquema (vacíos → null) y el servidor,
+    // que vuelve a validar, respondía "Invalid input" al dejar el correo vacío.
+    const crudo = { nombre: "pepe", documento: "71737658", telefono: "983097220", email: "" };
+    expect(esquemaNuevoClienteOdoo.safeParse(crudo).success).toBe(true);
+    const yaTransformado = esquemaNuevoClienteOdoo.parse(crudo);
+    expect(esquemaNuevoClienteOdoo.safeParse(yaTransformado).success).toBe(false);
+  });
+
   it("pide el nombre y un correo bien escrito", () => {
     expect(mensaje(esquemaNuevoClienteOdoo.safeParse({ ...cliente, nombre: " " }))).toMatch(/nombre/);
     expect(mensaje(esquemaNuevoClienteOdoo.safeParse({ ...cliente, email: "no-es-correo" }))).toMatch(/correo/);

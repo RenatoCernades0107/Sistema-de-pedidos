@@ -1,4 +1,4 @@
--- Verificación de las migraciones 20261129000100 (almacenes) y 20261129000200
+-- Verificación de las migraciones 20261205000100 (almacenes) y 20261205000200
 -- (accesorios), contra el proyecto real.
 --
 --   npx supabase db query --linked -f supabase/tests/almacenes.sql

@@ -29,7 +29,12 @@ export type Estado =
 export type LugarEntrega = "tienda" | "taller" | "domicilio" | "agencia";
 export type Ubicacion = "tienda" | "taller" | "agencia";
 export type TipoPago = "contado" | "a_cuenta" | "credito";
-export type MetodoPago = "efectivo" | "yape_plin" | "transferencia" | "tarjeta" | "otro";
+export type MetodoPago =
+  | "efectivo"
+  | "yape_plin"
+  | "transferencia"
+  | "tarjeta"
+  | "otro";
 export type TipoAdjunto = "diseno" | "factura" | "guia" | "foto_entrega";
 /** Los filtros de la vista de pedidos: a qué parte del trabajo se mira. */
 export type Alcance = "todos" | "mios" | "taller" | "tienda" | "logistica";
@@ -90,11 +95,29 @@ export interface Adjunto {
   lineaPosicion?: number | null;
 }
 
+/** De qué es una línea del pedido: un producto de Odoo tal cual, un corte o algo que fabrica el taller. */
+export type ClaseItem = "producto" | "corte" | "terminado";
+
+/**
+ * Una línea del pedido, resumida para la lista: qué es y cuánto. El detalle
+ * completo (piezas, ficha, planchas usadas) lo lee el detalle del pedido.
+ */
+export interface ItemPedido {
+  posicion: number;
+  clase: ClaseItem;
+  /** "Corte láser · Acrílico ECO · Cristal · 3 mm", "Caja para rifas y sorteos", "SOPORTES DE ACRILICO…". */
+  nombre: string;
+  /** En un corte, cuántas piezas; en lo demás, cuántas unidades. */
+  cantidad: number;
+}
+
 export interface Pedido {
   codigo: string;
   cliente: string;
   /** Contacto para coordinar la entrega. Dato personal: no lo ve el taller. */
   telefonoCliente: string | null;
+  /** Lo que lleva el pedido: sus líneas, en orden. Vacío si el pedido no tiene cotización. */
+  items: ItemPedido[];
   /** Un pedido puede combinar trabajos: corte láser más accesorios, por ejemplo. */
   tipos: TipoPedido[];
   producto: ProductoTerminado | null;
@@ -138,6 +161,31 @@ export interface Pedido {
 }
 
 /* ── Etiquetas ── */
+
+export const CLASES_ITEM: Record<ClaseItem, string> = {
+  producto: "Producto",
+  corte: "Corte",
+  terminado: "Producto terminado",
+};
+
+/** Para filtrar la lista: los pedidos que llevan al menos un ítem de esa clase. */
+export const FILTRO_CLASE_ITEM: Record<ClaseItem, string> = {
+  producto: "Con productos",
+  corte: "Con cortes",
+  terminado: "Con terminados",
+};
+
+const cantidadItem = (n: number) => String(+n.toFixed(2));
+
+/** Una línea en una frase, la cantidad delante: "12 pzs · Corte láser · Acrílico ECO…" o "48 × SOPORTES…". */
+export const textoItem = (i: ItemPedido) =>
+  i.clase === "corte"
+    ? `${cantidadItem(i.cantidad)} ${i.cantidad === 1 ? "pza" : "pzs"} · ${i.nombre}`
+    : `${cantidadItem(i.cantidad)} × ${i.nombre}`;
+
+/** Lo que lleva un pedido, en el espacio de una línea: el primer ítem y cuántos más. */
+export const resumenItems = (items: ItemPedido[]) =>
+  items.length === 0 ? "Sin ítems" : `${textoItem(items[0])}${items.length > 1 ? ` +${items.length - 1}` : ""}`;
 
 export const TIPOS: Record<TipoPedido, string> = {
   CL: "Corte láser",
@@ -282,6 +330,8 @@ export interface PermisosRol {
    * razón, aplicándolos en Odoo o descartándolos. Como `cerrar_caso()` en la base.
    */
   cerrarCasos: boolean;
+  /** Hablar con el equipo en `/chat`: General, canales, directos y el chat de cada pedido. */
+  usarChat: boolean;
   /** Diseñar piezas con el motor CAD (chat, render 3D y exportación DXF/STEP) en `/disenos`. */
   usarCad: boolean;
 }
@@ -311,11 +361,13 @@ export const ROLES: Record<Rol, PermisosRol> = {
     gestionarStock: true,
     editarPrecios: true,
     cerrarCasos: true,
+    usarChat: true,
     usarCad: true,
   },
   logistica: {
     nombre: "Logística",
-    descripcion: "Ve el pedido completo · edita estado, ubicación y responsable",
+    descripcion:
+      "Ve el pedido completo · edita estado, ubicación y responsable",
     alcances: ["logistica", "taller", "todos"],
     base: (p) => ALCANCES.logistica.filtro(p) || ALCANCES.taller.filtro(p),
     verCliente: true,
@@ -337,11 +389,13 @@ export const ROLES: Record<Rol, PermisosRol> = {
     gestionarStock: true,
     editarPrecios: false,
     cerrarCasos: false,
-    usarCad: false,
+    usarChat: true,
+    usarCad: true,
   },
   operaciones: {
     nombre: "Operaciones",
-    descripcion: "Ve el cliente y los datos de producción · solo edita el estado",
+    descripcion:
+      "Ve el cliente y los datos de producción · solo edita el estado",
     alcances: ["taller"],
     base: (p) => ALCANCES.taller.filtro(p),
     verCliente: true,
@@ -363,7 +417,8 @@ export const ROLES: Record<Rol, PermisosRol> = {
     gestionarStock: false,
     editarPrecios: false,
     cerrarCasos: false,
-    usarCad: false,
+    usarChat: true,
+    usarCad: true,
   },
 };
 
@@ -380,7 +435,9 @@ export function transicionesValidas(p: Pedido): Estado[] {
     case "observado":
       return ["en_proceso", "anulado"];
     case "listo":
-      return p.esProvincia ? ["en_transito", "anulado"] : ["entregado", "anulado"];
+      return p.esProvincia
+        ? ["en_transito", "anulado"]
+        : ["entregado", "anulado"];
     case "en_transito":
       return ["entregado", "anulado"];
     default:
@@ -394,7 +451,8 @@ export function pasosDelFlujo(esProvincia: boolean): Estado[] {
     : ["registrado", "en_proceso", "listo", "entregado"];
 }
 
-export const requiereMotivo = (e: Estado) => e === "anulado" || e === "observado";
+export const requiereMotivo = (e: Estado) =>
+  e === "anulado" || e === "observado";
 /** Al entregar, Administración puede anotar el comprobante. Es opcional. */
 export const ofreceComprobante = (e: Estado) => e === "entregado";
 
@@ -418,7 +476,10 @@ export const tipoComprobante = (n: string) =>
         ? "boleta"
         : "factura";
 
-const ETIQUETA_COMPROBANTE: Record<ReturnType<typeof tipoComprobante>, string> = {
+const ETIQUETA_COMPROBANTE: Record<
+  ReturnType<typeof tipoComprobante>,
+  string
+> = {
   factura: "Factura",
   boleta: "Boleta",
   proforma: "Proforma",
@@ -426,7 +487,8 @@ const ETIQUETA_COMPROBANTE: Record<ReturnType<typeof tipoComprobante>, string> =
 };
 
 /** `Boleta B001-004512`, para mostrar el número con su tipo. */
-export const etiquetaComprobante = (n: string) => `${ETIQUETA_COMPROBANTE[tipoComprobante(n)]} ${n}`;
+export const etiquetaComprobante = (n: string) =>
+  `${ETIQUETA_COMPROBANTE[tipoComprobante(n)]} ${n}`;
 
 /**
  * Los tipos de un pedido, deducidos de sus líneas: un corte láser es CL, uno
@@ -435,7 +497,10 @@ export const etiquetaComprobante = (n: string) => `${ETIQUETA_COMPROBANTE[tipoCo
  * anteriores, cuando se marcaba a mano.)
  */
 export function tiposDeLineas(
-  lineas: { corte?: { modalidad: string } | null; terminado?: unknown | null }[],
+  lineas: {
+    corte?: { modalidad: string } | null;
+    terminado?: unknown | null;
+  }[],
 ): TipoPedido[] {
   const tipos = new Set<TipoPedido>();
   for (const l of lineas) {
@@ -446,14 +511,17 @@ export function tiposDeLineas(
   return (Object.keys(TIPOS) as TipoPedido[]).filter((t) => tipos.has(t));
 }
 
-export const etiquetaTipos = (tipos: TipoPedido[]) => tipos.map((t) => TIPOS[t]).join(" · ");
+export const etiquetaTipos = (tipos: TipoPedido[]) =>
+  tipos.map((t) => TIPOS[t]).join(" · ");
 
 /** Media plancha se corta; media caja no existe. */
 export const admiteDecimales = (tipos: TipoPedido[]) => tipos.includes("SP");
-export const unidadDe = (tipos: TipoPedido[]) => (admiteDecimales(tipos) ? "planchas" : "unidades");
+export const unidadDe = (tipos: TipoPedido[]) =>
+  admiteDecimales(tipos) ? "planchas" : "unidades";
 
 /** Un pedido cerrado tiene una de las dos fechas, nunca las dos. */
-export const fechaCierreDe = (p: Pedido) => p.fechaEntrega ?? p.fechaAnulacion ?? null;
+export const fechaCierreDe = (p: Pedido) =>
+  p.fechaEntrega ?? p.fechaAnulacion ?? null;
 
 /**
  * Suma días a una fecha ISO. Se construye y se lee en hora local: pasar por UTC
@@ -526,32 +594,79 @@ export const esAlcance = (v: unknown): v is Alcance =>
 
 /** El alcance pedido si el rol lo tiene; si no, con el que abre el rol. */
 export const alcanceDe = (permisos: PermisosRol, pedido: unknown): Alcance =>
-  esAlcance(pedido) && permisos.alcances.includes(pedido) ? pedido : permisos.alcances[0];
+  esAlcance(pedido) && permisos.alcances.includes(pedido)
+    ? pedido
+    : permisos.alcances[0];
 
 /** La URL de la vista con un alcance; el inicial del rol no lleva parámetro. */
 export const rutaAlcance = (permisos: PermisosRol, a: Alcance) =>
   a === permisos.alcances[0] ? RUTA_PEDIDOS : `${RUTA_PEDIDOS}?ver=${a}`;
 
-/* ── Herramientas ──
-   Lo que no es una vista de pedidos pero cuelga del mismo menú. Están aquí, y no
+/* ── Vistas del menú ──
+   Las pantallas que, además de Pedidos, cuelgan del menú. Están aquí, y no
    escritas en el JSX de la navegación, porque las leen tres sitios: la barra
    lateral, el menú del celular y el buscador (⌘K). El icono no viene aquí: este
    archivo es el modelo, no la pantalla. */
+
+/**
+ * `principal` va junto a Pedidos, sin título: es el trabajo del día. Los demás
+ * llevan su título y solo se pintan si al rol le toca alguna de sus vistas.
+ */
+export type GrupoNav = "principal" | "taller" | "gestion";
+
+export const GRUPOS_NAV: { id: GrupoNav; titulo: string | null }[] = [
+  { id: "principal", titulo: null },
+  { id: "taller", titulo: "Taller" },
+  { id: "gestion", titulo: "Gestión" },
+];
 
 export interface ConfigHerramienta {
   titulo: string;
   href: string;
   /** El permiso del rol que la habilita. */
   permiso: keyof PermisosRol;
+  grupo: GrupoNav;
 }
 
 export const HERRAMIENTAS: ConfigHerramienta[] = [
-  { titulo: "Cotizaciones", href: "/cotizaciones", permiso: "gestionarCotizaciones" },
-  { titulo: "Diseños", href: "/disenos", permiso: "usarCad" },
-  { titulo: "Almacén", href: "/almacen", permiso: "verAlmacen" },
-  { titulo: "Métricas", href: "/metricas", permiso: "verMetricas" },
-  { titulo: "Configuración", href: "/configuracion", permiso: "configurar" },
+  {
+    titulo: "Cotizaciones",
+    href: "/cotizaciones",
+    permiso: "gestionarCotizaciones",
+    grupo: "principal",
+  },
+  { titulo: "Chat", href: "/chat", permiso: "usarChat", grupo: "principal" },
+  { titulo: "Diseños", href: "/disenos", permiso: "usarCad", grupo: "taller" },
+  {
+    titulo: "Almacén",
+    href: "/almacen",
+    permiso: "verAlmacen",
+    grupo: "taller",
+  },
+  {
+    titulo: "Métricas",
+    href: "/metricas",
+    permiso: "verMetricas",
+    grupo: "gestion",
+  },
+  {
+    titulo: "Configuración",
+    href: "/configuracion",
+    permiso: "configurar",
+    grupo: "gestion",
+  },
 ];
 
 export const herramientasDe = (permisos: PermisosRol) =>
   HERRAMIENTAS.filter((h) => permisos[h.permiso] === true);
+
+/** Las vistas del rol, por grupo y sin grupos vacíos. `excluir` quita rutas ya pintadas en otro sitio. */
+export const gruposDe = (permisos: PermisosRol, excluir: string[] = []) => {
+  const vistas = herramientasDe(permisos).filter(
+    (h) => !excluir.includes(h.href),
+  );
+  return GRUPOS_NAV.map((g) => ({
+    ...g,
+    vistas: vistas.filter((h) => h.grupo === g.id),
+  })).filter((g) => g.vistas.length > 0);
+};

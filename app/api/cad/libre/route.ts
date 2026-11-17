@@ -1,6 +1,6 @@
 /**
  * Diseño libre para el visor: ejecuta en el sandbox el código de la versión
- * vigente y devuelve lo mismo que `/api/cad/generar` (`plantilla: "libre"`,
+ * vigente (o, con `version`, el de esa versión: la vista previa del historial) y devuelve lo mismo que `/api/cad/generar` (`plantilla: "libre"`,
  * `parametros: {}`) más `libre` (código, estado y versión).
  *
  * El código se lee de la base, no del cuerpo: el navegador no puede mandar a
@@ -8,14 +8,14 @@
  */
 
 import { z } from "zod";
-import { obtenerVersionLibre } from "@/lib/cad/libre-servidor";
+import { obtenerVersionLibre, obtenerVersionLibreNumero } from "@/lib/cad/libre-servidor";
 import { ErrorSandboxCad, ejecutarCodigo, sandboxConfigurado } from "@/lib/cad/sandbox";
 import { PLANTILLA_LIBRE } from "@/lib/cad/tipos";
 import { error, leerCuerpo, puertaCad } from "../respuesta";
 
 export const maxDuration = 120;
 
-const cuerpo = z.object({ disenoId: z.uuid() });
+const cuerpo = z.object({ disenoId: z.uuid(), version: z.number().int().positive().optional() });
 
 export async function POST(request: Request) {
   const cerrada = await puertaCad();
@@ -31,8 +31,14 @@ export async function POST(request: Request) {
   }
 
   try {
-    const libre = await obtenerVersionLibre(leido.data.disenoId);
-    if (!libre) return error("Este diseño no tiene una versión personalizada vigente.", 404);
+    const { disenoId, version } = leido.data;
+    const libre = version ? await obtenerVersionLibreNumero(disenoId, version) : await obtenerVersionLibre(disenoId);
+    if (!libre) {
+      return error(
+        version ? `La v${version} no es un diseño personalizado.` : "Este diseño no tiene una versión personalizada vigente.",
+        404,
+      );
+    }
     const r = await ejecutarCodigo(libre.codigo);
     return Response.json({
       plantilla: PLANTILLA_LIBRE,

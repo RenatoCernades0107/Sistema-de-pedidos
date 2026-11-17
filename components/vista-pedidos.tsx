@@ -21,16 +21,16 @@ import { hoy } from "@/lib/fecha";
 import {
   ALCANCES,
   ESTADOS,
+  FILTRO_CLASE_ITEM,
   ORDEN_ESTADOS,
-  TIPOS,
   alcanceDe,
   esTerminal,
   fechaCierreDe,
   rutaAlcance,
   sumarDias,
   type Alcance,
+  type ClaseItem,
   type Estado,
-  type TipoPedido,
 } from "@/lib/dominio";
 import { camposBuscables, coincide } from "@/lib/busqueda";
 import { porUrgencia } from "@/lib/formato";
@@ -77,14 +77,14 @@ export function VistaPedidos() {
   const [modo, setModo] = useState<Modo>("kanban");
   const [q, setQ] = useState("");
   const [estado, setEstado] = useState<Estado | "todos">("todos");
-  const [tipo, setTipo] = useState<TipoPedido | "todos">("todos");
+  const [clase, setClase] = useState<ClaseItem | "todos">("todos");
   const [responsable, setResponsable] = useState<string>("todos");
   const [rango, setRango] = useState<Rango>("todo");
   const [pagina, setPagina] = useState(1);
 
   // Cualquier cambio de filtro vuelve a la primera página. Se ajusta durante el
   // render, no en un efecto, para no pintar una página vacía entre medio.
-  const firma = [alcance, q, estado, tipo, responsable, rango, modo].join("|");
+  const firma = [alcance, q, estado, clase, responsable, rango, modo].join("|");
   const [firmaPrevia, setFirmaPrevia] = useState(firma);
   if (firma !== firmaPrevia) {
     setFirmaPrevia(firma);
@@ -115,7 +115,7 @@ export function VistaPedidos() {
     return base
       .filter((p) => {
         if (estado !== "todos" && p.estado !== estado) return false;
-        if (tipo !== "todos" && !p.tipos.includes(tipo)) return false;
+        if (clase !== "todos" && !p.items.some((i) => i.clase === clase)) return false;
         if (responsable !== "todos") {
           if (responsable === "sin" ? p.responsable !== null : p.responsable !== responsable)
             return false;
@@ -128,7 +128,7 @@ export function VistaPedidos() {
         return true;
       })
       .sort(porUrgencia);
-  }, [base, estado, tipo, responsable, q, rango, permisos]);
+  }, [base, estado, clase, responsable, q, rango, permisos]);
 
   const conteos = useMemo(() => {
     const m = new Map<Estado, number>();
@@ -146,13 +146,13 @@ export function VistaPedidos() {
   const hayFiltros =
     q !== "" ||
     estado !== "todos" ||
-    tipo !== "todos" ||
+    clase !== "todos" ||
     responsable !== "todos" ||
     rango !== "todo";
   const limpiar = () => {
     setQ("");
     setEstado("todos");
-    setTipo("todos");
+    setClase("todos");
     setResponsable("todos");
     setRango("todo");
   };
@@ -238,16 +238,16 @@ export function VistaPedidos() {
           />
         </div>
 
-        <Select value={tipo} onValueChange={(v) => setTipo(v as TipoPedido | "todos")}>
-          <SelectTrigger size="sm" className="w-auto min-w-[9.5rem]" aria-label="Tipo de pedido">
+        <Select value={clase} onValueChange={(v) => setClase(v as ClaseItem | "todos")}>
+          <SelectTrigger size="sm" className="w-auto min-w-[9.5rem]" aria-label="Ítems del pedido">
             <SlidersHorizontal className="text-muted-foreground size-3.5" />
-            <SelectValue>{tipo === "todos" ? "Todos los tipos" : TIPOS[tipo]}</SelectValue>
+            <SelectValue>{clase === "todos" ? "Todos los ítems" : FILTRO_CLASE_ITEM[clase]}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="todos">Todos los tipos</SelectItem>
-            {(Object.keys(TIPOS) as TipoPedido[]).map((t) => (
-              <SelectItem key={t} value={t}>
-                {TIPOS[t]}
+            <SelectItem value="todos">Todos los ítems</SelectItem>
+            {(Object.keys(FILTRO_CLASE_ITEM) as ClaseItem[]).map((c) => (
+              <SelectItem key={c} value={c}>
+                {FILTRO_CLASE_ITEM[c]}
               </SelectItem>
             ))}
           </SelectContent>
