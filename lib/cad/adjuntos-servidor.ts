@@ -4,9 +4,12 @@
  * Se bajan de Storage con la sesión de quien escribe (la política del bucket
  * es la de `cad_mensajes`) y se arman como partes del mensaje:
  *   · imagen → una parte `imagen` con su `data:`.
- *   · PDF    → el texto que se le saca con pdf.js, y además el PDF entero
- *              como parte `archivo` (el modelo ve también los dibujos y los
- *              escaneados), salvo con `INFERHUB_PDF=texto`.
+ *   · PDF    → el PDF entero, como parte `archivo`. El proveedor ya le da al
+ *              modelo el texto Y la imagen de cada página: sacarle aquí el
+ *              texto también sería pagarlo dos veces, y en un plano el texto
+ *              de pdf.js sale desordenado (las cotas sueltas, sin su dibujo).
+ *              Solo con `INFERHUB_PDF=texto` (pasarelas que no aceptan
+ *              archivos) se manda el texto de pdf.js en su lugar.
  * Cada archivo va precedido de una línea que lo nombra, para que el asistente
  * pueda referirse a él ("en plano.pdf…").
  */
@@ -85,24 +88,24 @@ async function partesDeUno(adjunto: AdjuntoCad): Promise<ParteLlm[]> {
     ];
   }
 
-  const comoArchivo = pdfComoArchivo();
+  if (pdfComoArchivo()) {
+    return [
+      { tipo: "texto", texto: `[PDF adjunto: ${adjunto.nombre}]` },
+      { tipo: "archivo", nombre: adjunto.nombre, mime: adjunto.mime, datos: bytes.toString("base64") },
+    ];
+  }
+
+  // Sin archivos en la pasarela: solo queda el texto (sin dibujos ni escaneados).
   const { texto, paginas } = await textoDePdf(bytes);
   const cuantas = paginas ? ` (${paginas} ${paginas === 1 ? "página" : "páginas"})` : "";
-  const partes: ParteLlm[] = [];
-  if (texto) {
-    partes.push({ tipo: "texto", texto: `[PDF adjunto: ${adjunto.nombre}${cuantas}. Su texto:]\n${texto}` });
-  } else {
-    partes.push({
+  return [
+    {
       tipo: "texto",
-      texto: comoArchivo
-        ? `[PDF adjunto: ${adjunto.nombre}${cuantas}. No tiene texto seleccionable: léelo del archivo.]`
+      texto: texto
+        ? `[PDF adjunto: ${adjunto.nombre}${cuantas}. Solo se pudo leer su texto, sin los dibujos; puede venir desordenado:]\n${texto}`
         : `[PDF adjunto: ${adjunto.nombre}${cuantas}. No tiene texto seleccionable (¿escaneado?) y no se pudo leer: pide las medidas o una foto.]`,
-    });
-  }
-  if (comoArchivo) {
-    partes.push({ tipo: "archivo", nombre: adjunto.nombre, mime: adjunto.mime, datos: bytes.toString("base64") });
-  }
-  return partes;
+    },
+  ];
 }
 
 /**
