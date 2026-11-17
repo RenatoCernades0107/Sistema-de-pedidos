@@ -8,19 +8,18 @@ import {
   ESTADOS,
   ORDEN_ESTADOS,
   esTerminal,
-  etiquetaTipos,
   type Estado,
   type Pedido,
 } from "@/lib/dominio";
 import {
   ETIQUETA_SEMAFORO,
-  cantidadCorta,
   diaMes,
   semaforoDe,
   urgenciaDe,
   type Semaforo,
 } from "@/lib/formato";
 import { BARRA_ESTADO } from "@/components/estado-badge";
+import { ResumenItems } from "@/components/resumen-items";
 
 const PUNTO: Record<Estado, string> = BARRA_ESTADO;
 
@@ -134,10 +133,7 @@ export function PedidosKanban({
                       </p>
 
                       <p className="text-muted-foreground mt-1.5 flex items-center gap-1.5 text-2xs">
-                        <span className="truncate">
-                          <span className="tnum">{cantidadCorta(p)}</span> ·{" "}
-                          {etiquetaTipos(p.tipos)}
-                        </span>
+                        <ResumenItems items={p.items} />
                         <span
                           className={cn(
                             "tnum ml-auto shrink-0",

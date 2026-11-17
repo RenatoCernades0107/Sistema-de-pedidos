@@ -32,6 +32,11 @@ npx supabase start     # API en http://127.0.0.1:56321, Studio en http://127.0.0
 npx supabase db reset  # aplica las migraciones y carga supabase/seed.sql
 ```
 
+`seed.sql` trae los tres usuarios de prueba (`ana`, `carla`, `miguel`; contraseña `plexi2026`) y 13
+pedidos con el modelo actual: cada uno con su cotización y sus líneas (productos, cortes y productos
+terminados), código `P{AAMM}-{NNN}` puesto por la base y fechas relativas a hoy, así que siempre hay
+vencidos, de hoy y próximos. Se escribe a mano; los productos y clientes son los del Odoo de pruebas.
+
 Los puertos son la serie 563xx (no la 543xx por defecto) para convivir con otros proyectos de
 Supabase en la misma máquina. En `.env.local`, `NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:56321` y
 la clave publicable que imprime `supabase start`.
@@ -157,7 +162,7 @@ NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:<api> NEXT_PUBLIC_SUPABASE_PUBLISHABLE
 ```
 
 Los tests de punta a punta corren **contra la base real**, que es la única que hay. Cada prueba crea
-sus propias filas con el cliente prefijado `E2E` y las borra al terminar; ninguna toca los 23 pedidos
+sus propias filas con el cliente prefijado `E2E` y las borra al terminar; ninguna toca los pedidos
 del seed. Las pruebas del esquema son SQL y van aparte: `supabase/tests/README.md`.
 
 ## Desplegarla en Vercel

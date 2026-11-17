@@ -5,14 +5,11 @@ import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import {
-  PRODUCTOS,
   UBICACIONES,
-  etiquetaTipos,
   saldoDe,
   type Pedido,
 } from "@/lib/dominio";
 import {
-  cantidadCorta,
   diaMes,
   diaMesTexto,
   fechaCompleta,
@@ -20,6 +17,7 @@ import {
   urgenciaDe,
 } from "@/lib/formato";
 import { BARRA_ESTADO, EstadoBadge } from "@/components/estado-badge";
+import { ResumenItems } from "@/components/resumen-items";
 
 const CLASE_URGENCIA = {
   vencido: "text-st-observado",
@@ -100,9 +98,9 @@ export function PedidoCard({
             </span>
           </p>
 
-          <p className="text-muted-foreground mt-1.5 truncate text-xs">
-            <span className="tnum">{cantidadCorta(p)}</span> · {etiquetaTipos(p.tipos)}
-            {p.producto ? ` · ${PRODUCTOS[p.producto]}` : ""} ·{" "}
+          {/* Lo que lleva: el primer ítem y cuántos más. */}
+          <ResumenItems items={p.items} className="text-foreground/80 mt-1.5 text-xs" />
+          <p className="text-muted-foreground mt-0.5 truncate text-xs">
             {UBICACIONES[p.ubicacion]}
             {p.responsable ? ` · ${p.responsable}` : ""}
           </p>

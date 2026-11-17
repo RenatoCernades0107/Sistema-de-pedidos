@@ -26,8 +26,8 @@ import { ICONOS_HERRAMIENTA } from "@/components/iconos-herramienta";
 import { useStore } from "@/lib/store";
 import {
   ALCANCES,
-  etiquetaTipos,
   herramientasDe,
+  resumenItems,
   rutaAlcance,
   type Alcance,
 } from "@/lib/dominio";
@@ -126,7 +126,7 @@ export function CommandMenu({
                 {p.codigo}
               </span>
               <span className="min-w-0 flex-1 truncate">
-                {permisos.verCliente ? p.cliente : etiquetaTipos(p.tipos)}
+                {permisos.verCliente ? p.cliente : resumenItems(p.items)}
               </span>
               <EstadoBadge estado={p.estado} size="sm" />
             </CommandItem>

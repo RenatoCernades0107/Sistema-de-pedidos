@@ -1,10 +1,18 @@
--- Seed de desarrollo de Plexiacril. GENERADO desde web/lib/datos.ts
--- (scripts/gen-seed.cjs). Si cambian los datos del prototipo, se regenera; no se
--- edita a mano.
+-- Seed de desarrollo de Plexiacril. Escrito a mano: se edita aquí.
 --
--- Trae los tres usuarios de prueba, uno por rol, y los 23 pedidos del prototipo,
--- que ya cubren los siete estados, envíos a provincia, crédito, pedidos con varios
--- tipos y pedidos anulados y observados.
+-- Trae los tres usuarios de prueba, uno por rol, y 13 pedidos con el modelo actual:
+-- cada pedido nace de una cotización (`cotizaciones.pedido_id`) y sus líneas
+-- —productos de Odoo, cortes y productos terminados— viven en
+-- `cotizacion_productos`. El código (P2611-001) lo pone el trigger del INSERT.
+--
+-- Las fechas son relativas a hoy (`current_date`): siempre hay pedidos vencidos,
+-- de hoy y próximos, y cubren los siete estados, provincia, domicilio, crédito,
+-- abonos, observados y anulados.
+--
+-- Los productos y clientes son los del Odoo de pruebas (`npm run seed:odoo`, ver
+-- seeds/cotizaciones.sql). Las órdenes de venta (S09001…) son de mentira: el
+-- stock de los pedidos ya listos figura como descontado para que nadie intente
+-- moverlo en Odoo.
 --
 -- Contraseña de los tres: plexi2026. Es un entorno de desarrollo; antes de que
 -- entren datos reales hay que cambiarlas.
@@ -14,7 +22,7 @@
 create extension if not exists pgcrypto with schema extensions;
 
 -- La carga no es la edición de nadie: sin esto, la auditoría arranca con cientos
--- de filas de ruido y el historial pierde las fechas reales del prototipo.
+-- de filas de ruido y el historial pierde las fechas que trae el seed.
 alter table public.pedidos          disable trigger pedidos_auditoria;
 alter table public.pedidos          disable trigger pedidos_historial;
 alter table public.envios_provincia disable trigger envios_provincia_auditoria;
@@ -91,802 +99,847 @@ where u.email like '%@plexiacril.test'
   and not exists (select 1 from auth.identities i where i.user_id = u.id and i.provider = 'email');
 
 -- ── Pedidos ─────────────────────────────────────────────────────────────────
+-- Cada pedido se anota aquí con su clave para colgarle después lo demás.
+create temporary table seed_pedidos (clave text primary key, id uuid not null, codigo text not null);
 
-insert into public.pedidos (
-  codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
-  cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
-  ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_comprobante, responsable_id, creado_por
-) values (
-  'LCL_2026_H4TP', false, 'Corporación Andina SAC', '981 342 705',
-  array['CL']::public.tipo_pedido[], null,
-  12, 'a_cuenta', null, 1250,
-  'tienda', null,
-  'taller', 'en_proceso', null,
-  '2026-08-30', '2026-08-24 09:00:00-05', null, null,
-  '12 placas 60x40 en acrílico transparente 3mm, grabado del logo al centro.', null, null,
-  (select id from public.trabajadores where nombre = 'Angel'), (select id from public.usuarios where email = 'ana@plexiacril.test')
-);
+-- entregado-tienda: entregado, SEED Publicidad Lima SAC
+with nuevo as (
+  insert into public.pedidos (
+    es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado, cantidad,
+    tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega, ubicacion_actual,
+    estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
+    detalle, observaciones, notas_entrega, numero_comprobante, responsable_id, creado_por
+  ) values (
+    false, 'SEED Publicidad Lima SAC', '01 444 5566', array['CL', 'SP']::public.tipo_pedido[], null, 60,
+    'contado', null, 643.1, 'tienda', null, 'tienda',
+    'entregado', null, (current_date + -6), ((current_date + -12) + time '09:15') at time zone 'America/Lima',
+    (current_date + -6), null,
+    'Corte láser · Acrílico ECO · Cristal · 3 mm: 12 piezas (12 × 60×40 cm) — 2 planchas de 122×183
+  ↳ Grabar el logo al centro de cada placa.
+48 × [ACC032] SOPORTES DE ACRILICO 25MM X 40MM CRISTAL', null, null, 'F001-000231', (select id from public.trabajadores where nombre = 'Angel'), (select id from public.usuarios where usuario = 'ana')
+  )
+  returning id, codigo
+)
+insert into seed_pedidos (clave, id, codigo) select 'entregado-tienda', id, codigo from nuevo;
+
+with c as (
+  insert into public.cotizaciones (
+    pedido_id, odoo_partner_id, cliente_nombre, cliente_documento, cliente_telefono,
+    odoo_order_id, odoo_order_name, sincronizacion, monto_sin_impuestos, monto_impuestos, monto_total,
+    confirmada_en_odoo, stock_descontado, creado_por, creado_en
+  ) values (
+    (select id from seed_pedidos where clave = 'entregado-tienda'), 5, 'SEED Publicidad Lima SAC', '20512345671', '01 444 5566',
+    9001, 'S09001', 'sincronizada', 545, 98.1, 643.1,
+    true, true, (select id from public.usuarios where usuario = 'ana'), ((current_date + -12) + time '09:00') at time zone 'America/Lima'
+  )
+  returning id
+)
+insert into public.cotizacion_productos (
+  cotizacion_id, posicion, tipo, odoo_product_id, producto_nombre, producto_codigo, descripcion,
+  cantidad, precio_unitario, importe, corte, terminado, indicaciones, planchas_usadas
+)
+select c.id, l.* from c, (values
+  (1::smallint, 'corte'::public.tipo_linea, 20, 'ACRILICO ECO CRISTAL 3MM 1.22X1.83', 'F7E024', 'Corte láser · Acrílico ECO · Cristal · 3 mm: 12 × 60×40 cm',
+   2::numeric, 117.6::numeric, 257::numeric,
+   jsonb_set('{"version":1,"grupoId":"__GRUPO__","material":"Acrílico ECO","color":"Cristal","espesorMm":3,"modalidad":"laser","rotable":true,"piezas":[{"ancho":60,"alto":40,"cantidad":12}],"servicio":{"productoId":31,"codigo":"SRV002","nombre":"SERVICIO DE CORTE LASER"},"sobrantes":false,"formato":{"codigo":"F7E024","ancho":122,"alto":183,"precio":147},"planchas":[{"origen":{"tipo":"plancha"},"ancho":122,"alto":183,"usoPct":96.7,"piezas":9,"cobro":{"nombre":"1","factor":1,"ancho":122,"alto":183,"monto":147,"nota":null},"paneles":[{"x1":0,"y1":0,"x2":40,"y2":60,"libre":false,"piezaId":"f1#1","rotada":true},{"x1":40,"y1":0,"x2":80,"y2":60,"libre":false,"piezaId":"f1#2","rotada":true},{"x1":80,"y1":0,"x2":120,"y2":60,"libre":false,"piezaId":"f1#3","rotada":true},{"x1":120,"y1":0,"x2":122,"y2":60,"libre":true},{"x1":0,"y1":60,"x2":40,"y2":120,"libre":false,"piezaId":"f1#4","rotada":true},{"x1":40,"y1":60,"x2":80,"y2":120,"libre":false,"piezaId":"f1#6","rotada":true},{"x1":80,"y1":60,"x2":120,"y2":120,"libre":false,"piezaId":"f1#7","rotada":true},{"x1":120,"y1":60,"x2":122,"y2":120,"libre":true},{"x1":40,"y1":120,"x2":80,"y2":180,"libre":false,"piezaId":"f1#8","rotada":true},{"x1":80,"y1":120,"x2":120,"y2":180,"libre":false,"piezaId":"f1#9","rotada":true},{"x1":120,"y1":120,"x2":122,"y2":180,"libre":true},{"x1":40,"y1":180,"x2":122,"y2":183,"libre":true},{"x1":0,"y1":120,"x2":40,"y2":180,"libre":false,"piezaId":"f1#5","rotada":true},{"x1":0,"y1":180,"x2":40,"y2":183,"libre":true}]},{"origen":{"tipo":"plancha"},"ancho":122,"alto":183,"usoPct":32.2,"piezas":3,"cobro":{"nombre":"1/2","factor":0.5,"ancho":61,"alto":183,"monto":88.2,"nota":null},"paneles":[{"x1":0,"y1":0,"x2":60,"y2":40,"libre":false,"piezaId":"f1#10","rotada":false},{"x1":60,"y1":0,"x2":61,"y2":183,"libre":true},{"x1":0,"y1":40,"x2":60,"y2":80,"libre":false,"piezaId":"f1#11","rotada":false},{"x1":0,"y1":80,"x2":60,"y2":120,"libre":false,"piezaId":"f1#12","rotada":false},{"x1":0,"y1":120,"x2":60,"y2":183,"libre":true},{"x1":61,"y1":0,"x2":122,"y2":183,"libre":true,"sobrante":true}]}],"montoMaterial":235.2,"montoServicio":21.8,"total":257,"minutosLaser":22.74,"desglose":[{"etiqueta":"Plancha 1: completa (122×183)","monto":147},{"etiqueta":"Plancha 2: las piezas caben en 1/2 (61×183) → S/ 147.00 × 1/2 + 20 %","monto":88.2},{"etiqueta":"Corte láser: 12 piezas, 22.74 min","monto":21.8},{"etiqueta":"Total","monto":257,"esTotal":true}]}'::jsonb, '{grupoId}', to_jsonb((select id::text from public.grupos_plancha where material = 'Acrílico ECO' and variante = 'Cristal' and detalle = '' and espesor_mm = 3))),
+   null::jsonb,
+   'Grabar el logo al centro de cada placa.', 2::numeric),
+  (2::smallint, 'producto'::public.tipo_linea, 291, 'SOPORTES DE ACRILICO 25MM X 40MM CRISTAL', 'ACC032', null,
+   48::numeric, 6::numeric, null::numeric,
+   null::jsonb,
+   null::jsonb,
+   null, null::numeric)
+) as l;
 
 insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
-values ((select id from public.pedidos where codigo = 'LCL_2026_H4TP'), 600, 'efectivo', '2026-08-24 12:00:00-05', (select id from public.usuarios where email = 'ana@plexiacril.test'));
+values ((select id from seed_pedidos where clave = 'entregado-tienda'), 643.1, 'transferencia', ((current_date + -12) + time '10:30') at time zone 'America/Lima', (select id from public.usuarios where usuario = 'ana'));
 
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'LCL_2026_H4TP'), 'diseno', 'pedidos/LCL_2026_H4TP/diseno/plano-corte-v2.pdf',
-        'plano-corte-v2.pdf', 'application/pdf', 860160, (select id from public.usuarios where email = 'ana@plexiacril.test'));
+insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por, linea_posicion)
+select id, 'diseno', 'pedidos/' || codigo || '/diseno/logo-recepcion.pdf', 'logo-recepcion.pdf', 'application/pdf', 860160, (select id from public.usuarios where usuario = 'ana'), 1
+from seed_pedidos where clave = 'entregado-tienda';
 
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'LCL_2026_H4TP'), 'diseno', 'pedidos/LCL_2026_H4TP/diseno/referencia-cliente.jpg',
-        'referencia-cliente.jpg', 'image/jpeg', 1258291, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LCL_2026_H4TP'), 'registrado', 'administracion', null, (select id from public.usuarios where email = 'ana@plexiacril.test'), '2026-08-24T08:30:00-05');
+insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por, linea_posicion)
+select id, 'foto_entrega', 'pedidos/' || codigo || '/foto_entrega/entrega-placas.jpg', 'entrega-placas.jpg', 'image/jpeg', 1258291, (select id from public.usuarios where usuario = 'ana'), null
+from seed_pedidos where clave = 'entregado-tienda';
 
 insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LCL_2026_H4TP'), 'en_proceso', 'operaciones', null, (select id from public.usuarios where email = 'miguel@plexiacril.test'), '2026-08-24T16:05:00-05');
-
-insert into public.pedidos (
-  codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
-  cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
-  ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_comprobante, responsable_id, creado_por
-) values (
-  'LPT_2026_K9ZM', false, 'Botica Salud Norte', '944 618 230',
-  array['PT']::public.tipo_pedido[], 'displays',
-  4, 'contado', null, 890,
-  'tienda', null,
-  'tienda', 'listo', null,
-  '2026-08-29', '2026-08-20 09:00:00-05', null, null,
-  '4 displays de mostrador, 3 niveles, acrílico blanco 4mm.', null, null,
-  (select id from public.trabajadores where nombre = 'Isaac'), (select id from public.usuarios where email = 'ana@plexiacril.test')
-);
-
-insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
-values ((select id from public.pedidos where codigo = 'LPT_2026_K9ZM'), 890, 'transferencia', '2026-08-20 12:00:00-05', (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'LPT_2026_K9ZM'), 'diseno', 'pedidos/LPT_2026_K9ZM/diseno/plano-display.pdf',
-        'plano-display.pdf', 'application/pdf', 634880, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'LPT_2026_K9ZM'), 'diseno', 'pedidos/LPT_2026_K9ZM/diseno/referencia-cliente.jpg',
-        'referencia-cliente.jpg', 'image/jpeg', 1153434, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'LPT_2026_K9ZM'), 'foto_entrega', 'pedidos/LPT_2026_K9ZM/foto_entrega/producto-terminado.jpg',
-        'producto-terminado.jpg', 'image/jpeg', 2202010, (select id from public.usuarios where email = 'ana@plexiacril.test'));
+values ((select id from seed_pedidos where clave = 'entregado-tienda'), 'registrado', 'administracion', null, (select id from public.usuarios where usuario = 'ana'), ((current_date + -12) + time '09:15') at time zone 'America/Lima');
 
 insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LPT_2026_K9ZM'), 'registrado', 'administracion', null, (select id from public.usuarios where email = 'ana@plexiacril.test'), '2026-08-20T08:30:00-05');
+values ((select id from seed_pedidos where clave = 'entregado-tienda'), 'en_proceso', 'operaciones', null, (select id from public.usuarios where usuario = 'miguel'), ((current_date + -11) + time '16:00') at time zone 'America/Lima');
 
 insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LPT_2026_K9ZM'), 'listo', 'operaciones', null, (select id from public.usuarios where email = 'miguel@plexiacril.test'), '2026-08-20T16:05:00-05');
+values ((select id from seed_pedidos where clave = 'entregado-tienda'), 'listo', 'operaciones', null, (select id from public.usuarios where usuario = 'miguel'), ((current_date + -7) + time '16:00') at time zone 'America/Lima');
 
-insert into public.pedidos (
-  codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
-  cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
-  ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_comprobante, responsable_id, creado_por
-) values (
-  'PCM_2026_R2WQ', true, 'Distribuidora Chan Chan EIRL', '962 507 481',
-  array['CM']::public.tipo_pedido[], null,
-  30, 'a_cuenta', null, 2340,
-  'agencia', null,
-  'agencia', 'en_transito', null,
-  '2026-09-02', '2026-08-18 09:00:00-05', null, null,
-  'Corte manual de 30 planchas 1.20x0.80, bordes pulidos.', null, 'F001-004512',
-  (select id from public.trabajadores where nombre = 'Juan'), (select id from public.usuarios where email = 'ana@plexiacril.test')
-);
+insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
+values ((select id from seed_pedidos where clave = 'entregado-tienda'), 'entregado', 'logistica', null, (select id from public.usuarios where usuario = 'carla'), ((current_date + -6) + time '16:00') at time zone 'America/Lima');
+
+-- anulado: anulado, SEED María Torres Huamán
+with nuevo as (
+  insert into public.pedidos (
+    es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado, cantidad,
+    tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega, ubicacion_actual,
+    estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
+    detalle, observaciones, notas_entrega, numero_comprobante, responsable_id, creado_por
+  ) values (
+    false, 'SEED María Torres Huamán', '988 112 233', array['CM', 'SP']::public.tipo_pedido[], null, 4,
+    'a_cuenta', null, 352.82, 'domicilio', 'Av. Arequipa 2450, Lince', 'tienda',
+    'anulado', 'La clienta canceló: compró el mueble armado en otro lado.', (current_date + -4), ((current_date + -10) + time '09:15') at time zone 'America/Lima',
+    null, (current_date + -9),
+    'Corte manual · Superficie sólida de acrílico · White (KS-003) · 6 mm: 3 piezas (3 × 80×25 cm) — 1 plancha de 122×244
+1 × [PEG003] ADHESIVO 50 ML WHITE SUPERFICIE SOLIDA (KS-003)', null, null, null, null, (select id from public.usuarios where usuario = 'ana')
+  )
+  returning id, codigo
+)
+insert into seed_pedidos (clave, id, codigo) select 'anulado', id, codigo from nuevo;
+
+with c as (
+  insert into public.cotizaciones (
+    pedido_id, odoo_partner_id, cliente_nombre, cliente_documento, cliente_telefono,
+    odoo_order_id, odoo_order_name, sincronizacion, monto_sin_impuestos, monto_impuestos, monto_total,
+    confirmada_en_odoo, stock_descontado, creado_por, creado_en
+  ) values (
+    (select id from seed_pedidos where clave = 'anulado'), 6, 'SEED María Torres Huamán', '41234567', '988 112 233',
+    9002, 'S09002', 'sincronizada', 299, 53.82, 352.82,
+    true, false, (select id from public.usuarios where usuario = 'ana'), ((current_date + -10) + time '09:00') at time zone 'America/Lima'
+  )
+  returning id
+)
+insert into public.cotizacion_productos (
+  cotizacion_id, posicion, tipo, odoo_product_id, producto_nombre, producto_codigo, descripcion,
+  cantidad, precio_unitario, importe, corte, terminado, indicaciones, planchas_usadas
+)
+select c.id, l.* from c, (values
+  (1::smallint, 'corte'::public.tipo_linea, 269, 'SUPERFICIE SOLIDA DE ACRILICO WHITE (KS-003) 6MM 1.22X2.44', 'SS002', 'Corte manual · Superficie sólida de acrílico · White (KS-003) · 6 mm: 3 × 80×25 cm',
+   1::numeric, 235.8::numeric, 254::numeric,
+   jsonb_set('{"version":1,"grupoId":"__GRUPO__","material":"Superficie sólida de acrílico","color":"White (KS-003)","espesorMm":6,"modalidad":"manual","rotable":true,"piezas":[{"ancho":80,"alto":25,"cantidad":3}],"servicio":{"productoId":30,"codigo":"SRV001","nombre":"SERVICIO DE CORTE MANUAL"},"sobrantes":false,"formato":{"codigo":"SS002","ancho":122,"alto":244,"precio":393},"planchas":[{"origen":{"tipo":"plancha"},"ancho":122,"alto":244,"usoPct":20.2,"piezas":3,"cobro":{"nombre":"1/2","factor":0.5,"ancho":61,"alto":244,"monto":235.8,"nota":null},"paneles":[{"x1":0,"y1":0,"x2":25,"y2":80,"libre":false,"piezaId":"f1#1","rotada":true},{"x1":25,"y1":0,"x2":50,"y2":80,"libre":false,"piezaId":"f1#2","rotada":true},{"x1":50,"y1":0,"x2":61,"y2":80,"libre":true},{"x1":0,"y1":80,"x2":25,"y2":160,"libre":false,"piezaId":"f1#3","rotada":true},{"x1":25,"y1":80,"x2":61,"y2":160,"libre":true},{"x1":0,"y1":160,"x2":61,"y2":244,"libre":true},{"x1":61,"y1":0,"x2":122,"y2":244,"libre":true,"sobrante":true}]}],"montoMaterial":235.8,"montoServicio":18.2,"total":254,"minutosLaser":null,"desglose":[{"etiqueta":"Plancha 1: las piezas caben en 1/2 (61×244) → S/ 393.00 × 1/2 + 20 %","monto":235.8},{"etiqueta":"Corte manual: 3 piezas de 6 mm","monto":18.2},{"etiqueta":"Total","monto":254,"esTotal":true}]}'::jsonb, '{grupoId}', to_jsonb((select id::text from public.grupos_plancha where material = 'Superficie sólida de acrílico' and variante = '' and detalle = 'White (KS-003)' and espesor_mm = 6))),
+   null::jsonb,
+   null, null::numeric),
+  (2::smallint, 'producto'::public.tipo_linea, 322, 'ADHESIVO 50 ML WHITE SUPERFICIE SOLIDA (KS-003)', 'PEG003', null,
+   1::numeric, 45::numeric, null::numeric,
+   null::jsonb,
+   null::jsonb,
+   null, null::numeric)
+) as l;
+
+insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
+values ((select id from seed_pedidos where clave = 'anulado'), 'registrado', 'administracion', null, (select id from public.usuarios where usuario = 'ana'), ((current_date + -10) + time '09:15') at time zone 'America/Lima');
+
+insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
+values ((select id from seed_pedidos where clave = 'anulado'), 'anulado', 'administracion', 'La clienta canceló: compró el mueble armado en otro lado.', (select id from public.usuarios where usuario = 'ana'), ((current_date + -9) + time '16:00') at time zone 'America/Lima');
+
+-- entregado-provincia: entregado, SEED Constructora Sur EIRL
+with nuevo as (
+  insert into public.pedidos (
+    es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado, cantidad,
+    tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega, ubicacion_actual,
+    estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
+    detalle, observaciones, notas_entrega, numero_comprobante, responsable_id, creado_por
+  ) values (
+    true, 'SEED Constructora Sur EIRL', '054 22 3344', array['SP', 'PT']::public.tipo_pedido[], 'letreros', 10,
+    'credito', 30, 790.6, 'agencia', null, 'agencia',
+    'entregado', null, (current_date + -2), ((current_date + -9) + time '09:15') at time zone 'America/Lima',
+    (current_date + -1), null,
+    '6 × [LTR-002] Letrero plano de acrílico con impresión UV (cuadrado o rectangular) — Medidas: 40 × 30 cm. Material: Acrílico ECO · Negro · 3 mm. Texto: Salida de emergencia. Personalización: Impresión UV a color
+4 × [ACC017] BARRAS DE ACRILICO 6MM X 1200MM CRISTAL', null, null, 'F001-000236', (select id from public.trabajadores where nombre = 'Juan'), (select id from public.usuarios where usuario = 'ana')
+  )
+  returning id, codigo
+)
+insert into seed_pedidos (clave, id, codigo) select 'entregado-provincia', id, codigo from nuevo;
+
+with c as (
+  insert into public.cotizaciones (
+    pedido_id, odoo_partner_id, cliente_nombre, cliente_documento, cliente_telefono,
+    odoo_order_id, odoo_order_name, sincronizacion, monto_sin_impuestos, monto_impuestos, monto_total,
+    confirmada_en_odoo, stock_descontado, creado_por, creado_en
+  ) values (
+    (select id from seed_pedidos where clave = 'entregado-provincia'), 7, 'SEED Constructora Sur EIRL', '20456789013', '054 22 3344',
+    9003, 'S09003', 'sincronizada', 670, 120.6, 790.6,
+    true, true, (select id from public.usuarios where usuario = 'ana'), ((current_date + -9) + time '09:00') at time zone 'America/Lima'
+  )
+  returning id
+)
+insert into public.cotizacion_productos (
+  cotizacion_id, posicion, tipo, odoo_product_id, producto_nombre, producto_codigo, descripcion,
+  cantidad, precio_unitario, importe, corte, terminado, indicaciones, planchas_usadas
+)
+select c.id, l.* from c, (values
+  (1::smallint, 'terminado'::public.tipo_linea, 902, 'Letrero plano de acrílico con impresión UV (cuadrado o rectangular)', 'LTR-002', 'Medidas: 40 × 30 cm. Material: Acrílico ECO · Negro · 3 mm. Texto: Salida de emergencia. Personalización: Impresión UV a color',
+   6::numeric, 95::numeric, 570::numeric,
+   null::jsonb,
+   jsonb_set('{"version":1,"estandar":true,"productoCodigo":"LTR-002","tipoCodigo":"LTR","tipoNombre":"Letrero","nombre":"Letrero plano de acrílico con impresión UV (cuadrado o rectangular)","geometria":"lamina","medidas":{"m1":40,"m2":30},"medidaEstandar":false,"material":{"grupoId":"__GRUPO__","material":"Acrílico ECO","color":"Negro","espesorMm":3},"opciones":[{"clase":"personalizacion","nombre":"Impresión UV a color","extra":20}],"texto":"Salida de emergencia","notas":null,"areaUnidadM2":0.12,"areaManual":false,"mermaPct":15,"materiales":[{"productoId":24,"codigo":"F7E029","nombre":"ACRILICO ECO COLORES NEGRO 3MM 1.22X1.83","unidad":"plancha","cantidad":0.37,"precio":147,"esPlancha":true},{"productoId":292,"codigo":"ACC033","nombre":"SOPORTES DE ACRILICO 19MM X 30MM CRISTAL","unidad":"Unidades","cantidad":24,"precio":6,"esPlancha":false}],"costoMaterial":198.39,"factor":2,"precioSugerido":66.13,"precioUnitario":95,"reservar":false,"corte":null}'::jsonb, '{material,grupoId}', to_jsonb((select id::text from public.grupos_plancha where material = 'Acrílico ECO' and variante = 'Colores' and detalle = 'Negro' and espesor_mm = 3))),
+   null, null::numeric),
+  (2::smallint, 'producto'::public.tipo_linea, 282, 'BARRAS DE ACRILICO 6MM X 1200MM CRISTAL', 'ACC017', null,
+   4::numeric, 25::numeric, null::numeric,
+   null::jsonb,
+   null::jsonb,
+   null, null::numeric)
+) as l;
 
 insert into public.envios_provincia (
   pedido_id, departamento_id, provincia_id, nombre_agencia, nombre_persona_recoge,
-  tipo_documento, numero_documento, telefono_persona_recoge, monto_flete, flete_pagado,
-  observaciones_envio
+  tipo_documento, numero_documento, telefono_persona_recoge, monto_flete, flete_pagado, observaciones_envio
 ) values (
-  (select id from public.pedidos where codigo = 'PCM_2026_R2WQ'), (select id from public.departamentos where nombre = 'La Libertad'), (select pr.id from public.provincias pr join public.departamentos d on d.id = pr.departamento_id
-        where d.nombre = 'La Libertad' and pr.nombre = 'Trujillo'),
-  'Shalom - Trujillo Centro', 'Marisol Vega Ríos', 'DNI', '44821903',
-  '958 447 210', 120, true, 'Avisar a la persona que recoge una hora antes de la llegada.'
+  (select id from seed_pedidos where clave = 'entregado-provincia'), (select id from public.departamentos where nombre = 'Arequipa'),
+  (select pr.id from public.provincias pr join public.departamentos d on d.id = pr.departamento_id where d.nombre = 'Arequipa' and pr.nombre = 'Arequipa'),
+  'Shalom — Av. Ejército', 'Luis Quispe Mamani', 'DNI', '45871236', '959 334 120', 35, true, null
 );
 
 insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
-values ((select id from public.pedidos where codigo = 'PCM_2026_R2WQ'), 1000, 'transferencia', '2026-08-18 12:00:00-05', (select id from public.usuarios where email = 'ana@plexiacril.test'));
+values ((select id from seed_pedidos where clave = 'entregado-provincia'), 316.24, 'transferencia', ((current_date + -3) + time '10:30') at time zone 'America/Lima', (select id from public.usuarios where usuario = 'ana'));
 
-insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
-values ((select id from public.pedidos where codigo = 'PCM_2026_R2WQ'), 170, 'yape_plin', '2026-08-25 12:00:00-05', (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'PCM_2026_R2WQ'), 'diseno', 'pedidos/PCM_2026_R2WQ/diseno/plano-corte-v2.pdf',
-        'plano-corte-v2.pdf', 'application/pdf', 860160, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'PCM_2026_R2WQ'), 'diseno', 'pedidos/PCM_2026_R2WQ/diseno/referencia-cliente.jpg',
-        'referencia-cliente.jpg', 'image/jpeg', 1258291, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'PCM_2026_R2WQ'), 'factura', 'pedidos/PCM_2026_R2WQ/factura/factura-F001-004512.pdf',
-        'factura-F001-004512.pdf', 'application/pdf', 215040, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'PCM_2026_R2WQ'), 'guia', 'pedidos/PCM_2026_R2WQ/guia/guia-remision.pdf',
-        'guia-remision.pdf', 'application/pdf', 184320, (select id from public.usuarios where email = 'ana@plexiacril.test'));
+insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por, linea_posicion)
+select id, 'guia', 'pedidos/' || codigo || '/guia/guia-shalom-0098.pdf', 'guia-shalom-0098.pdf', 'application/pdf', 214000, (select id from public.usuarios where usuario = 'ana'), null
+from seed_pedidos where clave = 'entregado-provincia';
 
 insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'PCM_2026_R2WQ'), 'registrado', 'administracion', null, (select id from public.usuarios where email = 'ana@plexiacril.test'), '2026-08-18T09:14:00-05');
+values ((select id from seed_pedidos where clave = 'entregado-provincia'), 'registrado', 'administracion', null, (select id from public.usuarios where usuario = 'ana'), ((current_date + -9) + time '09:15') at time zone 'America/Lima');
 
 insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'PCM_2026_R2WQ'), 'en_proceso', 'administracion', null, (select id from public.usuarios where email = 'ana@plexiacril.test'), '2026-08-19T08:02:00-05');
+values ((select id from seed_pedidos where clave = 'entregado-provincia'), 'en_proceso', 'operaciones', null, (select id from public.usuarios where usuario = 'miguel'), ((current_date + -8) + time '16:00') at time zone 'America/Lima');
 
 insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'PCM_2026_R2WQ'), 'listo', 'operaciones', null, (select id from public.usuarios where email = 'miguel@plexiacril.test'), '2026-08-26T17:41:00-05');
+values ((select id from seed_pedidos where clave = 'entregado-provincia'), 'listo', 'operaciones', null, (select id from public.usuarios where usuario = 'miguel'), ((current_date + -5) + time '16:00') at time zone 'America/Lima');
 
 insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'PCM_2026_R2WQ'), 'en_transito', 'logistica', null, (select id from public.usuarios where email = 'carla@plexiacril.test'), '2026-08-28T11:20:00-05');
-
-insert into public.logs_auditoria (pedido_id, usuario_id, campo, valor_anterior, valor_nuevo, creado_en)
-values ((select id from public.pedidos where codigo = 'PCM_2026_R2WQ'), (select id from public.usuarios where email = 'carla@plexiacril.test'), 'ubicacion_actual', 'En taller', 'En agencia', '2026-08-28T11:20:00-05');
-
-insert into public.logs_auditoria (pedido_id, usuario_id, campo, valor_anterior, valor_nuevo, creado_en)
-values ((select id from public.pedidos where codigo = 'PCM_2026_R2WQ'), (select id from public.usuarios where email = 'carla@plexiacril.test'), 'estado', 'Listo', 'En tránsito', '2026-08-28T11:20:00-05');
-
-insert into public.logs_auditoria (pedido_id, usuario_id, campo, valor_anterior, valor_nuevo, creado_en)
-values ((select id from public.pedidos where codigo = 'PCM_2026_R2WQ'), (select id from public.usuarios where email = 'ana@plexiacril.test'), 'numero_comprobante', '—', 'F001-004512', '2026-08-28T10:57:00-05');
-
-insert into public.logs_auditoria (pedido_id, usuario_id, campo, valor_anterior, valor_nuevo, creado_en)
-values ((select id from public.pedidos where codigo = 'PCM_2026_R2WQ'), (select id from public.usuarios where email = 'miguel@plexiacril.test'), 'estado', 'En proceso', 'Listo', '2026-08-26T17:41:00-05');
-
-insert into public.logs_auditoria (pedido_id, usuario_id, campo, valor_anterior, valor_nuevo, creado_en)
-values ((select id from public.pedidos where codigo = 'PCM_2026_R2WQ'), (select id from public.usuarios where email = 'ana@plexiacril.test'), 'monto_total', '2 100.00', '2 340.00', '2026-08-21T15:03:00-05');
-
-insert into public.pedidos (
-  codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
-  cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
-  ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_comprobante, responsable_id, creado_por
-) values (
-  'LSP_2026_T7YX', false, 'Universidad Nacional de Ingeniería', '918 264 933',
-  array['SP']::public.tipo_pedido[], null,
-  20, 'credito', 30, 4100,
-  'taller', null,
-  'taller', 'registrado', null,
-  '2026-09-04', '2026-08-28 09:00:00-05', null, null,
-  '20 planchas acrílico cristal 2440x1220x5mm, sin cortar.', null, null,
-  null, (select id from public.usuarios where email = 'ana@plexiacril.test')
-);
+values ((select id from seed_pedidos where clave = 'entregado-provincia'), 'en_transito', 'logistica', null, (select id from public.usuarios where usuario = 'carla'), ((current_date + -4) + time '16:00') at time zone 'America/Lima');
 
 insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LSP_2026_T7YX'), 'registrado', 'administracion', null, (select id from public.usuarios where email = 'ana@plexiacril.test'), '2026-08-28T08:30:00-05');
+values ((select id from seed_pedidos where clave = 'entregado-provincia'), 'entregado', 'logistica', null, (select id from public.usuarios where usuario = 'carla'), ((current_date + -1) + time '16:00') at time zone 'America/Lima');
 
-insert into public.pedidos (
-  codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
-  cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
-  ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_comprobante, responsable_id, creado_por
-) values (
-  'PPT_2026_M3NP', true, 'Clínica San Pablo - Arequipa', '973 155 620',
-  array['PT']::public.tipo_pedido[], 'letreros',
-  6, 'a_cuenta', null, 3680,
-  'agencia', null,
-  'taller', 'en_proceso', null,
-  '2026-08-27', '2026-08-14 09:00:00-05', null, null,
-  '6 letreros de señalización interna, acrílico azul 5mm con vinil blanco.', null, null,
-  (select id from public.trabajadores where nombre = 'Clever'), (select id from public.usuarios where email = 'ana@plexiacril.test')
-);
+-- en-transito: en_transito, SEED Publicidad Lima SAC
+with nuevo as (
+  insert into public.pedidos (
+    es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado, cantidad,
+    tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega, ubicacion_actual,
+    estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
+    detalle, observaciones, notas_entrega, numero_comprobante, responsable_id, creado_por
+  ) values (
+    true, 'SEED Publicidad Lima SAC', '01 444 5566', array['CL', 'SP']::public.tipo_pedido[], null, 44,
+    'contado', null, 434.24, 'agencia', null, 'agencia',
+    'en_transito', null, (current_date + 1), ((current_date + -6) + time '09:15') at time zone 'America/Lima',
+    null, null,
+    'Corte láser · Acrílico ECO · Cristal · 3 mm: 40 piezas (40 × 30×20 cm) — 2 planchas de 122×183
+4 × [ACC035] SISTEMA GIRATORIO 100MM CRISTAL', null, null, null, (select id from public.trabajadores where nombre = 'Isaac'), (select id from public.usuarios where usuario = 'ana')
+  )
+  returning id, codigo
+)
+insert into seed_pedidos (clave, id, codigo) select 'en-transito', id, codigo from nuevo;
+
+with c as (
+  insert into public.cotizaciones (
+    pedido_id, odoo_partner_id, cliente_nombre, cliente_documento, cliente_telefono,
+    odoo_order_id, odoo_order_name, sincronizacion, monto_sin_impuestos, monto_impuestos, monto_total,
+    confirmada_en_odoo, stock_descontado, creado_por, creado_en
+  ) values (
+    (select id from seed_pedidos where clave = 'en-transito'), 5, 'SEED Publicidad Lima SAC', '20512345671', '01 444 5566',
+    9004, 'S09004', 'sincronizada', 368, 66.24, 434.24,
+    true, true, (select id from public.usuarios where usuario = 'ana'), ((current_date + -6) + time '09:00') at time zone 'America/Lima'
+  )
+  returning id
+)
+insert into public.cotizacion_productos (
+  cotizacion_id, posicion, tipo, odoo_product_id, producto_nombre, producto_codigo, descripcion,
+  cantidad, precio_unitario, importe, corte, terminado, indicaciones, planchas_usadas
+)
+select c.id, l.* from c, (values
+  (1::smallint, 'corte'::public.tipo_linea, 20, 'ACRILICO ECO CRISTAL 3MM 1.22X1.83', 'F7E024', 'Corte láser · Acrílico ECO · Cristal · 3 mm: 40 × 30×20 cm',
+   2::numeric, 95.55::numeric, 228::numeric,
+   jsonb_set('{"version":1,"grupoId":"__GRUPO__","material":"Acrílico ECO","color":"Cristal","espesorMm":3,"modalidad":"laser","rotable":true,"piezas":[{"ancho":30,"alto":20,"cantidad":40}],"servicio":{"productoId":31,"codigo":"SRV002","nombre":"SERVICIO DE CORTE LASER"},"sobrantes":false,"formato":{"codigo":"F7E024","ancho":122,"alto":183,"precio":147},"planchas":[{"origen":{"tipo":"plancha"},"ancho":122,"alto":183,"usoPct":96.7,"piezas":36,"cobro":{"nombre":"1","factor":1,"ancho":122,"alto":183,"monto":147,"nota":null},"paneles":[{"x1":0,"y1":0,"x2":30,"y2":20,"libre":false,"piezaId":"f1#1","rotada":false},{"x1":30,"y1":0,"x2":60,"y2":20,"libre":false,"piezaId":"f1#2","rotada":false},{"x1":60,"y1":0,"x2":90,"y2":20,"libre":false,"piezaId":"f1#3","rotada":false},{"x1":90,"y1":0,"x2":120,"y2":20,"libre":false,"piezaId":"f1#4","rotada":false},{"x1":120,"y1":0,"x2":122,"y2":20,"libre":true},{"x1":0,"y1":20,"x2":30,"y2":40,"libre":false,"piezaId":"f1#5","rotada":false},{"x1":30,"y1":20,"x2":60,"y2":40,"libre":false,"piezaId":"f1#6","rotada":false},{"x1":60,"y1":20,"x2":90,"y2":40,"libre":false,"piezaId":"f1#7","rotada":false},{"x1":90,"y1":20,"x2":120,"y2":40,"libre":false,"piezaId":"f1#8","rotada":false},{"x1":120,"y1":20,"x2":122,"y2":40,"libre":true},{"x1":0,"y1":40,"x2":30,"y2":60,"libre":false,"piezaId":"f1#9","rotada":false},{"x1":30,"y1":40,"x2":60,"y2":60,"libre":false,"piezaId":"f1#10","rotada":false},{"x1":60,"y1":40,"x2":90,"y2":60,"libre":false,"piezaId":"f1#11","rotada":false},{"x1":90,"y1":40,"x2":120,"y2":60,"libre":false,"piezaId":"f1#12","rotada":false},{"x1":120,"y1":40,"x2":122,"y2":60,"libre":true},{"x1":0,"y1":60,"x2":30,"y2":80,"libre":false,"piezaId":"f1#13","rotada":false},{"x1":30,"y1":60,"x2":60,"y2":80,"libre":false,"piezaId":"f1#14","rotada":false},{"x1":60,"y1":60,"x2":90,"y2":80,"libre":false,"piezaId":"f1#15","rotada":false},{"x1":90,"y1":60,"x2":120,"y2":80,"libre":false,"piezaId":"f1#16","rotada":false},{"x1":120,"y1":60,"x2":122,"y2":80,"libre":true},{"x1":0,"y1":80,"x2":30,"y2":100,"libre":false,"piezaId":"f1#17","rotada":false},{"x1":30,"y1":80,"x2":60,"y2":100,"libre":false,"piezaId":"f1#18","rotada":false},{"x1":60,"y1":80,"x2":90,"y2":100,"libre":false,"piezaId":"f1#19","rotada":false},{"x1":90,"y1":80,"x2":120,"y2":100,"libre":false,"piezaId":"f1#20","rotada":false},{"x1":120,"y1":80,"x2":122,"y2":100,"libre":true},{"x1":0,"y1":100,"x2":30,"y2":120,"libre":false,"piezaId":"f1#21","rotada":false},{"x1":30,"y1":100,"x2":60,"y2":120,"libre":false,"piezaId":"f1#25","rotada":false},{"x1":60,"y1":100,"x2":90,"y2":120,"libre":false,"piezaId":"f1#26","rotada":false},{"x1":90,"y1":100,"x2":120,"y2":120,"libre":false,"piezaId":"f1#27","rotada":false},{"x1":120,"y1":100,"x2":122,"y2":120,"libre":true},{"x1":30,"y1":120,"x2":60,"y2":140,"libre":false,"piezaId":"f1#28","rotada":false},{"x1":60,"y1":120,"x2":90,"y2":140,"libre":false,"piezaId":"f1#31","rotada":false},{"x1":90,"y1":120,"x2":120,"y2":140,"libre":false,"piezaId":"f1#32","rotada":false},{"x1":120,"y1":120,"x2":122,"y2":140,"libre":true},{"x1":60,"y1":140,"x2":90,"y2":160,"libre":false,"piezaId":"f1#33","rotada":false},{"x1":90,"y1":140,"x2":120,"y2":160,"libre":false,"piezaId":"f1#34","rotada":false},{"x1":120,"y1":140,"x2":122,"y2":160,"libre":true},{"x1":60,"y1":160,"x2":90,"y2":180,"libre":false,"piezaId":"f1#35","rotada":false},{"x1":90,"y1":160,"x2":120,"y2":180,"libre":false,"piezaId":"f1#36","rotada":false},{"x1":120,"y1":160,"x2":122,"y2":180,"libre":true},{"x1":60,"y1":180,"x2":122,"y2":183,"libre":true},{"x1":30,"y1":140,"x2":60,"y2":160,"libre":false,"piezaId":"f1#29","rotada":false},{"x1":30,"y1":160,"x2":60,"y2":180,"libre":false,"piezaId":"f1#30","rotada":false},{"x1":30,"y1":180,"x2":60,"y2":183,"libre":true},{"x1":0,"y1":120,"x2":30,"y2":140,"libre":false,"piezaId":"f1#22","rotada":false},{"x1":0,"y1":140,"x2":30,"y2":160,"libre":false,"piezaId":"f1#23","rotada":false},{"x1":0,"y1":160,"x2":30,"y2":180,"libre":false,"piezaId":"f1#24","rotada":false},{"x1":0,"y1":180,"x2":30,"y2":183,"libre":true}]},{"origen":{"tipo":"plancha"},"ancho":122,"alto":183,"usoPct":10.7,"piezas":4,"cobro":{"nombre":"1/4","factor":0.25,"ancho":61,"alto":91.5,"monto":44.1,"nota":null},"paneles":[{"x1":0,"y1":0,"x2":30,"y2":20,"libre":false,"piezaId":"f1#37","rotada":false},{"x1":30,"y1":0,"x2":60,"y2":20,"libre":false,"piezaId":"f1#38","rotada":false},{"x1":60,"y1":0,"x2":61,"y2":20,"libre":true},{"x1":0,"y1":20,"x2":30,"y2":40,"libre":false,"piezaId":"f1#39","rotada":false},{"x1":30,"y1":20,"x2":60,"y2":40,"libre":false,"piezaId":"f1#40","rotada":false},{"x1":60,"y1":20,"x2":61,"y2":40,"libre":true},{"x1":0,"y1":40,"x2":61,"y2":91.5,"libre":true},{"x1":61,"y1":0,"x2":122,"y2":183,"libre":true,"sobrante":true},{"x1":0,"y1":91.5,"x2":61,"y2":183,"libre":true,"sobrante":true}]}],"montoMaterial":191.1,"montoServicio":36.9,"total":228,"minutosLaser":38.77,"desglose":[{"etiqueta":"Plancha 1: completa (122×183)","monto":147},{"etiqueta":"Plancha 2: las piezas caben en 1/4 (61×91.5) → S/ 147.00 × 1/4 + 20 %","monto":44.1},{"etiqueta":"Corte láser: 40 piezas, 38.77 min","monto":36.9},{"etiqueta":"Total","monto":228,"esTotal":true}]}'::jsonb, '{grupoId}', to_jsonb((select id::text from public.grupos_plancha where material = 'Acrílico ECO' and variante = 'Cristal' and detalle = '' and espesor_mm = 3))),
+   null::jsonb,
+   null, null::numeric),
+  (2::smallint, 'producto'::public.tipo_linea, 295, 'SISTEMA GIRATORIO 100MM CRISTAL', 'ACC035', null,
+   4::numeric, 35::numeric, null::numeric,
+   null::jsonb,
+   null::jsonb,
+   null, null::numeric)
+) as l;
 
 insert into public.envios_provincia (
   pedido_id, departamento_id, provincia_id, nombre_agencia, nombre_persona_recoge,
-  tipo_documento, numero_documento, telefono_persona_recoge, monto_flete, flete_pagado,
-  observaciones_envio
+  tipo_documento, numero_documento, telefono_persona_recoge, monto_flete, flete_pagado, observaciones_envio
 ) values (
-  (select id from public.pedidos where codigo = 'PPT_2026_M3NP'), (select id from public.departamentos where nombre = 'Arequipa'), (select pr.id from public.provincias pr join public.departamentos d on d.id = pr.departamento_id
-        where d.nombre = 'Arequipa' and pr.nombre = 'Arequipa'),
-  'Olva Courier - Cercado', 'Jorge Cáceres Núñez', 'DNI', '29874102',
-  '954 118 302', 180, false, null
+  (select id from seed_pedidos where clave = 'en-transito'), (select id from public.departamentos where nombre = 'Cusco'),
+  (select pr.id from public.provincias pr join public.departamentos d on d.id = pr.departamento_id where d.nombre = 'Cusco' and pr.nombre = 'Cusco'),
+  'Marvisur', 'Rosa Huamán Ccori', 'DNI', '43219876', '984 551 207', 40, false, 'Flete se paga en destino.'
 );
 
 insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
-values ((select id from public.pedidos where codigo = 'PPT_2026_M3NP'), 1840, 'transferencia', '2026-08-14 12:00:00-05', (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'PPT_2026_M3NP'), 'diseno', 'pedidos/PPT_2026_M3NP/diseno/senaletica-v3.pdf',
-        'senaletica-v3.pdf', 'application/pdf', 1468006, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'PPT_2026_M3NP'), 'diseno', 'pedidos/PPT_2026_M3NP/diseno/vinil-blanco.ai',
-        'vinil-blanco.ai', 'application/postscript', 798720, (select id from public.usuarios where email = 'ana@plexiacril.test'));
+values ((select id from seed_pedidos where clave = 'en-transito'), 434.24, 'yape_plin', ((current_date + -6) + time '10:30') at time zone 'America/Lima', (select id from public.usuarios where usuario = 'ana'));
 
 insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'PPT_2026_M3NP'), 'registrado', 'administracion', null, (select id from public.usuarios where email = 'ana@plexiacril.test'), '2026-08-14T08:30:00-05');
+values ((select id from seed_pedidos where clave = 'en-transito'), 'registrado', 'administracion', null, (select id from public.usuarios where usuario = 'ana'), ((current_date + -6) + time '09:15') at time zone 'America/Lima');
 
 insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'PPT_2026_M3NP'), 'en_proceso', 'operaciones', null, (select id from public.usuarios where email = 'miguel@plexiacril.test'), '2026-08-14T16:05:00-05');
+values ((select id from seed_pedidos where clave = 'en-transito'), 'en_proceso', 'operaciones', null, (select id from public.usuarios where usuario = 'miguel'), ((current_date + -5) + time '16:00') at time zone 'America/Lima');
 
-insert into public.pedidos (
-  codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
-  cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
-  ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_comprobante, responsable_id, creado_por
-) values (
-  'LCL_2026_B8FD', false, 'Restaurante El Tumi', null,
-  array['CL']::public.tipo_pedido[], null,
-  25, 'contado', null, 640,
-  'tienda', null,
-  'tienda', 'entregado', null,
-  '2026-08-22', '2026-08-15 09:00:00-05', '2026-08-22', null,
-  '25 porta cartas cortados a láser, acrílico ámbar 3mm.', null, 'F001-004489',
-  (select id from public.trabajadores where nombre = 'John'), (select id from public.usuarios where email = 'ana@plexiacril.test')
-);
+insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
+values ((select id from seed_pedidos where clave = 'en-transito'), 'listo', 'operaciones', null, (select id from public.usuarios where usuario = 'miguel'), ((current_date + -2) + time '16:00') at time zone 'America/Lima');
+
+insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
+values ((select id from seed_pedidos where clave = 'en-transito'), 'en_transito', 'logistica', null, (select id from public.usuarios where usuario = 'carla'), ((current_date + -1) + time '16:00') at time zone 'America/Lima');
+
+-- listo-tienda: listo, SEED María Torres Huamán
+with nuevo as (
+  insert into public.pedidos (
+    es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado, cantidad,
+    tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega, ubicacion_actual,
+    estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
+    detalle, observaciones, notas_entrega, numero_comprobante, responsable_id, creado_por
+  ) values (
+    false, 'SEED María Torres Huamán', '988 112 233', array['CM', 'SP']::public.tipo_pedido[], null, 5,
+    'a_cuenta', null, 405.92, 'tienda', null, 'tienda',
+    'listo', null, (current_date + 0), ((current_date + -5) + time '09:15') at time zone 'America/Lima',
+    null, null,
+    'Corte manual · Superficie sólida de acrílico · White (KS-003) · 6 mm: 3 piezas (1 × 120×60 cm, 2 × 40×30 cm) — 1 plancha de 122×244
+  ↳ Pulir los cantos a brillo.
+2 × [PEG003] ADHESIVO 50 ML WHITE SUPERFICIE SOLIDA (KS-003)', null, 'Avisar por WhatsApp cuando esté para recoger.', null, (select id from public.trabajadores where nombre = 'Clever'), (select id from public.usuarios where usuario = 'ana')
+  )
+  returning id, codigo
+)
+insert into seed_pedidos (clave, id, codigo) select 'listo-tienda', id, codigo from nuevo;
+
+with c as (
+  insert into public.cotizaciones (
+    pedido_id, odoo_partner_id, cliente_nombre, cliente_documento, cliente_telefono,
+    odoo_order_id, odoo_order_name, sincronizacion, monto_sin_impuestos, monto_impuestos, monto_total,
+    confirmada_en_odoo, stock_descontado, creado_por, creado_en
+  ) values (
+    (select id from seed_pedidos where clave = 'listo-tienda'), 6, 'SEED María Torres Huamán', '41234567', '988 112 233',
+    9005, 'S09005', 'sincronizada', 344, 61.92, 405.92,
+    true, true, (select id from public.usuarios where usuario = 'ana'), ((current_date + -5) + time '09:00') at time zone 'America/Lima'
+  )
+  returning id
+)
+insert into public.cotizacion_productos (
+  cotizacion_id, posicion, tipo, odoo_product_id, producto_nombre, producto_codigo, descripcion,
+  cantidad, precio_unitario, importe, corte, terminado, indicaciones, planchas_usadas
+)
+select c.id, l.* from c, (values
+  (1::smallint, 'corte'::public.tipo_linea, 269, 'SUPERFICIE SOLIDA DE ACRILICO WHITE (KS-003) 6MM 1.22X2.44', 'SS002', 'Corte manual · Superficie sólida de acrílico · White (KS-003) · 6 mm: 1 × 120×60 cm, 2 × 40×30 cm',
+   1::numeric, 235.8::numeric, 254::numeric,
+   jsonb_set('{"version":1,"grupoId":"__GRUPO__","material":"Superficie sólida de acrílico","color":"White (KS-003)","espesorMm":6,"modalidad":"manual","rotable":true,"piezas":[{"ancho":120,"alto":60,"cantidad":1},{"ancho":40,"alto":30,"cantidad":2}],"servicio":{"productoId":30,"codigo":"SRV001","nombre":"SERVICIO DE CORTE MANUAL"},"sobrantes":false,"formato":{"codigo":"SS002","ancho":122,"alto":244,"precio":393},"planchas":[{"origen":{"tipo":"plancha"},"ancho":122,"alto":244,"usoPct":32.2,"piezas":3,"cobro":{"nombre":"1/2","factor":0.5,"ancho":61,"alto":244,"monto":235.8,"nota":null},"paneles":[{"x1":0,"y1":0,"x2":60,"y2":120,"libre":false,"piezaId":"f1#1","rotada":true},{"x1":60,"y1":0,"x2":61,"y2":244,"libre":true},{"x1":0,"y1":120,"x2":40,"y2":150,"libre":false,"piezaId":"f2#1","rotada":false},{"x1":40,"y1":120,"x2":60,"y2":244,"libre":true},{"x1":0,"y1":150,"x2":40,"y2":180,"libre":false,"piezaId":"f2#2","rotada":false},{"x1":0,"y1":180,"x2":40,"y2":244,"libre":true},{"x1":61,"y1":0,"x2":122,"y2":244,"libre":true,"sobrante":true}]}],"montoMaterial":235.8,"montoServicio":18.2,"total":254,"minutosLaser":null,"desglose":[{"etiqueta":"Plancha 1: las piezas caben en 1/2 (61×244) → S/ 393.00 × 1/2 + 20 %","monto":235.8},{"etiqueta":"Corte manual: 3 piezas de 6 mm","monto":18.2},{"etiqueta":"Total","monto":254,"esTotal":true}]}'::jsonb, '{grupoId}', to_jsonb((select id::text from public.grupos_plancha where material = 'Superficie sólida de acrílico' and variante = '' and detalle = 'White (KS-003)' and espesor_mm = 6))),
+   null::jsonb,
+   'Pulir los cantos a brillo.', null::numeric),
+  (2::smallint, 'producto'::public.tipo_linea, 322, 'ADHESIVO 50 ML WHITE SUPERFICIE SOLIDA (KS-003)', 'PEG003', null,
+   2::numeric, 45::numeric, null::numeric,
+   null::jsonb,
+   null::jsonb,
+   null, null::numeric)
+) as l;
 
 insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
-values ((select id from public.pedidos where codigo = 'LCL_2026_B8FD'), 640, 'efectivo', '2026-08-15 12:00:00-05', (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'LCL_2026_B8FD'), 'diseno', 'pedidos/LCL_2026_B8FD/diseno/porta-cartas.pdf',
-        'porta-cartas.pdf', 'application/pdf', 532480, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'LCL_2026_B8FD'), 'factura', 'pedidos/LCL_2026_B8FD/factura/factura-F001-004489.pdf',
-        'factura-F001-004489.pdf', 'application/pdf', 202752, (select id from public.usuarios where email = 'ana@plexiacril.test'));
+values ((select id from seed_pedidos where clave = 'listo-tienda'), 202.96, 'efectivo', ((current_date + -5) + time '10:30') at time zone 'America/Lima', (select id from public.usuarios where usuario = 'ana'));
 
 insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LCL_2026_B8FD'), 'registrado', 'administracion', null, (select id from public.usuarios where email = 'ana@plexiacril.test'), '2026-08-15T08:30:00-05');
+values ((select id from seed_pedidos where clave = 'listo-tienda'), 'registrado', 'administracion', null, (select id from public.usuarios where usuario = 'ana'), ((current_date + -5) + time '09:15') at time zone 'America/Lima');
 
 insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LCL_2026_B8FD'), 'entregado', 'operaciones', null, (select id from public.usuarios where email = 'miguel@plexiacril.test'), '2026-08-15T16:05:00-05');
+values ((select id from seed_pedidos where clave = 'listo-tienda'), 'en_proceso', 'operaciones', null, (select id from public.usuarios where usuario = 'miguel'), ((current_date + -4) + time '16:00') at time zone 'America/Lima');
 
-insert into public.pedidos (
-  codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
-  cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
-  ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_comprobante, responsable_id, creado_por
-) values (
-  'LCM_2026_W5QA', false, 'Gimnasio Bodytech Miraflores', '956 890 174',
-  array['CM']::public.tipo_pedido[], null,
-  8, 'a_cuenta', null, 1480,
-  'domicilio', 'Av. Benavides 1944, Miraflores',
-  'taller', 'observado', 'El cliente no confirma la medida de altura; producción detenida desde el 26/08.',
-  '2026-08-28', '2026-08-21 09:00:00-05', null, null,
-  'Separadores de vestuario. FALTA que el cliente confirme la altura final.', null, null,
-  (select id from public.trabajadores where nombre = 'Angel'), (select id from public.usuarios where email = 'ana@plexiacril.test')
-);
+insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
+values ((select id from seed_pedidos where clave = 'listo-tienda'), 'listo', 'operaciones', null, (select id from public.usuarios where usuario = 'miguel'), ((current_date + -1) + time '16:00') at time zone 'America/Lima');
+
+-- listo-domicilio: listo, SEED Constructora Sur EIRL
+with nuevo as (
+  insert into public.pedidos (
+    es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado, cantidad,
+    tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega, ubicacion_actual,
+    estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
+    detalle, observaciones, notas_entrega, numero_comprobante, responsable_id, creado_por
+  ) values (
+    false, 'SEED Constructora Sur EIRL', '054 22 3344', array['SP', 'PT']::public.tipo_pedido[], 'cajas', 11,
+    'credito', 15, 1097.4, 'domicilio', 'Calle Los Pinos 145, Urb. Santa Patricia, La Molina', 'taller',
+    'listo', null, (current_date + 1), ((current_date + -5) + time '09:15') at time zone 'America/Lima',
+    null, null,
+    '10 × [CAJ-006] Caja para rifas y sorteos — Medidas: 30 × 30 × 30 cm. Material: Acrílico ECO · Cristal · 3 mm. Acabado: Brillante (pulido). Complementos: Cerradura con llave. Notas: Ranura de 2 cm en la tapa
+1 × [SRV004] SERVICIO DE INSTALACION', null, null, null, (select id from public.trabajadores where nombre = 'John'), (select id from public.usuarios where usuario = 'ana')
+  )
+  returning id, codigo
+)
+insert into seed_pedidos (clave, id, codigo) select 'listo-domicilio', id, codigo from nuevo;
+
+with c as (
+  insert into public.cotizaciones (
+    pedido_id, odoo_partner_id, cliente_nombre, cliente_documento, cliente_telefono,
+    odoo_order_id, odoo_order_name, sincronizacion, monto_sin_impuestos, monto_impuestos, monto_total,
+    confirmada_en_odoo, stock_descontado, creado_por, creado_en
+  ) values (
+    (select id from seed_pedidos where clave = 'listo-domicilio'), 7, 'SEED Constructora Sur EIRL', '20456789013', '054 22 3344',
+    9006, 'S09006', 'sincronizada', 930, 167.4, 1097.4,
+    true, true, (select id from public.usuarios where usuario = 'ana'), ((current_date + -5) + time '09:00') at time zone 'America/Lima'
+  )
+  returning id
+)
+insert into public.cotizacion_productos (
+  cotizacion_id, posicion, tipo, odoo_product_id, producto_nombre, producto_codigo, descripcion,
+  cantidad, precio_unitario, importe, corte, terminado, indicaciones, planchas_usadas
+)
+select c.id, l.* from c, (values
+  (1::smallint, 'terminado'::public.tipo_linea, 901, 'Caja para rifas y sorteos', 'CAJ-006', 'Medidas: 30 × 30 × 30 cm. Material: Acrílico ECO · Cristal · 3 mm. Acabado: Brillante (pulido). Complementos: Cerradura con llave. Notas: Ranura de 2 cm en la tapa',
+   10::numeric, 85::numeric, 850::numeric,
+   null::jsonb,
+   jsonb_set('{"version":1,"estandar":true,"productoCodigo":"CAJ-006","tipoCodigo":"CAJ","tipoNombre":"Caja","nombre":"Caja para rifas y sorteos","geometria":"caja_cerrada","medidas":{"m1":30,"m2":30,"m3":30},"medidaEstandar":false,"material":{"grupoId":"__GRUPO__","material":"Acrílico ECO","color":"Cristal","espesorMm":3},"opciones":[{"clase":"complemento","nombre":"Cerradura con llave","extra":15},{"clase":"acabado","nombre":"Brillante (pulido)","extra":0}],"texto":null,"notas":"Ranura de 2 cm en la tapa","areaUnidadM2":0.54,"areaManual":false,"mermaPct":15,"materiales":[{"productoId":20,"codigo":"F7E024","nombre":"ACRILICO ECO CRISTAL 3MM 1.22X1.83","unidad":"plancha","cantidad":2.78,"precio":147,"esPlancha":true},{"productoId":271,"codigo":"ACC003","nombre":"BISAGRAS 25MM X 33MM CRISTAL","unidad":"Unidades","cantidad":20,"precio":8,"esPlancha":false}],"costoMaterial":568.66,"factor":2,"precioSugerido":113.73,"precioUnitario":85,"reservar":false,"corte":null}'::jsonb, '{material,grupoId}', to_jsonb((select id::text from public.grupos_plancha where material = 'Acrílico ECO' and variante = 'Cristal' and detalle = '' and espesor_mm = 3))),
+   null, null::numeric),
+  (2::smallint, 'producto'::public.tipo_linea, 329, 'SERVICIO DE INSTALACION', 'SRV004', null,
+   1::numeric, 80::numeric, null::numeric,
+   null::jsonb,
+   null::jsonb,
+   null, null::numeric)
+) as l;
+
+insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
+values ((select id from seed_pedidos where clave = 'listo-domicilio'), 'registrado', 'administracion', null, (select id from public.usuarios where usuario = 'ana'), ((current_date + -5) + time '09:15') at time zone 'America/Lima');
+
+insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
+values ((select id from seed_pedidos where clave = 'listo-domicilio'), 'en_proceso', 'operaciones', null, (select id from public.usuarios where usuario = 'miguel'), ((current_date + -4) + time '16:00') at time zone 'America/Lima');
+
+insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
+values ((select id from seed_pedidos where clave = 'listo-domicilio'), 'listo', 'operaciones', null, (select id from public.usuarios where usuario = 'miguel'), ((current_date + 0) + time '16:00') at time zone 'America/Lima');
+
+-- observado: observado, SEED Publicidad Lima SAC
+with nuevo as (
+  insert into public.pedidos (
+    es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado, cantidad,
+    tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega, ubicacion_actual,
+    estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
+    detalle, observaciones, notas_entrega, numero_comprobante, responsable_id, creado_por
+  ) values (
+    false, 'SEED Publicidad Lima SAC', '01 444 5566', array['CL']::public.tipo_pedido[], null, 6,
+    'a_cuenta', null, 186.44, 'taller', null, 'taller',
+    'observado', 'El cliente cambió el logo: esperar el archivo nuevo antes de cortar.', (current_date + 1), ((current_date + -4) + time '09:15') at time zone 'America/Lima',
+    null, null,
+    'Corte láser · Acrílico ECO · Negro · 3 mm: 6 piezas (6 × 50×50 cm) — 1 plancha de 122×183
+  ↳ Grabado del logo en la esquina inferior derecha.', 'El cliente manda el logo en vectores (AI o PDF).', null, null, (select id from public.trabajadores where nombre = 'Angel'), (select id from public.usuarios where usuario = 'ana')
+  )
+  returning id, codigo
+)
+insert into seed_pedidos (clave, id, codigo) select 'observado', id, codigo from nuevo;
+
+with c as (
+  insert into public.cotizaciones (
+    pedido_id, odoo_partner_id, cliente_nombre, cliente_documento, cliente_telefono,
+    odoo_order_id, odoo_order_name, sincronizacion, monto_sin_impuestos, monto_impuestos, monto_total,
+    confirmada_en_odoo, stock_descontado, creado_por, creado_en
+  ) values (
+    (select id from seed_pedidos where clave = 'observado'), 5, 'SEED Publicidad Lima SAC', '20512345671', '01 444 5566',
+    9007, 'S09007', 'sincronizada', 158, 28.44, 186.44,
+    true, false, (select id from public.usuarios where usuario = 'ana'), ((current_date + -4) + time '09:00') at time zone 'America/Lima'
+  )
+  returning id
+)
+insert into public.cotizacion_productos (
+  cotizacion_id, posicion, tipo, odoo_product_id, producto_nombre, producto_codigo, descripcion,
+  cantidad, precio_unitario, importe, corte, terminado, indicaciones, planchas_usadas
+)
+select c.id, l.* from c, (values
+  (1::smallint, 'corte'::public.tipo_linea, 24, 'ACRILICO ECO COLORES NEGRO 3MM 1.22X1.83', 'F7E029', 'Corte láser · Acrílico ECO · Negro · 3 mm: 6 × 50×50 cm',
+   1::numeric, 147::numeric, 158::numeric,
+   jsonb_set('{"version":1,"grupoId":"__GRUPO__","material":"Acrílico ECO","color":"Negro","espesorMm":3,"modalidad":"laser","rotable":true,"piezas":[{"ancho":50,"alto":50,"cantidad":6}],"servicio":{"productoId":31,"codigo":"SRV002","nombre":"SERVICIO DE CORTE LASER"},"sobrantes":false,"formato":{"codigo":"F7E029","ancho":122,"alto":183,"precio":147},"planchas":[{"origen":{"tipo":"plancha"},"ancho":122,"alto":183,"usoPct":67.2,"piezas":6,"cobro":{"nombre":"1","factor":1,"ancho":122,"alto":183,"monto":147,"nota":null},"paneles":[{"x1":0,"y1":0,"x2":50,"y2":50,"libre":false,"piezaId":"f1#1","rotada":false},{"x1":50,"y1":0,"x2":100,"y2":50,"libre":false,"piezaId":"f1#2","rotada":false},{"x1":100,"y1":0,"x2":122,"y2":50,"libre":true},{"x1":0,"y1":50,"x2":50,"y2":100,"libre":false,"piezaId":"f1#3","rotada":false},{"x1":50,"y1":50,"x2":100,"y2":100,"libre":false,"piezaId":"f1#4","rotada":false},{"x1":100,"y1":50,"x2":122,"y2":100,"libre":true},{"x1":0,"y1":100,"x2":50,"y2":150,"libre":false,"piezaId":"f1#5","rotada":false},{"x1":50,"y1":100,"x2":100,"y2":150,"libre":false,"piezaId":"f1#6","rotada":false},{"x1":100,"y1":100,"x2":122,"y2":150,"libre":true},{"x1":0,"y1":150,"x2":122,"y2":183,"libre":true}]}],"montoMaterial":147,"montoServicio":11,"total":158,"minutosLaser":11.37,"desglose":[{"etiqueta":"Plancha 1: completa (122×183)","monto":147},{"etiqueta":"Corte láser: 6 piezas, 11.37 min","monto":11},{"etiqueta":"Total","monto":158,"esTotal":true}]}'::jsonb, '{grupoId}', to_jsonb((select id::text from public.grupos_plancha where material = 'Acrílico ECO' and variante = 'Colores' and detalle = 'Negro' and espesor_mm = 3))),
+   null::jsonb,
+   'Grabado del logo en la esquina inferior derecha.', null::numeric)
+) as l;
 
 insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
-values ((select id from public.pedidos where codigo = 'LCM_2026_W5QA'), 400, 'yape_plin', '2026-08-21 12:00:00-05', (select id from public.usuarios where email = 'ana@plexiacril.test'));
+values ((select id from seed_pedidos where clave = 'observado'), 93.22, 'transferencia', ((current_date + -4) + time '10:30') at time zone 'America/Lima', (select id from public.usuarios where usuario = 'ana'));
 
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'LCM_2026_W5QA'), 'diseno', 'pedidos/LCM_2026_W5QA/diseno/separadores-v1.pdf',
-        'separadores-v1.pdf', 'application/pdf', 931840, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LCM_2026_W5QA'), 'registrado', 'administracion', null, (select id from public.usuarios where email = 'ana@plexiacril.test'), '2026-08-21T08:30:00-05');
+insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por, linea_posicion)
+select id, 'diseno', 'pedidos/' || codigo || '/diseno/logo-v1.pdf', 'logo-v1.pdf', 'application/pdf', 512000, (select id from public.usuarios where usuario = 'ana'), 1
+from seed_pedidos where clave = 'observado';
 
 insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LCM_2026_W5QA'), 'observado', 'operaciones', null, (select id from public.usuarios where email = 'miguel@plexiacril.test'), '2026-08-21T16:05:00-05');
+values ((select id from seed_pedidos where clave = 'observado'), 'registrado', 'administracion', null, (select id from public.usuarios where usuario = 'ana'), ((current_date + -4) + time '09:15') at time zone 'America/Lima');
 
-insert into public.pedidos (
-  codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
-  cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
-  ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_comprobante, responsable_id, creado_por
-) values (
-  'PCL_2026_J2VH', true, 'Municipalidad de Huancayo', '949 302 668',
-  array['CL']::public.tipo_pedido[], null,
-  40, 'a_cuenta', null, 5250,
-  'agencia', null,
-  'taller', 'listo', null,
-  '2026-08-31', '2026-08-19 09:00:00-05', null, null,
-  '40 placas conmemorativas grabadas a láser, acrílico bronce 4mm.', null, null,
-  (select id from public.trabajadores where nombre = 'Juan'), (select id from public.usuarios where email = 'ana@plexiacril.test')
-);
+insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
+values ((select id from seed_pedidos where clave = 'observado'), 'en_proceso', 'operaciones', null, (select id from public.usuarios where usuario = 'miguel'), ((current_date + -3) + time '16:00') at time zone 'America/Lima');
+
+insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
+values ((select id from seed_pedidos where clave = 'observado'), 'observado', 'operaciones', 'El cliente cambió el logo: esperar el archivo nuevo antes de cortar.', (select id from public.usuarios where usuario = 'miguel'), ((current_date + -2) + time '16:00') at time zone 'America/Lima');
+
+-- vencido: en_proceso, SEED María Torres Huamán
+with nuevo as (
+  insert into public.pedidos (
+    es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado, cantidad,
+    tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega, ubicacion_actual,
+    estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
+    detalle, observaciones, notas_entrega, numero_comprobante, responsable_id, creado_por
+  ) values (
+    false, 'SEED María Torres Huamán', '988 112 233', array['PT']::public.tipo_pedido[], 'cajas', 3,
+    'contado', null, 318.6, 'tienda', null, 'taller',
+    'en_proceso', null, (current_date + -1), ((current_date + -4) + time '09:15') at time zone 'America/Lima',
+    null, null,
+    '3 × [CAJ-006] Caja para rifas y sorteos — Medidas: 30 × 30 × 30 cm. Material: Acrílico ECO · Cristal · 3 mm. Acabado: Brillante (pulido). Complementos: Cerradura con llave. Notas: Ranura de 2 cm en la tapa', null, null, null, (select id from public.trabajadores where nombre = 'Isaac'), (select id from public.usuarios where usuario = 'ana')
+  )
+  returning id, codigo
+)
+insert into seed_pedidos (clave, id, codigo) select 'vencido', id, codigo from nuevo;
+
+with c as (
+  insert into public.cotizaciones (
+    pedido_id, odoo_partner_id, cliente_nombre, cliente_documento, cliente_telefono,
+    odoo_order_id, odoo_order_name, sincronizacion, monto_sin_impuestos, monto_impuestos, monto_total,
+    confirmada_en_odoo, stock_descontado, creado_por, creado_en
+  ) values (
+    (select id from seed_pedidos where clave = 'vencido'), 6, 'SEED María Torres Huamán', '41234567', '988 112 233',
+    9008, 'S09008', 'sincronizada', 270, 48.6, 318.6,
+    true, false, (select id from public.usuarios where usuario = 'ana'), ((current_date + -4) + time '09:00') at time zone 'America/Lima'
+  )
+  returning id
+)
+insert into public.cotizacion_productos (
+  cotizacion_id, posicion, tipo, odoo_product_id, producto_nombre, producto_codigo, descripcion,
+  cantidad, precio_unitario, importe, corte, terminado, indicaciones, planchas_usadas
+)
+select c.id, l.* from c, (values
+  (1::smallint, 'terminado'::public.tipo_linea, 901, 'Caja para rifas y sorteos', 'CAJ-006', 'Medidas: 30 × 30 × 30 cm. Material: Acrílico ECO · Cristal · 3 mm. Acabado: Brillante (pulido). Complementos: Cerradura con llave. Notas: Ranura de 2 cm en la tapa',
+   3::numeric, 90::numeric, 270::numeric,
+   null::jsonb,
+   jsonb_set('{"version":1,"estandar":true,"productoCodigo":"CAJ-006","tipoCodigo":"CAJ","tipoNombre":"Caja","nombre":"Caja para rifas y sorteos","geometria":"caja_cerrada","medidas":{"m1":30,"m2":30,"m3":30},"medidaEstandar":false,"material":{"grupoId":"__GRUPO__","material":"Acrílico ECO","color":"Cristal","espesorMm":3},"opciones":[{"clase":"complemento","nombre":"Cerradura con llave","extra":15},{"clase":"acabado","nombre":"Brillante (pulido)","extra":0}],"texto":null,"notas":"Ranura de 2 cm en la tapa","areaUnidadM2":0.54,"areaManual":false,"mermaPct":15,"materiales":[{"productoId":20,"codigo":"F7E024","nombre":"ACRILICO ECO CRISTAL 3MM 1.22X1.83","unidad":"plancha","cantidad":0.83,"precio":147,"esPlancha":true},{"productoId":271,"codigo":"ACC003","nombre":"BISAGRAS 25MM X 33MM CRISTAL","unidad":"Unidades","cantidad":6,"precio":8,"esPlancha":false}],"costoMaterial":170.01,"factor":2,"precioSugerido":113.34,"precioUnitario":90,"reservar":false,"corte":null}'::jsonb, '{material,grupoId}', to_jsonb((select id::text from public.grupos_plancha where material = 'Acrílico ECO' and variante = 'Cristal' and detalle = '' and espesor_mm = 3))),
+   null, null::numeric)
+) as l;
+
+insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
+values ((select id from seed_pedidos where clave = 'vencido'), 318.6, 'tarjeta', ((current_date + -4) + time '10:30') at time zone 'America/Lima', (select id from public.usuarios where usuario = 'ana'));
+
+insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
+values ((select id from seed_pedidos where clave = 'vencido'), 'registrado', 'administracion', null, (select id from public.usuarios where usuario = 'ana'), ((current_date + -4) + time '09:15') at time zone 'America/Lima');
+
+insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
+values ((select id from seed_pedidos where clave = 'vencido'), 'en_proceso', 'operaciones', null, (select id from public.usuarios where usuario = 'miguel'), ((current_date + -3) + time '16:00') at time zone 'America/Lima');
+
+-- hoy: en_proceso, SEED Constructora Sur EIRL
+with nuevo as (
+  insert into public.pedidos (
+    es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado, cantidad,
+    tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega, ubicacion_actual,
+    estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
+    detalle, observaciones, notas_entrega, numero_comprobante, responsable_id, creado_por
+  ) values (
+    false, 'SEED Constructora Sur EIRL', '054 22 3344', array['CL', 'SP']::public.tipo_pedido[], null, 60,
+    'credito', 7, 639.56, 'taller', null, 'taller',
+    'en_proceso', null, (current_date + 0), ((current_date + -3) + time '09:15') at time zone 'America/Lima',
+    null, null,
+    'Corte láser · Acrílico ECO · Negro · 3 mm: 24 piezas (24 × 30×40 cm) — 2 planchas de 122×183
+  ↳ Cantos flameados.
+24 × [ACC003] BISAGRAS 25MM X 33MM CRISTAL
+12 × [ACC038] MANIJAS DE ACRILICO (JALADOR) 20MM CRISTAL TIPO CORONA', null, null, null, (select id from public.trabajadores where nombre = 'Juan'), (select id from public.usuarios where usuario = 'ana')
+  )
+  returning id, codigo
+)
+insert into seed_pedidos (clave, id, codigo) select 'hoy', id, codigo from nuevo;
+
+with c as (
+  insert into public.cotizaciones (
+    pedido_id, odoo_partner_id, cliente_nombre, cliente_documento, cliente_telefono,
+    odoo_order_id, odoo_order_name, sincronizacion, monto_sin_impuestos, monto_impuestos, monto_total,
+    confirmada_en_odoo, stock_descontado, creado_por, creado_en
+  ) values (
+    (select id from seed_pedidos where clave = 'hoy'), 7, 'SEED Constructora Sur EIRL', '20456789013', '054 22 3344',
+    9009, 'S09009', 'sincronizada', 542, 97.56, 639.56,
+    true, false, (select id from public.usuarios where usuario = 'ana'), ((current_date + -3) + time '09:00') at time zone 'America/Lima'
+  )
+  returning id
+)
+insert into public.cotizacion_productos (
+  cotizacion_id, posicion, tipo, odoo_product_id, producto_nombre, producto_codigo, descripcion,
+  cantidad, precio_unitario, importe, corte, terminado, indicaciones, planchas_usadas
+)
+select c.id, l.* from c, (values
+  (1::smallint, 'corte'::public.tipo_linea, 24, 'ACRILICO ECO COLORES NEGRO 3MM 1.22X1.83', 'F7E029', 'Corte láser · Acrílico ECO · Negro · 3 mm: 24 × 30×40 cm',
+   2::numeric, 117.6::numeric, 266::numeric,
+   jsonb_set('{"version":1,"grupoId":"__GRUPO__","material":"Acrílico ECO","color":"Negro","espesorMm":3,"modalidad":"laser","rotable":true,"piezas":[{"ancho":30,"alto":40,"cantidad":24}],"servicio":{"productoId":31,"codigo":"SRV002","nombre":"SERVICIO DE CORTE LASER"},"sobrantes":false,"formato":{"codigo":"F7E029","ancho":122,"alto":183,"precio":147},"planchas":[{"origen":{"tipo":"plancha"},"ancho":122,"alto":183,"usoPct":96.7,"piezas":18,"cobro":{"nombre":"1","factor":1,"ancho":122,"alto":183,"monto":147,"nota":null},"paneles":[{"x1":0,"y1":0,"x2":40,"y2":30,"libre":false,"piezaId":"f1#1","rotada":true},{"x1":40,"y1":0,"x2":80,"y2":30,"libre":false,"piezaId":"f1#2","rotada":true},{"x1":80,"y1":0,"x2":120,"y2":30,"libre":false,"piezaId":"f1#3","rotada":true},{"x1":120,"y1":0,"x2":122,"y2":30,"libre":true},{"x1":0,"y1":30,"x2":40,"y2":60,"libre":false,"piezaId":"f1#4","rotada":true},{"x1":40,"y1":30,"x2":80,"y2":60,"libre":false,"piezaId":"f1#5","rotada":true},{"x1":80,"y1":30,"x2":120,"y2":60,"libre":false,"piezaId":"f1#6","rotada":true},{"x1":120,"y1":30,"x2":122,"y2":60,"libre":true},{"x1":0,"y1":60,"x2":40,"y2":90,"libre":false,"piezaId":"f1#7","rotada":true},{"x1":40,"y1":60,"x2":80,"y2":90,"libre":false,"piezaId":"f1#8","rotada":true},{"x1":80,"y1":60,"x2":120,"y2":90,"libre":false,"piezaId":"f1#9","rotada":true},{"x1":120,"y1":60,"x2":122,"y2":90,"libre":true},{"x1":0,"y1":90,"x2":40,"y2":120,"libre":false,"piezaId":"f1#10","rotada":true},{"x1":40,"y1":90,"x2":80,"y2":120,"libre":false,"piezaId":"f1#13","rotada":true},{"x1":80,"y1":90,"x2":120,"y2":120,"libre":false,"piezaId":"f1#14","rotada":true},{"x1":120,"y1":90,"x2":122,"y2":120,"libre":true},{"x1":40,"y1":120,"x2":80,"y2":150,"libre":false,"piezaId":"f1#15","rotada":true},{"x1":80,"y1":120,"x2":120,"y2":150,"libre":false,"piezaId":"f1#16","rotada":true},{"x1":120,"y1":120,"x2":122,"y2":150,"libre":true},{"x1":40,"y1":150,"x2":80,"y2":180,"libre":false,"piezaId":"f1#17","rotada":true},{"x1":80,"y1":150,"x2":120,"y2":180,"libre":false,"piezaId":"f1#18","rotada":true},{"x1":120,"y1":150,"x2":122,"y2":180,"libre":true},{"x1":40,"y1":180,"x2":122,"y2":183,"libre":true},{"x1":0,"y1":120,"x2":40,"y2":150,"libre":false,"piezaId":"f1#11","rotada":true},{"x1":0,"y1":150,"x2":40,"y2":180,"libre":false,"piezaId":"f1#12","rotada":true},{"x1":0,"y1":180,"x2":40,"y2":183,"libre":true}]},{"origen":{"tipo":"plancha"},"ancho":122,"alto":183,"usoPct":32.2,"piezas":6,"cobro":{"nombre":"1/2","factor":0.5,"ancho":61,"alto":183,"monto":88.2,"nota":null},"paneles":[{"x1":0,"y1":0,"x2":30,"y2":40,"libre":false,"piezaId":"f1#19","rotada":false},{"x1":30,"y1":0,"x2":60,"y2":40,"libre":false,"piezaId":"f1#20","rotada":false},{"x1":60,"y1":0,"x2":61,"y2":40,"libre":true},{"x1":0,"y1":40,"x2":30,"y2":80,"libre":false,"piezaId":"f1#21","rotada":false},{"x1":30,"y1":40,"x2":60,"y2":80,"libre":false,"piezaId":"f1#22","rotada":false},{"x1":60,"y1":40,"x2":61,"y2":80,"libre":true},{"x1":0,"y1":80,"x2":30,"y2":120,"libre":false,"piezaId":"f1#23","rotada":false},{"x1":30,"y1":80,"x2":60,"y2":120,"libre":false,"piezaId":"f1#24","rotada":false},{"x1":60,"y1":80,"x2":61,"y2":120,"libre":true},{"x1":0,"y1":120,"x2":61,"y2":183,"libre":true},{"x1":61,"y1":0,"x2":122,"y2":183,"libre":true,"sobrante":true}]}],"montoMaterial":235.2,"montoServicio":30.8,"total":266,"minutosLaser":32.15,"desglose":[{"etiqueta":"Plancha 1: completa (122×183)","monto":147},{"etiqueta":"Plancha 2: las piezas caben en 1/2 (61×183) → S/ 147.00 × 1/2 + 20 %","monto":88.2},{"etiqueta":"Corte láser: 24 piezas, 32.15 min","monto":30.8},{"etiqueta":"Total","monto":266,"esTotal":true}]}'::jsonb, '{grupoId}', to_jsonb((select id::text from public.grupos_plancha where material = 'Acrílico ECO' and variante = 'Colores' and detalle = 'Negro' and espesor_mm = 3))),
+   null::jsonb,
+   'Cantos flameados.', null::numeric),
+  (2::smallint, 'producto'::public.tipo_linea, 271, 'BISAGRAS 25MM X 33MM CRISTAL', 'ACC003', null,
+   24::numeric, 8::numeric, null::numeric,
+   null::jsonb,
+   null::jsonb,
+   null, null::numeric),
+  (3::smallint, 'producto'::public.tipo_linea, 301, 'MANIJAS DE ACRILICO (JALADOR) 20MM CRISTAL TIPO CORONA', 'ACC038', null,
+   12::numeric, 7::numeric, null::numeric,
+   null::jsonb,
+   null::jsonb,
+   null, null::numeric)
+) as l;
+
+insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por, linea_posicion)
+select id, 'diseno', 'pedidos/' || codigo || '/diseno/vitrinas-plano.dxf', 'vitrinas-plano.dxf', 'image/vnd.dxf', 98304, (select id from public.usuarios where usuario = 'ana'), 1
+from seed_pedidos where clave = 'hoy';
+
+insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por, linea_posicion)
+select id, 'diseno', 'pedidos/' || codigo || '/diseno/referencia-vitrina.jpg', 'referencia-vitrina.jpg', 'image/jpeg', 734003, (select id from public.usuarios where usuario = 'ana'), null
+from seed_pedidos where clave = 'hoy';
+
+insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
+values ((select id from seed_pedidos where clave = 'hoy'), 'registrado', 'administracion', null, (select id from public.usuarios where usuario = 'ana'), ((current_date + -3) + time '09:15') at time zone 'America/Lima');
+
+insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
+values ((select id from seed_pedidos where clave = 'hoy'), 'en_proceso', 'operaciones', null, (select id from public.usuarios where usuario = 'miguel'), ((current_date + -2) + time '16:00') at time zone 'America/Lima');
+
+-- en-proceso: en_proceso, SEED Publicidad Lima SAC
+with nuevo as (
+  insert into public.pedidos (
+    es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado, cantidad,
+    tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega, ubicacion_actual,
+    estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
+    detalle, observaciones, notas_entrega, numero_comprobante, responsable_id, creado_por
+  ) values (
+    false, 'SEED Publicidad Lima SAC', '01 444 5566', array['CL']::public.tipo_pedido[], null, 80,
+    'a_cuenta', null, 282.02, 'tienda', null, 'taller',
+    'en_proceso', null, (current_date + 3), ((current_date + -2) + time '09:15') at time zone 'America/Lima',
+    null, null,
+    'Corte láser · Acrílico ECO · Cristal · 3 mm: 30 piezas (30 × 21×29.7 cm) — 1 plancha de 122×183
+Corte láser · Acrílico ECO · Negro · 3 mm: 50 piezas (50 × 10×10 cm) — 1 plancha de 122×183
+  ↳ Perforar 4 agujeros de 5 mm en las esquinas.', null, null, null, (select id from public.trabajadores where nombre = 'Manuel'), (select id from public.usuarios where usuario = 'ana')
+  )
+  returning id, codigo
+)
+insert into seed_pedidos (clave, id, codigo) select 'en-proceso', id, codigo from nuevo;
+
+with c as (
+  insert into public.cotizaciones (
+    pedido_id, odoo_partner_id, cliente_nombre, cliente_documento, cliente_telefono,
+    odoo_order_id, odoo_order_name, sincronizacion, monto_sin_impuestos, monto_impuestos, monto_total,
+    confirmada_en_odoo, stock_descontado, creado_por, creado_en
+  ) values (
+    (select id from seed_pedidos where clave = 'en-proceso'), 5, 'SEED Publicidad Lima SAC', '20512345671', '01 444 5566',
+    9010, 'S09010', 'sincronizada', 239, 43.02, 282.02,
+    true, false, (select id from public.usuarios where usuario = 'ana'), ((current_date + -2) + time '09:00') at time zone 'America/Lima'
+  )
+  returning id
+)
+insert into public.cotizacion_productos (
+  cotizacion_id, posicion, tipo, odoo_product_id, producto_nombre, producto_codigo, descripcion,
+  cantidad, precio_unitario, importe, corte, terminado, indicaciones, planchas_usadas
+)
+select c.id, l.* from c, (values
+  (1::smallint, 'corte'::public.tipo_linea, 20, 'ACRILICO ECO CRISTAL 3MM 1.22X1.83', 'F7E024', 'Corte láser · Acrílico ECO · Cristal · 3 mm: 30 × 21×29.7 cm',
+   1::numeric, 147::numeric, 175::numeric,
+   jsonb_set('{"version":1,"grupoId":"__GRUPO__","material":"Acrílico ECO","color":"Cristal","espesorMm":3,"modalidad":"laser","rotable":true,"piezas":[{"ancho":21,"alto":29.7,"cantidad":30}],"servicio":{"productoId":31,"codigo":"SRV002","nombre":"SERVICIO DE CORTE LASER"},"sobrantes":false,"formato":{"codigo":"F7E024","ancho":122,"alto":183,"precio":147},"planchas":[{"origen":{"tipo":"plancha"},"ancho":122,"alto":183,"usoPct":83.8,"piezas":30,"cobro":{"nombre":"1","factor":1,"ancho":122,"alto":183,"monto":147,"nota":null},"paneles":[{"x1":0,"y1":0,"x2":29.7,"y2":21,"libre":false,"piezaId":"f1#1","rotada":true},{"x1":29.7,"y1":0,"x2":59.4,"y2":21,"libre":false,"piezaId":"f1#2","rotada":true},{"x1":59.4,"y1":0,"x2":89.1,"y2":21,"libre":false,"piezaId":"f1#3","rotada":true},{"x1":89.1,"y1":0,"x2":118.8,"y2":21,"libre":false,"piezaId":"f1#4","rotada":true},{"x1":118.8,"y1":0,"x2":122,"y2":21,"libre":true},{"x1":0,"y1":21,"x2":29.7,"y2":42,"libre":false,"piezaId":"f1#5","rotada":true},{"x1":29.7,"y1":21,"x2":59.4,"y2":42,"libre":false,"piezaId":"f1#6","rotada":true},{"x1":59.4,"y1":21,"x2":89.1,"y2":42,"libre":false,"piezaId":"f1#7","rotada":true},{"x1":89.1,"y1":21,"x2":118.8,"y2":42,"libre":false,"piezaId":"f1#8","rotada":true},{"x1":118.8,"y1":21,"x2":122,"y2":42,"libre":true},{"x1":0,"y1":42,"x2":29.7,"y2":63,"libre":false,"piezaId":"f1#9","rotada":true},{"x1":29.7,"y1":42,"x2":59.4,"y2":63,"libre":false,"piezaId":"f1#10","rotada":true},{"x1":59.4,"y1":42,"x2":89.1,"y2":63,"libre":false,"piezaId":"f1#11","rotada":true},{"x1":89.1,"y1":42,"x2":118.8,"y2":63,"libre":false,"piezaId":"f1#12","rotada":true},{"x1":118.8,"y1":42,"x2":122,"y2":63,"libre":true},{"x1":0,"y1":63,"x2":29.7,"y2":84,"libre":false,"piezaId":"f1#13","rotada":true},{"x1":29.7,"y1":63,"x2":59.4,"y2":84,"libre":false,"piezaId":"f1#14","rotada":true},{"x1":59.4,"y1":63,"x2":89.1,"y2":84,"libre":false,"piezaId":"f1#15","rotada":true},{"x1":89.1,"y1":63,"x2":118.8,"y2":84,"libre":false,"piezaId":"f1#16","rotada":true},{"x1":118.8,"y1":63,"x2":122,"y2":84,"libre":true},{"x1":0,"y1":84,"x2":29.7,"y2":105,"libre":false,"piezaId":"f1#17","rotada":true},{"x1":29.7,"y1":84,"x2":59.4,"y2":105,"libre":false,"piezaId":"f1#21","rotada":true},{"x1":59.4,"y1":84,"x2":89.1,"y2":105,"libre":false,"piezaId":"f1#22","rotada":true},{"x1":89.1,"y1":84,"x2":118.8,"y2":105,"libre":false,"piezaId":"f1#23","rotada":true},{"x1":118.8,"y1":84,"x2":122,"y2":105,"libre":true},{"x1":29.7,"y1":105,"x2":59.4,"y2":126,"libre":false,"piezaId":"f1#24","rotada":true},{"x1":59.4,"y1":105,"x2":89.1,"y2":126,"libre":false,"piezaId":"f1#25","rotada":true},{"x1":89.1,"y1":105,"x2":118.8,"y2":126,"libre":false,"piezaId":"f1#26","rotada":true},{"x1":118.8,"y1":105,"x2":122,"y2":126,"libre":true},{"x1":29.7,"y1":126,"x2":59.4,"y2":147,"libre":false,"piezaId":"f1#27","rotada":true},{"x1":59.4,"y1":126,"x2":89.1,"y2":147,"libre":false,"piezaId":"f1#29","rotada":true},{"x1":89.1,"y1":126,"x2":118.8,"y2":147,"libre":false,"piezaId":"f1#30","rotada":true},{"x1":118.8,"y1":126,"x2":122,"y2":147,"libre":true},{"x1":59.4,"y1":147,"x2":122,"y2":183,"libre":true},{"x1":29.7,"y1":147,"x2":59.4,"y2":168,"libre":false,"piezaId":"f1#28","rotada":true},{"x1":29.7,"y1":168,"x2":59.4,"y2":183,"libre":true},{"x1":0,"y1":105,"x2":29.7,"y2":126,"libre":false,"piezaId":"f1#18","rotada":true},{"x1":0,"y1":126,"x2":29.7,"y2":147,"libre":false,"piezaId":"f1#19","rotada":true},{"x1":0,"y1":147,"x2":29.7,"y2":168,"libre":false,"piezaId":"f1#20","rotada":true},{"x1":0,"y1":168,"x2":29.7,"y2":183,"libre":true}]}],"montoMaterial":147,"montoServicio":28,"total":175,"minutosLaser":29.47,"desglose":[{"etiqueta":"Plancha 1: completa (122×183)","monto":147},{"etiqueta":"Corte láser: 30 piezas, 29.47 min","monto":28},{"etiqueta":"Total","monto":175,"esTotal":true}]}'::jsonb, '{grupoId}', to_jsonb((select id::text from public.grupos_plancha where material = 'Acrílico ECO' and variante = 'Cristal' and detalle = '' and espesor_mm = 3))),
+   null::jsonb,
+   null, null::numeric),
+  (2::smallint, 'corte'::public.tipo_linea, 24, 'ACRILICO ECO COLORES NEGRO 3MM 1.22X1.83', 'F7E029', 'Corte láser · Acrílico ECO · Negro · 3 mm: 50 × 10×10 cm',
+   1::numeric, 44.1::numeric, 64::numeric,
+   jsonb_set('{"version":1,"grupoId":"__GRUPO__","material":"Acrílico ECO","color":"Negro","espesorMm":3,"modalidad":"laser","rotable":true,"piezas":[{"ancho":10,"alto":10,"cantidad":50}],"servicio":{"productoId":31,"codigo":"SRV002","nombre":"SERVICIO DE CORTE LASER"},"sobrantes":false,"formato":{"codigo":"F7E029","ancho":122,"alto":183,"precio":147},"planchas":[{"origen":{"tipo":"plancha"},"ancho":122,"alto":183,"usoPct":22.4,"piezas":50,"cobro":{"nombre":"1/4","factor":0.25,"ancho":61,"alto":91.5,"monto":44.1,"nota":null},"paneles":[{"x1":0,"y1":0,"x2":10,"y2":10,"libre":false,"piezaId":"f1#1","rotada":false},{"x1":10,"y1":0,"x2":20,"y2":10,"libre":false,"piezaId":"f1#2","rotada":false},{"x1":20,"y1":0,"x2":30,"y2":10,"libre":false,"piezaId":"f1#3","rotada":false},{"x1":30,"y1":0,"x2":40,"y2":10,"libre":false,"piezaId":"f1#4","rotada":false},{"x1":40,"y1":0,"x2":50,"y2":10,"libre":false,"piezaId":"f1#5","rotada":false},{"x1":50,"y1":0,"x2":60,"y2":10,"libre":false,"piezaId":"f1#6","rotada":false},{"x1":60,"y1":0,"x2":61,"y2":10,"libre":true},{"x1":0,"y1":10,"x2":10,"y2":20,"libre":false,"piezaId":"f1#7","rotada":false},{"x1":10,"y1":10,"x2":20,"y2":20,"libre":false,"piezaId":"f1#8","rotada":false},{"x1":20,"y1":10,"x2":30,"y2":20,"libre":false,"piezaId":"f1#9","rotada":false},{"x1":30,"y1":10,"x2":40,"y2":20,"libre":false,"piezaId":"f1#10","rotada":false},{"x1":40,"y1":10,"x2":50,"y2":20,"libre":false,"piezaId":"f1#11","rotada":false},{"x1":50,"y1":10,"x2":60,"y2":20,"libre":false,"piezaId":"f1#12","rotada":false},{"x1":60,"y1":10,"x2":61,"y2":20,"libre":true},{"x1":0,"y1":20,"x2":10,"y2":30,"libre":false,"piezaId":"f1#13","rotada":false},{"x1":10,"y1":20,"x2":20,"y2":30,"libre":false,"piezaId":"f1#14","rotada":false},{"x1":20,"y1":20,"x2":30,"y2":30,"libre":false,"piezaId":"f1#15","rotada":false},{"x1":30,"y1":20,"x2":40,"y2":30,"libre":false,"piezaId":"f1#16","rotada":false},{"x1":40,"y1":20,"x2":50,"y2":30,"libre":false,"piezaId":"f1#17","rotada":false},{"x1":50,"y1":20,"x2":60,"y2":30,"libre":false,"piezaId":"f1#18","rotada":false},{"x1":60,"y1":20,"x2":61,"y2":30,"libre":true},{"x1":0,"y1":30,"x2":10,"y2":40,"libre":false,"piezaId":"f1#19","rotada":false},{"x1":10,"y1":30,"x2":20,"y2":40,"libre":false,"piezaId":"f1#20","rotada":false},{"x1":20,"y1":30,"x2":30,"y2":40,"libre":false,"piezaId":"f1#21","rotada":false},{"x1":30,"y1":30,"x2":40,"y2":40,"libre":false,"piezaId":"f1#22","rotada":false},{"x1":40,"y1":30,"x2":50,"y2":40,"libre":false,"piezaId":"f1#23","rotada":false},{"x1":50,"y1":30,"x2":60,"y2":40,"libre":false,"piezaId":"f1#24","rotada":false},{"x1":60,"y1":30,"x2":61,"y2":40,"libre":true},{"x1":0,"y1":40,"x2":10,"y2":50,"libre":false,"piezaId":"f1#25","rotada":false},{"x1":10,"y1":40,"x2":20,"y2":50,"libre":false,"piezaId":"f1#30","rotada":false},{"x1":20,"y1":40,"x2":30,"y2":50,"libre":false,"piezaId":"f1#31","rotada":false},{"x1":30,"y1":40,"x2":40,"y2":50,"libre":false,"piezaId":"f1#32","rotada":false},{"x1":40,"y1":40,"x2":50,"y2":50,"libre":false,"piezaId":"f1#33","rotada":false},{"x1":50,"y1":40,"x2":60,"y2":50,"libre":false,"piezaId":"f1#34","rotada":false},{"x1":60,"y1":40,"x2":61,"y2":50,"libre":true},{"x1":10,"y1":50,"x2":20,"y2":60,"libre":false,"piezaId":"f1#35","rotada":false},{"x1":20,"y1":50,"x2":30,"y2":60,"libre":false,"piezaId":"f1#39","rotada":false},{"x1":30,"y1":50,"x2":40,"y2":60,"libre":false,"piezaId":"f1#40","rotada":false},{"x1":40,"y1":50,"x2":50,"y2":60,"libre":false,"piezaId":"f1#41","rotada":false},{"x1":50,"y1":50,"x2":60,"y2":60,"libre":false,"piezaId":"f1#42","rotada":false},{"x1":60,"y1":50,"x2":61,"y2":60,"libre":true},{"x1":20,"y1":60,"x2":30,"y2":70,"libre":false,"piezaId":"f1#43","rotada":false},{"x1":30,"y1":60,"x2":40,"y2":70,"libre":false,"piezaId":"f1#46","rotada":false},{"x1":40,"y1":60,"x2":50,"y2":70,"libre":false,"piezaId":"f1#47","rotada":false},{"x1":50,"y1":60,"x2":60,"y2":70,"libre":false,"piezaId":"f1#48","rotada":false},{"x1":60,"y1":60,"x2":61,"y2":70,"libre":true},{"x1":30,"y1":70,"x2":40,"y2":80,"libre":false,"piezaId":"f1#49","rotada":false},{"x1":40,"y1":70,"x2":61,"y2":91.5,"libre":true},{"x1":30,"y1":80,"x2":40,"y2":90,"libre":false,"piezaId":"f1#50","rotada":false},{"x1":30,"y1":90,"x2":40,"y2":91.5,"libre":true},{"x1":20,"y1":70,"x2":30,"y2":80,"libre":false,"piezaId":"f1#44","rotada":false},{"x1":20,"y1":80,"x2":30,"y2":90,"libre":false,"piezaId":"f1#45","rotada":false},{"x1":20,"y1":90,"x2":30,"y2":91.5,"libre":true},{"x1":10,"y1":60,"x2":20,"y2":70,"libre":false,"piezaId":"f1#36","rotada":false},{"x1":10,"y1":70,"x2":20,"y2":80,"libre":false,"piezaId":"f1#37","rotada":false},{"x1":10,"y1":80,"x2":20,"y2":90,"libre":false,"piezaId":"f1#38","rotada":false},{"x1":10,"y1":90,"x2":20,"y2":91.5,"libre":true},{"x1":0,"y1":50,"x2":10,"y2":60,"libre":false,"piezaId":"f1#26","rotada":false},{"x1":0,"y1":60,"x2":10,"y2":70,"libre":false,"piezaId":"f1#27","rotada":false},{"x1":0,"y1":70,"x2":10,"y2":80,"libre":false,"piezaId":"f1#28","rotada":false},{"x1":0,"y1":80,"x2":10,"y2":90,"libre":false,"piezaId":"f1#29","rotada":false},{"x1":0,"y1":90,"x2":10,"y2":91.5,"libre":true},{"x1":61,"y1":0,"x2":122,"y2":183,"libre":true,"sobrante":true},{"x1":0,"y1":91.5,"x2":61,"y2":183,"libre":true,"sobrante":true}]}],"montoMaterial":44.1,"montoServicio":19.9,"total":64,"minutosLaser":20.69,"desglose":[{"etiqueta":"Plancha 1: las piezas caben en 1/4 (61×91.5) → S/ 147.00 × 1/4 + 20 %","monto":44.1},{"etiqueta":"Corte láser: 50 piezas, 20.69 min","monto":19.9},{"etiqueta":"Total","monto":64,"esTotal":true}]}'::jsonb, '{grupoId}', to_jsonb((select id::text from public.grupos_plancha where material = 'Acrílico ECO' and variante = 'Colores' and detalle = 'Negro' and espesor_mm = 3))),
+   null::jsonb,
+   'Perforar 4 agujeros de 5 mm en las esquinas.', null::numeric)
+) as l;
+
+insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
+values ((select id from seed_pedidos where clave = 'en-proceso'), 169.21, 'yape_plin', ((current_date + -2) + time '10:30') at time zone 'America/Lima', (select id from public.usuarios where usuario = 'ana'));
+
+insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
+values ((select id from seed_pedidos where clave = 'en-proceso'), 'registrado', 'administracion', null, (select id from public.usuarios where usuario = 'ana'), ((current_date + -2) + time '09:15') at time zone 'America/Lima');
+
+insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
+values ((select id from seed_pedidos where clave = 'en-proceso'), 'en_proceso', 'operaciones', null, (select id from public.usuarios where usuario = 'miguel'), ((current_date + -1) + time '16:00') at time zone 'America/Lima');
+
+-- registrado-provincia: registrado, SEED Constructora Sur EIRL
+with nuevo as (
+  insert into public.pedidos (
+    es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado, cantidad,
+    tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega, ubicacion_actual,
+    estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
+    detalle, observaciones, notas_entrega, numero_comprobante, responsable_id, creado_por
+  ) values (
+    true, 'SEED Constructora Sur EIRL', '054 22 3344', array['SP', 'PT']::public.tipo_pedido[], 'letreros', 12,
+    'a_cuenta', null, 575.84, 'agencia', null, 'taller',
+    'registrado', null, (current_date + 6), ((current_date + -1) + time '09:15') at time zone 'America/Lima',
+    null, null,
+    '4 × [LTR-002] Letrero plano de acrílico con impresión UV (cuadrado o rectangular) — Medidas: 40 × 30 cm. Material: Acrílico ECO · Negro · 3 mm. Texto: Baños. Personalización: Impresión UV a color
+8 × [ACC033] SOPORTES DE ACRILICO 19MM X 30MM CRISTAL', null, null, null, null, (select id from public.usuarios where usuario = 'ana')
+  )
+  returning id, codigo
+)
+insert into seed_pedidos (clave, id, codigo) select 'registrado-provincia', id, codigo from nuevo;
+
+with c as (
+  insert into public.cotizaciones (
+    pedido_id, odoo_partner_id, cliente_nombre, cliente_documento, cliente_telefono,
+    odoo_order_id, odoo_order_name, sincronizacion, monto_sin_impuestos, monto_impuestos, monto_total,
+    confirmada_en_odoo, stock_descontado, creado_por, creado_en
+  ) values (
+    (select id from seed_pedidos where clave = 'registrado-provincia'), 7, 'SEED Constructora Sur EIRL', '20456789013', '054 22 3344',
+    9011, 'S09011', 'sincronizada', 488, 87.84, 575.84,
+    true, false, (select id from public.usuarios where usuario = 'ana'), ((current_date + -1) + time '09:00') at time zone 'America/Lima'
+  )
+  returning id
+)
+insert into public.cotizacion_productos (
+  cotizacion_id, posicion, tipo, odoo_product_id, producto_nombre, producto_codigo, descripcion,
+  cantidad, precio_unitario, importe, corte, terminado, indicaciones, planchas_usadas
+)
+select c.id, l.* from c, (values
+  (1::smallint, 'terminado'::public.tipo_linea, 902, 'Letrero plano de acrílico con impresión UV (cuadrado o rectangular)', 'LTR-002', 'Medidas: 40 × 30 cm. Material: Acrílico ECO · Negro · 3 mm. Texto: Baños. Personalización: Impresión UV a color',
+   4::numeric, 110::numeric, 440::numeric,
+   null::jsonb,
+   jsonb_set('{"version":1,"estandar":true,"productoCodigo":"LTR-002","tipoCodigo":"LTR","tipoNombre":"Letrero","nombre":"Letrero plano de acrílico con impresión UV (cuadrado o rectangular)","geometria":"lamina","medidas":{"m1":40,"m2":30},"medidaEstandar":false,"material":{"grupoId":"__GRUPO__","material":"Acrílico ECO","color":"Negro","espesorMm":3},"opciones":[{"clase":"personalizacion","nombre":"Impresión UV a color","extra":20}],"texto":"Baños","notas":null,"areaUnidadM2":0.12,"areaManual":false,"mermaPct":15,"materiales":[{"productoId":24,"codigo":"F7E029","nombre":"ACRILICO ECO COLORES NEGRO 3MM 1.22X1.83","unidad":"plancha","cantidad":0.25,"precio":147,"esPlancha":true},{"productoId":292,"codigo":"ACC033","nombre":"SOPORTES DE ACRILICO 19MM X 30MM CRISTAL","unidad":"Unidades","cantidad":16,"precio":6,"esPlancha":false}],"costoMaterial":132.75,"factor":2,"precioSugerido":66.38,"precioUnitario":110,"reservar":false,"corte":null}'::jsonb, '{material,grupoId}', to_jsonb((select id::text from public.grupos_plancha where material = 'Acrílico ECO' and variante = 'Colores' and detalle = 'Negro' and espesor_mm = 3))),
+   null, null::numeric),
+  (2::smallint, 'producto'::public.tipo_linea, 292, 'SOPORTES DE ACRILICO 19MM X 30MM CRISTAL', 'ACC033', null,
+   8::numeric, 6::numeric, null::numeric,
+   null::jsonb,
+   null::jsonb,
+   null, null::numeric)
+) as l;
 
 insert into public.envios_provincia (
   pedido_id, departamento_id, provincia_id, nombre_agencia, nombre_persona_recoge,
-  tipo_documento, numero_documento, telefono_persona_recoge, monto_flete, flete_pagado,
-  observaciones_envio
+  tipo_documento, numero_documento, telefono_persona_recoge, monto_flete, flete_pagado, observaciones_envio
 ) values (
-  (select id from public.pedidos where codigo = 'PCL_2026_J2VH'), (select id from public.departamentos where nombre = 'Junín'), (select pr.id from public.provincias pr join public.departamentos d on d.id = pr.departamento_id
-        where d.nombre = 'Junín' and pr.nombre = 'Huancayo'),
-  'Transportes Molina', 'Elsa Quispe Ramos', 'DNI', '20114588',
-  '964 220 118', 260, false, null
+  (select id from seed_pedidos where clave = 'registrado-provincia'), (select id from public.departamentos where nombre = 'Piura'),
+  (select pr.id from public.provincias pr join public.departamentos d on d.id = pr.departamento_id where d.nombre = 'Piura' and pr.nombre = 'Piura'),
+  'Shalom — Piura Centro', 'Carlos Zapata Ruiz', 'DNI', '40123987', '969 220 145', 45, false, null
 );
 
 insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
-values ((select id from public.pedidos where codigo = 'PCL_2026_J2VH'), 2625, 'transferencia', '2026-08-19 12:00:00-05', (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'PCL_2026_J2VH'), 'diseno', 'pedidos/PCL_2026_J2VH/diseno/placa-conmemorativa.pdf',
-        'placa-conmemorativa.pdf', 'application/pdf', 1153434, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'PCL_2026_J2VH'), 'diseno', 'pedidos/PCL_2026_J2VH/diseno/escudo-municipal.svg',
-        'escudo-municipal.svg', 'application/octet-stream', 98304, (select id from public.usuarios where email = 'ana@plexiacril.test'));
+values ((select id from seed_pedidos where clave = 'registrado-provincia'), 287.92, 'transferencia', ((current_date + -1) + time '10:30') at time zone 'America/Lima', (select id from public.usuarios where usuario = 'ana'));
 
 insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'PCL_2026_J2VH'), 'registrado', 'administracion', null, (select id from public.usuarios where email = 'ana@plexiacril.test'), '2026-08-19T08:30:00-05');
+values ((select id from seed_pedidos where clave = 'registrado-provincia'), 'registrado', 'administracion', null, (select id from public.usuarios where usuario = 'ana'), ((current_date + -1) + time '09:15') at time zone 'America/Lima');
 
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'PCL_2026_J2VH'), 'listo', 'operaciones', null, (select id from public.usuarios where email = 'miguel@plexiacril.test'), '2026-08-19T16:05:00-05');
+-- registrado-tienda: registrado, SEED María Torres Huamán
+with nuevo as (
+  insert into public.pedidos (
+    es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado, cantidad,
+    tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega, ubicacion_actual,
+    estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
+    detalle, observaciones, notas_entrega, numero_comprobante, responsable_id, creado_por
+  ) values (
+    false, 'SEED María Torres Huamán', '988 112 233', array['SP']::public.tipo_pedido[], null, 22,
+    'contado', null, 446.04, 'tienda', null, 'tienda',
+    'registrado', null, (current_date + 2), ((current_date + 0) + time '09:15') at time zone 'America/Lima',
+    null, null,
+    '2 × [F7E024] ACRILICO ECO CRISTAL 3MM 1.22X1.83 — Corte a 60x40 cm
+8 × [ACC032] SOPORTES DE ACRILICO 25MM X 40MM CRISTAL
+12 × [ACC001] TORNILLOS 6MM CRISTAL', null, null, null, null, (select id from public.usuarios where usuario = 'ana')
+  )
+  returning id, codigo
+)
+insert into seed_pedidos (clave, id, codigo) select 'registrado-tienda', id, codigo from nuevo;
 
-insert into public.pedidos (
-  codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
-  cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
-  ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_comprobante, responsable_id, creado_por
-) values (
-  'LPT_2026_N6XC', false, 'Óptica Visión Lima', '967 471 052',
-  array['PT']::public.tipo_pedido[], 'porta_afiches',
-  10, 'credito', 15, 720,
-  'tienda', null,
-  'taller', 'en_proceso', null,
-  '2026-09-01', '2026-08-25 09:00:00-05', null, null,
-  '10 porta afiches A3 vertical de pared, cristal 3mm.', null, null,
-  (select id from public.trabajadores where nombre = 'Isaac'), (select id from public.usuarios where email = 'ana@plexiacril.test')
-);
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'LPT_2026_N6XC'), 'diseno', 'pedidos/LPT_2026_N6XC/diseno/porta-afiche-a3.pdf',
-        'porta-afiche-a3.pdf', 'application/pdf', 450560, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LPT_2026_N6XC'), 'registrado', 'administracion', null, (select id from public.usuarios where email = 'ana@plexiacril.test'), '2026-08-25T08:30:00-05');
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LPT_2026_N6XC'), 'en_proceso', 'operaciones', null, (select id from public.usuarios where email = 'miguel@plexiacril.test'), '2026-08-25T16:05:00-05');
-
-insert into public.pedidos (
-  codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
-  cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
-  ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_comprobante, responsable_id, creado_por
-) values (
-  'LCL_2026_D9KR', false, 'Colegio Los Álamos', '921 736 480',
-  array['CL']::public.tipo_pedido[], null,
-  60, 'a_cuenta', null, 1980,
-  'taller', null,
-  'taller', 'registrado', null,
-  '2026-09-05', '2026-08-28 09:00:00-05', null, null,
-  'Set de 60 medallas cortadas a láser con nombre grabado.', null, null,
-  null, (select id from public.usuarios where email = 'ana@plexiacril.test')
-);
+with c as (
+  insert into public.cotizaciones (
+    pedido_id, odoo_partner_id, cliente_nombre, cliente_documento, cliente_telefono,
+    odoo_order_id, odoo_order_name, sincronizacion, monto_sin_impuestos, monto_impuestos, monto_total,
+    confirmada_en_odoo, stock_descontado, creado_por, creado_en
+  ) values (
+    (select id from seed_pedidos where clave = 'registrado-tienda'), 6, 'SEED María Torres Huamán', '41234567', '988 112 233',
+    9012, 'S09012', 'sincronizada', 378, 68.04, 446.04,
+    true, false, (select id from public.usuarios where usuario = 'ana'), ((current_date + 0) + time '09:00') at time zone 'America/Lima'
+  )
+  returning id
+)
+insert into public.cotizacion_productos (
+  cotizacion_id, posicion, tipo, odoo_product_id, producto_nombre, producto_codigo, descripcion,
+  cantidad, precio_unitario, importe, corte, terminado, indicaciones, planchas_usadas
+)
+select c.id, l.* from c, (values
+  (1::smallint, 'producto'::public.tipo_linea, 20, 'ACRILICO ECO CRISTAL 3MM 1.22X1.83', 'F7E024', 'Corte a 60x40 cm',
+   2::numeric, 147::numeric, null::numeric,
+   null::jsonb,
+   null::jsonb,
+   null, null::numeric),
+  (2::smallint, 'producto'::public.tipo_linea, 291, 'SOPORTES DE ACRILICO 25MM X 40MM CRISTAL', 'ACC032', null,
+   8::numeric, 6::numeric, null::numeric,
+   null::jsonb,
+   null::jsonb,
+   null, null::numeric),
+  (3::smallint, 'producto'::public.tipo_linea, 277, 'TORNILLOS 6MM CRISTAL', 'ACC001', null,
+   12::numeric, 3::numeric, null::numeric,
+   null::jsonb,
+   null::jsonb,
+   null, null::numeric)
+) as l;
 
 insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
-values ((select id from public.pedidos where codigo = 'LCL_2026_D9KR'), 990, 'efectivo', '2026-08-28 12:00:00-05', (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'LCL_2026_D9KR'), 'diseno', 'pedidos/LCL_2026_D9KR/diseno/medallas-nombres.xlsx',
-        'medallas-nombres.xlsx', 'application/octet-stream', 49152, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'LCL_2026_D9KR'), 'diseno', 'pedidos/LCL_2026_D9KR/diseno/troquel-medalla.pdf',
-        'troquel-medalla.pdf', 'application/pdf', 317440, (select id from public.usuarios where email = 'ana@plexiacril.test'));
+values ((select id from seed_pedidos where clave = 'registrado-tienda'), 446.04, 'efectivo', ((current_date + 0) + time '10:30') at time zone 'America/Lima', (select id from public.usuarios where usuario = 'ana'));
 
 insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LCL_2026_D9KR'), 'registrado', 'administracion', null, (select id from public.usuarios where email = 'ana@plexiacril.test'), '2026-08-28T08:30:00-05');
+values ((select id from seed_pedidos where clave = 'registrado-tienda'), 'registrado', 'administracion', null, (select id from public.usuarios where usuario = 'ana'), ((current_date + 0) + time '09:15') at time zone 'America/Lima');
 
-insert into public.pedidos (
-  codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
-  cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
-  ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_comprobante, responsable_id, creado_por
-) values (
-  'PSP_2026_G3LM', true, 'Ferretería El Sol - Piura', '988 204 619',
-  array['SP']::public.tipo_pedido[], null,
-  30, 'contado', null, 6300,
-  'agencia', null,
-  'agencia', 'entregado', null,
-  '2026-08-20', '2026-08-08 09:00:00-05', '2026-08-20', null,
-  '30 planchas de acrílico blanco 3mm.', null, 'F001-004470',
-  (select id from public.trabajadores where nombre = 'Clever'), (select id from public.usuarios where email = 'ana@plexiacril.test')
-);
+-- registrado-taller: registrado, SEED Publicidad Lima SAC
+with nuevo as (
+  insert into public.pedidos (
+    es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado, cantidad,
+    tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega, ubicacion_actual,
+    estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
+    detalle, observaciones, notas_entrega, numero_comprobante, responsable_id, creado_por
+  ) values (
+    false, 'SEED Publicidad Lima SAC', '01 444 5566', array['CL', 'SP']::public.tipo_pedido[], null, 50,
+    'credito', 30, 764.64, 'domicilio', 'Jr. Camaná 780, Cercado de Lima', 'taller',
+    'registrado', null, (current_date + 4), ((current_date + 0) + time '09:15') at time zone 'America/Lima',
+    null, null,
+    'Corte láser · Acrílico ECO · Cristal · 3 mm: 10 piezas (10 × 60×80 cm) — 3 planchas de 122×183
+  ↳ Pegar los separadores después de cortar.
+40 × [ACC033] SOPORTES DE ACRILICO 19MM X 30MM CRISTAL', null, 'Entregar en recepción, de 9 a 13 h.', null, null, (select id from public.usuarios where usuario = 'ana')
+  )
+  returning id, codigo
+)
+insert into seed_pedidos (clave, id, codigo) select 'registrado-taller', id, codigo from nuevo;
 
-insert into public.envios_provincia (
-  pedido_id, departamento_id, provincia_id, nombre_agencia, nombre_persona_recoge,
-  tipo_documento, numero_documento, telefono_persona_recoge, monto_flete, flete_pagado,
-  observaciones_envio
-) values (
-  (select id from public.pedidos where codigo = 'PSP_2026_G3LM'), (select id from public.departamentos where nombre = 'Piura'), (select pr.id from public.provincias pr join public.departamentos d on d.id = pr.departamento_id
-        where d.nombre = 'Piura' and pr.nombre = 'Piura'),
-  'Shalom - Piura', 'Luis Farfán Castro', 'DNI', '03887219',
-  '969 553 017', 340, true, null
-);
-
-insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
-values ((select id from public.pedidos where codigo = 'PSP_2026_G3LM'), 6300, 'transferencia', '2026-08-08 12:00:00-05', (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'PSP_2026_G3LM'), 'factura', 'pedidos/PSP_2026_G3LM/factura/factura-F001-004470.pdf',
-        'factura-F001-004470.pdf', 'application/pdf', 209920, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'PSP_2026_G3LM'), 'guia', 'pedidos/PSP_2026_G3LM/guia/guia-remision-piura.pdf',
-        'guia-remision-piura.pdf', 'application/pdf', 180224, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'PSP_2026_G3LM'), 'registrado', 'administracion', null, (select id from public.usuarios where email = 'ana@plexiacril.test'), '2026-08-08T08:30:00-05');
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'PSP_2026_G3LM'), 'entregado', 'operaciones', null, (select id from public.usuarios where email = 'miguel@plexiacril.test'), '2026-08-08T16:05:00-05');
-
-insert into public.pedidos (
-  codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
-  cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
-  ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_comprobante, responsable_id, creado_por
-) values (
-  'LPT_2026_Z4BT', false, 'Cevichería La Mar del Sur', '935 617 902',
-  array['PT']::public.tipo_pedido[], 'cajas',
-  15, 'a_cuenta', null, 1120,
-  'tienda', null,
-  'tienda', 'listo', null,
-  '2026-08-29', '2026-08-22 09:00:00-05', null, null,
-  '15 cajas porta cubiertos con tapa, cristal 3mm.', null, null,
-  (select id from public.trabajadores where nombre = 'John'), (select id from public.usuarios where email = 'ana@plexiacril.test')
-);
-
-insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
-values ((select id from public.pedidos where codigo = 'LPT_2026_Z4BT'), 560, 'efectivo', '2026-08-22 12:00:00-05', (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'LPT_2026_Z4BT'), 'diseno', 'pedidos/LPT_2026_Z4BT/diseno/caja-cubiertos.pdf',
-        'caja-cubiertos.pdf', 'application/pdf', 389120, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'LPT_2026_Z4BT'), 'foto_entrega', 'pedidos/LPT_2026_Z4BT/foto_entrega/muestra-aprobada.jpg',
-        'muestra-aprobada.jpg', 'image/jpeg', 1887437, (select id from public.usuarios where email = 'ana@plexiacril.test'));
+with c as (
+  insert into public.cotizaciones (
+    pedido_id, odoo_partner_id, cliente_nombre, cliente_documento, cliente_telefono,
+    odoo_order_id, odoo_order_name, sincronizacion, monto_sin_impuestos, monto_impuestos, monto_total,
+    confirmada_en_odoo, stock_descontado, creado_por, creado_en
+  ) values (
+    (select id from seed_pedidos where clave = 'registrado-taller'), 5, 'SEED Publicidad Lima SAC', '20512345671', '01 444 5566',
+    9013, 'S09013', 'sincronizada', 648, 116.64, 764.64,
+    true, false, (select id from public.usuarios where usuario = 'ana'), ((current_date + 0) + time '09:00') at time zone 'America/Lima'
+  )
+  returning id
+)
+insert into public.cotizacion_productos (
+  cotizacion_id, posicion, tipo, odoo_product_id, producto_nombre, producto_codigo, descripcion,
+  cantidad, precio_unitario, importe, corte, terminado, indicaciones, planchas_usadas
+)
+select c.id, l.* from c, (values
+  (1::smallint, 'corte'::public.tipo_linea, 20, 'ACRILICO ECO CRISTAL 3MM 1.22X1.83', 'F7E024', 'Corte láser · Acrílico ECO · Cristal · 3 mm: 10 × 60×80 cm',
+   3::numeric, 127.4::numeric, 408::numeric,
+   jsonb_set('{"version":1,"grupoId":"__GRUPO__","material":"Acrílico ECO","color":"Cristal","espesorMm":3,"modalidad":"laser","rotable":true,"piezas":[{"ancho":60,"alto":80,"cantidad":10}],"servicio":{"productoId":31,"codigo":"SRV002","nombre":"SERVICIO DE CORTE LASER"},"sobrantes":false,"formato":{"codigo":"F7E024","ancho":122,"alto":183,"precio":147},"planchas":[{"origen":{"tipo":"plancha"},"ancho":122,"alto":183,"usoPct":86,"piezas":4,"cobro":{"nombre":"1","factor":1,"ancho":122,"alto":183,"monto":147,"nota":null},"paneles":[{"x1":0,"y1":0,"x2":60,"y2":80,"libre":false,"piezaId":"f1#1","rotada":false},{"x1":60,"y1":0,"x2":120,"y2":80,"libre":false,"piezaId":"f1#2","rotada":false},{"x1":120,"y1":0,"x2":122,"y2":80,"libre":true},{"x1":0,"y1":80,"x2":60,"y2":160,"libre":false,"piezaId":"f1#3","rotada":false},{"x1":60,"y1":80,"x2":120,"y2":160,"libre":false,"piezaId":"f1#4","rotada":false},{"x1":120,"y1":80,"x2":122,"y2":160,"libre":true},{"x1":0,"y1":160,"x2":122,"y2":183,"libre":true}]},{"origen":{"tipo":"plancha"},"ancho":122,"alto":183,"usoPct":86,"piezas":4,"cobro":{"nombre":"1","factor":1,"ancho":122,"alto":183,"monto":147,"nota":null},"paneles":[{"x1":0,"y1":0,"x2":60,"y2":80,"libre":false,"piezaId":"f1#5","rotada":false},{"x1":60,"y1":0,"x2":120,"y2":80,"libre":false,"piezaId":"f1#6","rotada":false},{"x1":120,"y1":0,"x2":122,"y2":80,"libre":true},{"x1":0,"y1":80,"x2":60,"y2":160,"libre":false,"piezaId":"f1#7","rotada":false},{"x1":60,"y1":80,"x2":120,"y2":160,"libre":false,"piezaId":"f1#8","rotada":false},{"x1":120,"y1":80,"x2":122,"y2":160,"libre":true},{"x1":0,"y1":160,"x2":122,"y2":183,"libre":true}]},{"origen":{"tipo":"plancha"},"ancho":122,"alto":183,"usoPct":43,"piezas":2,"cobro":{"nombre":"1/2","factor":0.5,"ancho":61,"alto":183,"monto":88.2,"nota":null},"paneles":[{"x1":0,"y1":0,"x2":60,"y2":80,"libre":false,"piezaId":"f1#9","rotada":false},{"x1":60,"y1":0,"x2":61,"y2":183,"libre":true},{"x1":0,"y1":80,"x2":60,"y2":160,"libre":false,"piezaId":"f1#10","rotada":false},{"x1":0,"y1":160,"x2":60,"y2":183,"libre":true},{"x1":61,"y1":0,"x2":122,"y2":183,"libre":true,"sobrante":true}]}],"montoMaterial":382.2,"montoServicio":25.8,"total":408,"minutosLaser":26.36,"desglose":[{"etiqueta":"Plancha 1: completa (122×183)","monto":147},{"etiqueta":"Plancha 2: completa (122×183)","monto":147},{"etiqueta":"Plancha 3: las piezas caben en 1/2 (61×183) → S/ 147.00 × 1/2 + 20 %","monto":88.2},{"etiqueta":"Corte láser: 10 piezas, 26.36 min","monto":25.8},{"etiqueta":"Total","monto":408,"esTotal":true}]}'::jsonb, '{grupoId}', to_jsonb((select id::text from public.grupos_plancha where material = 'Acrílico ECO' and variante = 'Cristal' and detalle = '' and espesor_mm = 3))),
+   null::jsonb,
+   'Pegar los separadores después de cortar.', null::numeric),
+  (2::smallint, 'producto'::public.tipo_linea, 292, 'SOPORTES DE ACRILICO 19MM X 30MM CRISTAL', 'ACC033', null,
+   40::numeric, 6::numeric, null::numeric,
+   null::jsonb,
+   null::jsonb,
+   null, null::numeric)
+) as l;
 
 insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LPT_2026_Z4BT'), 'registrado', 'administracion', null, (select id from public.usuarios where email = 'ana@plexiacril.test'), '2026-08-22T08:30:00-05');
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LPT_2026_Z4BT'), 'listo', 'operaciones', null, (select id from public.usuarios where email = 'miguel@plexiacril.test'), '2026-08-22T16:05:00-05');
-
-insert into public.pedidos (
-  codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
-  cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
-  ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_comprobante, responsable_id, creado_por
-) values (
-  'LCM_2026_Q7SE', false, 'Estudio Contable Paredes', '974 083 251',
-  array['CM']::public.tipo_pedido[], null,
-  6, 'contado', null, 430,
-  'tienda', null,
-  'taller', 'anulado', 'Cliente canceló el pedido el 23/08 por cambio de proveedor.',
-  '2026-08-26', '2026-08-17 09:00:00-05', null, '2026-08-23',
-  'Porta tarjetas de escritorio.', null, null,
-  null, (select id from public.usuarios where email = 'ana@plexiacril.test')
-);
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LCM_2026_Q7SE'), 'registrado', 'administracion', null, (select id from public.usuarios where email = 'ana@plexiacril.test'), '2026-08-17T08:30:00-05');
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LCM_2026_Q7SE'), 'anulado', 'operaciones', null, (select id from public.usuarios where email = 'miguel@plexiacril.test'), '2026-08-17T16:05:00-05');
-
-insert into public.pedidos (
-  codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
-  cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
-  ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_comprobante, responsable_id, creado_por
-) values (
-  'PCL_2026_V8HN', true, 'Hotel Casa Andina - Cusco', '913 590 447',
-  array['CL']::public.tipo_pedido[], null,
-  48, 'a_cuenta', null, 2870,
-  'agencia', null,
-  'taller', 'registrado', null,
-  '2026-09-08', '2026-08-27 09:00:00-05', null, null,
-  'Señalética de habitaciones, 48 piezas grabadas a láser.', null, null,
-  null, (select id from public.usuarios where email = 'ana@plexiacril.test')
-);
-
-insert into public.envios_provincia (
-  pedido_id, departamento_id, provincia_id, nombre_agencia, nombre_persona_recoge,
-  tipo_documento, numero_documento, telefono_persona_recoge, monto_flete, flete_pagado,
-  observaciones_envio
-) values (
-  (select id from public.pedidos where codigo = 'PCL_2026_V8HN'), (select id from public.departamentos where nombre = 'Cusco'), (select pr.id from public.provincias pr join public.departamentos d on d.id = pr.departamento_id
-        where d.nombre = 'Cusco' and pr.nombre = 'Cusco'),
-  null, null, 'DNI', null,
-  null, 0, false, null
-);
-
-insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
-values ((select id from public.pedidos where codigo = 'PCL_2026_V8HN'), 1000, 'transferencia', '2026-08-27 12:00:00-05', (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'PCL_2026_V8HN'), 'diseno', 'pedidos/PCL_2026_V8HN/diseno/numeracion-habitaciones.pdf',
-        'numeracion-habitaciones.pdf', 'application/pdf', 675840, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'PCL_2026_V8HN'), 'registrado', 'administracion', null, (select id from public.usuarios where email = 'ana@plexiacril.test'), '2026-08-27T08:30:00-05');
-
-insert into public.pedidos (
-  codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
-  cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
-  ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_comprobante, responsable_id, creado_por
-) values (
-  'LPT_2026_C2RJ', false, 'Farmacia Vida Sana', null,
-  array['PT']::public.tipo_pedido[], 'pivotante',
-  2, 'a_cuenta', null, 1560,
-  'domicilio', 'Jr. Huánuco 455, Cercado de Lima',
-  'taller', 'en_proceso', null,
-  '2026-08-31', '2026-08-26 09:00:00-05', null, null,
-  '2 exhibidores pivotantes de piso, 5 caras.', null, null,
-  (select id from public.trabajadores where nombre = 'Angel'), (select id from public.usuarios where email = 'ana@plexiacril.test')
-);
-
-insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
-values ((select id from public.pedidos where codigo = 'LPT_2026_C2RJ'), 780, 'yape_plin', '2026-08-26 12:00:00-05', (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'LPT_2026_C2RJ'), 'diseno', 'pedidos/LPT_2026_C2RJ/diseno/pivotante-5-caras.pdf',
-        'pivotante-5-caras.pdf', 'application/pdf', 1363149, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'LPT_2026_C2RJ'), 'diseno', 'pedidos/LPT_2026_C2RJ/diseno/render-cliente.png',
-        'render-cliente.png', 'image/png', 2516582, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LPT_2026_C2RJ'), 'registrado', 'administracion', null, (select id from public.usuarios where email = 'ana@plexiacril.test'), '2026-08-26T08:30:00-05');
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LPT_2026_C2RJ'), 'en_proceso', 'operaciones', null, (select id from public.usuarios where email = 'miguel@plexiacril.test'), '2026-08-26T16:05:00-05');
-
-insert into public.pedidos (
-  codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
-  cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
-  ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_comprobante, responsable_id, creado_por
-) values (
-  'LCL_2026_F5PW', false, 'Banco Pichincha - Ag. San Isidro', '968 725 130',
-  array['CL']::public.tipo_pedido[], null,
-  8, 'contado', null, 2240,
-  'tienda', null,
-  'tienda', 'entregado', null,
-  '2026-08-25', '2026-08-13 09:00:00-05', '2026-08-25', null,
-  'Mamparas divisorias de ventanilla, 8 unidades.', null, 'F001-004501',
-  (select id from public.trabajadores where nombre = 'Juan'), (select id from public.usuarios where email = 'ana@plexiacril.test')
-);
-
-insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
-values ((select id from public.pedidos where codigo = 'LCL_2026_F5PW'), 2240, 'transferencia', '2026-08-13 12:00:00-05', (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'LCL_2026_F5PW'), 'diseno', 'pedidos/LCL_2026_F5PW/diseno/mampara-ventanilla.pdf',
-        'mampara-ventanilla.pdf', 'application/pdf', 757760, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'LCL_2026_F5PW'), 'foto_entrega', 'pedidos/LCL_2026_F5PW/foto_entrega/instalacion-final.jpg',
-        'instalacion-final.jpg', 'image/jpeg', 2726298, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'LCL_2026_F5PW'), 'factura', 'pedidos/LCL_2026_F5PW/factura/factura-F001-004501.pdf',
-        'factura-F001-004501.pdf', 'application/pdf', 217088, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LCL_2026_F5PW'), 'registrado', 'administracion', null, (select id from public.usuarios where email = 'ana@plexiacril.test'), '2026-08-13T08:30:00-05');
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LCL_2026_F5PW'), 'entregado', 'operaciones', null, (select id from public.usuarios where email = 'miguel@plexiacril.test'), '2026-08-13T16:05:00-05');
-
-insert into public.pedidos (
-  codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
-  cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
-  ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_comprobante, responsable_id, creado_por
-) values (
-  'LMX_2026_A7KD', false, 'Cafetería Bisetti', '942 318 906',
-  array['CL', 'AC']::public.tipo_pedido[], null,
-  18, 'a_cuenta', null, 2150,
-  'tienda', null,
-  'taller', 'en_proceso', null,
-  '2026-09-03', '2026-08-27 09:00:00-05', null, null,
-  '12 posavasos grabados y 6 soportes de menú con bisagra de aluminio.', 'El cliente pasa a revisar la muestra el lunes por la mañana.', null,
-  (select id from public.trabajadores where nombre = 'Isaac'), (select id from public.usuarios where email = 'ana@plexiacril.test')
-);
-
-insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
-values ((select id from public.pedidos where codigo = 'LMX_2026_A7KD'), 900, 'yape_plin', '2026-08-27 12:00:00-05', (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'LMX_2026_A7KD'), 'diseno', 'pedidos/LMX_2026_A7KD/diseno/posavasos-logo.pdf',
-        'posavasos-logo.pdf', 'application/pdf', 419840, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LMX_2026_A7KD'), 'registrado', 'administracion', null, (select id from public.usuarios where email = 'ana@plexiacril.test'), '2026-08-27T08:30:00-05');
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LMX_2026_A7KD'), 'en_proceso', 'operaciones', null, (select id from public.usuarios where email = 'miguel@plexiacril.test'), '2026-08-27T16:05:00-05');
-
-insert into public.pedidos (
-  codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
-  cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
-  ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_comprobante, responsable_id, creado_por
-) values (
-  'LSP_2026_H2QN', false, 'Vidriería Santa Rosa', '957 604 283',
-  array['SP']::public.tipo_pedido[], null,
-  2.5, 'contado', null, 780,
-  'taller', null,
-  'tienda', 'registrado', null,
-  '2026-09-01', '2026-08-29 09:00:00-05', null, null,
-  '2.5 Acrílico Alfa 5mm transparente F7', 'Media plancha se corta del retazo de la semana pasada.', null,
-  null, (select id from public.usuarios where email = 'ana@plexiacril.test')
-);
-
-insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
-values ((select id from public.pedidos where codigo = 'LSP_2026_H2QN'), 780, 'efectivo', '2026-08-29 12:00:00-05', (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LSP_2026_H2QN'), 'registrado', 'administracion', null, (select id from public.usuarios where email = 'ana@plexiacril.test'), '2026-08-29T08:30:00-05');
-
-insert into public.pedidos (
-  codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
-  cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
-  ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_comprobante, responsable_id, creado_por
-) values (
-  'LCL_2026_Y3MB', false, 'Panadería San Jorge', '929 861 375',
-  array['CL']::public.tipo_pedido[], null,
-  30, 'contado', null, 510,
-  'tienda', null,
-  'tienda', 'entregado', null,
-  '2026-08-29', '2026-08-24 09:00:00-05', '2026-08-29', null,
-  '30 porta precios de mostrador, cristal 2mm.', null, 'F001-004520',
-  (select id from public.trabajadores where nombre = 'John'), (select id from public.usuarios where email = 'ana@plexiacril.test')
-);
-
-insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
-values ((select id from public.pedidos where codigo = 'LCL_2026_Y3MB'), 510, 'efectivo', '2026-08-24 12:00:00-05', (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'LCL_2026_Y3MB'), 'factura', 'pedidos/LCL_2026_Y3MB/factura/factura-F001-004520.pdf',
-        'factura-F001-004520.pdf', 'application/pdf', 198656, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LCL_2026_Y3MB'), 'registrado', 'administracion', null, (select id from public.usuarios where email = 'ana@plexiacril.test'), '2026-08-24T08:30:00-05');
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LCL_2026_Y3MB'), 'entregado', 'operaciones', null, (select id from public.usuarios where email = 'miguel@plexiacril.test'), '2026-08-24T16:05:00-05');
-
-insert into public.pedidos (
-  codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
-  cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
-  ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_comprobante, responsable_id, creado_por
-) values (
-  'LCM_2026_X9TR', false, 'Boutique Almendra', '983 240 517',
-  array['CM']::public.tipo_pedido[], null,
-  4, 'contado', null, 690,
-  'tienda', null,
-  'taller', 'anulado', 'El cliente canceló hoy: la tienda no abre en la fecha prevista.',
-  '2026-09-06', '2026-08-26 09:00:00-05', null, '2026-08-29',
-  '4 exhibidores de vitrina, acrílico blanco 3mm.', null, null,
-  null, (select id from public.usuarios where email = 'ana@plexiacril.test')
-);
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LCM_2026_X9TR'), 'registrado', 'administracion', null, (select id from public.usuarios where email = 'ana@plexiacril.test'), '2026-08-26T08:30:00-05');
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LCM_2026_X9TR'), 'anulado', 'operaciones', null, (select id from public.usuarios where email = 'miguel@plexiacril.test'), '2026-08-26T16:05:00-05');
-
-insert into public.pedidos (
-  codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
-  cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
-  ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_comprobante, responsable_id, creado_por
-) values (
-  'PCL_2026_L4WD', true, 'Municipalidad de Tarapoto', '916 452 738',
-  array['CL']::public.tipo_pedido[], null,
-  55, 'a_cuenta', null, 7420,
-  'agencia', null,
-  'agencia', 'entregado', null,
-  '2026-07-20', '2026-07-06 09:00:00-05', '2026-07-18', null,
-  '55 placas de señalización institucional grabadas a láser.', null, 'F001-004312',
-  (select id from public.trabajadores where nombre = 'Juan'), (select id from public.usuarios where email = 'ana@plexiacril.test')
-);
-
-insert into public.envios_provincia (
-  pedido_id, departamento_id, provincia_id, nombre_agencia, nombre_persona_recoge,
-  tipo_documento, numero_documento, telefono_persona_recoge, monto_flete, flete_pagado,
-  observaciones_envio
-) values (
-  (select id from public.pedidos where codigo = 'PCL_2026_L4WD'), (select id from public.departamentos where nombre = 'San Martín'), (select pr.id from public.provincias pr join public.departamentos d on d.id = pr.departamento_id
-        where d.nombre = 'San Martín' and pr.nombre = 'San Martín'),
-  'Shalom - Tarapoto', 'Rocío Panduro Silva', 'DNI', '01128744',
-  '942 771 306', 410, true, null
-);
-
-insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
-values ((select id from public.pedidos where codigo = 'PCL_2026_L4WD'), 3710, 'transferencia', '2026-07-06 12:00:00-05', (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
-values ((select id from public.pedidos where codigo = 'PCL_2026_L4WD'), 3710, 'transferencia', '2026-07-18 12:00:00-05', (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'PCL_2026_L4WD'), 'factura', 'pedidos/PCL_2026_L4WD/factura/factura-F001-004312.pdf',
-        'factura-F001-004312.pdf', 'application/pdf', 205824, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'PCL_2026_L4WD'), 'registrado', 'administracion', null, (select id from public.usuarios where email = 'ana@plexiacril.test'), '2026-07-06T08:30:00-05');
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'PCL_2026_L4WD'), 'entregado', 'operaciones', null, (select id from public.usuarios where email = 'miguel@plexiacril.test'), '2026-07-06T16:05:00-05');
-
-insert into public.pedidos (
-  codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
-  cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
-  ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_comprobante, responsable_id, creado_por
-) values (
-  'LPT_2026_S6VK', false, 'Hostal Miraflores Suites', '961 073 894',
-  array['PT']::public.tipo_pedido[], 'letreros',
-  22, 'contado', null, 1890,
-  'tienda', null,
-  'tienda', 'entregado', null,
-  '2026-08-01', '2026-07-21 09:00:00-05', '2026-07-30', null,
-  '22 letreros de puerta con numeración, acrílico negro 4mm.', null, 'B001-000318',
-  (select id from public.trabajadores where nombre = 'Angel'), (select id from public.usuarios where email = 'ana@plexiacril.test')
-);
-
-insert into public.pagos (pedido_id, monto, metodo, fecha, registrado_por)
-values ((select id from public.pedidos where codigo = 'LPT_2026_S6VK'), 1890, 'tarjeta', '2026-07-21 12:00:00-05', (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'LPT_2026_S6VK'), 'factura', 'pedidos/LPT_2026_S6VK/factura/boleta-B001-000318.pdf',
-        'boleta-B001-000318.pdf', 'application/pdf', 192512, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.adjuntos (pedido_id, tipo, storage_path, nombre_archivo, mime_type, tamano_bytes, subido_por)
-values ((select id from public.pedidos where codigo = 'LPT_2026_S6VK'), 'foto_entrega', 'pedidos/LPT_2026_S6VK/foto_entrega/letreros-instalados.jpg',
-        'letreros-instalados.jpg', 'image/jpeg', 2306867, (select id from public.usuarios where email = 'ana@plexiacril.test'));
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LPT_2026_S6VK'), 'registrado', 'administracion', null, (select id from public.usuarios where email = 'ana@plexiacril.test'), '2026-07-21T08:30:00-05');
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LPT_2026_S6VK'), 'entregado', 'operaciones', null, (select id from public.usuarios where email = 'miguel@plexiacril.test'), '2026-07-21T16:05:00-05');
-
-insert into public.pedidos (
-  codigo, es_provincia, nombre_cliente, telefono_cliente, tipos_pedido, tipo_producto_terminado,
-  cantidad, tipo_pago, plazo_credito_dias, monto_total, lugar_entrega, direccion_entrega,
-  ubicacion_actual, estado, motivo, fecha_prometida, fecha_creacion, fecha_entrega, fecha_anulacion,
-  detalle, observaciones, numero_comprobante, responsable_id, creado_por
-) values (
-  'LCM_2026_B3ZQ', false, 'Imprenta Del Valle', '937 528 160',
-  array['CM', 'AC']::public.tipo_pedido[], null,
-  12, 'a_cuenta', null, 1340,
-  'tienda', null,
-  'taller', 'anulado', 'Se anuló el 24/07: el material llegó rayado y el cliente prefirió no reprogramar.',
-  '2026-07-29', '2026-07-15 09:00:00-05', null, '2026-07-24',
-  '12 bandejas apilables con topes de aluminio.', 'El adelanto se devolvió en efectivo el mismo día.', null,
-  null, (select id from public.usuarios where email = 'ana@plexiacril.test')
-);
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LCM_2026_B3ZQ'), 'registrado', 'administracion', null, (select id from public.usuarios where email = 'ana@plexiacril.test'), '2026-07-15T08:30:00-05');
-
-insert into public.historial_estados (pedido_id, estado, rol, motivo, usuario_id, creado_en)
-values ((select id from public.pedidos where codigo = 'LCM_2026_B3ZQ'), 'anulado', 'operaciones', null, (select id from public.usuarios where email = 'miguel@plexiacril.test'), '2026-07-15T16:05:00-05');
+values ((select id from seed_pedidos where clave = 'registrado-taller'), 'registrado', 'administracion', null, (select id from public.usuarios where usuario = 'ana'), ((current_date + 0) + time '09:15') at time zone 'America/Lima');
 
 alter table public.pedidos          enable trigger pedidos_auditoria;
 alter table public.pedidos          enable trigger pedidos_historial;
 alter table public.envios_provincia enable trigger envios_provincia_auditoria;
 alter table public.adjuntos         enable trigger adjuntos_auditoria;
 
--- El trigger de `pagos` ya dejó `monto_pagado` al día; esto solo confirma que la
--- suma de abonos coincide con lo que traía el prototipo.
+-- Lo que el seed promete: cada pedido con su cotización y sus líneas, y el monto
+-- pagado igual a la suma de los abonos (lo mantiene el trigger de `pagos`).
 do $$
-declare descuadre integer;
+declare
+  sin_lineas integer;
+  descuadre  integer;
 begin
+  select count(*) into sin_lineas
+  from seed_pedidos s
+  where not exists (
+    select 1 from public.cotizaciones c join public.cotizacion_productos cp on cp.cotizacion_id = c.id
+    where c.pedido_id = s.id
+  );
+  if sin_lineas > 0 then
+    raise exception 'El seed dejó % pedidos sin líneas', sin_lineas;
+  end if;
+
   select count(*) into descuadre
   from public.pedidos p
   where p.monto_pagado <> coalesce((select sum(g.monto) from public.pagos g where g.pedido_id = p.id), 0);
-
   if descuadre > 0 then
     raise exception 'El seed dejó % pedidos con el monto pagado descuadrado', descuadre;
   end if;
 end $$;
+
+drop table seed_pedidos;
 
 -- Clave que comparte el servidor de Next con `email_de_usuario` (LOGIN_SECRET).
 -- Solo para desarrollo local: en el proyecto alojado se inserta a mano con otro valor.

@@ -2453,6 +2453,32 @@ export type Database = {
           tipo: Database["public"]["Enums"]["tipo_linea"]
         }[]
       }
+      lineas_de_pedidos: {
+        Args: { p_ids: string[] }
+        Returns: {
+          cantidad: number
+          corte: Json
+          descripcion: string
+          diseno_id: string
+          diseno_version: number
+          diseno_version_id: string
+          importe: number
+          indicaciones: string
+          materiales_usados: Json
+          odoo_produccion_id: number
+          odoo_produccion_nombre: string
+          odoo_product_id: number
+          pedido_id: string
+          planchas_usadas: number
+          posicion: number
+          precio_unitario: number
+          produccion_cerrada: boolean
+          producto_codigo: string
+          producto_nombre: string
+          terminado: Json
+          tipo: Database["public"]["Enums"]["tipo_linea"]
+        }[]
+      }
       marcar_escritura_del_sistema: {
         Args: { activa: boolean }
         Returns: undefined
