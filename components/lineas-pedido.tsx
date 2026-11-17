@@ -3,9 +3,27 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { CircleCheck, Factory, Package, Printer, RotateCw, TriangleAlert } from "lucide-react";
+import {
+  Boxes,
+  ChevronLeft,
+  ChevronRight,
+  CircleCheck,
+  ClipboardList,
+  Factory,
+  Layers,
+  NotebookPen,
+  Package,
+  Paperclip,
+  Printer,
+  RotateCw,
+  Scissors,
+  TriangleAlert,
+  type LucideIcon,
+} from "lucide-react";
 import * as acciones from "@/app/(app)/acciones";
-import { esTerminal, type Pedido } from "@/lib/dominio";
+import { CLASES_ITEM, esTerminal, type ClaseItem, type Pedido } from "@/lib/dominio";
+import { MODALIDADES } from "@/lib/cortes/calcular";
+import { materialDeCorte, totalPiezas } from "@/lib/cortes/guardado";
 import { money } from "@/lib/formato";
 import { useStore } from "@/lib/store";
 import { planchasCalculadas, type LineaDePedido, type OdooDePedido } from "@/lib/pedido-lineas";
@@ -21,36 +39,74 @@ const n = (x: number) => String(+x.toFixed(2));
 /** Después de Listo las planchas ya salieron: es cuando se descuenta el stock. */
 const yaTerminado = (p: Pedido) => ["listo", "en_transito", "entregado"].includes(p.estado);
 
+/** De qué es una línea: un corte, un producto terminado o un producto de Odoo tal cual. */
+export const claseDeLinea = (l: LineaDePedido): ClaseItem =>
+  l.corte ? "corte" : l.terminado ? "terminado" : "producto";
+
+export const ICONO_CLASE: Record<ClaseItem, LucideIcon> = {
+  corte: Scissors,
+  terminado: Package,
+  producto: Boxes,
+};
+
+/** Cómo se nombra una línea en la lista: el material del corte, el nombre del terminado o del producto. */
+export const nombreDeLinea = (l: LineaDePedido) =>
+  l.corte ? materialDeCorte(l.corte) : l.terminado ? l.terminado.nombre : l.nombre;
+
+/** Cuánto es: las piezas de un corte, las unidades de lo demás. */
+export function cantidadDeLinea(l: LineaDePedido) {
+  if (l.corte) {
+    const piezas = totalPiezas(l.corte.piezas);
+    return `${piezas} ${piezas === 1 ? "pieza" : "piezas"}`;
+  }
+  return `${n(l.cantidad)} ${l.cantidad === 1 ? "unidad" : "unidades"}`;
+}
+
 /**
- * Lo que hay que hacer: los productos y los cortes del pedido, con el plano de
- * cada plancha. Es la hoja de trabajo del taller, que lo ve sin precios.
+ * Un ítem del pedido abierto en grande: lo que el taller tiene que hacer con
+ * él. Arriba, sus indicaciones (lo primero que hay que leer); luego el plano
+ * del corte o la ficha del terminado; después, los archivos de ese ítem.
  *
- * Abajo, cómo va la venta en Odoo: si el stock ya se descontó o, si Odoo falló
- * al pasar a Listo (o al anular), el motivo y el botón para reintentar.
+ * Las herramientas del pedido entero —anotar planchas o materiales, imprimir
+ * la hoja de corte— van en la cabecera, y cómo va la venta en Odoo, al pie.
  */
-export function LineasPedido({
+export function PanelItem({
   pedido: p,
   lineas,
+  linea: l,
   odoo,
   sobrantes = [],
+  archivos,
+  alAnterior,
+  alSiguiente,
 }: {
   pedido: Pedido;
+  /** Todas las líneas: anotar planchas o materiales se hace del pedido entero. */
   lineas: LineaDePedido[];
+  linea: LineaDePedido;
   odoo: OdooDePedido | null;
   /** Los sobrantes que el pedido devolvió al almacén (piloto de sobrantes). */
   sobrantes?: Sobrante[];
+  /** Los archivos de este ítem. */
+  archivos: React.ReactNode;
+  alAnterior?: () => void;
+  alSiguiente?: () => void;
 }) {
   const { permisos } = useStore();
   const [anotando, setAnotando] = useState(false);
   const [anotandoMateriales, setAnotandoMateriales] = useState(false);
   const [pendiente, iniciar] = useTransition();
 
-  const cortes = lineas.filter((l) => l.corte);
+  const cortes = lineas.filter((x) => x.corte);
   const puedeAnotar = cortes.length > 0 && !odoo?.stockDescontado && !esTerminal(p.estado);
-  const terminados = lineas.filter((l) => l.terminado);
+  const terminados = lineas.filter((x) => x.terminado);
   const puedeAnotarMateriales = terminados.length > 0 && !odoo?.stockDescontado && !esTerminal(p.estado);
   // Los productos terminados con piezas calculadas también van en la hoja de corte.
-  const conHojaDeCorte = lineas.some((l) => l.corte || l.terminado?.corte);
+  const conHojaDeCorte = lineas.some((x) => x.corte || x.terminado?.corte);
+
+  const clase = claseDeLinea(l);
+  const Icono = ICONO_CLASE[clase];
+  const indice = lineas.findIndex((x) => x.posicion === l.posicion);
 
   const anotarMateriales = (materiales: MaterialesAnotados) =>
     new Promise<acciones.Resultado>((resolver) =>
@@ -73,19 +129,58 @@ export function LineasPedido({
     );
 
   return (
-    <section className="bg-card rounded-xl border" aria-labelledby="titulo-lineas">
-      <header className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b py-2 pr-2 pl-4">
-        <h2 id="titulo-lineas" className="text-sm font-medium whitespace-nowrap">
-          Productos y cortes
-        </h2>
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
+    <section className="bg-card shadow-card rounded-xl border" aria-labelledby="titulo-item">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-4 py-3">
+        <span className="bg-primary text-primary-foreground tnum grid size-8 shrink-0 place-items-center rounded-lg text-sm font-semibold">
+          {l.posicion}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="eyebrow flex items-center gap-1.5">
+            <Icono className="size-3" aria-hidden />
+            {l.corte ? MODALIDADES[l.corte.modalidad] : CLASES_ITEM[clase]}
+            <span aria-hidden>·</span>
+            <span className="tnum">
+              Ítem {indice + 1} de {lineas.length}
+            </span>
+          </p>
+          <h2 id="titulo-item" className="truncate text-base font-semibold tracking-tight">
+            {nombreDeLinea(l)}
+          </h2>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={alAnterior}
+            disabled={!alAnterior}
+            aria-label="Ítem anterior"
+          >
+            <ChevronLeft />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={alSiguiente}
+            disabled={!alSiguiente}
+            aria-label="Ítem siguiente"
+          >
+            <ChevronRight />
+          </Button>
+        </div>
+      </header>
+
+      {(puedeAnotar || puedeAnotarMateriales || conHojaDeCorte) && (
+        <div className="bg-muted/30 flex flex-wrap items-center gap-1.5 border-b px-4 py-2">
+          <span className="text-muted-foreground mr-auto text-xs">Del pedido entero</span>
           {puedeAnotar && (
-            <Button variant="ghost" size="sm" onClick={() => setAnotando(true)}>
+            <Button variant="outline" size="sm" className="bg-card gap-1.5" onClick={() => setAnotando(true)}>
+              <Layers className="size-3.5" />
               Planchas usadas
             </Button>
           )}
           {puedeAnotarMateriales && (
-            <Button variant="ghost" size="sm" onClick={() => setAnotandoMateriales(true)}>
+            <Button variant="outline" size="sm" className="bg-card gap-1.5" onClick={() => setAnotandoMateriales(true)}>
+              <ClipboardList className="size-3.5" />
               Materiales usados
             </Button>
           )}
@@ -95,77 +190,100 @@ export function LineasPedido({
               nativeButton={false}
               variant="outline"
               size="sm"
-              className="gap-1.5"
+              className="bg-card gap-1.5"
             >
               <Printer className="size-3.5" />
               Hoja de corte
             </Button>
           )}
         </div>
-      </header>
+      )}
 
-      <ul className="flex flex-col divide-y">
-        {lineas.map((l) => (
-          <li key={l.posicion} className="flex flex-col gap-3 p-4">
-            {l.corte ? (
-              <>
-                <CorteGuardadoVista corte={l.corte} conPrecios={permisos.verMontos} />
-                {l.planchasUsadas !== null && (
-                  <p className="text-sm">
-                    <span className="text-muted-foreground">Planchas usadas:</span>{" "}
-                    <span className="tnum font-medium">{n(l.planchasUsadas)}</span>
-                    {l.planchasUsadas !== planchasCalculadas(l) && (
-                      <span className="text-muted-foreground"> (calculadas: {n(planchasCalculadas(l))})</span>
-                    )}
-                  </p>
-                )}
-                {l.corte.sobrantes && (
-                  <Produccion linea={l} sobrantes={sobrantes.filter((s) => s.lineaPosicion === l.posicion)} />
-                )}
-              </>
-            ) : l.terminado ? (
-              <>
-                <TerminadoGuardadoVista
-                  terminado={l.terminado}
-                  cantidad={l.cantidad}
-                  importe={l.importe}
-                  usados={l.materialesUsados}
-                  conPrecios={permisos.verMontos}
-                />
-                {l.produccionNombre && (
-                  <p className="text-muted-foreground flex items-center gap-1.5 pl-7 text-xs">
-                    <Factory className="size-3.5" aria-hidden />
-                    {l.produccionNombre} · {l.produccionCerrada ? "cerrada en Odoo" : "abierta en Odoo: reserva el material"}
-                  </p>
-                )}
-              </>
-            ) : (
-              <div className="flex items-start gap-3">
-                <Package className="text-muted-foreground mt-0.5 size-4 shrink-0" aria-hidden />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">
-                    <span className="tnum">{n(l.cantidad)} ×</span> {l.nombre}
-                    {l.codigo && <span className="text-muted-foreground ml-1.5 font-mono text-xs">{l.codigo}</span>}
-                  </p>
-                  {l.descripcion && (
-                    <p className="text-muted-foreground mt-0.5 text-xs whitespace-pre-line">{l.descripcion}</p>
-                  )}
-                </div>
-                {permisos.verMontos && l.importe !== null && (
-                  <span className="tnum shrink-0 text-sm">{money(l.importe)}</span>
-                )}
-              </div>
-            )}
-            {l.indicaciones && (
-              <p className="bg-muted/40 rounded-md border px-3 py-2 text-sm whitespace-pre-line">
-                <span className="text-muted-foreground text-xs font-medium">Indicaciones del ítem {l.posicion}</span>
-                <br />
-                {l.indicaciones}
+      <div className="flex flex-col gap-4 p-4">
+        {l.indicaciones && (
+          <div className="border-brand/60 bg-brand/[0.06] flex gap-2.5 rounded-r-lg border-l-2 px-3 py-2.5">
+            <NotebookPen className="text-muted-foreground mt-0.5 size-4 shrink-0" aria-hidden />
+            <div className="min-w-0">
+              <p className="eyebrow">Indicaciones para el taller</p>
+              <p className="mt-0.5 text-sm whitespace-pre-line">{l.indicaciones}</p>
+            </div>
+          </div>
+        )}
+
+        {l.corte ? (
+          <>
+            <CorteGuardadoVista corte={l.corte} conPrecios={permisos.verMontos} />
+            {permisos.verMontos && l.importe !== null && (
+              <p className="text-muted-foreground text-right text-sm">
+                Importe <span className="tnum text-foreground font-medium">{money(l.importe)}</span>
               </p>
             )}
-          </li>
-        ))}
-      </ul>
+            {l.planchasUsadas !== null && (
+              <p className="text-sm">
+                <span className="text-muted-foreground">Planchas usadas:</span>{" "}
+                <span className="tnum font-medium">{n(l.planchasUsadas)}</span>
+                {l.planchasUsadas !== planchasCalculadas(l) && (
+                  <span className="text-muted-foreground"> (calculadas: {n(planchasCalculadas(l))})</span>
+                )}
+              </p>
+            )}
+            {l.corte.sobrantes && (
+              <Produccion linea={l} sobrantes={sobrantes.filter((s) => s.lineaPosicion === l.posicion)} />
+            )}
+          </>
+        ) : l.terminado ? (
+          <>
+            <TerminadoGuardadoVista
+              terminado={l.terminado}
+              cantidad={l.cantidad}
+              importe={l.importe}
+              usados={l.materialesUsados}
+              conPrecios={permisos.verMontos}
+            />
+            {l.produccionNombre && (
+              <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+                <Factory className="size-3.5" aria-hidden />
+                {l.produccionNombre} · {l.produccionCerrada ? "cerrada en Odoo" : "abierta en Odoo: reserva el material"}
+              </p>
+            )}
+          </>
+        ) : (
+          <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
+            <dl className="grid min-w-0 flex-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+              <div>
+                <dt className="eyebrow">Cantidad</dt>
+                <dd className="tnum mt-0.5 text-lg font-semibold">{n(l.cantidad)}</dd>
+              </div>
+              {l.codigo && (
+                <div>
+                  <dt className="eyebrow">Código en Odoo</dt>
+                  <dd className="mt-0.5 font-mono text-sm">{l.codigo}</dd>
+                </div>
+              )}
+              {l.descripcion && (
+                <div className="sm:col-span-2">
+                  <dt className="eyebrow">Descripción</dt>
+                  <dd className="mt-0.5 text-sm whitespace-pre-line">{l.descripcion}</dd>
+                </div>
+              )}
+            </dl>
+            {permisos.verMontos && l.importe !== null && (
+              <div className="text-right">
+                <p className="eyebrow">Importe</p>
+                <p className="tnum mt-0.5 text-lg font-semibold">{money(l.importe)}</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="border-t pt-4">
+          <p className="eyebrow mb-2 flex items-center gap-1.5">
+            <Paperclip className="size-3" aria-hidden />
+            Archivos de este ítem
+          </p>
+          {archivos}
+        </div>
+      </div>
 
       {odoo && <EstadoOdoo pedido={p} odoo={odoo} hayCortes={cortes.length > 0} hayTerminados={terminados.length > 0} />}
 
