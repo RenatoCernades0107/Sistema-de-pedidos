@@ -59,7 +59,10 @@ functions:
     memorySize: 2048
     timeout: 30
     ephemeralStorageSize: 1024
-    reservedConcurrency: ${param:sandboxConcurrency}
+    # DESACTIVADO: la cuenta tiene un límite de 10 ejecuciones concurrentes y AWS
+    # exige dejar 10 sin reservar, así que no se puede reservar nada. Reactivar
+    # tras subir la cuota (Service Quotas -> Lambda -> Concurrent executions).
+    # reservedConcurrency: ${param:sandboxConcurrency}
     url: true
     # Rol propio: solo puede escribir sus logs. El rol compartido del provider
     # NO se usa aquí.
