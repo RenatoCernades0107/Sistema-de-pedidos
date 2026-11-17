@@ -8,6 +8,9 @@
  * `guardar: false` —la ruta ya guardó la versión—, que es lo que mueve el visor
  * y la pestaña Parámetros.
  *
+ * Los archivos adjuntos (imágenes y PDF) se suben primero, del navegador a
+ * Storage (`adjuntos-navegador.ts`), y al asistente le llega su lista.
+ *
  * La conversación guardada se lee al abrir, con una Server Action. Lo que se
  * ve mientras tanto es estado de aquí: el servidor guarda el turno al cerrarlo,
  * y si falla sin haber dicho nada no guarda nada, así que ese turno también se
@@ -16,8 +19,16 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Box, Frame, HelpCircle, Layers, Sparkles, type LucideIcon } from "lucide-react";
+import { toast } from "sonner";
 import { cargarMensajes } from "@/app/(app)/disenos/acciones";
 import { aliasEnTexto, type ReferenciaCara } from "@/lib/cad/caras";
+import type { AdjuntoCad } from "@/lib/cad/adjuntos";
+import {
+  filtrarArchivos,
+  liberarVistaPrevia,
+  subirAdjuntos,
+  type AdjuntoLocal,
+} from "./adjuntos-navegador";
 import { useDiseno } from "./diseno-contexto";
 import { ChatCompositor } from "./chat-compositor";
 import { ChatMensajes, type MensajeChat } from "./chat-mensajes";
@@ -33,6 +44,9 @@ const SUGERENCIAS: { texto: string; icono: LucideIcon }[] = [
 const ERROR_RED = "No se pudo hablar con el asistente. Revisa tu conexión e intenta de nuevo.";
 
 type Fase = "cargando" | "lista" | "sin_historial";
+
+/** Cómo terminó un turno: `devuelto` si se detuvo sin dejar nada y lo escrito vuelve al compositor. */
+type FinTurno = "listo" | "devuelto";
 
 export function PanelChat(props: {
   disenoId: string;
@@ -65,7 +79,32 @@ export function PanelChat(props: {
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** El mensaje del turno que falló sin dejar nada, para "Reintentar". */
-  const [pendiente, setPendiente] = useState<{ mensaje: string; referencias: ReferenciaCara[] } | null>(null);
+  const [pendiente, setPendiente] = useState<{
+    mensaje: string;
+    referencias: ReferenciaCara[];
+    adjuntos: AdjuntoCad[];
+  } | null>(null);
+  /** Los archivos elegidos para el próximo mensaje. */
+  const [adjuntos, setAdjuntos] = useState<AdjuntoLocal[]>([]);
+  const [subiendo, setSubiendo] = useState(false);
+  // Para revocar las miniaturas al salir sin que el efecto dependa de `adjuntos`.
+  const adjuntosRef = useRef<AdjuntoLocal[]>([]);
+  useEffect(() => {
+    adjuntosRef.current = adjuntos;
+  }, [adjuntos]);
+  useEffect(() => () => adjuntosRef.current.forEach(liberarVistaPrevia), []);
+
+  const agregarArchivos = (archivos: File[]) => {
+    const { agregados, avisos } = filtrarArchivos(archivos, adjuntosRef.current.length);
+    for (const aviso of avisos) toast.error(aviso);
+    if (agregados.length) setAdjuntos((a) => [...a, ...agregados]);
+  };
+  const quitarAdjunto = (id: string) =>
+    setAdjuntos((todos) => {
+      const sale = todos.find((a) => a.id === id);
+      if (sale) liberarVistaPrevia(sale);
+      return todos.filter((a) => a.id !== id);
+    });
   /** Falta la clave del modelo: no es algo que se arregle reintentando. */
   const [sinConfigurar, setSinConfigurar] = useState<string | null>(null);
 
@@ -149,6 +188,7 @@ export function PanelChat(props: {
               contenido: m.contenido,
               actividad: m.herramientas.map((h) => ({ ...h, estado: "fin" as const })),
               referencias: m.referencias,
+              adjuntos: m.adjuntos,
             }),
           ),
           ...actuales,
@@ -167,9 +207,9 @@ export function PanelChat(props: {
   useEffect(() => () => enCurso.current?.abort(), []);
 
   const enviar = useCallback(
-    async (mensaje: string, referencias: ReferenciaCara[] = []) => {
+    async (mensaje: string, referencias: ReferenciaCara[] = [], subidos: AdjuntoCad[] = []): Promise<FinTurno> => {
       const limpio = mensaje.trim();
-      if (!limpio || enCurso.current) return;
+      if ((!limpio && subidos.length === 0) || enCurso.current) return "listo";
 
       const control = new AbortController();
       enCurso.current = control;
@@ -181,7 +221,7 @@ export function PanelChat(props: {
       setEnviando(true);
       setMensajes((m) => [
         ...m,
-        { id: idUsuario, rol: "usuario", contenido: limpio, actividad: [], referencias },
+        { id: idUsuario, rol: "usuario", contenido: limpio, actividad: [], referencias, adjuntos: subidos },
         { id: idRespuesta, rol: "asistente", contenido: "", actividad: [] },
       ]);
 
@@ -196,7 +236,12 @@ export function PanelChat(props: {
         const res = await fetch("/api/disenos/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ disenoId, mensaje: limpio, ...(referencias.length ? { referencias } : {}) }),
+          body: JSON.stringify({
+            disenoId,
+            mensaje: limpio,
+            ...(referencias.length ? { referencias } : {}),
+            ...(subidos.length ? { adjuntos: subidos } : {}),
+          }),
           signal: control.signal,
         });
 
@@ -267,6 +312,7 @@ export function PanelChat(props: {
       }
 
       const detenido = control.signal.aborted;
+      let fin: FinTurno = "listo";
 
       // Sin texto ni herramientas el turno no se guardó: se quita aunque haya pensado.
       if (produjo) {
@@ -285,27 +331,53 @@ export function PanelChat(props: {
           setTexto((actual) => actual || limpio);
           // Las caras vuelven al compositor, salvo que ya se hayan señalado otras.
           if (referencias.length) setCarasReferidas(referencias);
-        } else if (fallo) setPendiente({ mensaje: limpio, referencias });
+          fin = "devuelto";
+        } else if (fallo) setPendiente({ mensaje: limpio, referencias, adjuntos: subidos });
       }
 
       if (fallo && !detenido) setError(fallo);
       enCurso.current = null;
       setEnviando(false);
+      return fin;
     },
     [disenoId, setCarasReferidas],
   );
 
-  const enviarTexto = () => {
-    if (!texto.trim() || enviando) return;
+  const enviarTexto = async () => {
+    if ((!texto.trim() && adjuntos.length === 0) || enviando || subiendo) return;
     const mensaje = texto;
+    const locales = adjuntos;
     // Solo van las caras que siguen mencionadas en el texto.
     const mencionadas = aliasEnTexto(mensaje);
     const referencias = carasReferidas.filter((c) => !c.alias || mencionadas.has(c.alias));
     setTexto("");
+    setAdjuntos([]);
     // Lo señalado se va con este mensaje; el visor sale del modo selección.
     setCarasReferidas([]);
     if (referencias.length) setModoCaras(false);
-    void enviar(mensaje, referencias);
+
+    // Los archivos se suben antes: al asistente le llega la lista.
+    let subidos: AdjuntoCad[] = [];
+    if (locales.length) {
+      setSubiendo(true);
+      try {
+        subidos = await subirAdjuntos(disenoId, locales);
+      } catch (e) {
+        // Todo vuelve al compositor, para intentarlo otra vez.
+        toast.error(e instanceof Error ? e.message : "No se pudieron subir los archivos.");
+        setTexto((actual) => actual || mensaje);
+        setAdjuntos((actuales) => [...locales, ...actuales]);
+        if (referencias.length) setCarasReferidas(referencias);
+        return;
+      } finally {
+        setSubiendo(false);
+      }
+    }
+
+    const fin = await enviar(mensaje, referencias, subidos);
+    // Detenido sin respuesta: los archivos vuelven al compositor con el texto.
+    if (fin === "devuelto" && locales.length) setAdjuntos((actuales) => [...locales, ...actuales]);
+    else locales.forEach(liberarVistaPrevia);
   };
 
   const detener = () => enCurso.current?.abort();
@@ -367,16 +439,24 @@ export function PanelChat(props: {
           mensajes={mensajes}
           enviando={enviando}
           error={error}
-          onReintentar={pendiente && !enviando ? () => void enviar(pendiente.mensaje, pendiente.referencias) : null}
+          onReintentar={
+            pendiente && !enviando
+              ? () => void enviar(pendiente.mensaje, pendiente.referencias, pendiente.adjuntos)
+              : null
+          }
         />
       )}
 
       <ChatCompositor
         texto={texto}
         onTexto={alEscribir}
-        onEnviar={enviarTexto}
+        onEnviar={() => void enviarTexto()}
         onDetener={detener}
-        enviando={enviando}
+        enviando={enviando || subiendo}
+        subiendo={subiendo}
+        adjuntos={adjuntos}
+        onAgregarArchivos={agregarArchivos}
+        onQuitarAdjunto={quitarAdjunto}
         deshabilitado={sinConfigurar !== null}
         caras={carasReferidas}
         textareaRef={cuadro}

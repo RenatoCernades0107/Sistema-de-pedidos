@@ -245,6 +245,7 @@ export type Database = {
       }
       cad_mensajes: {
         Row: {
+          adjuntos: Json | null
           contenido: string
           creado_en: string
           diseno_id: string
@@ -254,6 +255,7 @@ export type Database = {
           rol: string
         }
         Insert: {
+          adjuntos?: Json | null
           contenido: string
           creado_en?: string
           diseno_id: string
@@ -263,6 +265,7 @@ export type Database = {
           rol: string
         }
         Update: {
+          adjuntos?: Json | null
           contenido?: string
           creado_en?: string
           diseno_id?: string
