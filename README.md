@@ -79,8 +79,10 @@ mano):
   insert into public.secretos_app (nombre, valor) values ('login', '<valor aleatorio>');
   ```
 
-  En local, `LOGIN_SECRET=plexi-login-dev-secreto` (lo pone `seed.sql`). Sin ella el login avisa de
-  que no está configurado.
+  En local no hace falta definirla: `npm run dev` usa `plexi-login-dev-secreto`, el valor que pone
+  `seed.sql` (hay que haber aplicado las migraciones y la seed, `npx supabase db reset`). Con un
+  Supabase alojado sí hay que definirla en `.env.local` con el valor de `secretos_app`. En producción
+  es obligatoria: sin ella el login avisa de que no está configurado.
 - **Edge Function**: `npx supabase functions deploy administrar-usuarios`.
 - **SMTP propio** (Authentication → SMTP). El de prueba de Supabase solo manda a miembros del equipo
   y con un tope mínimo. En local, los correos se ven en Mailpit (`http://127.0.0.1:56324`).
