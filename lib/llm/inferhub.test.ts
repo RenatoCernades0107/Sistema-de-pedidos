@@ -62,6 +62,8 @@ beforeEach(() => {
   vi.stubEnv("INFERHUB_API_KEY", "clave-secreta-123");
   vi.stubEnv("INFERHUB_BASE_URL", "");
   vi.stubEnv("INFERHUB_MODELO", "");
+  vi.stubEnv("INFERHUB_MODELOS_RESPALDO", "");
+  vi.stubEnv("INFERHUB_REINTENTOS", "");
 });
 
 afterEach(() => {
@@ -534,5 +536,108 @@ describe("razonamiento", () => {
     const asistente = (cuerpo.messages as Record<string, unknown>[])[2];
     expect(asistente.reasoning_content).toBe("Uso la plantilla");
     expect(asistente.thinking_blocks).toEqual([{ type: "thinking", thinking: "Uso la plantilla", signature: "abc" }]);
+  });
+});
+
+describe("modelo de respaldo", () => {
+  const SATURADO =
+    "1156 of 1157 providers for this model are out of quota or cooling down until their limits reset, and the 1 still serving are all at their concurrency limit right now; retry shortly";
+
+  const modeloDe = (llamada: number) =>
+    (JSON.parse(fetchFalso.mock.calls[llamada][1]?.body as string) as { model: string }).model;
+
+  const textoDe = (eventos: EventoLlm[]) =>
+    eventos.map((e) => (e.tipo === "texto" ? e.delta : "")).join("");
+
+  async function fallo(): Promise<ErrorLlm> {
+    try {
+      await todos(PETICION);
+    } catch (e) {
+      return e as ErrorLlm;
+    }
+    throw new Error("No falló");
+  }
+
+  it("si el principal está saturado, pasa al de respaldo y entrega su respuesta", async () => {
+    vi.stubEnv("INFERHUB_MODELOS_RESPALDO", "otro/modelo");
+    fetchFalso
+      .mockResolvedValueOnce(respuestaSse([sse({ error: { message: SATURADO } })]))
+      .mockResolvedValueOnce(respuestaSse([sse(delta({ content: "Hola" }, "stop"), "[DONE]")]));
+
+    const eventos = await todos(PETICION);
+    expect(fetchFalso).toHaveBeenCalledTimes(2);
+    expect(modeloDe(0)).toBe("ag/claude-opus-5-5");
+    expect(modeloDe(1)).toBe("otro/modelo");
+    expect(textoDe(eventos)).toBe("Hola");
+  });
+
+  it("un 503 también pasa al de respaldo", async () => {
+    vi.stubEnv("INFERHUB_MODELOS_RESPALDO", "otro/modelo");
+    fetchFalso
+      .mockResolvedValueOnce(new Response("Service Unavailable", { status: 503 }))
+      .mockResolvedValueOnce(respuestaSse([sse(delta({ content: "Listo" }, "stop"))]));
+
+    expect(textoDe(await todos(PETICION))).toBe("Listo");
+    expect(modeloDe(1)).toBe("otro/modelo");
+  });
+
+  it("un 401 no pasa al de respaldo", async () => {
+    vi.stubEnv("INFERHUB_MODELOS_RESPALDO", "otro/modelo");
+    fetchFalso.mockResolvedValueOnce(Response.json({ error: { message: "bad key" } }, { status: 401 }));
+
+    const e = await fallo();
+    expect(e.estado).toBe(401);
+    expect(fetchFalso).toHaveBeenCalledTimes(1);
+  });
+
+  it("si ya entregó texto, no repite con el de respaldo", async () => {
+    vi.stubEnv("INFERHUB_MODELOS_RESPALDO", "otro/modelo");
+    fetchFalso.mockResolvedValueOnce(
+      respuestaSse([sse(delta({ content: "Ho" }), { error: { message: SATURADO } })]),
+    );
+
+    const e = await fallo();
+    expect(e.message).toContain("cortó la respuesta");
+    expect(fetchFalso).toHaveBeenCalledTimes(1);
+  });
+
+  it("si todos están saturados, dice que el modelo está saturado", async () => {
+    vi.stubEnv("INFERHUB_MODELOS_RESPALDO", "otro/modelo");
+    fetchFalso
+      .mockResolvedValueOnce(respuestaSse([sse({ error: { message: SATURADO } })]))
+      .mockResolvedValueOnce(new Response("busy", { status: 429 }));
+
+    const e = await fallo();
+    expect(e).toBeInstanceOf(ErrorLlm);
+    expect(e.message).toContain("saturado");
+    expect(fetchFalso).toHaveBeenCalledTimes(2);
+  });
+
+  it("sin INFERHUB_MODELOS_RESPALDO usa ag/claude-sonnet-5-5", async () => {
+    delete process.env.INFERHUB_MODELOS_RESPALDO;
+    fetchFalso
+      .mockResolvedValueOnce(respuestaSse([sse({ error: { message: SATURADO } })]))
+      .mockResolvedValueOnce(respuestaSse([sse(delta({ content: "Ok" }, "stop"))]));
+
+    expect(textoDe(await todos(PETICION))).toBe("Ok");
+    expect(modeloDe(1)).toBe("ag/claude-sonnet-5-5");
+  });
+
+  it("con INFERHUB_REINTENTOS repite el mismo modelo tras una pausa", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubEnv("INFERHUB_REINTENTOS", "1");
+      fetchFalso
+        .mockResolvedValueOnce(respuestaSse([sse({ error: { message: SATURADO } })]))
+        .mockResolvedValueOnce(respuestaSse([sse(delta({ content: "Ya" }, "stop"))]));
+
+      const promesa = todos(PETICION);
+      await vi.runAllTimersAsync();
+      expect(textoDe(await promesa)).toBe("Ya");
+      expect(modeloDe(0)).toBe("ag/claude-opus-5-5");
+      expect(modeloDe(1)).toBe("ag/claude-opus-5-5");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
