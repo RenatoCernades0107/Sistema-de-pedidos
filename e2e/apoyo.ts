@@ -236,6 +236,11 @@ export async function verMateriales(page: Page) {
  * devuelve su panel: el detalle muestra un ítem a la vez.
  */
 export async function abrirCorte(page: Page) {
-  await page.getByRole("tab", { name: /^Ítem \d+: .*piezas?$/ }).first().click();
-  return page.getByRole("region", { name: "Productos y cortes" });
+  const panel = page.getByRole("region", { name: "Productos y cortes" });
+  // Justo después de mover el pedido la página se está refrescando: se insiste hasta que abra.
+  await expect(async () => {
+    await page.getByRole("tab", { name: /^Ítem \d+: .*piezas?$/ }).first().click();
+    await expect(panel).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+  return panel;
 }

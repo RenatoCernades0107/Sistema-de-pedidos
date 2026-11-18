@@ -86,23 +86,22 @@ test("el taller ve el corte sin precios, anota las planchas usadas al pasar a Li
   await mover(page, "En proceso");
   await expect(page.getByText(`${codigo} → En proceso`)).toBeVisible();
 
-  // Listo pregunta las planchas: vienen las calculadas, y se usó una más.
+  // Listo lleva a los materiales: vienen las calculadas, y se usó una más.
   await mover(page, "Listo");
-  const dialogo = page.getByRole("dialog", { name: "Pasar a Listo" });
-  const planchas = dialogo.getByLabel("Planchas usadas (F7E024)");
+  await expect(materiales.getByText("Para pasar a Listo, revisa lo que de verdad se usó.")).toBeVisible();
+  const planchas = materiales.getByLabel("Planchas usadas (F7E024)");
   await expect(planchas).toHaveValue("3");
   await planchas.fill("-1");
-  await dialogo.getByRole("button", { name: "Pasar a Listo" }).click();
-  await expect(dialogo.getByText("No pueden ser menos de cero")).toBeVisible();
+  await materiales.getByRole("button", { name: "Confirmar y pasar a Listo" }).click();
+  await expect(materiales.getByRole("alert")).toContainText("No pueden ser menos de cero");
   await planchas.fill("4");
-  await dialogo.getByRole("button", { name: "Pasar a Listo" }).click();
-  await expect(dialogo).toBeHidden();
+  await materiales.getByRole("button", { name: "Confirmar y pasar a Listo" }).click();
   await expect(page.getByText(`${codigo} → Listo`)).toBeVisible();
 
   await expect(materiales.getByText("Stock descontado en Odoo.")).toBeVisible();
   await expect(materiales.getByRole("row", { name: /F7E024.*3 planchas.*4 planchas/ })).toBeVisible();
   // Ya descontadas, las planchas no se corrigen desde aquí.
-  await expect(materiales.getByRole("button", { name: "Planchas usadas" })).toHaveCount(0);
+  await expect(materiales.getByLabel("Planchas usadas (F7E024)")).toHaveCount(0);
 
   const orden = (await estado()).ordenes.at(-1)!;
   expect(orden.entregas.map((e) => e.state)).toEqual(["done"]);
@@ -123,20 +122,18 @@ test("si Odoo falla al pasar a Listo, el pedido pasa igual y el stock se descuen
   // Antes de terminar, el taller ya anotó lo usado; Listo llega con eso puesto.
   const page = await comoTaller(browser, codigo);
   const materiales = await verMateriales(page);
-  await materiales.getByRole("button", { name: "Planchas usadas" }).click();
-  const anotar = page.getByRole("dialog", { name: "Planchas usadas" });
-  await anotar.getByLabel("Planchas usadas (F7E024)").fill("2.5");
-  await anotar.getByRole("button", { name: "Guardar" }).click();
-  await expect(anotar).toBeHidden();
-  await expect(materiales.getByRole("row", { name: /F7E024.*3 planchas.*2\.5 planchas/ })).toBeVisible();
+  await materiales.getByLabel("Planchas usadas (F7E024)").fill("2.5");
+  await materiales.getByRole("button", { name: "Guardar" }).click();
+  await expect(page.getByText("Materiales usados guardados")).toBeVisible();
+  await page.reload();
+  await expect((await verMateriales(page)).getByLabel("Planchas usadas (F7E024)")).toHaveValue("2.5");
 
   await mover(page, "En proceso");
   await expect(page.getByText(`${codigo} → En proceso`)).toBeVisible();
   await modo("caido");
   await mover(page, "Listo");
-  const dialogo = page.getByRole("dialog", { name: "Pasar a Listo" });
-  await expect(dialogo.getByLabel("Planchas usadas (F7E024)")).toHaveValue("2.5");
-  await dialogo.getByRole("button", { name: "Pasar a Listo" }).click();
+  await expect(materiales.getByLabel("Planchas usadas (F7E024)")).toHaveValue("2.5");
+  await materiales.getByRole("button", { name: "Confirmar y pasar a Listo" }).click();
 
   await expect(page.getByText(`${codigo} → Listo`)).toBeVisible();
   await expect(page.getByText(/No se descontó el stock en Odoo: Odoo falso: caído a propósito/).first()).toBeVisible();

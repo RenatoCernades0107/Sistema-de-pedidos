@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { Fragment, useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import {
@@ -8,9 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleCheck,
-  ClipboardList,
   Factory,
-  Layers,
   Loader2,
   NotebookPen,
   Package,
@@ -18,6 +16,7 @@ import {
   RotateCw,
   Scissors,
   TriangleAlert,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import * as acciones from "@/app/(app)/acciones";
@@ -26,14 +25,25 @@ import { MODALIDADES } from "@/lib/cortes/calcular";
 import { materialDeCorte, totalPiezas } from "@/lib/cortes/guardado";
 import { money } from "@/lib/formato";
 import { useStore } from "@/lib/store";
-import { planchasCalculadas, type LineaDePedido, type OdooDePedido } from "@/lib/pedido-lineas";
+import {
+  PLANCHAS_MAXIMAS,
+  hastaDosDecimales,
+  planchasCalculadas,
+  planchasDe,
+  type LineaDePedido,
+  type MaterialesAnotados,
+  type OdooDePedido,
+} from "@/lib/pedido-lineas";
 import { medidaSobrante, type Sobrante } from "@/lib/sobrantes";
 import { CorteGuardadoVista } from "@/components/cortes/corte-guardado";
-import { DialogoPlanchas } from "@/components/planchas-usadas";
+import { DialogoPlanchas, type PlanchasAnotadas } from "@/components/planchas-usadas";
 import { VisorArchivo } from "@/components/visor-archivo";
 import { urlAdjunto } from "@/app/(app)/adjuntos-acciones";
 import { cantidadDeMaterial } from "@/lib/terminados/guardado";
-import { DialogoMateriales, type MaterialesAnotados } from "@/components/terminados/materiales-usados";
+import { BuscadorProducto } from "@/components/cotizaciones/buscador-producto";
+import { Input } from "@/components/ui/input";
+import type { ProductoOdoo } from "@/lib/odoo/tipos";
+import { cn } from "@/lib/utils";
 import { TerminadoGuardadoVista } from "@/components/terminados/terminado-guardado";
 import { Button } from "@/components/ui/button";
 
@@ -249,118 +259,278 @@ function ImagenDeItem({ adjunto: a }: { adjunto: Adjunto }) {
   );
 }
 
-/** Un renglón de la tabla de materiales: qué es, cuánto se estimó y cuánto se anotó como usado. */
-interface FilaMaterial {
-  clave: string;
-  posicion: number;
+/* ── Materiales del pedido ── */
+
+/** Planchas de un corte: ≥ 0, hasta dos decimales (media o cuarto de plancha). */
+function leerPlanchas(texto: string): number | string {
+  const limpio = texto.trim().replace(",", ".");
+  if (!limpio) return "Escribe cuántas planchas se usaron";
+  const v = Number(limpio);
+  if (!Number.isFinite(v)) return "Escribe un número";
+  if (v < 0) return "No pueden ser menos de cero";
+  if (v > PLANCHAS_MAXIMAS) return "Son demasiadas planchas";
+  if (!hastaDosDecimales(v)) return "Hasta dos decimales";
+  return v;
+}
+
+/** Cantidad de un material de terminado: ≥ 0, hasta tres decimales. */
+function leerCantidad(texto: string): number | string {
+  const limpio = texto.trim().replace(",", ".");
+  if (!limpio) return "Escribe la cantidad usada";
+  const v = Number(limpio);
+  if (!Number.isFinite(v) || v < 0) return "Escribe un número, cero o más";
+  if (v > 99_999) return "Esa cantidad no es razonable";
+  if (Math.abs(v * 1000 - Math.round(v * 1000)) > 1e-6) return "Hasta tres decimales";
+  return v;
+}
+
+const t3 = (x: number) => String(+x.toFixed(3));
+
+/** Un material de un producto terminado tal como se edita: lo estimado queda fijo; lo usado, no. */
+interface MaterialEnEdicion {
+  productoId: number;
   codigo: string | null;
   nombre: string;
-  estimado: string;
-  usado: string | null;
+  unidad: string | null;
+  /** Lo que se estimó al cotizar; `null` si se agregó después. */
+  estimado: number | null;
+  /** Lo escrito en «Usado». */
+  usado: string;
+  /** Se quitó: no se usó nada de esto. */
+  quitado: boolean;
 }
 
-function filasDeMaterial(lineas: LineaDePedido[]): FilaMaterial[] {
-  return lineas.flatMap((l): FilaMaterial[] => {
-    if (l.corte) {
-      const calculadas = planchasCalculadas(l);
-      return [
-        {
-          clave: `${l.posicion}-corte`,
-          posicion: l.posicion,
-          codigo: l.corte.formato.codigo,
-          nombre: materialDeCorte(l.corte),
-          estimado: `${n(calculadas)} ${calculadas === 1 ? "plancha" : "planchas"}`,
-          usado: l.planchasUsadas === null ? null : `${n(l.planchasUsadas)} ${l.planchasUsadas === 1 ? "plancha" : "planchas"}`,
-        },
-      ];
-    }
-    if (l.terminado) {
+interface Borrador {
+  /** Planchas usadas de cada corte, por posición. */
+  planchas: Record<number, string>;
+  /** Materiales de cada terminado, por posición. */
+  materiales: Record<number, MaterialEnEdicion[]>;
+}
+
+/** El punto de partida: lo anotado o, si nadie anotó, lo estimado. */
+function borradorDe(lineas: LineaDePedido[]): Borrador {
+  const planchas: Borrador["planchas"] = {};
+  const materiales: Borrador["materiales"] = {};
+  for (const l of lineas) {
+    if (l.corte) planchas[l.posicion] = n(planchasDe(l));
+    else if (l.terminado) {
+      const t = l.terminado;
       const usados = l.materialesUsados;
-      const filas: FilaMaterial[] = l.terminado.materiales.map((m) => {
-        const usado = usados?.find((u) => u.productoId === m.productoId);
+      const filas: MaterialEnEdicion[] = t.materiales.map((m) => {
+        const u = usados ? usados.find((x) => x.productoId === m.productoId) : m;
         return {
-          clave: `${l.posicion}-${m.productoId}`,
-          posicion: l.posicion,
+          productoId: m.productoId,
           codigo: m.codigo,
           nombre: m.nombre,
-          estimado: cantidadDeMaterial(m),
-          usado: usados === null ? null : usado ? cantidadDeMaterial(usado) : "0",
+          unidad: m.unidad,
+          estimado: m.cantidad,
+          usado: u ? t3(u.cantidad) : "0",
+          quitado: !u,
         };
       });
-      // Lo anotado que no estaba en lo estimado también se descuenta.
       for (const u of usados ?? []) {
-        if (!l.terminado.materiales.some((m) => m.productoId === u.productoId)) {
-          filas.push({
-            clave: `${l.posicion}-${u.productoId}-extra`,
-            posicion: l.posicion,
-            codigo: u.codigo,
-            nombre: u.nombre,
-            estimado: "—",
-            usado: cantidadDeMaterial(u),
-          });
+        if (!t.materiales.some((m) => m.productoId === u.productoId)) {
+          filas.push({ ...u, estimado: null, usado: t3(u.cantidad), quitado: false });
         }
       }
-      return filas;
+      materiales[l.posicion] = filas;
     }
-    return [
-      {
-        clave: `${l.posicion}-producto`,
-        posicion: l.posicion,
-        codigo: l.codigo,
-        nombre: l.nombre,
-        estimado: `${n(l.cantidad)} ${l.cantidad === 1 ? "unidad" : "unidades"}`,
-        // Un producto tal cual sale del almacén en la cantidad pedida: no se anota.
-        usado: `${n(l.cantidad)} ${l.cantidad === 1 ? "unidad" : "unidades"}`,
-      },
-    ];
-  });
+  }
+  return { planchas, materiales };
 }
 
+const mismoBorrador = (a: Borrador, b: Borrador) => JSON.stringify(a) === JSON.stringify(b);
+
 /**
- * El material de todo el pedido en un lugar: lo estimado y lo anotado como
- * usado de cada ítem, los botones para anotarlo, la hoja de corte y cómo va el
- * descuento del stock en Odoo. Es lo que se mira al pasar el pedido a Listo.
+ * El material de todo el pedido en un lugar, y donde se anota lo que de verdad
+ * se usó: lo estimado queda fijo; lo usado se corrige, se quita o se agrega
+ * (cambió el color, se rompió una bisagra…). Es lo que se descuenta del stock
+ * en Odoo al pasar a Listo.
+ *
+ * En los cortes solo cambia la cantidad de planchas: la plancha es la que se
+ * vendió. En los productos de Odoo tal cual, sale lo vendido.
+ *
+ * Con `aListo` (se pidió pasar el pedido a Listo), en vez de guardar se
+ * confirma lo usado y se mueve el pedido. Con el piloto de sobrantes, antes se
+ * piden los pedazos que vuelven al almacén.
  */
 export function MaterialesPedido({
   pedido: p,
   lineas,
   odoo,
+  retazoMin,
+  aListo: pidioListo = false,
+  alSalirDeListo,
 }: {
   pedido: Pedido;
   lineas: LineaDePedido[];
   odoo: OdooDePedido | null;
+  /** El lado mínimo de un sobrante, para proponer los que vuelven al almacén. */
+  retazoMin?: number;
+  aListo?: boolean;
+  alSalirDeListo?: () => void;
 }) {
-  const [anotando, setAnotando] = useState(false);
-  const [anotandoMateriales, setAnotandoMateriales] = useState(false);
-  const [pendiente, iniciar] = useTransition();
+  const { cambiarEstado, pendiente: moviendo } = useStore();
+  const original = borradorDe(lineas);
+  const claveOriginal = JSON.stringify(original);
+  const [base, setBase] = useState(claveOriginal);
+  const [borrador, setBorrador] = useState<Borrador>(original);
+  // Cuando llega lo guardado (o lo cambió otra persona), se parte de nuevo de eso.
+  if (base !== claveOriginal) {
+    setBase(claveOriginal);
+    setBorrador(original);
+  }
+  const [error, setError] = useState<string | null>(null);
+  const [conSobrantes, setConSobrantes] = useState(false);
+  const [guardando, iniciar] = useTransition();
 
   const cortes = lineas.filter((x) => x.corte);
-  const puedeAnotar = cortes.length > 0 && !odoo?.stockDescontado && !esTerminal(p.estado);
   const terminados = lineas.filter((x) => x.terminado);
-  const puedeAnotarMateriales = terminados.length > 0 && !odoo?.stockDescontado && !esTerminal(p.estado);
+  const editable = !odoo?.stockDescontado && !esTerminal(p.estado);
+  // Si el pedido ya pasó a Listo (aunque Odoo no haya descontado), ya no se confirma: se corrige y se reintenta.
+  const aListo = pidioListo && !["listo", "en_transito", "entregado"].includes(p.estado);
+  const conPiloto = cortes.some((l) => l.corte?.sobrantes);
   // Los productos terminados con piezas calculadas también van en la hoja de corte.
   const conHojaDeCorte = lineas.some((x) => x.corte || x.terminado?.corte);
-  const filas = filasDeMaterial(lineas);
+  const cambiado = !mismoBorrador(borrador, original);
+  const ocupado = guardando || moviendo;
 
-  const anotarMateriales = (materiales: MaterialesAnotados) =>
-    new Promise<acciones.Resultado>((resolver) =>
-      iniciar(async () => {
-        const r = await acciones.anotarMaterialesUsados({ codigo: p.codigo, materiales });
-        if (r.ok) toast.success("Materiales anotados");
-        else toast.error("No se guardó", { description: r.error });
-        resolver(r);
-      }),
-    );
+  const cambiarPlanchas = (posicion: number, texto: string) => {
+    setError(null);
+    setBorrador((b) => ({ ...b, planchas: { ...b.planchas, [posicion]: texto } }));
+  };
+  const cambiarMaterial = (posicion: number, productoId: number, cambio: Partial<MaterialEnEdicion>) => {
+    setError(null);
+    setBorrador((b) => ({
+      ...b,
+      materiales: {
+        ...b.materiales,
+        [posicion]: b.materiales[posicion].map((m) => (m.productoId === productoId ? { ...m, ...cambio } : m)),
+      },
+    }));
+  };
+  const quitarMaterial = (posicion: number, m: MaterialEnEdicion) => {
+    setError(null);
+    setBorrador((b) => ({
+      ...b,
+      materiales: {
+        ...b.materiales,
+        // Lo estimado se queda a la vista, tachado; lo agregado se va.
+        [posicion]:
+          m.estimado === null
+            ? b.materiales[posicion].filter((x) => x.productoId !== m.productoId)
+            : b.materiales[posicion].map((x) => (x.productoId === m.productoId ? { ...x, quitado: true, usado: "0" } : x)),
+      },
+    }));
+  };
+  const agregarMaterial = (posicion: number, prod: ProductoOdoo) => {
+    setError(null);
+    setBorrador((b) => {
+      const lista = b.materiales[posicion];
+      const ya = lista.find((x) => x.productoId === prod.id);
+      return {
+        ...b,
+        materiales: {
+          ...b.materiales,
+          [posicion]: ya
+            ? lista.map((x) => (x.productoId === prod.id ? { ...x, quitado: false, usado: x.usado === "0" ? "1" : x.usado } : x))
+            : [
+                ...lista,
+                {
+                  productoId: prod.id,
+                  codigo: prod.codigo,
+                  nombre: prod.nombre,
+                  unidad: prod.unidad,
+                  estimado: null,
+                  usado: "1",
+                  quitado: false,
+                },
+              ],
+        },
+      };
+    });
+  };
 
-  const anotar = (planchas: { posicion: number; planchas: number }[]) =>
-    new Promise<acciones.Resultado>((resolver) =>
-      iniciar(async () => {
-        const r = await acciones.anotarPlanchasUsadas({ codigo: p.codigo, planchas });
-        if (r.ok) toast.success("Planchas anotadas");
-        else toast.error("No se guardó", { description: r.error });
-        resolver(r);
-      }),
+  /** Lo escrito, listo para enviar; o el primer error, con el nombre de lo que falló. */
+  const leerBorrador = ():
+    | { ok: true; planchas: PlanchasAnotadas; materiales: MaterialesAnotados }
+    | { ok: false; error: string } => {
+    const planchas: PlanchasAnotadas = [];
+    for (const l of cortes) {
+      const v = leerPlanchas(borrador.planchas[l.posicion] ?? "");
+      if (typeof v === "string") return { ok: false, error: `Ítem ${l.posicion} (${nombreDeLinea(l)}): ${v}.` };
+      planchas.push({ posicion: l.posicion, planchas: v });
+    }
+    const materiales: MaterialesAnotados = [];
+    for (const l of terminados) {
+      const usados: { productoId: number; cantidad: number }[] = [];
+      for (const m of borrador.materiales[l.posicion] ?? []) {
+        if (m.quitado) continue;
+        const v = leerCantidad(m.usado);
+        if (typeof v === "string") return { ok: false, error: `${m.nombre}: ${v}.` };
+        if (v > 0) usados.push({ productoId: m.productoId, cantidad: v });
+      }
+      materiales.push({ posicion: l.posicion, usados });
+    }
+    return { ok: true, planchas, materiales };
+  };
+
+  /** Guarda lo que cambió (solo eso): planchas, materiales o ambos. */
+  const anotar = async (leido: { planchas: PlanchasAnotadas; materiales: MaterialesAnotados }) => {
+    const planchasCambiadas = cortes.some((l) => borrador.planchas[l.posicion] !== original.planchas[l.posicion]);
+    const materialesCambiados = !mismoBorrador(
+      { planchas: {}, materiales: borrador.materiales },
+      { planchas: {}, materiales: original.materiales },
     );
+    if (planchasCambiadas && leido.planchas.length) {
+      const r = await acciones.anotarPlanchasUsadas({ codigo: p.codigo, planchas: leido.planchas });
+      if (!r.ok) return r;
+    }
+    if (materialesCambiados && leido.materiales.length) {
+      const r = await acciones.anotarMaterialesUsados({ codigo: p.codigo, materiales: leido.materiales });
+      if (!r.ok) return r;
+    }
+    return { ok: true } as acciones.Resultado;
+  };
+
+  const guardar = () => {
+    const leido = leerBorrador();
+    if (!leido.ok) return setError(leido.error);
+    iniciar(async () => {
+      const r = await anotar(leido);
+      if (r.ok) toast.success("Materiales usados guardados");
+      else toast.error("No se guardó", { description: r.error });
+    });
+  };
+
+  const pasarAListo = () => {
+    const leido = leerBorrador();
+    if (!leido.ok) return setError(leido.error);
+    if (conPiloto) {
+      // Lo usado se guarda primero: el diálogo de sobrantes llega con eso puesto.
+      iniciar(async () => {
+        const r = await anotar(leido);
+        if (r.ok) setConSobrantes(true);
+        else toast.error("No se guardó", { description: r.error });
+      });
+      return;
+    }
+    iniciar(async () => {
+      // Al pasar, el aviso se va solo (el pedido ya está en Listo): la URL no se toca
+      // mientras la página se refresca.
+      await cambiarEstado(p.codigo, "listo", {
+        planchas: leido.planchas.length ? leido.planchas : undefined,
+        materiales: leido.materiales.length ? leido.materiales : undefined,
+      });
+    });
+  };
+
+  const descartar = () => {
+    setError(null);
+    setBorrador(original);
+  };
+
+  const unidadPlancha = (v: string) => (Number(v.replace(",", ".")) === 1 ? "plancha" : "planchas");
 
   return (
     <section className="bg-card shadow-card rounded-xl border" aria-labelledby="titulo-materiales">
@@ -368,18 +538,6 @@ export function MaterialesPedido({
         <h2 id="titulo-materiales" className="mr-auto text-sm font-medium">
           Materiales del pedido
         </h2>
-        {puedeAnotar && (
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setAnotando(true)}>
-            <Layers className="size-3.5" />
-            Planchas usadas
-          </Button>
-        )}
-        {puedeAnotarMateriales && (
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setAnotandoMateriales(true)}>
-            <ClipboardList className="size-3.5" />
-            Materiales usados
-          </Button>
-        )}
         {conHojaDeCorte && (
           <Button
             render={<Link href={`/pedidos/${encodeURIComponent(p.codigo)}/hoja-de-corte`} />}
@@ -394,6 +552,18 @@ export function MaterialesPedido({
         )}
       </header>
 
+      {aListo && editable && (
+        <div className="border-primary/30 bg-primary/[0.06] flex gap-2.5 border-b px-4 py-3 text-sm" role="status">
+          <CircleCheck className="text-primary mt-0.5 size-4 shrink-0" aria-hidden />
+          <p>
+            <span className="font-medium">Para pasar a Listo, revisa lo que de verdad se usó.</span>{" "}
+            <span className="text-muted-foreground">
+              Corrige lo usado si hace falta y confirma: eso se descuenta del stock en Odoo.
+            </span>
+          </p>
+        </div>
+      )}
+
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -405,45 +575,202 @@ export function MaterialesPedido({
             </tr>
           </thead>
           <tbody>
-            {filas.map((f) => (
-              <tr key={f.clave} className="border-b last:border-0">
-                <td className="tnum text-muted-foreground py-2 pr-3 pl-4 align-top">{f.posicion}</td>
-                <td className="py-2 pr-3 align-top">
-                  {f.codigo && <span className="text-muted-foreground mr-1.5 font-mono text-xs">{f.codigo}</span>}
-                  {f.nombre}
-                </td>
-                <td className="tnum py-2 pr-3 text-right align-top whitespace-nowrap">{f.estimado}</td>
-                <td className="tnum py-2 pr-4 text-right align-top whitespace-nowrap">
-                  {f.usado ?? <span className="text-muted-foreground">—</span>}
-                </td>
-              </tr>
-            ))}
+            {lineas.map((l) => {
+              if (l.corte) {
+                const valor = borrador.planchas[l.posicion] ?? "";
+                return (
+                  <tr key={l.posicion} className="border-b">
+                    <td className="tnum text-muted-foreground py-2 pr-3 pl-4 align-middle">{l.posicion}</td>
+                    <td className="py-2 pr-3 align-middle">
+                      <span className="text-muted-foreground mr-1.5 font-mono text-xs">{l.corte.formato.codigo}</span>
+                      {materialDeCorte(l.corte)}
+                    </td>
+                    <td className="tnum py-2 pr-3 text-right align-middle whitespace-nowrap">
+                      {n(planchasCalculadas(l))} {planchasCalculadas(l) === 1 ? "plancha" : "planchas"}
+                    </td>
+                    <td className="py-1.5 pr-4 text-right align-middle whitespace-nowrap">
+                      {editable ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Input
+                            inputMode="decimal"
+                            aria-label={`Planchas usadas (${l.corte.formato.codigo})`}
+                            className="tnum h-8 w-20 text-right"
+                            value={valor}
+                            onChange={(e) => cambiarPlanchas(l.posicion, e.target.value)}
+                          />
+                          <span className="text-muted-foreground w-14 text-left text-xs">{unidadPlancha(valor)}</span>
+                        </span>
+                      ) : (
+                        <span className="tnum">
+                          {valor} {unidadPlancha(valor)}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              }
+              if (l.terminado) {
+                const filas = borrador.materiales[l.posicion] ?? [];
+                return (
+                  <Fragment key={l.posicion}>
+                    {filas.map((m, i) => (
+                      <tr key={m.productoId} className={cn("border-b", m.quitado && "text-muted-foreground")}>
+                        <td className="tnum text-muted-foreground py-2 pr-3 pl-4 align-middle">{i === 0 ? l.posicion : ""}</td>
+                        <td className={cn("py-2 pr-3 align-middle", m.quitado && "line-through")}>
+                          {m.codigo && <span className="text-muted-foreground mr-1.5 font-mono text-xs">{m.codigo}</span>}
+                          {m.nombre}
+                          {m.estimado === null && (
+                            <span className="bg-brand-soft ml-1.5 rounded px-1.5 py-px text-2xs no-underline">agregado</span>
+                          )}
+                        </td>
+                        <td className="tnum py-2 pr-3 text-right align-middle whitespace-nowrap">
+                          {m.estimado === null ? "—" : cantidadDeMaterial({ cantidad: m.estimado, unidad: m.unidad })}
+                        </td>
+                        <td className="py-1.5 pr-4 text-right align-middle whitespace-nowrap">
+                          {!editable ? (
+                            <span className="tnum">
+                              {m.quitado ? "0" : cantidadDeMaterial({ cantidad: Number(m.usado) || 0, unidad: m.unidad })}
+                            </span>
+                          ) : m.quitado ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => cambiarMaterial(l.posicion, m.productoId, { quitado: false, usado: t3(m.estimado ?? 1) })}
+                            >
+                              <RotateCw className="size-3.5" />
+                              Volver a usar
+                            </Button>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5">
+                              <Input
+                                inputMode="decimal"
+                                aria-label={`Cantidad usada de ${m.nombre}`}
+                                className="tnum h-8 w-20 text-right"
+                                value={m.usado}
+                                onChange={(e) => cambiarMaterial(l.posicion, m.productoId, { usado: e.target.value })}
+                              />
+                              <span className="text-muted-foreground w-14 truncate text-left text-xs">{m.unidad ?? "un"}</span>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label={`Quitar ${m.nombre}`}
+                                title="No se usó"
+                                onClick={() => quitarMaterial(l.posicion, m)}
+                              >
+                                <X />
+                              </Button>
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                    {editable && (
+                      <tr className="border-b">
+                        <td className="tnum text-muted-foreground py-2 pr-3 pl-4 align-top">{filas.length === 0 ? l.posicion : ""}</td>
+                        <td colSpan={3} className="py-2 pr-4">
+                          <div className="max-w-md">
+                            <BuscadorProducto
+                              alAgregar={(prod) => agregarMaterial(l.posicion, prod)}
+                              ruta="/api/terminados/materiales"
+                              sinPrecio
+                              etiqueta={`Agregar material usado en ${l.terminado.nombre}`}
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              }
+              return (
+                <tr key={l.posicion} className="border-b">
+                  <td className="tnum text-muted-foreground py-2 pr-3 pl-4 align-middle">{l.posicion}</td>
+                  <td className="py-2 pr-3 align-middle">
+                    {l.codigo && <span className="text-muted-foreground mr-1.5 font-mono text-xs">{l.codigo}</span>}
+                    {l.nombre}
+                  </td>
+                  <td className="tnum py-2 pr-3 text-right align-middle whitespace-nowrap">
+                    {n(l.cantidad)} {l.cantidad === 1 ? "unidad" : "unidades"}
+                  </td>
+                  <td className="tnum py-2 pr-4 text-right align-middle whitespace-nowrap">
+                    {n(l.cantidad)} {l.cantidad === 1 ? "unidad" : "unidades"}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
-      <p className="text-muted-foreground border-t px-4 py-2 text-xs">
-        «—»: todavía nadie anotó lo usado. Si no se anota, al pasar a Listo se descuenta lo estimado.
-      </p>
+
+      {error && (
+        <p role="alert" className="text-destructive border-b px-4 py-2 text-sm">
+          {error}
+        </p>
+      )}
+
+      {editable && (aListo || cambiado) && (
+        <div className="bg-muted/30 flex flex-wrap items-center justify-end gap-2 border-b px-4 py-2.5">
+          <p className="text-muted-foreground mr-auto text-xs">
+            {aListo ? "Lo usado se descuenta del stock en Odoo al confirmar." : "Cambios sin guardar."}
+          </p>
+          {aListo ? (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  descartar();
+                  alSalirDeListo?.();
+                }}
+                disabled={ocupado}
+              >
+                Cancelar
+              </Button>
+              <Button size="sm" onClick={pasarAListo} disabled={ocupado} className="gap-1.5">
+                {ocupado && <Loader2 className="size-3.5 animate-spin" />}
+                Confirmar y pasar a Listo
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" size="sm" onClick={descartar} disabled={ocupado}>
+                Descartar
+              </Button>
+              <Button size="sm" onClick={guardar} disabled={ocupado} className="gap-1.5">
+                {guardando && <Loader2 className="size-3.5 animate-spin" />}
+                Guardar
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+
+      {!aListo && editable && !cambiado && (
+        <p className="text-muted-foreground border-b px-4 py-2 text-xs">
+          Lo usado empieza con lo estimado. Corrígelo, quítalo o agrega lo que se usó de verdad; al pasar a Listo
+          se descuenta del stock en Odoo.
+        </p>
+      )}
 
       {odoo && <EstadoOdoo pedido={p} odoo={odoo} hayCortes={cortes.length > 0} hayTerminados={terminados.length > 0} />}
 
-      {puedeAnotarMateriales && (
-        <DialogoMateriales
-          abierto={anotandoMateriales}
-          alCambiar={setAnotandoMateriales}
-          terminados={terminados}
-          pendiente={pendiente}
-          alConfirmar={anotarMateriales}
-        />
-      )}
-
-      {puedeAnotar && (
+      {conPiloto && (
         <DialogoPlanchas
-          abierto={anotando}
-          alCambiar={setAnotando}
+          abierto={conSobrantes}
+          alCambiar={setConSobrantes}
           cortes={cortes}
-          pendiente={pendiente}
-          alConfirmar={anotar}
+          alPasarAListo
+          retazoMin={retazoMin}
+          pendiente={moviendo}
+          alConfirmar={async (planchas, sobrantes) => {
+            const leido = leerBorrador();
+            const r = await cambiarEstado(p.codigo, "listo", {
+              planchas,
+              sobrantes,
+              materiales: leido.ok && leido.materiales.length ? leido.materiales : undefined,
+            });
+            return r;
+          }}
         />
       )}
     </section>

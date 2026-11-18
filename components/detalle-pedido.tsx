@@ -124,6 +124,8 @@ export function DetallePedido({
   const vista = vistaDeUrl(params, items);
   // La pestaña Chat de la columna derecha. `?chat=1` es también lo que traen los avisos de menciones.
   const enChat = params.get("chat") === "1";
+  // «Listo» trae a la vista de materiales para confirmar lo usado antes de mover el pedido.
+  const aListo = vista.tipo === "materiales" && params.get("listo") === "1";
 
   /* Cambiar de ítem no vuelve a pedir nada al servidor (el pedido, Odoo y el
      chat ya están): solo se reescribe la URL, para que el enlace lleve al
@@ -133,12 +135,32 @@ export function DetallePedido({
       const siguientes = new URLSearchParams(params.toString());
       siguientes.delete("item");
       siguientes.delete("ver");
+      siguientes.delete("listo");
       if (v.tipo === "item") siguientes.set("item", String(v.posicion));
       else siguientes.set("ver", v.tipo);
       window.history.replaceState(null, "", `?${siguientes.toString()}`);
     },
     [params],
   );
+
+  /** Reescribe parámetros de la URL sin ir al servidor: `null` quita el parámetro. */
+  const ponerParams = useCallback(
+    (cambios: Record<string, string | null>) => {
+      const siguientes = new URLSearchParams(params.toString());
+      for (const [k, v] of Object.entries(cambios)) {
+        if (v === null) siguientes.delete(k);
+        else siguientes.set(k, v);
+      }
+      const q = siguientes.toString();
+      window.history.replaceState(null, "", q ? `?${q}` : window.location.pathname);
+    },
+    [params],
+  );
+  const pedirListo = useCallback(
+    () => ponerParams({ item: null, ver: "materiales", listo: "1", chat: null }),
+    [ponerParams],
+  );
+  const salirDeListo = useCallback(() => ponerParams({ listo: null }), [ponerParams]);
 
   const cambiarPestana = useCallback(
     (chat: boolean) => {
@@ -244,10 +266,8 @@ export function DetallePedido({
             </div>
             <MoverPedido
               pedido={p}
-              cortes={items.filter((l) => l.corte)}
-              terminados={items.filter((l) => l.terminado)}
-              stockDescontado={odoo?.stockDescontado ?? false}
-              retazoMin={retazoMin}
+              conMaterial={items.some((l) => l.corte || l.terminado) && !odoo?.stockDescontado}
+              alPedirListo={pedirListo}
               className="justify-end 2xl:justify-self-end"
             />
           </div>
@@ -339,7 +359,14 @@ export function DetallePedido({
             ) : vista.tipo === "actividad" ? (
               <Actividad pedido={p} />
             ) : vista.tipo === "materiales" ? (
-              <MaterialesPedido pedido={p} lineas={items} odoo={odoo} />
+              <MaterialesPedido
+                pedido={p}
+                lineas={items}
+                odoo={odoo}
+                retazoMin={retazoMin}
+                aListo={aListo}
+                alSalirDeListo={salirDeListo}
+              />
             ) : (
               <Panel titulo="Archivos del pedido" extra="Diseños, factura, guía y fotos de entrega">
                 <AdjuntosPedido pedido={p} lineas={items} />

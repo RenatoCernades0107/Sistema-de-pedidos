@@ -93,6 +93,7 @@ test("el corte se vende en m² y se fabrica: al terminar, los sobrantes vuelven 
   await page.getByRole("button", { name: "En proceso", exact: true }).click();
   await expect(page.getByText(`${codigo} → En proceso`)).toBeVisible();
   await page.getByRole("button", { name: "Listo", exact: true }).click();
+  await page.getByRole("button", { name: "Confirmar y pasar a Listo" }).click();
 
   // Propuesto: la media plancha que no se cobró. Se mide de verdad y se agrega otro.
   const dialogo = page.getByRole("dialog", { name: "Pasar a Listo" });
@@ -113,11 +114,10 @@ test("el corte se vende en m² y se fabrica: al terminar, los sobrantes vuelven 
   await expect(dialogo).toBeHidden();
   await expect(page.getByText(`${codigo} → Listo`)).toBeVisible();
 
-  await expect(lineas.getByText(`${mo.name} · cerrada en Odoo`)).toBeVisible();
-  // El stock, en la vista de materiales; lo demás sigue en el ítem.
-  const materiales = await verMateriales(page);
-  await expect(materiales.getByText("Stock descontado en Odoo.")).toBeVisible();
+  // Al pasar a Listo se queda en los materiales: el stock, ahí; la producción, en el ítem.
+  await expect(page.getByRole("region", { name: "Materiales del pedido" }).getByText("Stock descontado en Odoo.")).toBeVisible();
   await abrirCorte(page);
+  await expect(lineas.getByText(`${mo.name} · cerrada en Odoo`)).toBeVisible();
   const guardados = lineas.getByRole("list", { name: "Sobrantes guardados" }).getByRole("listitem");
   await expect(guardados).toHaveCount(2);
   await expect(guardados.first()).toContainText("183×60 cm");
@@ -166,6 +166,7 @@ test("si Odoo falla al cerrar la producción, Sincronizar no duplica el sobrante
 
   await fetch(`${ODOO}/__modo`, { method: "POST", body: JSON.stringify({ modo: "caido" }) });
   await page.getByRole("button", { name: "Listo", exact: true }).click();
+  await page.getByRole("button", { name: "Confirmar y pasar a Listo" }).click();
   const dialogo = page.getByRole("dialog", { name: "Pasar a Listo" });
   await dialogo.getByRole("group", { name: "Sobrante 1" }).getByLabel("Ubicación").fill("E2E rack 8");
   await dialogo.getByRole("button", { name: "Pasar a Listo" }).click();
@@ -246,6 +247,7 @@ test("el corte usa primero un sobrante del almacén: queda reservado para el ped
   await page.getByRole("button", { name: "En proceso", exact: true }).click();
   await expect(page.getByText(`${codigo} → En proceso`)).toBeVisible();
   await page.getByRole("button", { name: "Listo", exact: true }).click();
+  await page.getByRole("button", { name: "Confirmar y pasar a Listo" }).click();
   const dialogo = page.getByRole("dialog", { name: "Pasar a Listo" });
   await expect(dialogo.getByText(`Usa del almacén: ${codigoSobrante}`)).toBeVisible();
   await expect(dialogo.getByLabel("Planchas usadas (F7E024)")).toHaveValue("2");

@@ -83,6 +83,9 @@ export interface OdooDePedido {
   errorAnulacion: string | null;
 }
 
+/** Lo que se anotó como usado en cada producto terminado: productos de Odoo y cuánto de cada uno. */
+export type MaterialesAnotados = { posicion: number; usados: { productoId: number; cantidad: number }[] }[];
+
 /**
  * Las planchas que el cálculo abre. Con el piloto de sobrantes, solo las nuevas:
  * las piezas del almacén que usa el corte no son planchas que descontar.

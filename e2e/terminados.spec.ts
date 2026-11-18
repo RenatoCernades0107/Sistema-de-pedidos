@@ -184,9 +184,9 @@ test("un estándar se arma del catálogo, reserva lo estimado y descuenta lo que
   await page.getByRole("button", { name: "En proceso", exact: true }).click();
   await expect(page.getByText(`${codigo} → En proceso`)).toBeVisible();
 
-  // Listo pregunta qué se usó: llega lo estimado, y se usó una plancha entera y algo más.
+  // Listo lleva a los materiales: llega lo estimado, y se usó una plancha entera y algo más.
   await page.getByRole("button", { name: "Listo", exact: true }).click();
-  const dialogo = page.getByRole("dialog", { name: "Pasar a Listo: materiales usados" });
+  const dialogo = page.getByRole("region", { name: "Materiales del pedido" });
   const plancha = dialogo.getByLabel(/^Cantidad usada de /);
   await expect(plancha).toHaveValue("0.25");
   await plancha.fill("1");
@@ -200,12 +200,11 @@ test("un estándar se arma del catálogo, reserva lo estimado y descuenta lo que
   await buscador.press("Enter");
   await expect(dialogo.getByLabel(/^Cantidad usada de /)).toHaveCount(2);
 
-  await dialogo.getByRole("button", { name: "Pasar a Listo" }).click();
-  await expect(dialogo).toBeHidden();
+  await dialogo.getByRole("button", { name: "Confirmar y pasar a Listo" }).click();
   await expect(page.getByText(`${codigo} → Listo`)).toBeVisible();
-  await expect(lineas.getByText("Stock descontado en Odoo.")).toBeVisible();
-  await expect(lineas.getByText("Material usado")).toBeVisible();
-  await expect(lineas.getByRole("button", { name: "Materiales usados" })).toHaveCount(0);
+  await expect(dialogo.getByText("Stock descontado en Odoo.")).toBeVisible();
+  // Ya descontado, lo usado no se corrige desde aquí.
+  await expect(dialogo.getByLabel(/^Cantidad usada de /)).toHaveCount(0);
 
   // La orden se cerró con lo real, y la entrega sacó las dos cajas.
   odoo = await estado();
@@ -267,11 +266,10 @@ test("un personalizado sin reserva no toca el stock hasta que el pedido termina"
 
   // Sin corregir nada, se descuenta lo estimado: 2 m² con 15% de merma, 0.51 planchas de 4.5 m².
   await page.getByRole("button", { name: "Listo", exact: true }).click();
-  const dialogo = page.getByRole("dialog", { name: "Pasar a Listo: materiales usados" });
+  const dialogo = page.getByRole("region", { name: "Materiales del pedido" });
   await expect(dialogo.getByLabel(/^Cantidad usada de /)).toHaveValue("0.51");
-  await dialogo.getByRole("button", { name: "Pasar a Listo" }).click();
-  await expect(dialogo).toBeHidden();
-  await expect((await verMateriales(page)).getByText("Stock descontado en Odoo.")).toBeVisible();
+  await dialogo.getByRole("button", { name: "Confirmar y pasar a Listo" }).click();
+  await expect(dialogo.getByText("Stock descontado en Odoo.")).toBeVisible();
 
   odoo = await estado();
   expect(odoo.producciones).toHaveLength(ordenesAntes + 1);
