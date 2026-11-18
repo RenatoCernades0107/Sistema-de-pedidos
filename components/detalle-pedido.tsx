@@ -296,15 +296,17 @@ export function DetallePedido({
         </div>
       )}
 
-      {/* Con el chat a la vista, la columna derecha se ensancha. Si la pantalla no
+      {/* Los dos costados miden lo mismo, para que el centro quede al centro. Con el
+          chat a la vista, la columna derecha se ensancha (y la izquierda la iguala
+          en pantallas muy anchas). Si la pantalla no
           da para tres columnas (menos de 1536 px), la de estado, entrega y pago se
           oculta mientras se chatea: «Mover a» sigue arriba. */}
       <div
         className={cn(
           "grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-rows-[minmax(0,1fr)] lg:transition-[grid-template-columns] lg:duration-200",
           chat && enChat
-            ? "lg:grid-cols-[minmax(0,1fr)_20rem] xl:grid-cols-[minmax(0,1fr)_24rem] 2xl:grid-cols-[21rem_minmax(0,1fr)_26rem]"
-            : "lg:grid-cols-[18rem_minmax(0,1fr)_13rem] xl:grid-cols-[21rem_minmax(0,1fr)_15rem]",
+            ? "lg:grid-cols-[minmax(0,1fr)_20rem] xl:grid-cols-[minmax(0,1fr)_24rem] 2xl:grid-cols-[24rem_minmax(0,1fr)_24rem]"
+            : "lg:grid-cols-[17rem_minmax(0,1fr)_17rem] xl:grid-cols-[19rem_minmax(0,1fr)_19rem]",
         )}
       >
         {/* A la izquierda, lo que se sigue a diario: el estado, la entrega y el
