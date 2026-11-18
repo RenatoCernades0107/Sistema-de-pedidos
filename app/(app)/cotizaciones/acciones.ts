@@ -17,7 +17,7 @@
 import { refresh } from "next/cache";
 import { exigirCotizaciones } from "@/lib/sesion";
 import { esquemaNuevaCotizacion, esquemaNuevoClienteOdoo } from "@/lib/esquemas";
-import { confirmarEnOdoo, olvidarPopularidad, sincronizarConOdoo } from "@/lib/cotizaciones-servidor";
+import { cambiarAlmacenDespacho, confirmarEnOdoo, olvidarPopularidad, sincronizarConOdoo } from "@/lib/cotizaciones-servidor";
 import { mensajeOdoo, registrarCotizacion } from "@/lib/cotizaciones-registro";
 import { indiceClientes } from "@/lib/odoo/catalogos";
 import { crearCliente } from "@/lib/odoo/clientes";
@@ -82,6 +82,15 @@ export async function reintentarConfirmacion(id: string): Promise<{ ok: true } |
   if (typeof id !== "string") return fallo("Falta la cotización.");
 
   const r = await confirmarEnOdoo(id);
+  refresh();
+  return r;
+}
+
+/** De qué almacén sale la venta, mientras todavía es cotización en Odoo. */
+export async function cambiarAlmacenDeCotizacion(id: unknown, almacenId: unknown): Promise<{ ok: true } | Fallo> {
+  await exigirCotizaciones();
+  if (typeof id !== "string" || typeof almacenId !== "string") return fallo("Faltan la cotización o el almacén.");
+  const r = await cambiarAlmacenDespacho(id, almacenId);
   refresh();
   return r;
 }

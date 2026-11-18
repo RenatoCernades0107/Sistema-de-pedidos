@@ -89,47 +89,21 @@ const codigo = z.string().trim().min(1, "Falta el código de Odoo").max(40);
 const esquemaGrupo = z.object({
   id: uuid,
   rotable: z.boolean().optional(),
-  sobrantesActivo: z.boolean().optional(),
 });
 
-/** Los dos interruptores de un grupo: si se puede girar y si registra sobrantes. */
+/** El interruptor de un grupo: si las piezas se pueden girar. (Los sobrantes se registran en todos.) */
 export async function actualizarGrupoPlancha(entrada: unknown): Promise<Resultado> {
   await exigirAdmin();
   const datos = esquemaGrupo.safeParse(entrada);
   if (!datos.success) return falloDeEsquema(datos.error);
-  const { id, rotable, sobrantesActivo } = datos.data;
-
-  const cambios: { rotable?: boolean; sobrantes_activo?: boolean } = {};
-  if (rotable !== undefined) cambios.rotable = rotable;
-  if (sobrantesActivo !== undefined) cambios.sobrantes_activo = sobrantesActivo;
-  if (Object.keys(cambios).length === 0) return { ok: true };
+  const { id, rotable } = datos.data;
+  if (rotable === undefined) return { ok: true };
+  const cambios = { rotable };
 
   const supabase = await clienteServidor();
   const { data, error } = await supabase.from("grupos_plancha").update(cambios).eq("id", id).select("id");
   if (error) return fallo(mensajeDeError(error));
   if (!data?.length) return fallo(ERROR_SIN_FILAS);
-
-  refresh();
-  return { ok: true };
-}
-
-const esquemaSobrantesPorMaterial = z.object({
-  material: z.string().trim().min(1),
-  activo: z.boolean(),
-});
-
-/** Enciende o apaga el piloto de sobrantes para todo un material de una vez. */
-export async function activarSobrantesPorMaterial(entrada: unknown): Promise<Resultado> {
-  await exigirAdmin();
-  const datos = esquemaSobrantesPorMaterial.safeParse(entrada);
-  if (!datos.success) return falloDeEsquema(datos.error);
-
-  const supabase = await clienteServidor();
-  const { error } = await supabase
-    .from("grupos_plancha")
-    .update({ sobrantes_activo: datos.data.activo })
-    .eq("material", datos.data.material);
-  if (error) return fallo(mensajeDeError(error));
 
   refresh();
   return { ok: true };
@@ -142,7 +116,6 @@ const esquemaFormato = z.object({
   codigo,
   anchoCm: medida,
   largoCm: medida,
-  skuCompartido: z.boolean(),
   activo: z.boolean(),
 });
 
@@ -157,7 +130,6 @@ export async function guardarFormatoPlancha(entrada: unknown): Promise<Resultado
     codigo_odoo: v.codigo,
     ancho_cm: v.anchoCm,
     largo_cm: v.largoCm,
-    sku_compartido: v.skuCompartido,
     activo: v.activo,
   };
 

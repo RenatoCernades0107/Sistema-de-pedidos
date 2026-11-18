@@ -24,7 +24,7 @@ function grupo(id: string, material: string, variante: string, espesorMm: number
     rotable: true,
     sobrantesActivo: false,
     formatos: [
-      { id: `${id}-f`, codigo: `C-${id}`, anchoCm: 122, largoCm: 183, skuCompartido: false, porVerificar: false, nota: null, activo: true },
+      { id: `${id}-f`, codigo: `C-${id}`, anchoCm: 122, largoCm: 183, porVerificar: false, nota: null, activo: true },
     ],
   };
 }

@@ -100,15 +100,17 @@ test("Administración registra un pedido con un producto y un corte, y Odoo lo r
   // 665 × 1.18 = 784.70, menos el abono.
   await expect(page.getByText("S/ 684.70").first()).toBeVisible();
 
-  // En Odoo: la orden con las planchas del corte, confirmada (eso reserva el stock).
+  // En Odoo: la orden confirmada (eso reserva el stock). Los sobrantes van para todos
+  // los materiales: el corte se vende como "Corte a medida" en m², por el mismo total.
   const orden = (await estado()).ordenes.at(-1)!;
   expect(orden.state).toBe("sale");
   expect(orden.amount_total).toBe(784.7);
-  expect(orden.lineas.map((l) => [l.product_id[0], l.product_uom_qty, l.price_unit])).toEqual([
+  const deLinea = (l: (typeof orden.lineas)[number]) =>
+    String(l.product_id[1]).startsWith("[CAM-F7E024]") ? "CAM-F7E024" : l.product_id[0];
+  expect(orden.lineas.map((l) => [deLinea(l), l.product_uom_qty, l.price_unit])).toEqual([
     [10, 1, 120],
-    [20, 2, 200],
-    [20, 1, 120],
-    [31, 1, 25],
+    ["CAM-F7E024", 4.8, 108.33],
+    [31, 1, 25.02],
   ]);
 
   // El pedido está enlazado a su cotización, y el detalle sale de las líneas.
@@ -120,7 +122,6 @@ test("Administración registra un pedido con un producto y un corte, y Odoo lo r
     .single();
   expect(data).toMatchObject({ tipos_pedido: ["CL", "SP"], monto_total: 784.7 });
   expect(data!.detalle).toContain("Corte láser · Acrílico ECO · Cristal · 3 mm: 10 piezas");
-  expect(data!.detalle).toContain("Bordes pulidos");
   const { data: cot } = await supabase.from("cotizaciones").select("pedido_id").eq("pedido_id", data!.id!).single();
   expect(cot?.pedido_id).toBe(data!.id);
 });

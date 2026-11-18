@@ -127,7 +127,10 @@ export type OpcionesDxfPlanchas = { kerf_mm?: number; parcial?: boolean; unidade
 /** El material elegido para un diseño: un grupo del catálogo y, si pide, un color. */
 export type MaterialDiseno = {
   grupoPlanchaId: string;
-  /** Solo en grupos con código compartido entre colores (`pideColor`). */
+  /**
+   * El color de los grupos que compartían código entre colores. Ya no hay: cada
+   * color tiene su grupo, y los diseños nuevos lo guardan en `null`.
+   */
   color: string | null;
 };
 

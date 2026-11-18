@@ -210,7 +210,17 @@ export async function crearCliente(
   if (pais) valores.country_id = pais;
   if (tipoDoc) valores.l10n_latam_identification_type_id = tipoDoc;
 
-  const id = await ejecutar<number>(MODELO, "create", [valores]);
+  /* Sin la localización, `base_vat` valida todo `vat` de un cliente peruano como
+     RUC y un DNI no pasa ("The RUC number [...] does not seem to be valid").
+     Nosotros ya comprobamos el documento (8 dígitos el DNI, dígito verificador el
+     RUC), así que para el DNI se le dice a Odoo que no lo vuelva a validar. */
+  const sinTipoDeDocumento = tipo === "DNI" && !tipoDoc;
+  const id = await ejecutar<number>(
+    MODELO,
+    "create",
+    [valores],
+    sinTipoDeDocumento ? { context: { no_vat_validation: true } } : {},
+  );
   const cliente = await leerCliente(id);
   if (!cliente) throw new ErrorOdoo("Odoo creó el cliente pero no lo devolvió. Búscalo de nuevo.");
   return { cliente, existia: false };

@@ -1,11 +1,11 @@
 /**
- * El piloto de sobrantes: con el material encendido en Configuración, el corte
- * se vende como "Corte a medida" en m² y se fabrica en Odoo. Al pasar a Listo,
- * el taller confirma los sobrantes que guardó, y nacen como lotes con su
- * etiqueta.
+ * Los sobrantes de un corte (el piloto, ya encendido para todos los materiales):
+ * el corte se vende como "Corte a medida" en m² y se fabrica en Odoo, en el
+ * almacén donde se corta. Al pasar a Listo, el taller confirma los sobrantes que
+ * guardó y a qué almacén se fue cada uno, y nacen como lotes en ese almacén con
+ * su etiqueta.
  *
- * Odoo es el falso de `e2e/odoo-falso.mts`. El piloto se enciende para el ECO
- * cristal de 3 mm solo mientras duran estas pruebas.
+ * Odoo es el falso de `e2e/odoo-falso.mts`.
  */
 
 import { expect, test, type Browser } from "@playwright/test";
@@ -16,12 +16,18 @@ const ODOO = process.env.E2E_ODOO_FALSO ?? "http://127.0.0.1:8069";
 
 type Registro = Record<string, unknown> & { id: number };
 interface Estado {
+  almacenes: (Registro & { code: string; lot_stock_id: [number, string] })[];
+  quants: (Registro & { lot_id: [number, string] | false; location_id: [number, string]; quantity: number })[];
   productos: Registro[];
   ordenes: (Registro & { lineas: Registro[]; entregas: (Registro & { movimientos: Registro[] })[] })[];
   producciones: (Registro & { movimientos: Registro[]; lineas: Registro[] })[];
   lotes: (Registro & { cantidad: number })[];
 }
 const estado = async () => (await (await fetch(`${ODOO}/__estado`)).json()) as Estado;
+const ubicacionDe = async (codigo: string) => (await estado()).almacenes.find((a) => a.code === codigo)?.lot_stock_id[0];
+/** Dónde quedó el lote de un sobrante en el Odoo falso. */
+const dondeEsta = async (loteId: number) =>
+  (await estado()).quants.find((q) => q.lot_id && q.lot_id[0] === loteId && q.quantity > 0)?.location_id[0];
 const stockDe = async (codigo: string) =>
   (await estado()).productos.find((p) => p.default_code === codigo)?.qty_available as number | undefined;
 
@@ -62,7 +68,8 @@ test.beforeAll(async () => {
 test.beforeEach(limpiarSobrantes);
 
 test.afterAll(async () => {
-  await piloto(false);
+  // Los sobrantes van encendidos para todos los materiales: así queda.
+  await piloto(true);
   await limpiarSobrantes();
   await borrarCotizacionesDePrueba();
 });
@@ -100,11 +107,16 @@ test("el corte se vende en m² y se fabrica: al terminar, los sobrantes vuelven 
   const primero = dialogo.getByRole("group", { name: "Sobrante 1" });
   await expect(primero.getByLabel("Largo")).toHaveValue("183");
   await expect(primero.getByLabel("Ancho")).toHaveValue("61");
+  // Un láser se corta en el taller: ahí vuelve, salvo que se diga otro almacén.
+  await expect(primero.getByRole("combobox", { name: "Almacén del sobrante 1" })).toContainText("Católica");
   await primero.getByLabel("Ancho").fill("60");
   await primero.getByLabel("Ubicación").fill("E2E rack 9");
   await dialogo.getByRole("button", { name: "Agregar sobrante" }).click();
   const segundo = dialogo.getByRole("group", { name: "Sobrante 2" });
   await segundo.getByLabel("Ubicación").fill("E2E rack 9");
+  // Este se lo llevaron a la tienda.
+  await segundo.getByRole("combobox", { name: "Almacén del sobrante 2" }).click();
+  await page.getByRole("option", { name: "Andahuaylas (tienda)" }).click();
   await segundo.getByLabel("Largo").fill("40");
   await segundo.getByLabel("Ancho").fill("20");
   await dialogo.getByRole("button", { name: "Pasar a Listo" }).click();
@@ -121,8 +133,10 @@ test("el corte se vende en m² y se fabrica: al terminar, los sobrantes vuelven 
   const guardados = lineas.getByRole("list", { name: "Sobrantes guardados" }).getByRole("listitem");
   await expect(guardados).toHaveCount(2);
   await expect(guardados.first()).toContainText("183×60 cm");
+  await expect(guardados.first()).toContainText("Católica");
   await expect(guardados.first()).toContainText("E2E rack 9");
   await expect(guardados.nth(1)).toContainText("40×35 cm");
+  await expect(guardados.nth(1)).toContainText("Andahuaylas");
 
   // En Odoo: la orden cerrada, las planchas consumidas, dos lotes con su medida y el corte entregado.
   const e = await estado();
@@ -132,6 +146,9 @@ test("el corte se vende en m² y se fabrica: al terminar, los sobrantes vuelven 
     [183, 60, 1],
     [40, 35, 1],
   ]);
+  // Cada lote, en la ubicación de su almacén.
+  expect(await dondeEsta(e.lotes[0].id)).toBe(await ubicacionDe("CAT"));
+  expect(await dondeEsta(e.lotes[1].id)).toBe(await ubicacionDe("AND"));
   expect(await stockDe("CAM-F7E024")).toBe(0);
   expect(e.ordenes.at(-1)!.entregas[0].state).toBe("done");
 
@@ -178,12 +195,12 @@ test("si Odoo falla al cerrar la producción, Sincronizar no duplica el sobrante
   await expect(lineas.getByText("Falta crearlo en Odoo")).toBeVisible();
   const lotesAntes = (await estado()).lotes.length;
 
-  // Sincronizar desde la pantalla de Sobrantes no lo crea por su cuenta.
-  await page.goto("/sobrantes");
-  await page.getByRole("button", { name: "Sincronizar con Odoo" }).click();
-  await expect(page.getByText("Sobrantes al día con Odoo")).toBeVisible();
+  // Sincronizar desde la pestaña de Sobrantes (quien gestiona el stock) no lo crea por su cuenta.
+  await admin.goto("/almacen?vista=sobrantes");
+  await admin.getByRole("button", { name: "Sincronizar con Odoo" }).click();
+  await expect(admin.getByText("Sobrantes al día con Odoo")).toBeVisible();
   await expect(
-    page.getByRole("list", { name: "Sobrantes" }).getByRole("listitem").filter({ hasText: "E2E rack 8" }),
+    admin.getByRole("list", { name: "Sobrantes" }).getByRole("listitem").filter({ hasText: "E2E rack 8" }),
   ).toContainText(`Entra a Odoo al cerrar la producción de ${codigo}`);
   expect((await estado()).lotes.length).toBe(lotesAntes);
 
@@ -196,9 +213,9 @@ test("si Odoo falla al cerrar la producción, Sincronizar no duplica el sobrante
   expect(nuevos.map((l) => [l.x_largo, l.x_ancho, l.cantidad])).toEqual([[183, 61, 1]]);
 });
 
-/** Registra a mano un sobrante de ECO cristal 3 mm, desde la pantalla de Sobrantes. Devuelve su código. */
+/** Registra a mano un sobrante de ECO cristal 3 mm en el taller, desde la pestaña de Sobrantes. Devuelve su código. */
 async function registrarSobrante(page: import("@playwright/test").Page, largo: string, ancho: string, ubicacion: string) {
-  await page.goto("/sobrantes");
+  await page.goto("/almacen?vista=sobrantes");
   await page.getByRole("button", { name: "Registrar sobrante" }).click();
   const dialogo = page.getByRole("dialog", { name: "Registrar sobrante" });
   await dialogo.getByLabel("Buscar material").fill("eco cristal 3");
@@ -211,6 +228,8 @@ async function registrarSobrante(page: import("@playwright/test").Page, largo: s
   await expect(dialogo.getByLabel("Largo (cm)")).toBeFocused();
   await dialogo.getByLabel("Largo (cm)").fill(largo);
   await dialogo.getByLabel("Ancho (cm)").fill(ancho);
+  await dialogo.getByRole("combobox", { name: "Almacén" }).click();
+  await page.getByRole("option", { name: "Católica (taller)" }).click();
   await dialogo.getByLabel("Ubicación").fill(ubicacion);
   await dialogo.getByRole("button", { name: "Registrar" }).click();
   const aviso = page.getByText(/^SOB-\d+ registrado$/);

@@ -71,14 +71,14 @@ class ErrorMotorFalso extends Error {
   }
 }
 
-/** Un grupo del catálogo con formatos activos y sin código compartido entre colores. */
+/** Un grupo del catálogo con formatos activos. */
 function grupo(
   id: string,
   material: string,
   variante: string,
   detalle: string,
   espesorMm: number,
-  formatos: { codigo: string; anchoCm: number; largoCm: number; skuCompartido?: boolean }[],
+  formatos: { codigo: string; anchoCm: number; largoCm: number }[],
 ): PlanchaCatalogo {
   return {
     id,
@@ -93,7 +93,6 @@ function grupo(
       codigo: f.codigo,
       anchoCm: f.anchoCm,
       largoCm: f.largoCm,
-      skuCompartido: f.skuCompartido ?? false,
       porVerificar: false,
       nota: null,
       activo: true,
@@ -111,7 +110,7 @@ const PLANCHAS: PlanchaCatalogo[] = [
   grupo("mdf-3", "MDF", "", "", 3, [{ codigo: "MDF3", anchoCm: 122, largoCm: 244 }]),
   grupo("eco-negro-3", "Acrílico ECO", "Colores", "Negro", 3, []),
   grupo("eco-colores-3", "Acrílico ECO", "Varios colores", "", 3, [
-    { codigo: "F7E0CC", anchoCm: 122, largoCm: 183, skuCompartido: true },
+    { codigo: "F7E0CC", anchoCm: 122, largoCm: 183 },
   ]),
 ];
 
@@ -550,15 +549,16 @@ describe("elegir_material", () => {
     expect(deps.guardarVersion).not.toHaveBeenCalled();
   });
 
-  it("un color suelto vale en el grupo de código compartido, y se guarda", async () => {
+  it("un color que no es de ningún grupo no se inventa: se ofrecen los que hay", async () => {
     const deps = dependencias({ obtenerDisenoActual: vi.fn(async () => ACTUAL_CAJA) });
     const r = await ejecutarHerramienta(
       "elegir_material",
       { material: "eco", color: "Rojo", espesor_mm: 3 },
       deps,
     );
-    expect(r.ok).toBe(true);
-    expect(vi.mocked(deps.guardarVersion).mock.calls[0][0].material).toEqual({ grupoPlanchaId: "eco-colores-3", color: "Rojo" });
+    expect(r.ok).toBe(false);
+    expect(leer(r.contenido).error.codigo).toBe("material_ambiguo");
+    expect(deps.guardarVersion).not.toHaveBeenCalled();
   });
 
   it("un material que no existe o un diseño vacío se le dicen al modelo", async () => {

@@ -17,6 +17,7 @@ import {
   fraccionEnPalabras,
   guardarCorte,
   leerCorte,
+  lugarDeCorte,
   materialDeCorte,
   planchasPorCobro,
   planchasTexto,
@@ -34,6 +35,7 @@ const datos: DatosCorte = {
   color: "Cristal",
   espesorMm: 3,
   modalidad: "laser",
+  lugar: "taller",
   rotable: true,
   piezas,
   servicio: { productoId: 31, codigo: "SRV002", nombre: "SERVICIO DE CORTE LASER" },
@@ -66,6 +68,8 @@ describe("el corte que se guarda", () => {
     const viejo = JSON.parse(JSON.stringify(corte));
     delete viejo.sobrantes;
     expect(leerCorte(viejo)?.sobrantes).toBe(false);
+    // De antes de los almacenes: se cortó en el taller.
+    expect(leerCorte(viejo)?.lugar).toBe("taller");
   });
 
   it("se dice en palabras", () => {
@@ -138,6 +142,7 @@ describe("un corte mientras se arma la cotización", () => {
     espesorMm: 3,
     rotable: true,
     modalidad: "laser",
+    lugar: "taller",
     piezas,
     calculo,
   };
@@ -178,5 +183,19 @@ describe("un corte mientras se arma la cotización", () => {
     );
     const r = ponerCorte([], { ...nuevo, calculo: malo }, clave);
     expect(problemaDeLineas(r.lineas)).toMatch(/no cabe/);
+  });
+});
+
+describe("lugarDeCorte", () => {
+  it("el láser va siempre al taller; un manual, donde se diga", () => {
+    expect(lugarDeCorte({ modalidad: "laser", lugar: "tienda" })).toBe("taller");
+    expect(lugarDeCorte({ modalidad: "manual", lugar: "tienda" })).toBe("tienda");
+    expect(lugarDeCorte({ modalidad: "manual" })).toBe("taller");
+  });
+
+  it("un láser guardado en la tienda se lee en el taller", () => {
+    const corte = JSON.parse(JSON.stringify(guardarCorte(datos, calculo)));
+    expect(leerCorte({ ...corte, lugar: "tienda" })?.lugar).toBe("taller");
+    expect(leerCorte({ ...corte, modalidad: "manual", lugar: "tienda" })?.lugar).toBe("tienda");
   });
 });

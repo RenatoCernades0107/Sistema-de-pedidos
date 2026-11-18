@@ -26,6 +26,7 @@ import {
   olvidarCampos,
   registrarReinicio,
   texto,
+  valoresAlmacenable,
 } from "./rpc";
 
 type Fila = Record<string, unknown>;
@@ -37,13 +38,11 @@ export const PREFIJO_PRODUCTO = "SOB-";
 
 let modeloLote: Promise<string> | null = null;
 let camposLote: Promise<void> | null = null;
-let ubicacion: Promise<number> | null = null;
 const productos = new Map<string, Promise<number>>();
 
 export function olvidarSobrantes() {
   modeloLote = null;
   camposLote = null;
-  ubicacion = null;
   productos.clear();
   olvidarCampos("stock.lot");
   olvidarCampos("stock.production.lot");
@@ -124,37 +123,6 @@ export function asegurarCamposDeLote(): Promise<void> {
   return camposLote;
 }
 
-/** Dónde vive el stock: la ubicación del primer almacén. */
-export function ubicacionDeStock(): Promise<number> {
-  ubicacion ??= recordar(
-    (async () => {
-      const almacenes = await ejecutar<Fila[]>("stock.warehouse", "search_read", [[]], {
-        fields: ["lot_stock_id"],
-        limit: 1,
-      });
-      const id = idDe(almacenes[0]?.lot_stock_id);
-      if (id) return id;
-      const [interna] = await ejecutar<number[]>("stock.location", "search", [[["usage", "=", "internal"]]], {
-        limit: 1,
-      });
-      if (!interna) throw new ErrorOdoo("Odoo no tiene un almacén donde guardar los sobrantes.");
-      return interna;
-    })(),
-    () => (ubicacion = null),
-  );
-  return ubicacion;
-}
-
-/** "Almacenable", como lo diga esta versión. */
-async function valoresAlmacenable(): Promise<Record<string, unknown>> {
-  const [storable, detailed] = await Promise.all([
-    camposExistentes("product.template", ["is_storable"]),
-    camposExistentes("product.template", ["detailed_type"]),
-  ]);
-  if (storable.length) return { type: "consu", is_storable: true };
-  if (detailed.length) return { detailed_type: "product" };
-  return { type: "product" };
-}
 
 export interface MaterialDeSobrante {
   /** El código de la plancha de referencia del grupo (F7E024): el producto es SOB-F7E024. */
@@ -205,8 +173,10 @@ export interface LoteNuevo {
   nombre: string;
   largo: number;
   ancho: number;
-  /** La ubicación en palabras y, si lo hay, el color. Va a la nota del lote. */
+  /** La ubicación en palabras (rack, fila). Va a la nota del lote. */
   nota: string | null;
+  /** La ubicación de stock del almacén donde queda (`lot_stock_id`). */
+  ubicacionId: number;
 }
 
 /**
@@ -220,11 +190,8 @@ export function crearLoteSobrante(l: LoteNuevo): Promise<number> {
 
 async function crearLote(l: LoteNuevo): Promise<number> {
   await asegurarCamposDeLote();
-  const [modelo, productoId, ubicacionId] = await Promise.all([
-    modeloDeLote(),
-    productoSobrante(l.material),
-    ubicacionDeStock(),
-  ]);
+  const ubicacionId = l.ubicacionId;
+  const [modelo, productoId] = await Promise.all([modeloDeLote(), productoSobrante(l.material)]);
 
   const [previo] = await ejecutar<number[]>(
     modelo,
@@ -273,6 +240,8 @@ export interface LoteEnStock {
   largo: number | null;
   ancho: number | null;
   nota: string | null;
+  /** Dónde está: la ubicación interna con su existencia. */
+  ubicacionId: number | null;
 }
 
 /**
@@ -300,9 +269,14 @@ async function leerLotesEnStock(): Promise<LoteEnStock[]> {
     "stock.quant",
     "search_read",
     [[["product_id", "in", [...codigoDe.keys()]], ["location_id.usage", "=", "internal"], ["quantity", ">", 0]]],
-    { fields: ["lot_id", "product_id"] },
+    { fields: ["lot_id", "product_id", "location_id"] },
   );
-  const lotes = [...new Set(quants.map((q) => idDe(q.lot_id)).filter((id): id is number => !!id))];
+  const dondeEsta = new Map<number, number | null>();
+  for (const q of quants) {
+    const lote = idDe(q.lot_id);
+    if (lote) dondeEsta.set(lote, idDe(q.location_id));
+  }
+  const lotes = [...dondeEsta.keys()];
   if (lotes.length === 0) return [];
 
   const filas = await ejecutar<Fila[]>(modelo, "read", [lotes], {
@@ -316,5 +290,20 @@ async function leerLotesEnStock(): Promise<LoteEnStock[]> {
     largo: medida(f.x_largo),
     ancho: medida(f.x_ancho),
     nota: texto(typeof f.note === "string" ? f.note.replace(/<[^>]+>/g, " ") : null),
+    ubicacionId: dondeEsta.get(f.id as number) ?? null,
   }));
+}
+
+/** El producto (Sobrante de su material) de cada lote. */
+export async function productosDeLotes(loteIds: number[]): Promise<Map<number, number>> {
+  const ids = [...new Set(loteIds)].filter((id) => id > 0);
+  if (ids.length === 0) return new Map();
+  const modelo = await modeloDeLote();
+  const filas = await ejecutar<Fila[]>(modelo, "read", [ids], { fields: ["product_id"] });
+  const salida = new Map<number, number>();
+  for (const f of filas) {
+    const producto = idDe(f.product_id);
+    if (producto) salida.set(f.id as number, producto);
+  }
+  return salida;
 }

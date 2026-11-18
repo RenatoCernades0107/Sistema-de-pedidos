@@ -1,7 +1,11 @@
 /**
- * La producción de los cortes con el piloto de sobrantes, del lado del servidor:
+ * La producción de los cortes y los productos terminados, del lado del servidor:
  * crear sus órdenes al confirmar el pedido, guardar los sobrantes que el taller
- * confirma al terminar y cerrar las órdenes con eso.
+ * confirma al terminar (y a qué almacén fue cada uno) y cerrar las órdenes con eso.
+ *
+ * Cada orden trabaja en el almacén donde se produce —el taller, o la tienda para
+ * un corte manual que se hace allí— y deja lo producido en el almacén del que
+ * sale la venta.
  *
  * Como el stock, lo pide quien mueve el pedido —que puede ser el taller— y pasa
  * por las funciones de ventanilla de la base (`lineas_de_pedido()`,
@@ -9,21 +13,33 @@
  * roles.
  */
 
+import { almacenDeLugar } from "./almacenes";
+import { cargarAlmacenes, odooDeAlmacenId, odooDeLugar } from "./almacenes-servidor";
 import { cargarConfigCortes, cargarGrupoPlancha } from "./cortes-servidor";
 import { calcularCorte } from "./cortes/calcular";
-import { pideColor } from "./cortes/catalogo";
-import { guardarCorte, planchasNuevas, sobrantesUsados, type CorteGuardado } from "./cortes/guardado";
+import type { GrupoPlancha } from "./cortes/catalogo";
+import {
+  guardarCorte,
+  lugarDeCorte,
+  planchasNuevas,
+  sobrantesUsados,
+  type CorteGuardado,
+  type LugarCorte,
+} from "./cortes/guardado";
 import type { Json } from "./supabase-tipos";
 import { mensajeDeError } from "./errores";
+import { leerAlmacen } from "./odoo/almacenes";
 import {
   cancelarProduccion,
   cerrarFabricacion,
   cerrarProduccion,
   crearFabricacion,
   crearProduccion,
+  type DondeProducir,
+  type SobranteReal,
 } from "./odoo/produccion";
 import { materialesADescontar, type TerminadoGuardado } from "./terminados/guardado";
-import { origenDe } from "./odoo/pedidos-venta";
+import { almacenDeVenta, origenDe } from "./odoo/pedidos-venta";
 import { ErrorOdoo } from "./odoo/rpc";
 import type { LineaDePedido } from "./pedido-lineas";
 import {
@@ -69,11 +85,24 @@ async function retazoMinimo(): Promise<number> {
 }
 
 /**
+ * Dónde trabaja la orden de una línea: consume del almacén donde se produce y
+ * deja lo producido en el de la venta. Sin venta (no debería pasar), todo queda
+ * donde se produce.
+ */
+async function dondeProducir(lugar: LugarCorte, orderId: number | null): Promise<DondeProducir> {
+  const origen = await odooDeLugar(lugar);
+  const warehouse = orderId ? await almacenDeVenta(orderId) : null;
+  const destino = warehouse ? (await leerAlmacen(warehouse)).ubicacionId : origen.ubicacionId;
+  return { ubicacionOrigen: origen.ubicacionId, ubicacionDestino: destino, tipoOperacion: origen.fabricacionId };
+}
+
+/**
  * Crea la orden de fabricación de un corte, si todavía no la tiene, y la anota
  * en su línea. El origen la identifica: repetir no duplica.
  */
 async function asegurarProduccion(
   cotizacionId: string,
+  orderId: number | null,
   l: { posicion: number; productoId: number; corte: CorteGuardado | null; produccionId: number | null },
 ): Promise<number> {
   if (l.produccionId) return l.produccionId;
@@ -91,6 +120,7 @@ async function asegurarProduccion(
     planchas: planchasNuevas(corte),
     sobrantesPrevistos: sobrantesDeCorte(corte, retazo).map((s) => ({ areaM2: (s.largo * s.ancho) / 10000 })),
     consumidos: await lotesConsumidos(corte),
+    donde: await dondeProducir(lugarDeCorte(corte), orderId),
   });
 
   const supabase = await clienteServidor();
@@ -111,11 +141,12 @@ async function asegurarProduccion(
  */
 export async function producirCortes(
   cotizacionId: string,
+  orderId: number,
   lineas: { posicion: number; productoId: number; corte: CorteGuardado | null; produccionId?: number | null }[],
 ): Promise<Resultado> {
   for (const l of lineas.filter(conPiloto)) {
     try {
-      await asegurarProduccion(cotizacionId, { ...l, produccionId: l.produccionId ?? null });
+      await asegurarProduccion(cotizacionId, orderId, { ...l, produccionId: l.produccionId ?? null });
     } catch (e) {
       return { ok: false, error: `No se creó la orden de fabricación del corte: ${mensaje(e, "crear")}` };
     }
@@ -139,15 +170,19 @@ export async function reservarSobrantes(
 ): Promise<Resultado> {
   const supabase = await clienteServidor();
   const config = await cargarConfigCortes();
+  const almacenes = await cargarAlmacenes();
 
   for (const l of lineas.filter(conPiloto)) {
     const corte = l.corte!;
     const grupo = await cargarGrupoPlancha(corte.grupoId);
     if (!grupo) continue;
+    // Solo los sobrantes del almacén donde se corta.
+    const almacen = almacenDeLugar(almacenes, lugarDeCorte(corte));
 
     for (let intento = 0; intento < 4; intento++) {
       // El último intento, sin sobrantes: planchas nuevas, que siempre se pueden.
-      const disponibles = intento < 3 ? contenedoresDe(await sobrantesDisponibles(grupo.id), pideColor(grupo) ? corte.color : null) : [];
+      const disponibles =
+        intento < 3 && almacen ? contenedoresDe(await sobrantesDisponibles(grupo.id, almacen.id)) : [];
       const calculo = calcularCorte(
         { piezas: corte.piezas, espesorMm: corte.espesorMm, modalidad: corte.modalidad, rotable: corte.rotable },
         corte.formato,
@@ -180,27 +215,29 @@ export interface SobranteConfirmado {
   largo: number;
   ancho: number;
   ubicacion: string | null;
+  /** A qué almacén se fue. */
+  almacenId: string;
+  /** En un producto terminado, de qué material es. En un corte, el del corte. */
+  grupoId?: string | null;
 }
 
 /**
- * Los sobrantes que el taller dice que guardó de un corte, al pasar a Listo. Se
- * guardan en la tabla antes de ir a Odoo, para que no se pierda lo medido; los
- * de un intento anterior que no llegaron a Odoo se dan de baja y se reemplazan.
+ * Guarda los sobrantes que el taller dice que quedaron de una línea, antes de ir
+ * a Odoo, para que no se pierda lo medido. Los de un intento anterior que no
+ * llegaron a Odoo se dan de baja y se reemplazan.
  */
-export async function guardarSobrantesDeCorte(
+async function guardarSobrantesDeLinea(
   codigoPedido: string,
-  linea: LineaDePedido,
-  piezas: SobranteConfirmado[],
+  posicion: number,
+  origen: "corte" | "terminado",
+  piezas: (SobranteConfirmado & { grupo: GrupoPlancha })[],
 ): Promise<Resultado> {
-  const corte = linea.corte;
-  if (!corte || !conPiloto(linea)) return { ok: false, error: "Esa línea no es un corte con sobrantes." };
   const supabase = await clienteServidor();
-  const [grupo, retazo, pedido] = await Promise.all([
-    cargarGrupoPlancha(corte.grupoId),
+  const [retazo, pedido, almacenes] = await Promise.all([
     retazoMinimo(),
     supabase.from("pedidos").select("id").eq("codigo", codigoPedido).maybeSingle(),
+    cargarAlmacenes(),
   ]);
-  if (!grupo) return { ok: false, error: "El material del corte ya no está en el catálogo." };
   if (!pedido.data) return { ok: false, error: "Ese pedido no existe." };
 
   for (const p of piezas) {
@@ -208,14 +245,17 @@ export async function guardarSobrantesDeCorte(
     if (m.ancho < retazo) {
       return { ok: false, error: `Un sobrante de ${m.largo}×${m.ancho} es retazo (lado menor de ${retazo} cm): quítalo.` };
     }
+    if (!almacenes.some((a) => a.id === p.almacenId && a.activo)) {
+      return { ok: false, error: "Uno de los almacenes elegidos ya no está activo. Vuelve a elegirlo." };
+    }
   }
 
   const { error: alLimpiar } = await supabase
     .from("sobrantes")
     .update({ estado: "baja" })
     .eq("pedido_id", pedido.data.id)
-    .eq("linea_posicion", linea.posicion)
-    .eq("origen", "corte")
+    .eq("linea_posicion", posicion)
+    .eq("origen", origen)
     .neq("sincronizacion", "sincronizada");
   if (alLimpiar) return { ok: false, error: mensajeDeError(alLimpiar) };
 
@@ -224,19 +264,95 @@ export async function guardarSobrantesDeCorte(
     piezas.map((p) => {
       const m = normalizarMedidas(p.largo, p.ancho);
       return {
-        grupo_id: grupo.id,
-        color: pideColor(grupo) ? corte.color : null,
+        grupo_id: p.grupo.id,
         largo_cm: m.largo,
         ancho_cm: m.ancho,
+        almacen_id: p.almacenId,
         ubicacion: p.ubicacion,
-        estandar: esEstandar(m, grupo.formatos),
-        origen: "corte",
+        estandar: esEstandar(m, p.grupo.formatos),
+        origen,
         pedido_id: pedido.data!.id,
-        linea_posicion: linea.posicion,
+        linea_posicion: posicion,
       };
     }),
   );
   return error ? { ok: false, error: mensajeDeError(error) } : { ok: true };
+}
+
+/** Los sobrantes que el taller dice que guardó de un corte, al pasar a Listo. */
+export async function guardarSobrantesDeCorte(
+  codigoPedido: string,
+  linea: LineaDePedido,
+  piezas: SobranteConfirmado[],
+): Promise<Resultado> {
+  const corte = linea.corte;
+  if (!corte || !conPiloto(linea)) return { ok: false, error: "Esa línea no es un corte con sobrantes." };
+  const grupo = await cargarGrupoPlancha(corte.grupoId);
+  if (!grupo) return { ok: false, error: "El material del corte ya no está en el catálogo." };
+  return guardarSobrantesDeLinea(codigoPedido, linea.posicion, "corte", piezas.map((p) => ({ ...p, grupo })));
+}
+
+/** Los pedazos de plancha que quedaron de un producto terminado, al pasar a Listo. */
+export async function guardarSobrantesDeTerminado(
+  codigoPedido: string,
+  linea: LineaDePedido,
+  piezas: SobranteConfirmado[],
+): Promise<Resultado> {
+  if (!linea.terminado) return { ok: false, error: "Esa línea no es un producto terminado." };
+  const conGrupo: (SobranteConfirmado & { grupo: GrupoPlancha })[] = [];
+  for (const p of piezas) {
+    const grupo = p.grupoId ? await cargarGrupoPlancha(p.grupoId) : null;
+    if (!grupo) return { ok: false, error: "Elige el material de cada sobrante del producto terminado." };
+    conGrupo.push({ ...p, grupo });
+  }
+  return guardarSobrantesDeLinea(codigoPedido, linea.posicion, "terminado", conGrupo);
+}
+
+/**
+ * Los sobrantes guardados de una línea, como los lleva la orden de fabricación:
+ * con su material y la ubicación de Odoo de su almacén.
+ */
+async function sobrantesParaOdoo(
+  pedidoId: string,
+  posicion: number,
+  origen: "corte" | "terminado",
+): Promise<{ filas: { id: string; codigo: string }[]; reales: SobranteReal[] }> {
+  const supabase = await clienteServidor();
+  const { data: filas, error } = await supabase
+    .from("sobrantes")
+    .select("id, codigo, grupo_id, largo_cm, ancho_cm, ubicacion, almacen_id")
+    .eq("pedido_id", pedidoId)
+    .eq("linea_posicion", posicion)
+    .eq("origen", origen)
+    .neq("estado", "baja");
+  if (error) throw new Error(mensajeDeError(error));
+
+  const reales: SobranteReal[] = [];
+  for (const f of filas ?? []) {
+    const grupo = await cargarGrupoPlancha(f.grupo_id);
+    const material = grupo ? materialOdoo(grupo) : null;
+    if (!material) throw new ErrorOdoo(`El material del sobrante ${f.codigo} ya no tiene planchas en el catálogo.`);
+    reales.push({
+      nombre: f.codigo,
+      largo: Number(f.largo_cm),
+      ancho: Number(f.ancho_cm),
+      nota: notaDeLote({ ubicacion: f.ubicacion }),
+      ubicacionId: (await odooDeAlmacenId(f.almacen_id)).ubicacionId,
+      material,
+    });
+  }
+  return { filas: filas ?? [], reales };
+}
+
+/** Anota en la tabla el lote de Odoo de cada sobrante que entró por una orden. */
+async function anotarLotes(filas: { id: string; codigo: string }[], lotes: Map<string, number>) {
+  const supabase = await clienteServidor();
+  for (const f of filas) {
+    await supabase
+      .from("sobrantes")
+      .update({ odoo_lot_id: lotes.get(f.codigo) ?? null, sincronizacion: "sincronizada", error_sincronizacion: null })
+      .eq("id", f.id);
+  }
 }
 
 /**
@@ -247,6 +363,7 @@ export async function guardarSobrantesDeCorte(
 export async function cerrarCortesDePedido(
   codigoPedido: string,
   cotizacionId: string,
+  orderId: number,
   lineas: LineaDePedido[],
 ): Promise<Resultado> {
   const pendientes = lineas.filter((l) => conPiloto(l) && !l.produccionCerrada);
@@ -258,38 +375,19 @@ export async function cerrarCortesDePedido(
 
   for (const l of pendientes) {
     try {
-      const moId = await asegurarProduccion(cotizacionId, l);
+      const moId = await asegurarProduccion(cotizacionId, orderId, l);
       const grupo = await cargarGrupoPlancha(l.corte!.grupoId);
       const material = grupo ? materialOdoo(grupo) : null;
       if (!material) throw new ErrorOdoo("El material del corte ya no tiene planchas en el catálogo.");
 
-      const { data: filas, error } = await supabase
-        .from("sobrantes")
-        .select("id, codigo, largo_cm, ancho_cm, ubicacion, color")
-        .eq("pedido_id", pedido.id)
-        .eq("linea_posicion", l.posicion)
-        .eq("origen", "corte")
-        .neq("estado", "baja");
-      if (error) return { ok: false, error: mensajeDeError(error) };
-
+      const { filas, reales } = await sobrantesParaOdoo(pedido.id, l.posicion, "corte");
       const lotes = await cerrarProduccion(moId, {
         material,
         consumidos: await lotesConsumidos(l.corte!),
         planchas: l.planchasUsadas ?? planchasNuevas(l.corte!),
-        sobrantes: (filas ?? []).map((f) => ({
-          nombre: f.codigo,
-          largo: Number(f.largo_cm),
-          ancho: Number(f.ancho_cm),
-          nota: notaDeLote({ ubicacion: f.ubicacion, color: f.color }),
-        })),
+        sobrantes: reales,
       });
-
-      for (const f of filas ?? []) {
-        await supabase
-          .from("sobrantes")
-          .update({ odoo_lot_id: lotes.get(f.codigo) ?? null, sincronizacion: "sincronizada", error_sincronizacion: null })
-          .eq("id", f.id);
-      }
+      await anotarLotes(filas, lotes);
       // Los sobrantes del almacén que usó el corte ya no están.
       await supabase.rpc("soltar_sobrantes_de_pedido", {
         p_codigo: codigoPedido,
@@ -335,13 +433,15 @@ type LineaTerminado = {
  * La orden de fabricación de un producto terminado, si todavía no la tiene. Nace
  * con los materiales estimados: al confirmarse, Odoo los reserva.
  */
-async function asegurarFabricacion(cotizacionId: string, l: LineaTerminado): Promise<number> {
+async function asegurarFabricacion(cotizacionId: string, orderId: number | null, l: LineaTerminado): Promise<number> {
   if (l.produccionId) return l.produccionId;
   const mo = await crearFabricacion({
     origen: `${origenDe(cotizacionId)} #${l.posicion}`,
     productoId: l.productoId,
     cantidad: l.cantidad,
     componentes: materialesADescontar(l.terminado!, null),
+    // Los productos terminados se fabrican siempre en el taller.
+    donde: await dondeProducir("taller", orderId),
   });
 
   const supabase = await clienteServidor();
@@ -360,10 +460,14 @@ async function asegurarFabricacion(cotizacionId: string, l: LineaTerminado): Pro
  * Corre después de confirmar la venta. Los que no lo pidieron no tienen orden
  * hasta que el pedido se termina.
  */
-export async function reservarTerminados(cotizacionId: string, lineas: LineaTerminado[]): Promise<Resultado> {
+export async function reservarTerminados(
+  cotizacionId: string,
+  orderId: number,
+  lineas: LineaTerminado[],
+): Promise<Resultado> {
   for (const l of lineas.filter((x) => x.terminado?.reservar)) {
     try {
-      await asegurarFabricacion(cotizacionId, l);
+      await asegurarFabricacion(cotizacionId, orderId, l);
     } catch (e) {
       return { ok: false, error: `No se reservó el material de ${l.terminado!.nombre}: ${mensaje(e, "reservar terminado")}` };
     }
@@ -374,16 +478,29 @@ export async function reservarTerminados(cotizacionId: string, lineas: LineaTerm
 /**
  * Cierra en Odoo las órdenes de los productos terminados de un pedido que pasó
  * a Listo: consume lo que logística anotó que se usó (o, si no anotó, lo
- * estimado) y deja el producto terminado en el almacén, de donde lo saca la
- * entrega. Se puede repetir: lo ya cerrado no se toca.
+ * estimado), devuelve como sobrantes los pedazos de plancha que quedaron, cada
+ * uno a su almacén, y deja el producto terminado en el almacén de la venta, de
+ * donde lo saca la entrega. Se puede repetir: lo ya cerrado no se toca.
  */
-export async function cerrarTerminadosDePedido(cotizacionId: string, lineas: LineaDePedido[]): Promise<Resultado> {
-  for (const l of lineas.filter((x) => x.terminado && !x.produccionCerrada)) {
-    try {
-      const moId = await asegurarFabricacion(cotizacionId, l);
-      await cerrarFabricacion(moId, materialesADescontar(l.terminado!, l.materialesUsados));
+export async function cerrarTerminadosDePedido(
+  codigoPedido: string,
+  cotizacionId: string,
+  orderId: number,
+  lineas: LineaDePedido[],
+): Promise<Resultado> {
+  const pendientes = lineas.filter((x) => x.terminado && !x.produccionCerrada);
+  if (pendientes.length === 0) return { ok: true };
+  const supabase = await clienteServidor();
+  const { data: pedido } = await supabase.from("pedidos").select("id").eq("codigo", codigoPedido).maybeSingle();
+  if (!pedido) return { ok: false, error: "Ese pedido no existe." };
 
-      const supabase = await clienteServidor();
+  for (const l of pendientes) {
+    try {
+      const moId = await asegurarFabricacion(cotizacionId, orderId, l);
+      const { filas, reales } = await sobrantesParaOdoo(pedido.id, l.posicion, "terminado");
+      const lotes = await cerrarFabricacion(moId, materialesADescontar(l.terminado!, l.materialesUsados), reales);
+      await anotarLotes(filas, lotes);
+
       const { error } = await supabase.rpc("anotar_produccion", {
         p_cotizacion: cotizacionId,
         p_posicion: l.posicion,

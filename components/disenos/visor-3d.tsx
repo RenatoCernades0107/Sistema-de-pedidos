@@ -412,6 +412,18 @@ function Pieza({
               if (cara !== null) alPulsarCara(g, cara);
             })
           }
+          // Fuera del modo caras, un doble clic señala la cara para el chat sin
+          // tener que activar el modo (en el modo, cada clic ya la alterna).
+          onDoubleClick={
+            modoCaras
+              ? undefined
+              : (e) =>
+                  parar(e, () => {
+                    if (e.delta > ARRASTRE_MAX) return;
+                    const cara = caraDe(g, e);
+                    if (cara !== null) alPulsarCara(g, cara);
+                  })
+          }
         >
           {/*
             Transparencia por opacidad y no por `transmission`: un material con
@@ -834,6 +846,7 @@ export default function Visor3D({
           <button
             type="button"
             aria-pressed={modoCaras}
+            title={modoCaras ? undefined : "También puedes hacer doble clic en una cara"}
             onClick={() => alCambiarModoCaras(!modoCaras)}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium backdrop-blur transition-colors",

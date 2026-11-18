@@ -27,6 +27,7 @@
 import { refresh } from "next/cache";
 import { after } from "next/server";
 import { clienteServidor } from "@/lib/supabase-servidor";
+import { revisarFaltantesDePedido } from "@/lib/faltantes-servidor";
 import { despacharNotificaciones } from "./notificaciones-acciones";
 import {
   confirmarEnOdoo,
@@ -37,7 +38,7 @@ import {
 import { mensajeOdoo, registrarCotizacion } from "@/lib/cotizaciones-registro";
 import { productosPorId } from "@/lib/odoo/catalogos";
 import { cancelarVentaDePedido, descontarStockDePedido, leerLineasDePedido } from "@/lib/pedido-odoo-servidor";
-import { guardarSobrantesDeCorte, reservarSobrantes } from "@/lib/produccion-servidor";
+import { guardarSobrantesDeCorte, guardarSobrantesDeTerminado, reservarSobrantes } from "@/lib/produccion-servidor";
 import { detalleDesdeLineas, referenciaDe, sumaLineas } from "@/lib/cotizaciones";
 import { totalPiezas } from "@/lib/cortes/guardado";
 import { etiquetaDeTipo } from "@/lib/terminados/catalogo";
@@ -253,6 +254,19 @@ export async function registrarPedido(entrada: unknown): Promise<Resultado> {
   const reserva = await reservarSobrantes(cotizacionId, c.lineas);
   if (!reserva.ok) aviso = reserva.error;
 
+  /* Lo que le falta al pedido donde se produce o se despacha, con el stock libre
+     de ahora (antes de que la venta confirmada reserve lo suyo). Si falta algo,
+     se avisa a Logística y Administración para que lo muevan. */
+  let hayAvisoDeStock = false;
+  if (enOdoo && data) {
+    const { data: pedido } = await supabase.from("pedidos").select("id").eq("codigo", data).maybeSingle();
+    if (pedido) {
+      const revision = await revisarFaltantesDePedido(pedido.id, { libre: true, avisar: true });
+      if (!revision.ok) aviso ??= `No se pudo revisar el stock del pedido: ${revision.error}`;
+      else hayAvisoDeStock = revision.nuevos > 0;
+    }
+  }
+
   /* La cotización pasa a pedido de venta en Odoo, que es lo que reserva el stock.
      Va después del alta y no la deshace si falla: el pedido ya está, y la
      cotización se queda con el motivo para reintentar desde su detalle. */
@@ -265,7 +279,7 @@ export async function registrarPedido(entrada: unknown): Promise<Resultado> {
      solo lo apura: after() corre cuando la respuesta ya salió, así que quien
      registra el pedido no espera al push. Si no llega a correr, el cron del
      minuto vacía la cola igual. */
-  if (v.responsableId) after(despacharNotificaciones);
+  if (v.responsableId || hayAvisoDeStock) after(despacharNotificaciones);
 
   refresh();
   return { ok: true, codigo: data ?? undefined, aviso, total };
@@ -305,14 +319,17 @@ export async function cambiarEstado(entrada: unknown): Promise<Resultado> {
     if (!anotadas.ok) return anotadas;
   }
 
-  /* Los sobrantes que el taller guardó se registran antes de mover el pedido: si
-     algo no cuadra (un retazo), se corrige en el diálogo sin haber movido nada. */
+  /* Los sobrantes que el taller guardó (de los cortes y de los productos
+     terminados), cada uno con su almacén, se registran antes de mover el pedido:
+     si algo no cuadra (un retazo), se corrige en el diálogo sin haber movido nada. */
   if (estado === "listo" && sobrantes?.length) {
     const lineas = await leerLineasDePedido(codigo);
     for (const s of sobrantes) {
       const linea = lineas.find((l) => l.posicion === s.posicion);
-      if (!linea) return fallo("Uno de los cortes ya no está en el pedido.");
-      const r = await guardarSobrantesDeCorte(codigo, linea, s.piezas);
+      if (!linea) return fallo("Una de las líneas ya no está en el pedido.");
+      const r = linea.terminado
+        ? await guardarSobrantesDeTerminado(codigo, linea, s.piezas)
+        : await guardarSobrantesDeCorte(codigo, linea, s.piezas);
       if (!r.ok) return r;
     }
   }

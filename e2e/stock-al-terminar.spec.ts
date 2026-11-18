@@ -7,12 +7,16 @@
  *   - Al **anular** un pedido que no terminó, su venta se cancela en Odoo y lo
  *     reservado queda libre.
  *
+ * Es el camino sin sobrantes (el de las cotizaciones de antes de encenderlos
+ * para todos): mientras corren estas pruebas, el ECO cristal de 3 mm los tiene
+ * apagados, y al final se vuelven a encender.
+ *
  * Odoo es el falso de `e2e/odoo-falso.mts`. Los pedidos son de clientes `E2E…` y
  * se borran al final.
  */
 
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { borrarCotizacionesDePrueba, entrar, abrirCorte, verMateriales } from "./apoyo";
+import { borrarCotizacionesDePrueba, entrar, abrirCorte, sesionDe, verMateriales } from "./apoyo";
 import { registrarPedidoConCorte } from "./pedido-con-corte";
 
 const ODOO = process.env.E2E_ODOO_FALSO ?? "http://127.0.0.1:8069";
@@ -40,13 +44,23 @@ test.describe.configure({ mode: "serial" });
 
 test.skip(!!process.env.E2E_URL, "Contra un despliegue la app habla con el Odoo de la empresa.");
 
+/** Los sobrantes del material de las pruebas: apagados mientras corren, encendidos al final. */
+async function sobrantes(encendidos: boolean) {
+  const supabase = await sesionDe("administracion");
+  const { data: formato } = await supabase.from("formatos_plancha").select("grupo_id").eq("codigo_odoo", "F7E024").single();
+  const { error } = await supabase.from("grupos_plancha").update({ sobrantes_activo: encendidos }).eq("id", formato!.grupo_id);
+  if (error) throw new Error(error.message);
+}
+
 test.beforeAll(async () => {
   await fetch(`${ODOO}/__reiniciar`, { method: "POST" });
   await borrarCotizacionesDePrueba();
+  await sobrantes(false);
 });
 
 test.afterAll(async () => {
   await modo(null);
+  await sobrantes(true);
   await borrarCotizacionesDePrueba();
 });
 

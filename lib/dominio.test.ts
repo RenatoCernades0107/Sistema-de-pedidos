@@ -50,7 +50,7 @@ describe("gruposDe", () => {
   it("a Administración le da las tres secciones en orden", () => {
     expect(resumen("administracion")).toEqual([
       ["principal", ["Cotizaciones", "Chat"]],
-      ["taller", ["Diseños", "Sobrantes"]],
+      ["taller", ["Diseños", "Almacén"]],
       ["gestion", ["Métricas", "Configuración"]],
     ]);
   });
@@ -58,13 +58,13 @@ describe("gruposDe", () => {
   it("a Logística no le pinta Gestión, que se le quedaría vacía", () => {
     expect(resumen("logistica")).toEqual([
       ["principal", ["Chat"]],
-      ["taller", ["Diseños", "Sobrantes"]],
+      ["taller", ["Diseños", "Almacén"]],
     ]);
   });
 
   it("sin el Chat, que en el celular tiene pestaña propia, el grupo principal desaparece", () => {
     expect(resumen("operaciones", ["/chat"])).toEqual([
-      ["taller", ["Diseños", "Sobrantes"]],
+      ["taller", ["Diseños", "Almacén"]],
     ]);
   });
 });

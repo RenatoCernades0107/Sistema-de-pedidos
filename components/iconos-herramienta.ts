@@ -1,4 +1,4 @@
-import { Box, ChartColumn, Layers, MessageCircle, MessageSquareText, Settings, type LucideIcon } from "lucide-react";
+import { Box, ChartColumn, MessageCircle, MessageSquareText, Settings, Warehouse, type LucideIcon } from "lucide-react";
 
 /**
  * El icono de cada herramienta de `lib/dominio.ts`, por `href`, que es lo que la
@@ -9,7 +9,7 @@ export const ICONOS_HERRAMIENTA: Record<string, LucideIcon> = {
   "/chat": MessageCircle,
   "/cotizaciones": MessageSquareText,
   "/disenos": Box,
-  "/sobrantes": Layers,
+  "/almacen": Warehouse,
   "/metricas": ChartColumn,
   "/configuracion": Settings,
 };

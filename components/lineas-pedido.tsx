@@ -12,6 +12,7 @@ import {
   Loader2,
   NotebookPen,
   Package,
+  Plus,
   Printer,
   RotateCw,
   Scissors,
@@ -34,9 +35,14 @@ import {
   type MaterialesAnotados,
   type OdooDePedido,
 } from "@/lib/pedido-lineas";
-import { medidaSobrante, type Sobrante } from "@/lib/sobrantes";
+import { medidaSobrante, normalizarMedidas, type Sobrante } from "@/lib/sobrantes";
 import { CorteGuardadoVista } from "@/components/cortes/corte-guardado";
-import { DialogoPlanchas, type PlanchasAnotadas } from "@/components/planchas-usadas";
+import { DialogoPlanchas, type PlanchasAnotadas, type SobrantesGuardados } from "@/components/planchas-usadas";
+import { SelectorAlmacen } from "@/components/almacen/comun";
+import { Campo } from "@/components/ui/campo";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { almacenDeLugar, type Almacen } from "@/lib/almacenes";
+import { nombreDeGrupo, type GrupoPlancha } from "@/lib/cortes/catalogo";
 import { VisorArchivo } from "@/components/visor-archivo";
 import { urlAdjunto } from "@/app/(app)/adjuntos-acciones";
 import { cantidadDeMaterial } from "@/lib/terminados/guardado";
@@ -180,6 +186,9 @@ export function PanelItem({
                 <Factory className="size-3.5" aria-hidden />
                 {l.produccionNombre} · {l.produccionCerrada ? "cerrada en Odoo" : "abierta en Odoo: reserva el material"}
               </p>
+            )}
+            {sobrantes.some((s) => s.lineaPosicion === l.posicion) && (
+              <Produccion linea={l} sobrantes={sobrantes.filter((s) => s.lineaPosicion === l.posicion)} />
             )}
           </>
         ) : (
@@ -358,7 +367,9 @@ export function MaterialesPedido({
   pedido: p,
   lineas,
   odoo,
-  retazoMin,
+  retazoMin = 30,
+  almacenes = [],
+  catalogo = [],
   aListo: pidioListo = false,
   alSalirDeListo,
 }: {
@@ -367,6 +378,10 @@ export function MaterialesPedido({
   odoo: OdooDePedido | null;
   /** El lado mínimo de un sobrante, para proponer los que vuelven al almacén. */
   retazoMin?: number;
+  /** A qué almacén puede irse cada sobrante. */
+  almacenes?: Almacen[];
+  /** De qué material puede ser un sobrante de un producto terminado. */
+  catalogo?: GrupoPlancha[];
   aListo?: boolean;
   alSalirDeListo?: () => void;
 }) {
@@ -382,6 +397,8 @@ export function MaterialesPedido({
   }
   const [error, setError] = useState<string | null>(null);
   const [conSobrantes, setConSobrantes] = useState(false);
+  /** Los pedazos de plancha que quedaron de cada producto terminado, al pasar a Listo. */
+  const [sobrantesTerminados, setSobrantesTerminados] = useState<Record<number, SobranteDeTerminado[]>>({});
   const [guardando, iniciar] = useTransition();
 
   const cortes = lineas.filter((x) => x.corte);
@@ -390,6 +407,8 @@ export function MaterialesPedido({
   // Si el pedido ya pasó a Listo (aunque Odoo no haya descontado), ya no se confirma: se corrige y se reintenta.
   const aListo = pidioListo && !["listo", "en_transito", "entregado"].includes(p.estado);
   const conPiloto = cortes.some((l) => l.corte?.sobrantes);
+  // Al pasar a Listo, los productos terminados dicen si quedaron pedazos de plancha (y a qué almacén se fueron).
+  const conSobrantesTerminados = aListo && editable && terminados.length > 0 && almacenes.length > 0;
   // Los productos terminados con piezas calculadas también van en la hoja de corte.
   const conHojaDeCorte = lineas.some((x) => x.corte || x.terminado?.corte);
   const cambiado = !mismoBorrador(borrador, original);
@@ -503,9 +522,33 @@ export function MaterialesPedido({
     });
   };
 
+  /** Los sobrantes de los terminados, listos para enviar; o el primer error. */
+  const leerSobrantesTerminados = (): SobrantesGuardados | string => {
+    if (!conSobrantesTerminados) return [];
+    const guardados: SobrantesGuardados = [];
+    for (const l of terminados) {
+      const piezas: SobrantesGuardados[number]["piezas"] = [];
+      for (const s of sobrantesTerminados[l.posicion] ?? []) {
+        const largo = medidaCm(s.largo);
+        const ancho = medidaCm(s.ancho);
+        if (!s.grupoId) return "Elige de qué material es cada sobrante.";
+        if (!largo || !ancho) return "Escribe el largo y el ancho de cada sobrante, o quítalo.";
+        const m = normalizarMedidas(largo, ancho);
+        if (m.ancho < retazoMin) return `${n(m.largo)}×${n(m.ancho)} es retazo (un lado de menos de ${retazoMin} cm): quítalo.`;
+        if (!s.almacenId) return "Elige a qué almacén se fue cada sobrante.";
+        piezas.push({ ...m, ubicacion: s.ubicacion.trim() || null, almacenId: s.almacenId, grupoId: s.grupoId });
+      }
+      // Una línea sin sobrantes también va: así se limpia lo de un intento anterior.
+      guardados.push({ posicion: l.posicion, piezas });
+    }
+    return guardados;
+  };
+
   const pasarAListo = () => {
     const leido = leerBorrador();
     if (!leido.ok) return setError(leido.error);
+    const deTerminados = leerSobrantesTerminados();
+    if (typeof deTerminados === "string") return setError(deTerminados);
     if (conPiloto) {
       // Lo usado se guarda primero: el diálogo de sobrantes llega con eso puesto.
       iniciar(async () => {
@@ -521,6 +564,7 @@ export function MaterialesPedido({
       await cambiarEstado(p.codigo, "listo", {
         planchas: leido.planchas.length ? leido.planchas : undefined,
         materiales: leido.materiales.length ? leido.materiales : undefined,
+        sobrantes: deTerminados.length ? deTerminados : undefined,
       });
     });
   };
@@ -702,6 +746,26 @@ export function MaterialesPedido({
         </table>
       </div>
 
+      {conSobrantesTerminados && (
+        <div className="flex flex-col gap-3 border-b px-4 py-3">
+          {terminados.map((l) => (
+            <SobrantesDeTerminadoEditor
+              key={l.posicion}
+              linea={l}
+              materiales={borrador.materiales[l.posicion] ?? []}
+              catalogo={catalogo}
+              almacenes={almacenes}
+              sobrantes={sobrantesTerminados[l.posicion] ?? []}
+              alCambiar={(lista) => {
+                setError(null);
+                setSobrantesTerminados((prev) => ({ ...prev, [l.posicion]: lista }));
+              }}
+              varios={terminados.length > 1}
+            />
+          ))}
+        </div>
+      )}
+
       {error && (
         <p role="alert" className="text-destructive border-b px-4 py-2 text-sm">
           {error}
@@ -761,12 +825,14 @@ export function MaterialesPedido({
           cortes={cortes}
           alPasarAListo
           retazoMin={retazoMin}
+          almacenes={almacenes}
           pendiente={moviendo}
           alConfirmar={async (planchas, sobrantes) => {
             const leido = leerBorrador();
+            const deTerminados = leerSobrantesTerminados();
             const r = await cambiarEstado(p.codigo, "listo", {
               planchas,
-              sobrantes,
+              sobrantes: [...sobrantes, ...(typeof deTerminados === "string" ? [] : deTerminados)],
               materiales: leido.ok && leido.materiales.length ? leido.materiales : undefined,
             });
             return r;
@@ -774,6 +840,150 @@ export function MaterialesPedido({
         />
       )}
     </section>
+  );
+}
+
+/** Un pedazo de plancha que quedó de un producto terminado, tal como se escribe. */
+interface SobranteDeTerminado {
+  clave: number;
+  grupoId: string | null;
+  largo: string;
+  ancho: string;
+  ubicacion: string;
+  almacenId: string | null;
+}
+
+let siguienteSobrante = 1;
+
+/** Una medida en cm, si es válida. */
+const medidaCm = (texto: string) => {
+  const v = Number(texto.trim().replace(",", "."));
+  return texto.trim() && Number.isFinite(v) && v > 0 ? v : null;
+};
+
+/**
+ * Al pasar a Listo: los pedazos de plancha que quedaron de un producto
+ * terminado, de qué material son y a qué almacén se fueron. Vuelven al
+ * almacén como sobrantes. Si no quedó ninguno, no se agrega nada.
+ */
+function SobrantesDeTerminadoEditor({
+  linea: l,
+  materiales,
+  catalogo,
+  almacenes,
+  sobrantes,
+  alCambiar,
+  varios,
+}: {
+  linea: LineaDePedido;
+  /** Lo usado: un sobrante puede ser de cualquiera de sus planchas. */
+  materiales: MaterialEnEdicion[];
+  catalogo: GrupoPlancha[];
+  almacenes: Almacen[];
+  sobrantes: SobranteDeTerminado[];
+  alCambiar: (lista: SobranteDeTerminado[]) => void;
+  /** Hay más de un terminado: se dice de cuál es cada bloque. */
+  varios: boolean;
+}) {
+  // Los productos terminados se fabrican en el taller: ahí vuelven sus sobrantes, salvo que se diga otra cosa.
+  const taller = almacenDeLugar(almacenes, "taller")?.id ?? null;
+  /** Los materiales de los que puede ser un sobrante: el del producto y las planchas usadas. */
+  const grupos = (() => {
+    const ids = new Set<string>();
+    const propio = l.terminado?.material?.grupoId;
+    if (propio) ids.add(propio);
+    for (const m of materiales) {
+      if (m.quitado) continue;
+      for (const g of catalogo) if (m.codigo && g.formatos.some((x) => x.codigo === m.codigo)) ids.add(g.id);
+    }
+    return catalogo.filter((g) => ids.has(g.id));
+  })();
+  const cambiar = (clave: number, cambios: Partial<SobranteDeTerminado>) =>
+    alCambiar(sobrantes.map((s) => (s.clave === clave ? { ...s, ...cambios } : s)));
+
+  return (
+    <fieldset className="flex flex-col gap-2">
+      <legend className="text-sm font-medium">
+        ¿Quedaron sobrantes de plancha{varios ? ` en el ítem ${l.posicion} (${l.terminado?.nombre})` : ""}?
+      </legend>
+      {sobrantes.length === 0 && (
+        <p className="text-muted-foreground text-xs">Ninguno. Si guardaste un pedazo, agrégalo con su medida.</p>
+      )}
+      {sobrantes.map((s, k) => {
+        const grupo = catalogo.find((g) => g.id === s.grupoId) ?? null;
+        return (
+          <div key={s.clave} className="flex flex-wrap items-end gap-2" role="group" aria-label={`Sobrante ${k + 1}`}>
+            <Campo grupo label="Material" className="min-w-36 flex-1">
+              <Select value={s.grupoId} onValueChange={(v) => v && cambiar(s.clave, { grupoId: v })}>
+                <SelectTrigger aria-label={`Material del sobrante ${k + 1}`} className="w-full">
+                  <SelectValue>{grupo ? nombreDeGrupo(grupo) : "Elige el material"}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {grupos.map((g) => (
+                    <SelectItem key={g.id} value={g.id}>
+                      {nombreDeGrupo(g)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Campo>
+            <Campo label="Largo" className="w-20">
+              <Input inputMode="decimal" className="tnum" value={s.largo} onChange={(e) => cambiar(s.clave, { largo: e.target.value })} />
+            </Campo>
+            <Campo label="Ancho" className="w-20">
+              <Input inputMode="decimal" className="tnum" value={s.ancho} onChange={(e) => cambiar(s.clave, { ancho: e.target.value })} />
+            </Campo>
+            <Campo grupo label="Se fue a" className="w-36">
+              <SelectorAlmacen
+                almacenes={almacenes}
+                valor={s.almacenId}
+                alCambiar={(id) => cambiar(s.clave, { almacenId: id })}
+                etiqueta={`Almacén del sobrante ${k + 1}`}
+              />
+            </Campo>
+            <Campo label="Ubicación" className="w-24">
+              <Input
+                value={s.ubicacion}
+                maxLength={80}
+                placeholder="Rack 2"
+                onChange={(e) => cambiar(s.clave, { ubicacion: e.target.value })}
+              />
+            </Campo>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={`Quitar el sobrante ${k + 1}`}
+              onClick={() => alCambiar(sobrantes.filter((x) => x.clave !== s.clave))}
+            >
+              <X className="size-4" />
+            </Button>
+          </div>
+        );
+      })}
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="gap-1.5 self-start"
+        onClick={() =>
+          alCambiar([
+            ...sobrantes,
+            {
+              clave: siguienteSobrante++,
+              grupoId: grupos.length === 1 ? grupos[0].id : (l.terminado?.material?.grupoId ?? null),
+              largo: "",
+              ancho: "",
+              ubicacion: "",
+              almacenId: taller,
+            },
+          ])
+        }
+      >
+        <Plus className="size-3.5" />
+        Agregar sobrante
+      </Button>
+    </fieldset>
   );
 }
 
@@ -799,6 +1009,7 @@ function Produccion({ linea: l, sobrantes }: { linea: LineaDePedido; sobrantes: 
             <li key={s.codigo} className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="text-primary font-mono text-xs font-semibold">{s.codigo}</span>
               <span className="tnum">{medidaSobrante(s)} cm</span>
+              <span className="text-xs font-medium">{s.almacen}</span>
               <span className="text-muted-foreground text-xs">{s.ubicacion ?? "Sin ubicación"}</span>
               {s.sincronizacion !== "sincronizada" && (
                 <span className="text-st-observado text-xs">Falta crearlo en Odoo</span>

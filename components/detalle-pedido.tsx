@@ -59,6 +59,10 @@ import type { ChatInicial } from "@/lib/chat/consultas";
 import { asuntoSeguimiento, mensajeSeguimiento } from "@/lib/compartir";
 import type { LineaDePedido, OdooDePedido } from "@/lib/pedido-lineas";
 import type { Sobrante } from "@/lib/sobrantes";
+import type { Almacen } from "@/lib/almacenes";
+import type { FaltanteGuardado } from "@/lib/faltantes";
+import { AvisoFaltantes } from "@/components/almacen/aviso-faltantes";
+import type { GrupoPlancha } from "@/lib/cortes/catalogo";
 
 /** Lo que se ve en el centro: un ítem, los archivos del pedido o su actividad. */
 type Vista =
@@ -91,7 +95,10 @@ export function DetallePedido({
   lineas = null,
   odoo = null,
   retazoMin,
+  almacenes = [],
+  catalogo = [],
   sobrantes = [],
+  faltantes = [],
   tokenSeguimiento = null,
   chat = null,
   documentoCliente = null,
@@ -111,8 +118,13 @@ export function DetallePedido({
   tokenSeguimiento?: string | null;
   /** El lado mínimo de un sobrante (de la configuración de cortes). */
   retazoMin?: number;
+  /** Los almacenes y el catálogo de planchas: al pasar a Listo, a qué almacén va cada sobrante y de qué material es. */
+  almacenes?: Almacen[];
+  catalogo?: GrupoPlancha[];
   /** Los sobrantes que este pedido devolvió al almacén. */
   sobrantes?: Sobrante[];
+  /** El material que le falta donde se produce o se despacha (los avisos de "mover stock"). */
+  faltantes?: FaltanteGuardado[];
   /** Los productos y cortes del pedido. `null` si no se pudieron leer. */
   lineas?: LineaDePedido[] | null;
   odoo?: OdooDePedido | null;
@@ -329,6 +341,10 @@ export function DetallePedido({
         </aside>
 
         <div className="min-w-0 max-lg:order-3 lg:h-full lg:overflow-y-auto lg:rounded-xl">
+          {/* Lo que le falta al pedido donde se produce o se despacha: se ve antes que el ítem. */}
+          <div className="empty:hidden mb-4">
+            <AvisoFaltantes faltantes={faltantes} almacenes={almacenes} gestiona={permisos.gestionarStock} />
+          </div>
           {lineas === null && vista.tipo === "archivos" && (
             <p className="text-muted-foreground mb-4 rounded-xl border border-dashed p-4 text-sm">
               No se pudieron leer los productos y cortes del pedido. Recarga la página.
@@ -366,6 +382,8 @@ export function DetallePedido({
                 lineas={items}
                 odoo={odoo}
                 retazoMin={retazoMin}
+                almacenes={almacenes}
+                catalogo={catalogo}
                 aListo={aListo}
                 alSalirDeListo={salirDeListo}
               />

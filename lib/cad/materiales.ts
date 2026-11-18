@@ -8,7 +8,7 @@
  * `MaterialesPorCopia`).
  *
  * Un **material** es la identidad del catálogo sin el espesor: material,
- * variante, detalle y, en los grupos de código compartido, el color. La
+ * variante y detalle (el color es parte del grupo: cada color tiene su código). La
  * **plancha** de una copia es el grupo del catálogo con su material y su
  * espesor; si el catálogo no tiene esa combinación, es un problema.
  *
@@ -21,7 +21,7 @@ import { acomodar, formatosDeGrupo, piezasQueNoEntran, type ResultadoAcomodo } f
 import type { CostoDiseno, EntradaCostoDiseno } from "./costo";
 import type { MaterialDiseno, ParametrosCad, PiezaCad, PlanchaAcomodadaCad } from "./tipos";
 
-/** Un material sin espesor. `color`: solo en grupos con código compartido entre colores. */
+/** Un material sin espesor. `color`: el de diseños viejos, de cuando un código servía para varios colores. */
 export interface MaterialRef {
   material: string;
   variante: string;
