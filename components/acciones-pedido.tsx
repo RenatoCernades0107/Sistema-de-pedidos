@@ -40,7 +40,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EstadoBadge } from "@/components/estado-badge";
-import { DialogoPlanchas } from "@/components/planchas-usadas";
+import { DialogoPlanchas, type SobrantesGuardados } from "@/components/planchas-usadas";
+import type { Almacen } from "@/lib/almacenes";
+import type { GrupoPlancha } from "@/lib/cortes/catalogo";
 import { DialogoMateriales, type MaterialesAnotados } from "@/components/terminados/materiales-usados";
 import type { LineaDePedido } from "@/lib/pedido-lineas";
 
@@ -52,6 +54,8 @@ export function AccionesPedido({
   terminados = [],
   stockDescontado = false,
   retazoMin,
+  almacenes = [],
+  catalogo = [],
 }: {
   pedido: Pedido;
   /** Los cortes del pedido: al pasar a Listo se pregunta cuántas planchas se usaron. */
@@ -61,6 +65,10 @@ export function AccionesPedido({
   stockDescontado?: boolean;
   /** El lado mínimo de un sobrante, para proponer los que vuelven al almacén. */
   retazoMin?: number;
+  /** A qué almacén puede irse cada sobrante. */
+  almacenes?: Almacen[];
+  /** De qué material puede ser un sobrante de un producto terminado. */
+  catalogo?: GrupoPlancha[];
 }) {
   const {
     permisos,
@@ -75,6 +83,8 @@ export function AccionesPedido({
   /** Lo usado en los productos terminados: se pregunta antes que las planchas de los cortes. */
   const [conMateriales, setConMateriales] = useState(false);
   const [materiales, setMateriales] = useState<MaterialesAnotados | undefined>(undefined);
+  /** Los sobrantes de los productos terminados, que se mandan junto con los de los cortes. */
+  const [sobrantesTerminados, setSobrantesTerminados] = useState<SobrantesGuardados>([]);
 
   const validas = transicionesValidas(p);
 
@@ -237,7 +247,10 @@ export function AccionesPedido({
         alPasarAListo
         pendiente={pendiente}
         retazoMin={retazoMin}
-        alConfirmar={(planchas, sobrantes) => cambiarEstado(p.codigo, "listo", { planchas, sobrantes, materiales })}
+        almacenes={almacenes}
+        alConfirmar={(planchas, sobrantes) =>
+          cambiarEstado(p.codigo, "listo", { planchas, sobrantes: [...sobrantes, ...sobrantesTerminados], materiales })
+        }
       />
 
       <DialogoMateriales
@@ -247,14 +260,18 @@ export function AccionesPedido({
         alPasarAListo
         siguePlanchas={cortes.length > 0}
         pendiente={pendiente}
-        alConfirmar={(usados) => {
+        almacenes={almacenes}
+        catalogo={catalogo}
+        retazoMin={retazoMin}
+        alConfirmar={(usados, sobrantes) => {
           // Con cortes en el pedido, falta confirmar sus planchas: el pedido se mueve ahí.
           if (cortes.length > 0) {
             setMateriales(usados);
+            setSobrantesTerminados(sobrantes);
             setAListo(true);
             return;
           }
-          return cambiarEstado(p.codigo, "listo", { materiales: usados });
+          return cambiarEstado(p.codigo, "listo", { materiales: usados, sobrantes });
         }}
       />
 

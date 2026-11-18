@@ -8,9 +8,8 @@ import type { PlanchasDeGrupo } from "@/lib/cad/materiales";
 import { nombreArchivo } from "@/lib/cad/esquema";
 import { PLANTILLA_LIBRE } from "@/lib/cad/tipos";
 import { Button } from "@/components/ui/button";
-import { colorDe, espesorTexto, pideColor, type GrupoPlancha } from "@/lib/cortes/catalogo";
+import { colorDe, espesorTexto, type GrupoPlancha } from "@/lib/cortes/catalogo";
 import { cn } from "@/lib/utils";
-import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useDiseno } from "./diseno-contexto";
 import { bajarDxfPlanchas, sufijoDeGrupo } from "./dxf-planchas";
@@ -110,7 +109,6 @@ export function PanelPlanchas() {
     setPiezaActiva,
     unidades,
   } = useDiseno();
-  const [colorLibre, setColorLibre] = useState(material?.color ?? "");
 
   const materiales = useMemo(() => unicos(catalogo.map((g) => g.material)), [catalogo]);
   const elegidoMaterial = grupo?.material ?? null;
@@ -142,8 +140,8 @@ export function PanelPlanchas() {
     grupos.find((g) => g.espesorMm === espesorParametro) ?? grupos[0];
   const elegir = (g: GrupoPlancha | undefined) => {
     if (!g) return;
-    const color = pideColor(g) ? colorLibre.trim() || null : null;
-    void elegirMaterial({ grupoPlanchaId: g.id, color });
+    // Cada color tiene su grupo (y su código): no hay color aparte que guardar.
+    void elegirMaterial({ grupoPlanchaId: g.id, color: null });
   };
 
   const sinEspesorEnCatalogo =
@@ -202,22 +200,6 @@ export function PanelPlanchas() {
           </SelectContent>
         </Select>
       </div>
-
-      {grupo && pideColor(grupo) && (
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-muted-foreground text-xs">Color (el código de la plancha es el mismo para todos)</span>
-          <Input
-            value={colorLibre}
-            maxLength={80}
-            placeholder="Rojo, azul, negro…"
-            onChange={(e) => setColorLibre(e.target.value)}
-            onBlur={() => {
-              const color = colorLibre.trim() || null;
-              if (color !== (material?.color ?? null)) void elegirMaterial({ grupoPlanchaId: grupo.id, color });
-            }}
-          />
-        </label>
-      )}
 
       {!grupo && (
         <p className="text-muted-foreground text-sm">

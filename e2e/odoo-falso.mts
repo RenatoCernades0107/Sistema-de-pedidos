@@ -6,8 +6,10 @@
  * `res.partner`, `product.product`, `sale.order`, `sale.order.line`,
  * `stock.picking`, `stock.move`, `stock.lot`, `stock.quant`, `stock.warehouse`,
  * `stock.location`, `stock.move.line`, `mrp.production`, `uom.uom`, `ir.model`,
- * `ir.model.fields`, `res.country` y
- * `l10n_latam.identification.type`. Los campos que la app crea en un modelo
+ * `ir.model.fields`, `res.country`, `stock.picking.type` y
+ * `l10n_latam.identification.type`. El stock de cada producto se lleva por
+ * ubicación (`__stock`), y `qty_available` responde a `context.location` como en
+ * Odoo; crear un almacén crea su ubicación y sus operaciones. Los campos que la app crea en un modelo
  * (`x_largo` en el lote) existen desde ese momento, como en Odoo. Las entregas son como las de la 17: la
  * cantidad hecha de un movimiento es `quantity`, y `picked` la marca. Con eso las pruebas
  * recorren el camino real —el cliente de Odoo de la app, los route handlers, el
@@ -91,7 +93,11 @@ function sembrar() {
     active: true,
     sale_ok: true,
     write_date: t,
+    product_tmpl_id: [id, nombre],
+    standard_price: Math.round(precio * 0.6 * 100) / 100,
     ...extra,
+    // El stock por ubicación: lo sembrado está en WH/Stock.
+    ...("qty_available" in extra ? { __stock: { 8: Number(extra.qty_available) } } : {}),
   });
 
   const products: Registro[] = [
@@ -139,12 +145,26 @@ function sembrar() {
     "ir.model.fields": [] as Registro[],
     "stock.lot": [] as Registro[],
     "stock.quant": [] as Registro[],
-    "stock.warehouse": [{ id: 1, name: "WH", lot_stock_id: [8, "WH/Stock"] }] as Registro[],
+    "stock.warehouse": [
+      {
+        id: 1, name: "WH", code: "WH", lot_stock_id: [8, "WH/Stock"], in_type_id: [1, "WH: Recepciones"],
+        int_type_id: [2, "WH: Transferencias internas"], manu_type_id: [3, "WH: Fabricación"], out_type_id: [4, "WH: Entregas"],
+      },
+    ] as Registro[],
+    "stock.picking.type": [
+      { id: 1, name: "Recepciones", code: "incoming", warehouse_id: [1, "WH"] },
+      { id: 2, name: "Transferencias internas", code: "internal", warehouse_id: [1, "WH"] },
+      { id: 3, name: "Fabricación", code: "mrp_operation", warehouse_id: [1, "WH"] },
+      { id: 4, name: "Entregas", code: "outgoing", warehouse_id: [1, "WH"] },
+    ] as Registro[],
     "stock.location": [
       { id: 8, name: "WH/Stock", usage: "internal" },
       { id: 9, name: "Partners/Customers", usage: "customer" },
       { id: 10, name: "Virtual Locations/Production", usage: "production" },
+      { id: 11, name: "Partners/Vendors", usage: "supplier" },
+      { id: 12, name: "Virtual Locations/Inventory adjustment", usage: "inventory" },
     ] as Registro[],
+    "stock.scrap": [] as Registro[],
     "stock.move.line": [] as Registro[],
     "mrp.production": [] as Registro[],
     "uom.uom": [
@@ -163,28 +183,37 @@ const CAMPOS: Record<string, string[]> = {
   ],
   "product.product": [
     "name", "display_name", "default_code", "barcode", "lst_price", "uom_id", "categ_id",
-    "write_date", "active", "sale_ok", "product_tmpl_id", "qty_available", "free_qty",
+    "write_date", "active", "sale_ok", "product_tmpl_id", "qty_available", "free_qty", "standard_price",
   ],
   "product.template": [
     "name", "default_code", "list_price", "sale_ok", "categ_id", "uom_id", "active", "write_date",
   ],
   "product.category": ["name"],
-  "sale.order": ["name", "partner_id", "origin", "order_line", "amount_untaxed", "amount_tax", "amount_total", "state"],
+  "sale.order": [
+    "name", "partner_id", "origin", "order_line", "amount_untaxed", "amount_tax", "amount_total", "state", "warehouse_id",
+  ],
   "sale.order.line": ["order_id", "product_id", "name", "product_uom_qty", "price_unit", "display_type", "sequence"],
-  "stock.picking": ["name", "sale_id", "picking_type_code", "state", "move_ids"],
+  "stock.picking": [
+    "name", "sale_id", "picking_type_code", "state", "move_ids", "picking_type_id", "partner_id", "origin",
+    "location_id", "location_dest_id", "partner_ref",
+  ],
+  "stock.picking.type": ["name", "code", "warehouse_id"],
   "stock.lot": ["name", "product_id", "note", "ref"],
   "stock.quant": ["product_id", "location_id", "lot_id", "quantity", "inventory_quantity"],
-  "stock.warehouse": ["name", "lot_stock_id"],
+  "stock.warehouse": ["name", "code", "lot_stock_id", "in_type_id", "int_type_id", "manu_type_id", "out_type_id"],
   "stock.location": ["name", "usage"],
   "stock.move": [
     "picking_id", "product_id", "product_uom_qty", "quantity", "picked", "state", "sale_line_id",
     "name", "product_uom", "location_id", "location_dest_id", "raw_material_production_id", "production_id",
-    "cost_share",
+    "cost_share", "price_unit", "origin", "scrapped", "is_inventory", "reference", "date",
   ],
-  "stock.move.line": ["move_id", "product_id", "lot_id", "location_id", "location_dest_id", "quantity", "picked"],
+  "stock.move.line": [
+    "move_id", "product_id", "lot_id", "location_id", "location_dest_id", "quantity", "picked", "state", "date", "reference",
+  ],
+  "stock.scrap": ["product_id", "scrap_qty", "location_id", "lot_id", "origin", "state", "name"],
   "mrp.production": [
     "name", "product_id", "product_qty", "product_uom_id", "origin", "state", "qty_producing",
-    "location_src_id", "location_dest_id", "move_raw_ids", "move_byproduct_ids", "move_finished_ids",
+    "location_src_id", "location_dest_id", "move_raw_ids", "move_byproduct_ids", "move_finished_ids", "picking_type_id",
   ],
   "uom.uom": ["name"],
   "l10n_latam.identification.type": ["name", "l10n_pe_vat_code", "country_id"],
@@ -194,8 +223,13 @@ const CAMPOS: Record<string, string[]> = {
 
 type Predicado = (r: Registro) => boolean;
 
-/** Las ubicaciones del almacén falso: el stock y los clientes. */
-const USO_UBICACION: Record<number, string> = { 8: "internal", 9: "customer", 10: "production" };
+/** El uso de cada ubicación. Crear un almacén agrega la suya; reiniciar la quita. */
+const USO_SEMBRADO: Record<number, string> = { 8: "internal", 9: "customer", 10: "production", 11: "supplier", 12: "inventory" };
+const USO_UBICACION: Record<number, string> = { ...USO_SEMBRADO };
+function reiniciarUbicaciones() {
+  for (const k of Object.keys(USO_UBICACION)) delete USO_UBICACION[Number(k)];
+  Object.assign(USO_UBICACION, USO_SEMBRADO);
+}
 
 function valorDe(r: Registro, campo: string): unknown {
   // `product_tmpl_id.write_date`: aquí la plantilla y la variante son lo mismo.
@@ -214,7 +248,8 @@ function termino([campo, op, valor]: [string, string, unknown]): Predicado {
       case "!=":
         return v !== valor;
       case "in":
-        return (valor as unknown[]).includes(v);
+      case "child_of": // Aquí las ubicaciones no tienen hijas.
+        return (Array.isArray(valor) ? valor : [valor]).includes(v);
       case "not in":
         return !(valor as unknown[]).includes(v);
       case "ilike":
@@ -318,6 +353,47 @@ export async function crearOdooFalso(
 
   const siguienteId = (t: Registro[]) => t.reduce((m, r) => Math.max(m, r.id), 0) + 1;
 
+  /**
+   * Mueve stock de un producto en una ubicación. `qty_available` (sin contexto)
+   * es la suma de las ubicaciones internas, como en Odoo. Un producto sin
+   * `qty_available` no es almacenable: no lleva stock.
+   */
+  const moverStock = (productoId: unknown, ubicacion: unknown, delta: number) => {
+    const p = tabla("product.product").find((x) => x.id === productoId);
+    if (!p || !("qty_available" in p)) return;
+    const loc = Number(ubicacion ?? 8);
+    const porUbicacion = (p.__stock ??= {}) as Record<number, number>;
+    porUbicacion[loc] = Number(porUbicacion[loc] ?? 0) + delta;
+    if (USO_UBICACION[loc] === "internal") {
+      p.qty_available = Number(p.qty_available) + delta;
+      p.free_qty = Number(p.free_qty ?? 0) + delta;
+    }
+  };
+  const stockEn = (p: Registro, ubicacion: number) =>
+    Number(((p.__stock ?? {}) as Record<number, number>)[ubicacion] ?? 0);
+
+  /**
+   * Lo que queda en el historial de Odoo de un movimiento hecho: una línea de
+   * movimiento `done` (y su movimiento, si no lo trae). Es lo que lee el kárdex.
+   */
+  const huella = (h: {
+    producto: unknown; desde: unknown; hacia: unknown; cantidad: number; referencia: string;
+    origen?: unknown; lote?: unknown; moveId?: number; extra?: Record<string, unknown>;
+  }) => {
+    const movs = tabla("stock.move");
+    let moveId = h.moveId;
+    if (!moveId) {
+      moveId = siguienteId(movs);
+      movs.push({ id: moveId, product_id: [h.producto, ""], location_id: [h.desde, ""], location_dest_id: [h.hacia, ""],
+        product_uom_qty: h.cantidad, quantity: h.cantidad, picked: true, state: "done", picking_id: false,
+        origin: h.origen ?? false, reference: h.referencia, date: ahora(), ...(h.extra ?? {}) });
+    }
+    const lineas = tabla("stock.move.line");
+    lineas.push({ id: siguienteId(lineas), move_id: [moveId, ""], product_id: [h.producto, ""],
+      lot_id: h.lote ? [h.lote, ""] : false, location_id: [h.desde, ""], location_dest_id: [h.hacia, ""],
+      quantity: h.cantidad, picked: true, state: "done", date: ahora(), reference: h.referencia });
+  };
+
   /** Los movimientos que una orden de fabricación crea con comandos `[0, 0, valores]`. */
   function movimientosDeOrden(orden: Registro, campo: "move_raw_ids" | "move_byproduct_ids", comandos: unknown) {
     const enlace = campo === "move_raw_ids" ? "raw_material_production_id" : "production_id";
@@ -392,6 +468,7 @@ export async function crearOdooFalso(
         id, name: nombre, partner_id: [partner.id, partner.name], origin: vals.origin ?? false,
         order_line: idsLineas, amount_untaxed: r2(base), amount_tax: r2(base * 0.18),
         amount_total: r2(base * 1.18), state: "draft",
+        warehouse_id: vals.warehouse_id ? [vals.warehouse_id, ""] : [1, "WH"],
       });
       if (modo === "perder-respuesta") {
         throw new ErrorRpc("odoo.exceptions.UserError", "Odoo falso: se creó, pero la respuesta se perdió.");
@@ -448,6 +525,7 @@ export async function crearOdooFalso(
         product_qty: vals.product_qty, product_uom_id: [vals.product_uom_id, ""], origin: vals.origin ?? false,
         state: "draft", qty_producing: 0, location_src_id: [vals.location_src_id, ""],
         location_dest_id: [vals.location_dest_id, ""], move_raw_ids: [], move_byproduct_ids: [], move_finished_ids: [],
+        picking_type_id: vals.picking_type_id ? [vals.picking_type_id, ""] : [3, ""],
       };
       t.push(orden);
       movimientosDeOrden(orden, "move_raw_ids", vals.move_raw_ids);
@@ -469,6 +547,61 @@ export async function crearOdooFalso(
       return id;
     }
 
+    if (modelo === "stock.warehouse") {
+      const codigo = String(vals.code ?? "");
+      if (!codigo || codigo.length > 5) throw new ErrorRpc("odoo.exceptions.ValidationError", "El código corto es obligatorio (5 letras).");
+      if (t.some((w) => w.code === codigo)) {
+        throw new ErrorRpc("odoo.exceptions.ValidationError", "The short name of the warehouse must be unique per company!");
+      }
+      const ubicaciones = tabla("stock.location");
+      const loc = siguienteId(ubicaciones);
+      ubicaciones.push({ id: loc, name: `${codigo}/Stock`, usage: "internal" });
+      USO_UBICACION[loc] = "internal";
+      const tipos = tabla("stock.picking.type");
+      const tipo = (code: string, nombre: string): [number, string] => {
+        const idTipo = siguienteId(tipos);
+        tipos.push({ id: idTipo, name: nombre, code, warehouse_id: [id, vals.name] });
+        return [idTipo, `${codigo}: ${nombre}`];
+      };
+      t.push({
+        id, name: vals.name, code: codigo, lot_stock_id: [loc, `${codigo}/Stock`],
+        in_type_id: tipo("incoming", "Recepciones"), int_type_id: tipo("internal", "Transferencias internas"),
+        manu_type_id: tipo("mrp_operation", "Fabricación"), out_type_id: tipo("outgoing", "Entregas"),
+      });
+      return id;
+    }
+
+    if (modelo === "stock.picking") {
+      if (modo === "caido") throw new ErrorRpc("odoo.exceptions.UserError", "Odoo falso: caído a propósito.");
+      const tipo = tabla("stock.picking.type").find((x) => x.id === vals.picking_type_id);
+      if (!tipo) throw new ErrorRpc("odoo.exceptions.MissingError", "El tipo de operación no existe.");
+      for (const k of Object.keys(vals)) {
+        if (!camposDe(modelo).includes(k)) throw new ErrorRpc("ValueError", `Invalid field '${k}' on model 'stock.picking'`);
+      }
+      const prefijo = ({ incoming: "IN", internal: "INT", outgoing: "OUT" } as Record<string, string>)[tipo.code as string] ?? "OP";
+      t.push({
+        id, name: `${prefijo}/${String(id).padStart(5, "0")}`, sale_id: false, picking_type_id: [tipo.id, tipo.name],
+        picking_type_code: tipo.code, state: "draft", move_ids: [], partner_id: vals.partner_id ? [vals.partner_id, ""] : false,
+        origin: vals.origin ?? false, location_id: [vals.location_id, ""], location_dest_id: [vals.location_dest_id, ""],
+        partner_ref: vals.partner_ref ?? false,
+      });
+      return id;
+    }
+
+    if (modelo === "stock.move") {
+      for (const k of Object.keys(vals)) {
+        if (!camposDe(modelo).includes(k)) throw new ErrorRpc("ValueError", `Invalid field '${k}' on model 'stock.move'`);
+      }
+      const picking = tabla("stock.picking").find((x) => x.id === vals.picking_id);
+      t.push({
+        ...vals, id, picking_id: vals.picking_id ? [vals.picking_id, ""] : false, product_id: [vals.product_id, ""],
+        location_id: [vals.location_id, ""], location_dest_id: [vals.location_dest_id, ""], quantity: 0, picked: false,
+        state: "draft",
+      });
+      if (picking) (picking.move_ids as number[]).push(id);
+      return id;
+    }
+
     if (modelo === "product.template") {
       const codigo = (vals.default_code as string) ?? false;
       const uom = tabla("uom.uom").find((u) => u.id === (vals.uom_id ?? 1)) ?? { id: 1, name: "Unidades" };
@@ -477,10 +610,26 @@ export async function crearOdooFalso(
         id, name: vals.name, display_name: codigo ? `[${codigo}] ${vals.name}` : vals.name,
         default_code: codigo, barcode: false, lst_price: vals.list_price ?? 0,
         uom_id: [uom.id, uom.name], categ_id: [vals.categ_id, ""], active: true,
-        sale_ok: vals.sale_ok ?? true, write_date: ahora(),
+        sale_ok: vals.sale_ok ?? true, write_date: ahora(), product_tmpl_id: [id, vals.name], standard_price: 0,
         // Almacenable es lo que tiene existencias: así lo reconoce el resto del falso.
         ...(almacenable ? { qty_available: 0, free_qty: 0, tracking: vals.tracking ?? "none" } : {}),
       });
+      return id;
+    }
+
+    if (modelo === "stock.scrap") {
+      for (const k of Object.keys(vals)) {
+        if (!camposDe(modelo).includes(k)) throw new ErrorRpc("ValueError", `Invalid field '${k}' on model 'stock.scrap'`);
+      }
+      t.push({ ...vals, id, name: `SP/${String(id).padStart(5, "0")}`, state: "draft", product_id: [vals.product_id, ""],
+        location_id: [vals.location_id, ""], lot_id: vals.lot_id ? [vals.lot_id, ""] : false, origin: vals.origin ?? false });
+      return id;
+    }
+
+    if (modelo === "stock.location") {
+      const uso = String(vals.usage ?? "internal");
+      t.push({ id, name: vals.name, usage: uso });
+      USO_UBICACION[id] = uso;
       return id;
     }
 
@@ -504,17 +653,20 @@ export async function crearOdooFalso(
     const movimientos = tabla("stock.move");
     const id = siguienteId(entregas);
     const ids: number[] = [];
+    const almacen = tabla("stock.warehouse").find((w) => w.id === (valorDe(orden, "warehouse_id") || 1));
+    const desde = almacen ? valorDe(almacen, "lot_stock_id") : 8;
     for (const l of almacenables) {
       const idMov = siguienteId(movimientos);
       movimientos.push({
         id: idMov, picking_id: [id, ""], product_id: l.product_id, product_uom_qty: l.product_uom_qty,
-        quantity: 0, picked: false, state: "assigned", sale_line_id: [l.id, ""],
+        quantity: 0, picked: false, state: "assigned", sale_line_id: [l.id, ""], location_id: [desde, ""],
+        location_dest_id: [9, ""],
       });
       ids.push(idMov);
     }
     entregas.push({
       id, name: `WH/OUT/${String(id).padStart(5, "0")}`, sale_id: [orden.id, orden.name],
-      picking_type_code: "outgoing", state: "assigned", move_ids: ids,
+      picking_type_code: "outgoing", state: "assigned", move_ids: ids, location_id: [desde, ""], origin: orden.name,
     });
   }
 
@@ -522,9 +674,17 @@ export async function crearOdooFalso(
     llamadas.push({ modelo, metodo, args, kwargs });
     contextoActual = (kwargs.context as Record<string, unknown>) ?? null;
     const deModelo = () => tabla(modelo).map((r) => ({ ...r, __modelo: modelo }));
+    const ubicacionContexto = Number((contextoActual ?? {}).location ?? 0) || null;
     const limpiar = (r: Registro) => {
       const resto: Record<string, unknown> = { ...r };
+      // Con una ubicación en el contexto, las cantidades son las de esa ubicación.
+      if (modelo === "product.product" && ubicacionContexto) {
+        const original = tabla("product.product").find((p) => p.id === r.id);
+        if (original && "qty_available" in resto) resto.qty_available = stockEn(original, ubicacionContexto);
+        if (original && "free_qty" in resto) resto.free_qty = stockEn(original, ubicacionContexto);
+      }
       delete resto.__modelo;
+      delete resto.__stock;
       return resto;
     };
 
@@ -556,6 +716,13 @@ export async function crearOdooFalso(
       }
       case "create":
         return crear(modelo, args[0] as Record<string, unknown>);
+      case "unlink": {
+        if (modelo !== "stock.move.line") break;
+        const ids = args[0] as number[];
+        const filas = tabla(modelo);
+        for (let i = filas.length - 1; i >= 0; i--) if (ids.includes(filas[i].id)) filas.splice(i, 1);
+        return true;
+      }
       case "write": {
         const [ids, vals] = args as [number[], Record<string, unknown>];
         if (modelo === "mrp.production") {
@@ -573,7 +740,11 @@ export async function crearOdooFalso(
             for (const c of Object.keys(vals)) {
               if (!camposDe(modelo).includes(c)) throw new ErrorRpc("ValueError", `Invalid field '${c}'`);
             }
-            Object.assign(r, vals);
+            // Un many2one se escribe con el id y se lee como `[id, nombre]`, como en Odoo.
+            const escritos = Object.fromEntries(
+              Object.entries(vals).map(([c, v]) => [c, c.endsWith("_id") && typeof v === "number" ? [v, ""] : v]),
+            );
+            Object.assign(r, escritos);
           }
           return true;
         }
@@ -603,6 +774,14 @@ export async function crearOdooFalso(
           }
           return true;
         }
+        if (modelo === "stock.picking") {
+          for (const p of tabla(modelo).filter((r) => (args[0] as number[]).includes(r.id))) {
+            if (p.state !== "draft") continue;
+            p.state = "assigned";
+            for (const m of tabla("stock.move").filter((x) => valorDe(x, "picking_id") === p.id)) m.state = "assigned";
+          }
+          return true;
+        }
         // Como Odoo: confirmar pasa la cotización a pedido de venta, y una que ya
         // no está en borrador no se vuelve a confirmar.
         if (modelo !== "sale.order") break;
@@ -627,14 +806,6 @@ export async function crearOdooFalso(
         if (modo === "caido") throw new ErrorRpc("odoo.exceptions.UserError", "Odoo falso: caído a propósito.");
         const contexto = (kwargs.context ?? {}) as Record<string, unknown>;
         const movs = tabla("stock.move");
-        const productos = tabla("product.product");
-        const sumar = (productoId: unknown, cantidad: number) => {
-          const p = productos.find((x) => x.id === productoId);
-          if (p && "qty_available" in p) {
-            p.qty_available = Number(p.qty_available) + cantidad;
-            p.free_qty = Number(p.free_qty ?? 0) + cantidad;
-          }
-        };
         for (const mo of tabla(modelo).filter((r) => (args[0] as number[]).includes(r.id))) {
           if (!(Number(mo.qty_producing) > 0)) {
             throw new ErrorRpc("odoo.exceptions.UserError", "The quantity to produce must be positive!");
@@ -652,10 +823,15 @@ export async function crearOdooFalso(
           }
           for (const m of crudos) {
             m.state = Number(m.quantity) > 0 ? "done" : "cancel";
-            if (m.picked) sumar(valorDe(m, "product_id"), -Number(m.quantity));
+            if (m.picked) moverStock(valorDe(m, "product_id"), valorDe(m, "location_id"), -Number(m.quantity));
+            if (m.picked && Number(m.quantity) > 0 && !lineasDe(m).length) {
+              huella({ producto: valorDe(m, "product_id"), desde: valorDe(m, "location_id"), hacia: 10,
+                cantidad: Number(m.quantity), referencia: String(mo.name), moveId: m.id });
+              m.reference = mo.name;
+            }
             for (const l of lineasDe(m)) {
               const quant = tabla("stock.quant").find(
-                (q) => valorDe(q, "lot_id") === valorDe(l, "lot_id") && valorDe(q, "location_id") === 8,
+                (q) => valorDe(q, "lot_id") === valorDe(l, "lot_id") && valorDe(q, "location_id") === (valorDe(l, "location_id") ?? 8),
               );
               if (quant) quant.quantity = Number(quant.quantity) - Number(l.quantity ?? 0);
             }
@@ -664,7 +840,8 @@ export async function crearOdooFalso(
             const lineas = tabla("stock.move.line").filter((l) => valorDe(l, "move_id") === m.id);
             for (const l of lineas) {
               const quants = tabla("stock.quant");
-              quants.push({ id: siguienteId(quants), product_id: [valorDe(m, "product_id"), ""], location_id: [8, ""],
+              const hacia = valorDe(l, "location_dest_id") ?? valorDe(m, "location_dest_id") ?? 8;
+              quants.push({ id: siguienteId(quants), product_id: [valorDe(m, "product_id"), ""], location_id: [hacia, ""],
                 lot_id: l.lot_id, quantity: Number(l.quantity ?? 0), inventory_quantity: 0 });
             }
             m.state = lineas.length ? "done" : "cancel";
@@ -672,15 +849,32 @@ export async function crearOdooFalso(
           for (const m of movs.filter((x) => (mo.move_finished_ids as number[]).includes(x.id))) {
             m.state = "done";
             m.quantity = Number(mo.qty_producing);
-            sumar(valorDe(mo, "product_id"), Number(mo.qty_producing));
+            moverStock(valorDe(mo, "product_id"), valorDe(mo, "location_dest_id"), Number(mo.qty_producing));
+            huella({ producto: valorDe(mo, "product_id"), desde: 10, hacia: valorDe(mo, "location_dest_id"),
+              cantidad: Number(mo.qty_producing), referencia: String(mo.name), moveId: m.id });
           }
           mo.state = "done";
+          const suyos = [...(mo.move_raw_ids as number[]), ...(mo.move_byproduct_ids as number[])];
+          for (const l of tabla("stock.move.line").filter((x) => suyos.includes(valorDe(x, "move_id") as number) && x.state !== "done")) {
+            Object.assign(l, { state: "done", date: ahora(), reference: mo.name });
+          }
         }
         return true;
       }
       case "action_apply_inventory": {
         if (modelo !== "stock.quant") break;
         for (const q of tabla(modelo).filter((r) => (args[0] as number[]).includes(r.id))) {
+          if (!valorDe(q, "lot_id")) {
+            const producto = tabla("product.product").find((p) => p.id === valorDe(q, "product_id"));
+            const antes = producto ? stockEn(producto, valorDe(q, "location_id") as number) : 0;
+            const delta = Number(q.inventory_quantity ?? 0) - antes;
+            moverStock(valorDe(q, "product_id"), valorDe(q, "location_id"), delta);
+            if (delta !== 0) {
+              const aqui = valorDe(q, "location_id");
+              huella({ producto: valorDe(q, "product_id"), desde: delta > 0 ? 12 : aqui, hacia: delta > 0 ? aqui : 12,
+                cantidad: Math.abs(delta), referencia: "Cantidad de producto actualizada", extra: { is_inventory: true } });
+            }
+          }
           q.quantity = Number(q.inventory_quantity ?? 0);
         }
         return true;
@@ -712,6 +906,34 @@ export async function crearOdooFalso(
         }
         return true;
       }
+      case "action_validate": {
+        if (modelo !== "stock.scrap") break;
+        if (modo === "caido") throw new ErrorRpc("odoo.exceptions.UserError", "Odoo falso: caído a propósito.");
+        for (const s of tabla(modelo).filter((r) => (args[0] as number[]).includes(r.id))) {
+          if (s.state === "done") continue;
+          const producto = valorDe(s, "product_id");
+          const desde = valorDe(s, "location_id");
+          const cantidad = Number(s.scrap_qty);
+          const lote = valorDe(s, "lot_id");
+          if (lote) {
+            const q = tabla("stock.quant").find((x) => valorDe(x, "lot_id") === lote && valorDe(x, "location_id") === desde);
+            if (!q || Number(q.quantity) < cantidad) {
+              return { type: "ir.actions.act_window", res_model: "stock.warn.insufficient.qty.scrap" };
+            }
+            q.quantity = Number(q.quantity) - cantidad;
+          } else {
+            const p = tabla("product.product").find((x) => x.id === producto);
+            if (!p || stockEn(p, desde as number) < cantidad) {
+              return { type: "ir.actions.act_window", res_model: "stock.warn.insufficient.qty.scrap" };
+            }
+            moverStock(producto, desde, -cantidad);
+          }
+          huella({ producto, desde, hacia: 12, cantidad, referencia: String(s.name), origen: s.origin, lote,
+            extra: { scrapped: true } });
+          s.state = "done";
+        }
+        return true;
+      }
       case "button_validate": {
         if (modelo !== "stock.picking") break;
         if (modo === "caido") {
@@ -721,6 +943,12 @@ export async function crearOdooFalso(
         const contexto = (kwargs.context ?? {}) as Record<string, unknown>;
         for (const p of tabla(modelo).filter((r) => ids.includes(r.id))) {
           const movs = tabla("stock.move").filter((m) => valorDe(m, "picking_id") === p.id && m.state !== "cancel");
+          // Un movimiento con líneas (un lote) mueve lo de sus líneas.
+          const lineasDe = (m: Registro) => tabla("stock.move.line").filter((l) => valorDe(l, "move_id") === m.id);
+          for (const m of movs) {
+            const lineas = lineasDe(m);
+            if (lineas.length) m.quantity = lineas.reduce((s, l) => s + Number(l.quantity ?? 0), 0);
+          }
           const hechos = movs.filter((m) => m.picked && Number(m.quantity) > 0);
           if (hechos.length === 0) {
             throw new ErrorRpc(
@@ -739,11 +967,33 @@ export async function crearOdooFalso(
               continue;
             }
             m.state = "done";
-            const producto = tabla("product.product").find((x) => x.id === valorDe(m, "product_id"));
-            if (producto) {
-              producto.qty_available = Number(producto.qty_available ?? 0) - Number(m.quantity);
-              producto.free_qty = Number(producto.free_qty ?? 0) - Number(m.quantity);
+            const q = Number(m.quantity);
+            const producto = valorDe(m, "product_id");
+            const conLote = lineasDe(m).filter((l) => valorDe(l, "lot_id"));
+            m.origin ??= p.origin;
+            m.reference = p.name;
+            m.date = ahora();
+            for (const l of conLote) Object.assign(l, { state: "done", date: ahora(), reference: p.name });
+            if (!conLote.length) {
+              huella({ producto, desde: valorDe(m, "location_id") ?? 8, hacia: valorDe(m, "location_dest_id"), cantidad: q,
+                referencia: String(p.name), moveId: m.id });
             }
+            if (conLote.length) {
+              const quants = tabla("stock.quant");
+              for (const l of conLote) {
+                const desde = valorDe(l, "location_id") ?? valorDe(m, "location_id");
+                const hacia = valorDe(l, "location_dest_id") ?? valorDe(m, "location_dest_id");
+                const origen = quants.find((x) => valorDe(x, "lot_id") === valorDe(l, "lot_id") && valorDe(x, "location_id") === desde);
+                if (origen) origen.quantity = Number(origen.quantity) - Number(l.quantity ?? 0);
+                const destino = quants.find((x) => valorDe(x, "lot_id") === valorDe(l, "lot_id") && valorDe(x, "location_id") === hacia);
+                if (destino) destino.quantity = Number(destino.quantity) + Number(l.quantity ?? 0);
+                else quants.push({ id: siguienteId(quants), product_id: [producto, ""], location_id: [hacia, ""],
+                  lot_id: l.lot_id, quantity: Number(l.quantity ?? 0), inventory_quantity: 0 });
+              }
+              continue;
+            }
+            if (p.picking_type_code !== "incoming") moverStock(producto, valorDe(m, "location_id") ?? 8, -q);
+            if (p.picking_type_code !== "outgoing") moverStock(producto, valorDe(m, "location_dest_id"), q);
           }
           p.state = "done";
         }
@@ -800,6 +1050,12 @@ export async function crearOdooFalso(
         lineas: datos["stock.move.line"].filter((l) => ids.includes(valorDe(l, "move_id") as number)),
       };
     }),
+    quants: datos["stock.quant"],
+    almacenes: datos["stock.warehouse"],
+    pickings: datos["stock.picking"].map((p): Registro & { movimientos: Registro[] } => ({
+      ...p,
+      movimientos: datos["stock.move"].filter((m) => valorDe(m, "picking_id") === p.id),
+    })),
     llamadas: llamadas.map(({ modelo, metodo, args, kwargs }) => ({ modelo, metodo, args, kwargs })),
   });
 
@@ -825,6 +1081,7 @@ export async function crearOdooFalso(
       }
       if (req.url === "/__reiniciar" && req.method === "POST") {
         datos = sembrar();
+        reiniciarUbicaciones();
         modo = null;
         llamadas = [];
         extras = {};
@@ -861,6 +1118,7 @@ export async function crearOdooFalso(
     },
     reiniciar: () => {
       datos = sembrar();
+      reiniciarUbicaciones();
       modo = null;
       llamadas = [];
       extras = {};

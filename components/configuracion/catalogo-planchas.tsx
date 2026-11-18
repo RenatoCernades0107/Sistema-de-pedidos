@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { CircleAlert, PackageCheck, Pencil, Plus, Search } from "lucide-react";
 import { toast } from "sonner";
 import {
-  activarSobrantesPorMaterial,
   actualizarGrupoPlancha,
   comprobarCodigosEnOdoo,
   crearGrupoPlancha,
@@ -81,18 +80,10 @@ export function CatalogoPlanchas({ grupos, odooConectado }: { grupos: GrupoPlanc
 
   const grupoEditado = grupos.find((g) => g.id === editando) ?? null;
 
-  const cambiarGrupo = (g: GrupoPlancha, cambios: { rotable?: boolean; sobrantesActivo?: boolean }) =>
+  const cambiarGrupo = (g: GrupoPlancha, cambios: { rotable?: boolean }) =>
     iniciar(async () => {
       const r = await actualizarGrupoPlancha({ id: g.id, ...cambios });
       if (!r.ok) toast.error("No se guardó", { description: r.error });
-      router.refresh();
-    });
-
-  const sobrantesDeMaterial = (nombre: string, activo: boolean) =>
-    iniciar(async () => {
-      const r = await activarSobrantesPorMaterial({ material: nombre, activo });
-      if (!r.ok) toast.error("No se guardó", { description: r.error });
-      else toast.success(`Sobrantes ${activo ? "encendidos" : "apagados"} para ${nombre}`);
       router.refresh();
     });
 
@@ -169,24 +160,13 @@ export function CatalogoPlanchas({ grupos, odooConectado }: { grupos: GrupoPlanc
       )}
 
       {porMaterial.map(([nombre, lista]) => {
-        const conSobrantes = lista.filter((g) => g.sobrantesActivo).length;
         return (
           <section key={nombre} className="bg-card overflow-hidden rounded-xl border">
             <header className="bg-muted/40 flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2.5">
               <h2 className="text-sm font-medium">{nombre}</h2>
               <span className="text-muted-foreground text-xs">
                 {lista.length} {lista.length === 1 ? "combinación" : "combinaciones"}
-                {conSobrantes > 0 && ` · ${conSobrantes} con sobrantes`}
               </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="ml-auto"
-                disabled={ocupado}
-                onClick={() => sobrantesDeMaterial(nombre, conSobrantes < lista.length)}
-              >
-                {conSobrantes < lista.length ? "Encender sobrantes en todo" : "Apagar sobrantes en todo"}
-              </Button>
             </header>
 
             <div className="overflow-x-auto">
@@ -197,7 +177,6 @@ export function CatalogoPlanchas({ grupos, odooConectado }: { grupos: GrupoPlanc
                     <th className="px-2 py-2 font-medium">Espesor</th>
                     <th className="px-2 py-2 font-medium">Formatos (cm) y código de Odoo</th>
                     <th className="px-2 py-2 text-center font-medium">Se puede girar</th>
-                    <th className="px-2 py-2 text-center font-medium">Sobrantes</th>
                     <th className="w-10" />
                   </tr>
                 </thead>
@@ -221,14 +200,6 @@ export function CatalogoPlanchas({ grupos, odooConectado }: { grupos: GrupoPlanc
                           checked={g.rotable}
                           disabled={ocupado}
                           onCheckedChange={(v) => cambiarGrupo(g, { rotable: v === true })}
-                        />
-                      </td>
-                      <td className="px-2 py-2.5 text-center">
-                        <Checkbox
-                          aria-label={`${nombreDeGrupo(g)}: registrar sobrantes`}
-                          checked={g.sobrantesActivo}
-                          disabled={ocupado}
-                          onCheckedChange={(v) => cambiarGrupo(g, { sobrantesActivo: v === true })}
                         />
                       </td>
                       <td className="py-1.5 pr-2">
@@ -262,9 +233,7 @@ function ChipFormato({ formato: f, falta }: { formato: FormatoPlancha; falta: bo
     ? "No existe en Odoo"
     : f.porVerificar
       ? "Código o medida por confirmar contra Odoo"
-      : f.skuCompartido
-        ? "Un solo código para todos los colores: el stock de Odoo no es por color"
-        : null;
+      : null;
   return (
     <span
       title={[aviso, f.nota].filter(Boolean).join(" · ") || undefined}
@@ -277,11 +246,6 @@ function ChipFormato({ formato: f, falta }: { formato: FormatoPlancha; falta: bo
       <span className="tnum">{medidaDe(f)}</span>
       <span className="text-muted-foreground font-mono text-2xs">{f.codigo}</span>
       {(falta || f.porVerificar) && <CircleAlert className="text-destructive size-3" aria-label={aviso ?? ""} />}
-      {!falta && !f.porVerificar && f.skuCompartido && (
-        <span className="text-muted-foreground text-2xs" aria-label={aviso ?? ""}>
-          varios colores
-        </span>
-      )}
     </span>
   );
 }
@@ -291,7 +255,6 @@ interface FormatoEditable {
   codigo: string;
   anchoCm: string;
   largoCm: string;
-  skuCompartido: boolean;
   activo: boolean;
 }
 
@@ -303,7 +266,6 @@ function EditarFormatos({ grupo, alCerrar }: { grupo: GrupoPlancha; alCerrar: ()
       codigo: f.codigo,
       anchoCm: String(f.anchoCm),
       largoCm: String(f.largoCm),
-      skuCompartido: f.skuCompartido,
       activo: f.activo,
     })),
   );
@@ -322,7 +284,6 @@ function EditarFormatos({ grupo, alCerrar }: { grupo: GrupoPlancha; alCerrar: ()
           original.codigo === f.codigo.trim() &&
           String(original.anchoCm) === f.anchoCm.trim() &&
           String(original.largoCm) === f.largoCm.trim() &&
-          original.skuCompartido === f.skuCompartido &&
           original.activo === f.activo;
         if (igual) continue;
         const r = await guardarFormatoPlancha({ ...f, grupoId: grupo.id });
@@ -365,10 +326,6 @@ function EditarFormatos({ grupo, alCerrar }: { grupo: GrupoPlancha; alCerrar: ()
                   <Checkbox checked={f.activo} onCheckedChange={(v) => cambiar(i, { activo: v === true })} />
                   Activo
                 </label>
-                <label className="flex cursor-pointer items-center gap-2 text-xs">
-                  <Checkbox checked={f.skuCompartido} onCheckedChange={(v) => cambiar(i, { skuCompartido: v === true })} />
-                  Varios colores
-                </label>
               </div>
             </div>
           ))}
@@ -379,7 +336,7 @@ function EditarFormatos({ grupo, alCerrar }: { grupo: GrupoPlancha; alCerrar: ()
               size="sm"
               className="gap-1.5"
               onClick={() =>
-                setFilas((fs) => [...fs, { codigo: "", anchoCm: "", largoCm: "", skuCompartido: false, activo: true }])
+                setFilas((fs) => [...fs, { codigo: "", anchoCm: "", largoCm: "", activo: true }])
               }
             >
               <Plus className="size-3.5" />

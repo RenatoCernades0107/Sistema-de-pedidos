@@ -156,10 +156,14 @@ begin
     raise exception 'FALLO: otro rol pudo escribir la configuración';
   exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
 
-  begin
-    insert into public.grupos_plancha (material, espesor_mm) values ('Intruso', 3);
-    raise exception 'FALLO: otro rol pudo crear un grupo de planchas';
-  exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
+  -- Crear planchas nuevas es de quien gestiona el stock (20261205000100): el
+  -- taller no puede; Logística sí.
+  if not public.gestiona_stock() then
+    begin
+      insert into public.grupos_plancha (material, espesor_mm) values ('Intruso', 3);
+      raise exception 'FALLO: otro rol pudo crear un grupo de planchas';
+    exception when others then if sqlerrm like 'FALLO:%' then raise; end if; end;
+  end if;
 end $$;
 
 set local role postgres;

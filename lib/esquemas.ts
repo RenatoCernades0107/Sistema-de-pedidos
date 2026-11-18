@@ -357,8 +357,9 @@ export const esquemaCambioEstado = z.object({
    */
   planchas: z.array(planchasUsadas).max(100).optional(),
   /**
-   * Al pasar a Listo, en los cortes con el piloto de sobrantes: los pedazos que
-   * de verdad se guardaron, por la posición de su línea.
+   * Al pasar a Listo, en los cortes y los productos terminados: los pedazos de
+   * plancha que de verdad se guardaron, y a qué almacén fue cada uno, por la
+   * posición de su línea.
    */
   sobrantes: z
     .array(
@@ -370,6 +371,10 @@ export const esquemaCambioEstado = z.object({
               largo: z.number().positive("Escribe el largo del sobrante").max(1000),
               ancho: z.number().positive("Escribe el ancho del sobrante").max(1000),
               ubicacion: z.string().trim().max(80).transform((v) => v || null).nullable(),
+              /** A qué almacén se fue. */
+              almacenId: z.uuid("Elige a qué almacén se fue cada sobrante"),
+              /** En un producto terminado: de qué material es (en un corte, el del corte). */
+              grupoId: z.uuid("Elige el material del sobrante").nullable().optional(),
             }),
           )
           .max(50),
@@ -554,9 +559,9 @@ const medidaDePieza = z
 export const esquemaLineaCorte = z.object({
   tipo: z.literal("corte"),
   grupoId: z.uuid("Elige el material del corte"),
-  /** Solo cuando el código de Odoo es de varios colores: cuál se pidió. */
-  color: z.string().trim().max(60, "El color es demasiado largo").nullable(),
   modalidad: z.enum(["laser", "manual"]),
+  /** Dónde se corta un manual. El láser va siempre al taller, diga lo que diga. */
+  lugar: z.enum(["taller", "tienda"]).default("tienda"),
   piezas: z
     .array(
       z.object({
@@ -610,7 +615,6 @@ export const esquemaLineaTerminado = z
     }),
     /** El material del catálogo de planchas. Un personalizado puede no llevarlo. */
     grupoId: z.uuid("Elige el material").nullable(),
-    color: z.string().trim().max(60, "El color es demasiado largo").nullable(),
     /** Los ids de las personalizaciones, acabados y complementos elegidos. */
     opciones: z.array(z.number().int().positive()).max(80),
     texto: z.string().trim().max(300, "El texto es demasiado largo").nullable(),
@@ -813,12 +817,7 @@ const ubicacionSobrante = z
 
 export const esquemaSobrante = z.object({
   grupoId: z.uuid("Elige el material"),
-  color: z
-    .string()
-    .trim()
-    .max(60)
-    .transform((v) => v || null)
-    .nullable(),
+  almacenId: z.uuid("Elige el almacén"),
   largo: ladoSobrante,
   ancho: ladoSobrante,
   ubicacion: ubicacionSobrante,

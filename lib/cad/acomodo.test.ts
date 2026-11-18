@@ -26,8 +26,8 @@ describe("formatosDeGrupo", () => {
   it("pasa de cm a mm y deja fuera los inactivos", () => {
     const f = formatosDeGrupo({
       formatos: [
-        { id: "a", codigo: "A", anchoCm: 122, largoCm: 183, skuCompartido: false, porVerificar: false, nota: null, activo: true },
-        { id: "b", codigo: "B", anchoCm: 100, largoCm: 100, skuCompartido: false, porVerificar: false, nota: null, activo: false },
+        { id: "a", codigo: "A", anchoCm: 122, largoCm: 183, porVerificar: false, nota: null, activo: true },
+        { id: "b", codigo: "B", anchoCm: 100, largoCm: 100, porVerificar: false, nota: null, activo: false },
       ],
     });
     expect(f).toEqual([{ id: "a", anchoMm: 1220, altoMm: 1830 }]);

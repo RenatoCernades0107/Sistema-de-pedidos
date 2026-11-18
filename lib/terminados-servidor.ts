@@ -8,7 +8,7 @@
 
 import { cache } from "react";
 import { cargarConfigCortes, cargarGrupoPlancha, preciosDeGrupo } from "./cortes-servidor";
-import { colorDe, pideColor } from "./cortes/catalogo";
+import { colorDe } from "./cortes/catalogo";
 import type { NuevaLineaTerminado } from "./esquemas";
 import { productosPorCodigo, productosPorId } from "./odoo/catalogos";
 import { CODIGO_PERSONALIZADO, NOMBRE_PERSONALIZADO, productoTerminado } from "./odoo/produccion";
@@ -327,7 +327,7 @@ export async function prepararTerminado(
           grupoId: grupo.id,
           material: grupo.material,
           // Con un código para todos los colores, vale el que se pidió.
-          color: (pideColor(grupo) && linea.color) || colorDe(grupo),
+          color: colorDe(grupo),
           espesorMm: grupo.espesorMm,
         }
       : null,

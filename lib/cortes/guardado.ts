@@ -26,6 +26,22 @@ export interface PlanchaGuardada {
   paneles: Panel[];
 }
 
+/**
+ * Dónde se corta: el láser y los productos terminados, siempre en el taller; un
+ * corte manual, en el taller o en la tienda. De ese almacén salen las planchas y
+ * los sobrantes que usa, y ahí vuelven los que quedan.
+ */
+export type LugarCorte = "taller" | "tienda";
+
+export const LUGARES_CORTE: Record<LugarCorte, string> = {
+  taller: "En el taller",
+  tienda: "En la tienda",
+};
+
+/** El lugar que vale: el láser no se mueve del taller. */
+export const lugarDeCorte = (c: { modalidad: Modalidad; lugar?: LugarCorte | null }): LugarCorte =>
+  c.modalidad === "laser" ? "taller" : (c.lugar ?? "taller");
+
 export interface CorteGuardado {
   version: 1;
   /** El grupo del catálogo (`grupos_plancha.id`) del que se cortó. */
@@ -36,6 +52,8 @@ export interface CorteGuardado {
   color: string;
   espesorMm: number;
   modalidad: Modalidad;
+  /** Dónde se corta (`lugarDeCorte`). */
+  lugar: LugarCorte;
   rotable: boolean;
   piezas: PiezaPedida[];
   /** La plancha elegida, con su precio de Odoo en ese momento. */
@@ -59,6 +77,7 @@ export interface DatosCorte {
   color: string;
   espesorMm: number;
   modalidad: Modalidad;
+  lugar: LugarCorte;
   rotable: boolean;
   piezas: PiezaPedida[];
   servicio: CorteGuardado["servicio"];
@@ -90,6 +109,7 @@ export function guardarCorte(datos: DatosCorte, calculo: CalculoCorte): CorteGua
   return {
     version: 1,
     ...datos,
+    lugar: lugarDeCorte(datos),
     piezas: datos.piezas.map((p) => ({ ancho: p.ancho, alto: p.alto, cantidad: Math.floor(p.cantidad) })),
     formato: calculo.formato,
     planchas: guardarPlanchas(calculo.planchas),
@@ -148,6 +168,8 @@ const esquema = z.object({
   color: z.string(),
   espesorMm: numero,
   modalidad: z.enum(["laser", "manual"]),
+  // Los cortes de antes de los almacenes se hicieron todos en el taller.
+  lugar: z.enum(["taller", "tienda"]).catch("taller"),
   rotable: z.boolean(),
   piezas: z.array(z.object({ ancho: numero, alto: numero, cantidad: numero })),
   formato: z.object({ codigo: z.string(), ancho: numero, alto: numero, precio: numero }),
@@ -164,7 +186,7 @@ const esquema = z.object({
 /** El corte de una línea, o `null` si la línea no es un corte o el JSON no se entiende. */
 export function leerCorte(json: unknown): CorteGuardado | null {
   const r = esquema.safeParse(json);
-  return r.success ? r.data : null;
+  return r.success ? { ...r.data, lugar: lugarDeCorte(r.data) } : null;
 }
 
 /* ── Decirlo en palabras ───────────────────────────────────────────────────── */

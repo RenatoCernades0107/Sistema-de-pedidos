@@ -16,6 +16,7 @@ const corte = guardarCorte(
     color: "Cristal",
     espesorMm: 3,
     modalidad: "laser",
+    lugar: "taller",
     rotable: true,
     piezas,
     servicio: { productoId: 31, codigo: "SRV002", nombre: "SERVICIO DE CORTE LASER" },

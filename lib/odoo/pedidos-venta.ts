@@ -8,7 +8,7 @@
  */
 
 import { nombreSinCodigo } from "./productos";
-import { ejecutar, ErrorOdoo, idDe, nombreDe, texto } from "./rpc";
+import { camposExistentes, ejecutar, ErrorOdoo, idDe, nombreDe, texto } from "./rpc";
 
 const MODELO = "sale.order";
 
@@ -85,6 +85,11 @@ export async function crearPedidoDeVenta(datos: {
   cotizacionId: string;
   clienteId: number;
   lineas: LineaParaOdoo[];
+  /**
+   * El almacén del que sale (`stock.warehouse`). Sin él, Odoo usa el primero de
+   * la compañía, que es el almacén anterior a los de la app.
+   */
+  warehouseId?: number | null;
 }): Promise<ResumenVenta & { yaExistia: boolean }> {
   const origen = origenDe(datos.cotizacionId);
 
@@ -94,11 +99,14 @@ export async function crearPedidoDeVenta(datos: {
   });
   if (previas[0]) return { ...deResumen(previas[0]), yaExistia: true };
 
+  // `warehouse_id` es de Ventas con Inventario: sin ese módulo la venta no lleva almacén.
+  const conAlmacen = !!datos.warehouseId && (await camposExistentes(MODELO, ["warehouse_id"])).length > 0;
   const id = await ejecutar<number>(MODELO, "create", [
     {
       partner_id: datos.clienteId,
       origin: origen,
       order_line: lineasDeVenta(datos.lineas),
+      ...(conAlmacen ? { warehouse_id: datos.warehouseId } : {}),
     },
   ]);
 
@@ -197,4 +205,24 @@ export async function leerPedidoDeVenta(orderId: number): Promise<VentaLeida | n
       .map(deLineaVenta)
       .filter((l): l is LineaLeida => l !== null && l.cantidad > 0),
   };
+}
+
+/**
+ * Cambia el almacén del que sale una venta que todavía es cotización. Una vez
+ * confirmada, Odoo ya armó la entrega desde el almacén que tenía: no se toca.
+ */
+export async function cambiarAlmacenDeVenta(orderId: number, warehouseId: number): Promise<boolean> {
+  const filas = await ejecutar<Fila[]>(MODELO, "read", [[orderId]], { fields: ["state"] });
+  const estado = texto(filas[0]?.state);
+  if (estado !== "draft" && estado !== "sent") return false;
+  if ((await camposExistentes(MODELO, ["warehouse_id"])).length === 0) return false;
+  await ejecutar(MODELO, "write", [[orderId], { warehouse_id: warehouseId }]);
+  return true;
+}
+
+/** El almacén (`stock.warehouse`) del que sale una venta. */
+export async function almacenDeVenta(orderId: number): Promise<number | null> {
+  if ((await camposExistentes(MODELO, ["warehouse_id"])).length === 0) return null;
+  const filas = await ejecutar<Fila[]>(MODELO, "read", [[orderId]], { fields: ["warehouse_id"] });
+  return idDe(filas[0]?.warehouse_id);
 }

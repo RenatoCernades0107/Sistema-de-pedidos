@@ -138,6 +138,9 @@ export function LineasPedido({
                     {l.produccionNombre} · {l.produccionCerrada ? "cerrada en Odoo" : "abierta en Odoo: reserva el material"}
                   </p>
                 )}
+                {sobrantes.some((s) => s.lineaPosicion === l.posicion) && (
+                  <Produccion linea={l} sobrantes={sobrantes.filter((s) => s.lineaPosicion === l.posicion)} />
+                )}
               </>
             ) : (
               <div className="flex items-start gap-3">
@@ -214,6 +217,7 @@ function Produccion({ linea: l, sobrantes }: { linea: LineaDePedido; sobrantes: 
             <li key={s.codigo} className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="text-primary font-mono text-xs font-semibold">{s.codigo}</span>
               <span className="tnum">{medidaSobrante(s)} cm</span>
+              <span className="text-xs font-medium">{s.almacen}</span>
               <span className="text-muted-foreground text-xs">{s.ubicacion ?? "Sin ubicación"}</span>
               {s.sincronizacion !== "sincronizada" && (
                 <span className="text-st-observado text-xs">Falta crearlo en Odoo</span>

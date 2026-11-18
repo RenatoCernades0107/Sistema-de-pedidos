@@ -39,6 +39,38 @@ export type Database = {
   }
   public: {
     Tables: {
+      accesorios: {
+        Row: {
+          activo: boolean
+          categoria_id: string
+          codigo_odoo: string
+          creado_en: string
+          id: string
+        }
+        Insert: {
+          activo?: boolean
+          categoria_id: string
+          codigo_odoo: string
+          creado_en?: string
+          id?: string
+        }
+        Update: {
+          activo?: boolean
+          categoria_id?: string
+          codigo_odoo?: string
+          creado_en?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "accesorios_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_accesorio"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       adjuntos: {
         Row: {
           creado_en: string
@@ -114,6 +146,48 @@ export type Database = {
           },
         ]
       }
+      almacenes: {
+        Row: {
+          activo: boolean
+          codigo: string
+          creado_en: string
+          error_sincronizacion: string | null
+          id: string
+          nombre: string
+          odoo_ubicacion_id: number | null
+          odoo_warehouse_id: number | null
+          orden: number
+          sincronizacion: Database["public"]["Enums"]["sincronizacion_odoo"]
+          tipo: string
+        }
+        Insert: {
+          activo?: boolean
+          codigo: string
+          creado_en?: string
+          error_sincronizacion?: string | null
+          id?: string
+          nombre: string
+          odoo_ubicacion_id?: number | null
+          odoo_warehouse_id?: number | null
+          orden?: number
+          sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
+          tipo?: string
+        }
+        Update: {
+          activo?: boolean
+          codigo?: string
+          creado_en?: string
+          error_sincronizacion?: string | null
+          id?: string
+          nombre?: string
+          odoo_ubicacion_id?: number | null
+          odoo_warehouse_id?: number | null
+          orden?: number
+          sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
+          tipo?: string
+        }
+        Relationships: []
+      }
       cad_diseno_versiones: {
         Row: {
           acomodo: Json | null
@@ -186,10 +260,10 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "cad_diseno_versiones_grupo_plancha_id_fkey"
-            columns: ["grupo_plancha_id"]
+            foreignKeyName: "cad_diseno_versiones_aprobado_por_fkey"
+            columns: ["aprobado_por"]
             isOneToOne: false
-            referencedRelation: "grupos_plancha"
+            referencedRelation: "usuarios"
             referencedColumns: ["id"]
           },
           {
@@ -204,6 +278,13 @@ export type Database = {
             columns: ["diseno_id"]
             isOneToOne: false
             referencedRelation: "cad_disenos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cad_diseno_versiones_grupo_plancha_id_fkey"
+            columns: ["grupo_plancha_id"]
+            isOneToOne: false
+            referencedRelation: "grupos_plancha"
             referencedColumns: ["id"]
           },
         ]
@@ -284,6 +365,141 @@ export type Database = {
           },
         ]
       }
+      casos_stock: {
+        Row: {
+          almacen_id: string
+          cantidad: number
+          cerrado_en: string | null
+          cerrado_por: string | null
+          codigo: string
+          codigo_producto: string | null
+          contado: number | null
+          conteo_id: string | null
+          descripcion: string | null
+          error_sincronizacion: string | null
+          esperado: number | null
+          estado: string
+          id: string
+          motivo: string | null
+          nombre: string
+          odoo_ref: number | null
+          producto_odoo_id: number
+          razon_cierre: string | null
+          reportado_en: string
+          reportado_por: string | null
+          sincronizacion: Database["public"]["Enums"]["sincronizacion_odoo"]
+          sobrante_codigo: string | null
+          tipo: string
+        }
+        Insert: {
+          almacen_id: string
+          cantidad: number
+          cerrado_en?: string | null
+          cerrado_por?: string | null
+          codigo?: string
+          codigo_producto?: string | null
+          contado?: number | null
+          conteo_id?: string | null
+          descripcion?: string | null
+          error_sincronizacion?: string | null
+          esperado?: number | null
+          estado?: string
+          id?: string
+          motivo?: string | null
+          nombre: string
+          odoo_ref?: number | null
+          producto_odoo_id: number
+          razon_cierre?: string | null
+          reportado_en?: string
+          reportado_por?: string | null
+          sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
+          sobrante_codigo?: string | null
+          tipo: string
+        }
+        Update: {
+          almacen_id?: string
+          cantidad?: number
+          cerrado_en?: string | null
+          cerrado_por?: string | null
+          codigo?: string
+          codigo_producto?: string | null
+          contado?: number | null
+          conteo_id?: string | null
+          descripcion?: string | null
+          error_sincronizacion?: string | null
+          esperado?: number | null
+          estado?: string
+          id?: string
+          motivo?: string | null
+          nombre?: string
+          odoo_ref?: number | null
+          producto_odoo_id?: number
+          razon_cierre?: string | null
+          reportado_en?: string
+          reportado_por?: string | null
+          sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
+          sobrante_codigo?: string | null
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "casos_stock_almacen_id_fkey"
+            columns: ["almacen_id"]
+            isOneToOne: false
+            referencedRelation: "almacenes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "casos_stock_cerrado_por_fkey"
+            columns: ["cerrado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "casos_stock_conteo_id_fkey"
+            columns: ["conteo_id"]
+            isOneToOne: false
+            referencedRelation: "conteos_stock"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "casos_stock_reportado_por_fkey"
+            columns: ["reportado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "casos_stock_sobrante_codigo_fkey"
+            columns: ["sobrante_codigo"]
+            isOneToOne: false
+            referencedRelation: "sobrantes"
+            referencedColumns: ["codigo"]
+          },
+        ]
+      }
+      categorias_accesorio: {
+        Row: {
+          id: string
+          nombre: string
+          orden: number
+          prefijo: string
+        }
+        Insert: {
+          id?: string
+          nombre: string
+          orden?: number
+          prefijo: string
+        }
+        Update: {
+          id?: string
+          nombre?: string
+          orden?: number
+          prefijo?: string
+        }
+        Relationships: []
+      }
       configuracion: {
         Row: {
           actualizado_en: string
@@ -310,6 +526,138 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "usuarios"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      conteos_stock: {
+        Row: {
+          alcance: string
+          almacen_id: string
+          codigo: string
+          coincidencias: number | null
+          creado_en: string
+          creado_por: string | null
+          diferencias: number | null
+          enviado_en: string | null
+          enviado_por: string | null
+          estado: string
+          id: string
+        }
+        Insert: {
+          alcance: string
+          almacen_id: string
+          codigo?: string
+          coincidencias?: number | null
+          creado_en?: string
+          creado_por?: string | null
+          diferencias?: number | null
+          enviado_en?: string | null
+          enviado_por?: string | null
+          estado?: string
+          id?: string
+        }
+        Update: {
+          alcance?: string
+          almacen_id?: string
+          codigo?: string
+          coincidencias?: number | null
+          creado_en?: string
+          creado_por?: string | null
+          diferencias?: number | null
+          enviado_en?: string | null
+          enviado_por?: string | null
+          estado?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conteos_stock_almacen_id_fkey"
+            columns: ["almacen_id"]
+            isOneToOne: false
+            referencedRelation: "almacenes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conteos_stock_creado_por_fkey"
+            columns: ["creado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conteos_stock_enviado_por_fkey"
+            columns: ["enviado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      conteos_stock_lineas: {
+        Row: {
+          codigo: string | null
+          contado: number | null
+          conteo_id: string
+          grupo: string | null
+          nombre: string
+          producto_odoo_id: number
+        }
+        Insert: {
+          codigo?: string | null
+          contado?: number | null
+          conteo_id: string
+          grupo?: string | null
+          nombre: string
+          producto_odoo_id: number
+        }
+        Update: {
+          codigo?: string | null
+          contado?: number | null
+          conteo_id?: string
+          grupo?: string | null
+          nombre?: string
+          producto_odoo_id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conteos_stock_lineas_conteo_id_fkey"
+            columns: ["conteo_id"]
+            isOneToOne: false
+            referencedRelation: "conteos_stock"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      conteos_stock_sobrantes: {
+        Row: {
+          conteo_id: string
+          encontrado: boolean | null
+          sobrante_codigo: string
+        }
+        Insert: {
+          conteo_id: string
+          encontrado?: boolean | null
+          sobrante_codigo: string
+        }
+        Update: {
+          conteo_id?: string
+          encontrado?: boolean | null
+          sobrante_codigo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conteos_stock_sobrantes_conteo_id_fkey"
+            columns: ["conteo_id"]
+            isOneToOne: false
+            referencedRelation: "conteos_stock"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conteos_stock_sobrantes_sobrante_codigo_fkey"
+            columns: ["sobrante_codigo"]
+            isOneToOne: false
+            referencedRelation: "sobrantes"
+            referencedColumns: ["codigo"]
           },
         ]
       }
@@ -445,11 +793,19 @@ export type Database = {
             referencedRelation: "cotizaciones"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "cotizacion_productos_diseno_version_id_fkey"
+            columns: ["diseno_version_id"]
+            isOneToOne: false
+            referencedRelation: "cad_diseno_versiones"
+            referencedColumns: ["id"]
+          },
         ]
       }
       cotizaciones: {
         Row: {
           actualizado_en: string
+          almacen_despacho_id: string | null
           anulada_en_odoo: boolean
           canal: Database["public"]["Enums"]["canal_cotizacion"]
           chat_agente_id: string | null
@@ -478,6 +834,7 @@ export type Database = {
         }
         Insert: {
           actualizado_en?: string
+          almacen_despacho_id?: string | null
           anulada_en_odoo?: boolean
           canal?: Database["public"]["Enums"]["canal_cotizacion"]
           chat_agente_id?: string | null
@@ -506,6 +863,7 @@ export type Database = {
         }
         Update: {
           actualizado_en?: string
+          almacen_despacho_id?: string | null
           anulada_en_odoo?: boolean
           canal?: Database["public"]["Enums"]["canal_cotizacion"]
           chat_agente_id?: string | null
@@ -533,6 +891,13 @@ export type Database = {
           token_publico?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "cotizaciones_almacen_despacho_id_fkey"
+            columns: ["almacen_despacho_id"]
+            isOneToOne: false
+            referencedRelation: "almacenes"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "cotizaciones_creado_por_fkey"
             columns: ["creado_por"]
@@ -670,6 +1035,104 @@ export type Database = {
           },
         ]
       }
+      faltantes_stock: {
+        Row: {
+          almacen_id: string
+          cantidad: number
+          codigo: string | null
+          creado_en: string
+          estado: string
+          id: string
+          motivo: string
+          nombre: string
+          origen_sugerido_id: string | null
+          pedido_id: string
+          producto_odoo_id: number
+          resuelto_en: string | null
+          transferencia_id: string | null
+        }
+        Insert: {
+          almacen_id: string
+          cantidad: number
+          codigo?: string | null
+          creado_en?: string
+          estado?: string
+          id?: string
+          motivo: string
+          nombre: string
+          origen_sugerido_id?: string | null
+          pedido_id: string
+          producto_odoo_id: number
+          resuelto_en?: string | null
+          transferencia_id?: string | null
+        }
+        Update: {
+          almacen_id?: string
+          cantidad?: number
+          codigo?: string | null
+          creado_en?: string
+          estado?: string
+          id?: string
+          motivo?: string
+          nombre?: string
+          origen_sugerido_id?: string | null
+          pedido_id?: string
+          producto_odoo_id?: number
+          resuelto_en?: string | null
+          transferencia_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "faltantes_stock_almacen_id_fkey"
+            columns: ["almacen_id"]
+            isOneToOne: false
+            referencedRelation: "almacenes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "faltantes_stock_origen_sugerido_id_fkey"
+            columns: ["origen_sugerido_id"]
+            isOneToOne: false
+            referencedRelation: "almacenes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "faltantes_stock_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "faltantes_stock_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_admin"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "faltantes_stock_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_logistica"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "faltantes_stock_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_operaciones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "faltantes_stock_transferencia_id_fkey"
+            columns: ["transferencia_id"]
+            isOneToOne: false
+            referencedRelation: "transferencias_stock"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       formatos_plancha: {
         Row: {
           activo: boolean
@@ -680,7 +1143,6 @@ export type Database = {
           largo_cm: number
           nota: string | null
           por_verificar: boolean
-          sku_compartido: boolean
         }
         Insert: {
           activo?: boolean
@@ -691,7 +1153,6 @@ export type Database = {
           largo_cm: number
           nota?: string | null
           por_verificar?: boolean
-          sku_compartido?: boolean
         }
         Update: {
           activo?: boolean
@@ -702,7 +1163,6 @@ export type Database = {
           largo_cm?: number
           nota?: string | null
           por_verificar?: boolean
-          sku_compartido?: boolean
         }
         Relationships: [
           {
@@ -806,6 +1266,110 @@ export type Database = {
             columns: ["usuario_id"]
             isOneToOne: false
             referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ingresos_stock: {
+        Row: {
+          almacen_id: string
+          codigo: string
+          creado_en: string
+          creado_por: string | null
+          documento: string | null
+          error_sincronizacion: string | null
+          id: string
+          nota: string | null
+          odoo_picking_id: number | null
+          proveedor_nombre: string | null
+          proveedor_odoo_id: number | null
+          sincronizacion: Database["public"]["Enums"]["sincronizacion_odoo"]
+          tipo: string
+        }
+        Insert: {
+          almacen_id: string
+          codigo?: string
+          creado_en?: string
+          creado_por?: string | null
+          documento?: string | null
+          error_sincronizacion?: string | null
+          id?: string
+          nota?: string | null
+          odoo_picking_id?: number | null
+          proveedor_nombre?: string | null
+          proveedor_odoo_id?: number | null
+          sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
+          tipo: string
+        }
+        Update: {
+          almacen_id?: string
+          codigo?: string
+          creado_en?: string
+          creado_por?: string | null
+          documento?: string | null
+          error_sincronizacion?: string | null
+          id?: string
+          nota?: string | null
+          odoo_picking_id?: number | null
+          proveedor_nombre?: string | null
+          proveedor_odoo_id?: number | null
+          sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ingresos_stock_almacen_id_fkey"
+            columns: ["almacen_id"]
+            isOneToOne: false
+            referencedRelation: "almacenes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ingresos_stock_creado_por_fkey"
+            columns: ["creado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ingresos_stock_lineas: {
+        Row: {
+          cantidad: number
+          cantidad_anterior: number | null
+          codigo: string | null
+          costo_unitario: number | null
+          ingreso_id: string
+          nombre: string
+          posicion: number
+          producto_odoo_id: number
+        }
+        Insert: {
+          cantidad: number
+          cantidad_anterior?: number | null
+          codigo?: string | null
+          costo_unitario?: number | null
+          ingreso_id: string
+          nombre: string
+          posicion: number
+          producto_odoo_id: number
+        }
+        Update: {
+          cantidad?: number
+          cantidad_anterior?: number | null
+          codigo?: string | null
+          costo_unitario?: number | null
+          ingreso_id?: string
+          nombre?: string
+          posicion?: number
+          producto_odoo_id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ingresos_stock_lineas_ingreso_id_fkey"
+            columns: ["ingreso_id"]
+            isOneToOne: false
+            referencedRelation: "ingresos_stock"
             referencedColumns: ["id"]
           },
         ]
@@ -1664,9 +2228,9 @@ export type Database = {
       sobrantes: {
         Row: {
           actualizado_en: string
+          almacen_id: string
           ancho_cm: number
           codigo: string
-          color: string | null
           creado_en: string
           creado_por: string | null
           error_sincronizacion: string | null
@@ -1679,6 +2243,7 @@ export type Database = {
           odoo_lot_id: number | null
           origen: string
           pedido_id: string | null
+          precio_venta: number | null
           reserva_pedido_id: string | null
           reserva_posicion: number | null
           sincronizacion: Database["public"]["Enums"]["sincronizacion_odoo"]
@@ -1686,9 +2251,9 @@ export type Database = {
         }
         Insert: {
           actualizado_en?: string
+          almacen_id: string
           ancho_cm: number
           codigo?: string
-          color?: string | null
           creado_en?: string
           creado_por?: string | null
           error_sincronizacion?: string | null
@@ -1701,6 +2266,7 @@ export type Database = {
           odoo_lot_id?: number | null
           origen?: string
           pedido_id?: string | null
+          precio_venta?: number | null
           reserva_pedido_id?: string | null
           reserva_posicion?: number | null
           sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
@@ -1708,9 +2274,9 @@ export type Database = {
         }
         Update: {
           actualizado_en?: string
+          almacen_id?: string
           ancho_cm?: number
           codigo?: string
-          color?: string | null
           creado_en?: string
           creado_por?: string | null
           error_sincronizacion?: string | null
@@ -1723,12 +2289,20 @@ export type Database = {
           odoo_lot_id?: number | null
           origen?: string
           pedido_id?: string | null
+          precio_venta?: number | null
           reserva_pedido_id?: string | null
           reserva_posicion?: number | null
           sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
           ubicacion?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "sobrantes_almacen_id_fkey"
+            columns: ["almacen_id"]
+            isOneToOne: false
+            referencedRelation: "almacenes"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "sobrantes_creado_por_fkey"
             columns: ["creado_por"]
@@ -1870,6 +2444,162 @@ export type Database = {
             columns: ["usuario_id"]
             isOneToOne: true
             referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      transferencias_stock: {
+        Row: {
+          codigo: string
+          desde_id: string
+          enviado_en: string
+          enviado_por: string | null
+          error_sincronizacion: string | null
+          estado: string
+          hacia_id: string
+          id: string
+          nota: string | null
+          odoo_envio_id: number | null
+          odoo_recepcion_id: number | null
+          pedido_id: string | null
+          recibido_en: string | null
+          recibido_por: string | null
+          sincronizacion: Database["public"]["Enums"]["sincronizacion_odoo"]
+        }
+        Insert: {
+          codigo?: string
+          desde_id: string
+          enviado_en?: string
+          enviado_por?: string | null
+          error_sincronizacion?: string | null
+          estado?: string
+          hacia_id: string
+          id?: string
+          nota?: string | null
+          odoo_envio_id?: number | null
+          odoo_recepcion_id?: number | null
+          pedido_id?: string | null
+          recibido_en?: string | null
+          recibido_por?: string | null
+          sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
+        }
+        Update: {
+          codigo?: string
+          desde_id?: string
+          enviado_en?: string
+          enviado_por?: string | null
+          error_sincronizacion?: string | null
+          estado?: string
+          hacia_id?: string
+          id?: string
+          nota?: string | null
+          odoo_envio_id?: number | null
+          odoo_recepcion_id?: number | null
+          pedido_id?: string | null
+          recibido_en?: string | null
+          recibido_por?: string | null
+          sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transferencias_stock_desde_id_fkey"
+            columns: ["desde_id"]
+            isOneToOne: false
+            referencedRelation: "almacenes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transferencias_stock_enviado_por_fkey"
+            columns: ["enviado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transferencias_stock_hacia_id_fkey"
+            columns: ["hacia_id"]
+            isOneToOne: false
+            referencedRelation: "almacenes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transferencias_stock_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transferencias_stock_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_admin"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transferencias_stock_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_logistica"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transferencias_stock_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_operaciones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transferencias_stock_recibido_por_fkey"
+            columns: ["recibido_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      transferencias_stock_lineas: {
+        Row: {
+          cantidad: number
+          codigo: string | null
+          nombre: string
+          posicion: number
+          producto_odoo_id: number
+          sobrante_codigo: string | null
+          transferencia_id: string
+        }
+        Insert: {
+          cantidad: number
+          codigo?: string | null
+          nombre: string
+          posicion: number
+          producto_odoo_id: number
+          sobrante_codigo?: string | null
+          transferencia_id: string
+        }
+        Update: {
+          cantidad?: number
+          codigo?: string | null
+          nombre?: string
+          posicion?: number
+          producto_odoo_id?: number
+          sobrante_codigo?: string | null
+          transferencia_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transferencias_stock_lineas_sobrante_codigo_fkey"
+            columns: ["sobrante_codigo"]
+            isOneToOne: false
+            referencedRelation: "sobrantes"
+            referencedColumns: ["codigo"]
+          },
+          {
+            foreignKeyName: "transferencias_stock_lineas_transferencia_id_fkey"
+            columns: ["transferencia_id"]
+            isOneToOne: false
+            referencedRelation: "transferencias_stock"
             referencedColumns: ["id"]
           },
         ]
@@ -2070,6 +2800,7 @@ export type Database = {
           nombre_agencia: string | null
           nombre_cliente: string | null
           nombre_persona_recoge: string | null
+          notas_entrega: string | null
           numero_comprobante: string | null
           numero_documento: string | null
           observaciones: string | null
@@ -2084,7 +2815,6 @@ export type Database = {
           telefono_cliente: string | null
           telefono_persona_recoge: string | null
           tiene_comprobante: boolean | null
-          notas_entrega: string | null
           tipo_documento: Database["public"]["Enums"]["tipo_documento"] | null
           tipo_pago: Database["public"]["Enums"]["tipo_pago"] | null
           tipo_producto_terminado:
@@ -2147,6 +2877,7 @@ export type Database = {
           nombre_agencia: string | null
           nombre_cliente: string | null
           nombre_persona_recoge: string | null
+          notas_entrega: string | null
           numero_documento: string | null
           observaciones: string | null
           observaciones_envio: string | null
@@ -2157,7 +2888,6 @@ export type Database = {
           telefono_cliente: string | null
           telefono_persona_recoge: string | null
           tiene_comprobante: boolean | null
-          notas_entrega: string | null
           tipo_documento: Database["public"]["Enums"]["tipo_documento"] | null
           tipo_producto_terminado:
             | Database["public"]["Enums"]["producto_terminado"]
@@ -2212,12 +2942,12 @@ export type Database = {
           lugar_entrega: Database["public"]["Enums"]["lugar_entrega"] | null
           motivo: string | null
           nombre_cliente: string | null
+          notas_entrega: string | null
           observaciones: string | null
           provincia: string | null
           responsable: string | null
           responsable_id: string | null
           tiene_comprobante: boolean | null
-          notas_entrega: string | null
           tipo_producto_terminado:
             | Database["public"]["Enums"]["producto_terminado"]
             | null
@@ -2278,6 +3008,7 @@ export type Database = {
         Args: { p_codigo: string; p_descontado: boolean; p_error?: string }
         Returns: undefined
       }
+      anular_transferencia: { Args: { p_id: string }; Returns: undefined }
       aprobar_version_diseno: {
         Args: { p_diseno_id: string; p_version: number }
         Returns: undefined
@@ -2285,6 +3016,19 @@ export type Database = {
       array_sin_duplicados: { Args: { a: unknown }; Returns: boolean }
       auditoria_texto: { Args: { campo: string; valor: Json }; Returns: string }
       auth_rol: { Args: never; Returns: Database["public"]["Enums"]["rol"] }
+      avisar_casos: { Args: { p_codigos: string[] }; Returns: number }
+      avisar_faltantes: { Args: { p_pedido: string }; Returns: number }
+      cerrar_caso: {
+        Args: {
+          p_decision: string
+          p_id: string
+          p_odoo_ref?: number
+          p_razon: string
+        }
+        Returns: undefined
+      }
+      config_almacen: { Args: never; Returns: Json }
+      conteo_abierto: { Args: { p_conteo: string }; Returns: boolean }
       buscar_pedidos_chat: {
         Args: { p_q: string }
         Returns: {
@@ -2353,8 +3097,8 @@ export type Database = {
           p_monto_total?: number
           p_nombre_agencia?: string
           p_nombre_cliente: string
-          p_notas_entrega?: string
           p_nombre_persona_recoge?: string
+          p_notas_entrega?: string
           p_numero_documento?: string
           p_observaciones?: string
           p_observaciones_envio?: string
@@ -2372,6 +3116,14 @@ export type Database = {
         Returns: string
       }
       despachar_push: { Args: never; Returns: undefined }
+      enviar_conteo: {
+        Args: { p_coincidencias: number; p_diferencias: number; p_id: string }
+        Returns: undefined
+      }
+      enviar_sobrantes: {
+        Args: { p_transferencia: string }
+        Returns: undefined
+      }
       cerrar_sesiones_de: { Args: { p_usuario_id: string }; Returns: undefined }
       clave_de_login_valida: { Args: { clave: string }; Returns: boolean }
       directorio_usuarios: {
@@ -2404,19 +3156,12 @@ export type Database = {
       es_admin: { Args: never; Returns: boolean }
       escritura_del_sistema: { Args: never; Returns: boolean }
       etiqueta: { Args: { valor: string }; Returns: string }
-      generar_codigo_pedido: { Args: { p_fecha?: string }; Returns: string }
-      guardar_version_diseno_libre: {
-        Args: {
-          p_acomodo?: Json
-          p_codigo: string
-          p_color?: string
-          p_diseno_id: string
-          p_grupo_plancha_id?: string
-          p_materiales?: Json
-          p_origen?: string
-        }
-        Returns: number
+      fijar_precio_sobrante: {
+        Args: { p_codigo: string; p_precio: number }
+        Returns: undefined
       }
+      generar_codigo_pedido: { Args: { p_fecha?: string }; Returns: string }
+      gestiona_stock: { Args: never; Returns: boolean }
       guardar_version_diseno: {
         Args: {
           p_acomodo?: Json
@@ -2428,6 +3173,18 @@ export type Database = {
           p_parametros: Json
           p_plantilla: string
           p_version_plantilla?: number
+        }
+        Returns: number
+      }
+      guardar_version_diseno_libre: {
+        Args: {
+          p_acomodo?: Json
+          p_codigo: string
+          p_color?: string
+          p_diseno_id: string
+          p_grupo_plancha_id?: string
+          p_materiales?: Json
+          p_origen?: string
         }
         Returns: number
       }
@@ -2537,6 +3294,10 @@ export type Database = {
         Args: { p_conversacion_id: string; p_usuario_id: string }
         Returns: undefined
       }
+      recibir_transferencia: {
+        Args: { p_id: string; p_odoo_recepcion_id: number }
+        Returns: undefined
+      }
       reservar_sobrantes_de_corte: {
         Args: {
           p_codigos: string[]
@@ -2579,7 +3340,6 @@ export type Database = {
       }
       terminado_sin_precios: { Args: { t: Json }; Returns: Json }
       tiene_correo_recuperacion: { Args: { clave: string; nombre_usuario: string }; Returns: boolean }
-      token_seguimiento: { Args: { p_codigo: string }; Returns: string }
       texto_notificacion: {
         Args: {
           p_codigo: string
@@ -2590,6 +3350,7 @@ export type Database = {
           titulo: string
         }[]
       }
+      token_seguimiento: { Args: { p_codigo: string }; Returns: string }
       tomar_notificaciones: {
         Args: { p_limite?: number }
         Returns: {
@@ -2635,7 +3396,12 @@ export type Database = {
         | "en_transito"
         | "entregado"
         | "anulado"
-      estado_sobrante: "disponible" | "reservado" | "consumido" | "baja"
+      estado_sobrante:
+        | "disponible"
+        | "reservado"
+        | "consumido"
+        | "baja"
+        | "en_transito"
       lugar_entrega: "tienda" | "taller" | "domicilio" | "agencia"
       metodo_pago:
         | "efectivo"
@@ -2676,6 +3442,8 @@ export type Database = {
         | "mencion"
         | "mensaje_directo"
         | "diseno_modificado"
+        | "mover_stock"
+        | "caso_stock"
       tipo_pago: "contado" | "a_cuenta" | "credito"
       tipo_pedido: "CL" | "CM" | "SP" | "PT" | "AC"
       ubicacion: "tienda" | "taller" | "agencia"
@@ -2819,7 +3587,13 @@ export const Constants = {
         "entregado",
         "anulado",
       ],
-      estado_sobrante: ["disponible", "reservado", "consumido", "baja"],
+      estado_sobrante: [
+        "disponible",
+        "reservado",
+        "consumido",
+        "baja",
+        "en_transito",
+      ],
       lugar_entrega: ["tienda", "taller", "domicilio", "agencia"],
       metodo_pago: [
         "efectivo",
@@ -2863,6 +3637,8 @@ export const Constants = {
         "mencion",
         "mensaje_directo",
         "diseno_modificado",
+        "mover_stock",
+        "caso_stock",
       ],
       tipo_pago: ["contado", "a_cuenta", "credito"],
       tipo_pedido: ["CL", "CM", "SP", "PT", "AC"],

@@ -7,7 +7,6 @@ import {
   colorDe,
   espesorTexto,
   nombreDeGrupo,
-  pideColor,
   type GrupoPlancha,
 } from "@/lib/cortes/catalogo";
 import { money } from "@/lib/formato";
@@ -215,7 +214,6 @@ export function EditorTerminado({
   const [medidas, setMedidas] = useState<TextoMedidas>(inicial ? aTexto(inicial.medidas) : SIN_MEDIDAS);
   const [grupoId, setGrupoId] = useState<string | null>(inicial?.grupoId ?? null);
   const [consulta, setConsulta] = useState("");
-  const [color, setColor] = useState(inicial?.color ?? "");
   const [opciones, setOpciones] = useState<number[]>(inicial?.opciones ?? []);
   const [textoPedido, setTextoPedido] = useState(inicial?.texto ?? "");
   const [notas, setNotas] = useState(inicial?.notas ?? "");
@@ -233,7 +231,8 @@ export function EditorTerminado({
   const tipo = catalogo.tipos.find((t) => t.codigo === (producto?.tipo ?? tipoCodigo)) ?? null;
   const geometria: Geometria = producto?.geometria ?? "manual";
   const grupo = planchas.find((g) => g.id === grupoId) ?? null;
-  const conColor = grupo ? pideColor(grupo) : false;
+  // Cada color tiene su grupo: el color es el del material elegido.
+  const color = grupo ? colorDe(grupo) : "";
   const { precios, error: errorPrecios } = usePrecios(grupoId);
 
   const plancha = useMemo(
@@ -322,9 +321,7 @@ export function EditorTerminado({
       ? "Elige el producto."
       : !grupo
         ? "Elige el material."
-        : conColor && !color.trim()
-          ? "Escribe el color."
-          : null;
+        : null;
   const falta = problema ?? (unidades < 1 ? "Escribe la cantidad." : !precioValido ? "El precio no es válido." : null);
 
   const elegirProducto = (p: ProductoEstandar) => {
@@ -362,7 +359,7 @@ export function EditorTerminado({
       medidas: aMedidas(medidas),
       grupoId: grupo?.id ?? null,
       materialTexto: grupo ? nombreDeGrupo(grupo) : "",
-      color: grupo ? (conColor ? color.trim() : colorDe(grupo)) : null,
+      color: grupo ? colorDe(grupo) : null,
       opciones: elegidas.map((o) => o.id),
       opcionesTexto: elegidas.map((o) => o.nombre),
       texto: textoPedido,
@@ -394,7 +391,6 @@ export function EditorTerminado({
         alElegir: () => {
           setGrupoId(g.id);
           setConsulta("");
-          setColor(pideColor(g) ? g.detalle : "");
         },
         contenido: (
           <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
@@ -568,11 +564,6 @@ export function EditorTerminado({
                   </Button>
                 </p>
               </div>
-              {conColor && (
-                <Campo label="Color" requerido className="w-40">
-                  <Input value={color} onChange={(e) => setColor(e.target.value)} maxLength={60} />
-                </Campo>
-              )}
             </div>
           ) : (
             <div className="flex flex-col gap-1.5">

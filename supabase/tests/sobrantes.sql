@@ -49,6 +49,7 @@ set local role authenticated;
 do $$
 declare
   v_grupo  uuid := current_setting('plexi.grupo')::uuid;
+  v_almacen uuid := (select id from public.almacenes where tipo = 'taller');
   v_fila   public.sobrantes%rowtype;
   v_codigo text;
 begin
@@ -65,8 +66,8 @@ begin
   if found then raise exception 'FALLO: otro rol pudo escribir el catálogo'; end if;
 
   -- 2.2 Registra un sobrante: nace con código, disponible y firmado.
-  insert into public.sobrantes (grupo_id, largo_cm, ancho_cm, ubicacion)
-  values (v_grupo, 120, 45, 'Rack 2')
+  insert into public.sobrantes (almacen_id, grupo_id, largo_cm, ancho_cm, ubicacion)
+  values (v_almacen, v_grupo, 120, 45, 'Rack 2')
   returning * into v_fila;
   if v_fila.codigo !~ '^SOB-\d{5,}$' then raise exception 'FALLO: código inesperado %', v_fila.codigo; end if;
   if v_fila.estado <> 'disponible' or v_fila.sincronizacion <> 'pendiente' then
@@ -78,21 +79,21 @@ begin
 
   -- 2.3 El largo es el lado mayor.
   begin
-    insert into public.sobrantes (grupo_id, largo_cm, ancho_cm) values (v_grupo, 40, 90);
+    insert into public.sobrantes (almacen_id, grupo_id, largo_cm, ancho_cm) values (v_almacen, v_grupo, 40, 90);
     raise exception 'FALLO: se aceptó un largo menor que el ancho';
   exception when check_violation then null; end;
 
   -- 2.4 Un lote de Odoo con nombre de la app adelanta la numeración.
-  insert into public.sobrantes (codigo, grupo_id, largo_cm, ancho_cm, origen)
-  values ('SOB-90000', v_grupo, 100, 50, 'odoo');
-  insert into public.sobrantes (grupo_id, largo_cm, ancho_cm) values (v_grupo, 100, 50)
+  insert into public.sobrantes (almacen_id, codigo, grupo_id, largo_cm, ancho_cm, origen)
+  values (v_almacen, 'SOB-90000', v_grupo, 100, 50, 'odoo');
+  insert into public.sobrantes (almacen_id, grupo_id, largo_cm, ancho_cm) values (v_almacen, v_grupo, 100, 50)
   returning codigo into v_codigo;
   if v_codigo <> 'SOB-90001' then
     raise exception 'FALLO: después de SOB-90000 la numeración siguió en %', v_codigo;
   end if;
   -- Y un lote con otro nombre se guarda tal cual.
-  insert into public.sobrantes (codigo, grupo_id, largo_cm, ancho_cm, origen)
-  values ('LOTE-7', v_grupo, 100, 50, 'odoo');
+  insert into public.sobrantes (almacen_id, codigo, grupo_id, largo_cm, ancho_cm, origen)
+  values (v_almacen, 'LOTE-7', v_grupo, 100, 50, 'odoo');
 
   -- 2.5 Se marca, no se borra.
   update public.sobrantes set estado = 'consumido' where id = v_fila.id;

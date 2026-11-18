@@ -168,3 +168,12 @@ export async function exigirMetricas(): Promise<Perfil> {
   }
   return perfil;
 }
+
+/** La pantalla del almacén (`/almacen`): stock, ingresos, productos y sobrantes. */
+export async function exigirAlmacen(): Promise<Perfil> {
+  const perfil = await exigirSesion();
+  if (!ROLES[perfil.rol].verAlmacen) {
+    redirect(RUTA_PEDIDOS);
+  }
+  return perfil;
+}

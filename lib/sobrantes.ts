@@ -9,13 +9,14 @@
 import { colorDe, espesorTexto, type FormatoPlancha, type GrupoPlancha } from "./cortes/catalogo";
 import type { CorteGuardado } from "./cortes/guardado";
 
-export type EstadoSobrante = "disponible" | "reservado" | "consumido" | "baja";
-export type OrigenSobrante = "manual" | "corte" | "odoo";
+export type EstadoSobrante = "disponible" | "reservado" | "en_transito" | "consumido" | "baja";
+export type OrigenSobrante = "manual" | "corte" | "terminado" | "odoo";
 export type SincronizacionSobrante = "pendiente" | "sincronizada" | "error";
 
 export const ESTADOS_SOBRANTE: Record<EstadoSobrante, string> = {
   disponible: "Disponible",
   reservado: "Reservado",
+  en_transito: "En camino",
   consumido: "Consumido",
   baja: "De baja",
 };
@@ -27,19 +28,23 @@ export interface Sobrante {
   grupoId: string;
   /** "Acrílico ECO · Cristal · 3 mm". */
   material: string;
-  /** El color de la pieza, si el grupo comparte código entre colores. */
-  color: string | null;
   /** El lado mayor, en cm. */
   largo: number;
   ancho: number;
+  /** El almacén donde está (Andahuaylas, Católica…). */
+  almacenId: string;
+  almacen: string;
+  /** Dónde dentro del almacén: "Rack 2, fila B". */
   ubicacion: string | null;
+  /** El precio que fijó Administración. `null`: el calculado (costo × factor). */
+  precioVenta: number | null;
   estado: EstadoSobrante;
   estandar: boolean;
   /** El pedido que lo tiene reservado o lo consumió. */
   pedido: string | null;
-  /** Si nació de un corte: el pedido del que salió. */
+  /** Si nació de un corte o de un producto terminado: el pedido del que salió. */
   nacioEn: string | null;
-  /** Si nació de un corte: la posición de esa línea en el pedido. */
+  /** Si nació de un pedido: la posición de esa línea en el pedido. */
   lineaPosicion: number | null;
   origen: OrigenSobrante;
   odooLotId: number | null;
@@ -58,10 +63,27 @@ export function normalizarMedidas(a: number, b: number): { largo: number; ancho:
   return a >= b ? { largo: a, ancho: b } : { largo: b, ancho: a };
 }
 
-/** "Acrílico ECO · Colores negro · 3 mm" o, con color propio, "… · Colores (rojo) · 3 mm". */
-export function materialDeSobrante(g: Pick<GrupoPlancha, "material" | "variante" | "detalle" | "espesorMm">, color: string | null) {
-  const tono = color ? `${colorDe(g)} (${color})` : colorDe(g);
-  return `${g.material} · ${tono} · ${espesorTexto(g.espesorMm)}`;
+/** "Acrílico ECO · Colores negro · 3 mm". */
+export function materialDeSobrante(g: Pick<GrupoPlancha, "material" | "variante" | "detalle" | "espesorMm">) {
+  return `${g.material} · ${colorDe(g)} · ${espesorTexto(g.espesorMm)}`;
+}
+
+/**
+ * El precio de venta de un sobrante: el que fijó Administración o, si no, lo que
+ * cuesta su pedazo de plancha (el costo del formato más chico del material, por
+ * la parte del área que ocupa) por el factor de la configuración.
+ */
+export function precioDeSobrante(
+  s: Pick<Sobrante, "largo" | "ancho" | "precioVenta">,
+  formato: { anchoCm: number; largoCm: number; costo: number | null } | null,
+  factor: number,
+): number | null {
+  if (s.precioVenta !== null) return s.precioVenta;
+  if (!formato || formato.costo === null || formato.costo <= 0) return null;
+  const area = formato.anchoCm * formato.largoCm;
+  if (area <= 0) return null;
+  const costo = (s.largo * s.ancho * formato.costo) / area;
+  return Math.round(costo * factor * 100) / 100;
 }
 
 /** Hasta 1 cm de diferencia es la misma medida: la sierra y la cinta no dan más. */
@@ -144,34 +166,27 @@ export function materialOdoo(g: GrupoPlancha): { codigoBase: string; nombre: str
   return { codigoBase: base.codigo, nombre: sinTildes(`SOBRANTE ${partes.join(" ")}`).toUpperCase() };
 }
 
-/** Lo que va en la nota del lote: dónde está y, si hace falta, el color. */
-export const notaDeLote = (s: { ubicacion: string | null; color: string | null }) =>
-  [s.ubicacion, s.color && `Color: ${s.color}`].filter(Boolean).join(" · ") || null;
+/** Lo que va en la nota del lote: dónde está dentro del almacén. */
+export const notaDeLote = (s: { ubicacion: string | null }) => s.ubicacion?.trim() || null;
 
-/** La nota de vuelta: "Rack 2 · Color: rojo" → ubicación y color. */
-export function leerNotaDeLote(nota: string | null): { ubicacion: string | null; color: string | null } {
-  if (!nota) return { ubicacion: null, color: null };
-  const color = /Color:\s*(.+?)\s*$/.exec(nota)?.[1] ?? null;
-  const ubicacion = nota.replace(/\s*·?\s*Color:.*$/, "").trim() || null;
-  return { ubicacion, color };
+/**
+ * La nota de vuelta. Las de antes de que cada color tuviera su código decían
+ * también el color ("Rack 2 · Color: rojo"): eso ya no es la ubicación.
+ */
+export function leerNotaDeLote(nota: string | null): string | null {
+  if (!nota) return null;
+  return nota.replace(/\s*·?\s*Color:.*$/, "").trim() || null;
 }
 
 
 /* ── El piloto: lo que sale de un corte ────────────────────────────────────── */
 
 /**
- * Los sobrantes como piezas para el optimizador, ya en orden de uso. Si el
- * material comparte código entre colores, solo los del color pedido. El largo
+ * Los sobrantes como piezas para el optimizador, ya en orden de uso. El largo
  * va a lo alto, como en las planchas del catálogo.
  */
-export function contenedoresDe(
-  sobrantes: { codigo: string; largo: number; ancho: number; color: string | null }[],
-  color: string | null,
-) {
-  const igual = (a: string | null, b: string | null) => (a ?? "").trim().toLowerCase() === (b ?? "").trim().toLowerCase();
-  return sobrantes
-    .filter((s) => color === null || igual(s.color, color))
-    .map((s) => ({ id: s.codigo, ancho: s.ancho, alto: s.largo }));
+export function contenedoresDe(sobrantes: { codigo: string; largo: number; ancho: number }[]) {
+  return sobrantes.map((s) => ({ id: s.codigo, ancho: s.ancho, alto: s.largo }));
 }
 
 const redondear = (n: number, d: number) => Math.round((n + Number.EPSILON) * 10 ** d) / 10 ** d;

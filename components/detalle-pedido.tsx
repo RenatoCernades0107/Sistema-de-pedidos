@@ -47,13 +47,20 @@ import type { ChatInicial } from "@/lib/chat/consultas";
 import { asuntoSeguimiento, mensajeSeguimiento } from "@/lib/compartir";
 import type { LineaDePedido, OdooDePedido } from "@/lib/pedido-lineas";
 import type { Sobrante } from "@/lib/sobrantes";
+import type { Almacen } from "@/lib/almacenes";
+import type { FaltanteGuardado } from "@/lib/faltantes";
+import { AvisoFaltantes } from "@/components/almacen/aviso-faltantes";
+import type { GrupoPlancha } from "@/lib/cortes/catalogo";
 
 export function DetallePedido({
   codigo,
   lineas = null,
   odoo = null,
   retazoMin,
+  almacenes = [],
+  catalogo = [],
   sobrantes = [],
+  faltantes = [],
   tokenSeguimiento = null,
   chat = null,
 }: {
@@ -70,8 +77,13 @@ export function DetallePedido({
   tokenSeguimiento?: string | null;
   /** El lado mínimo de un sobrante (de la configuración de cortes). */
   retazoMin?: number;
+  /** Los almacenes y el catálogo de planchas: al pasar a Listo, a qué almacén va cada sobrante y de qué material es. */
+  almacenes?: Almacen[];
+  catalogo?: GrupoPlancha[];
   /** Los sobrantes que este pedido devolvió al almacén. */
   sobrantes?: Sobrante[];
+  /** El material que le falta donde se produce o se despacha (los avisos de "mover stock"). */
+  faltantes?: FaltanteGuardado[];
   /** Los productos y cortes del pedido. `null` si no se pudieron leer. */
   lineas?: LineaDePedido[] | null;
   odoo?: OdooDePedido | null;
@@ -278,6 +290,8 @@ export function DetallePedido({
             </dl>
           </Panel>
 
+          <AvisoFaltantes faltantes={faltantes} almacenes={almacenes} gestiona={permisos.gestionarStock} />
+
           {lineas === null ? (
             <p className="text-muted-foreground rounded-xl border border-dashed p-4 text-sm">
               No se pudieron leer los productos y cortes del pedido. Recarga la página.
@@ -464,6 +478,8 @@ export function DetallePedido({
             terminados={lineas?.filter((l) => l.terminado) ?? []}
             stockDescontado={odoo?.stockDescontado ?? false}
             retazoMin={retazoMin}
+            almacenes={almacenes}
+            catalogo={catalogo}
           />
           {permisos.verMontos && <PanelPago pedido={p} />}
         </div>

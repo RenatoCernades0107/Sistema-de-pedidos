@@ -15,7 +15,14 @@ import {
   Scissors,
 } from "lucide-react";
 import { toast } from "sonner";
-import { reintentarConfirmacion, reintentarSincronizacion } from "@/app/(app)/cotizaciones/acciones";
+import {
+  cambiarAlmacenDeCotizacion,
+  reintentarConfirmacion,
+  reintentarSincronizacion,
+} from "@/app/(app)/cotizaciones/acciones";
+import type { Almacen } from "@/lib/almacenes";
+import { MOTIVOS_FALTANTE, type Faltante } from "@/lib/faltantes";
+import { SelectorAlmacen, nombreDeAlmacen } from "@/components/almacen/comun";
 import { referenciaDe, sumaLineas, type Cotizacion } from "@/lib/cotizaciones";
 import { momentoEnLima } from "@/lib/fecha";
 import { fechaHora, money, numero } from "@/lib/formato";
@@ -33,6 +40,9 @@ export function DetalleCotizacion({
   puedeAsistente,
   puedeCrearPedido,
   validezDias,
+  almacenes = [],
+  despachoId = null,
+  faltantes = null,
 }: {
   cotizacion: Cotizacion;
   /** Calculado en el servidor: la URL de Odoo no viaja en el bundle. */
@@ -41,10 +51,25 @@ export function DetalleCotizacion({
   puedeCrearPedido: boolean;
   /** La validez que va en el PDF y en el texto (de /configuracion). */
   validezDias: number;
+  /** Los almacenes, y del que sale la venta (el elegido o el de la regla). */
+  almacenes?: Almacen[];
+  despachoId?: string | null;
+  /** Lo que faltaría con ese despacho (stock libre de Odoo). `null`: no se sabe. */
+  faltantes?: Faltante[] | null;
 }) {
   const router = useRouter();
   const [reintentando, iniciar] = useTransition();
   const [confirmando, iniciarConfirmacion] = useTransition();
+  const [, iniciarAlmacen] = useTransition();
+  const despacho = almacenes.find((a) => a.id === despachoId) ?? null;
+
+  const cambiarAlmacen = (almacenId: string) =>
+    iniciarAlmacen(async () => {
+      const r = await cambiarAlmacenDeCotizacion(c.id, almacenId);
+      if (r.ok) toast.success("Almacén de despacho cambiado");
+      else toast.error("No se cambió el almacén", { description: r.error });
+      router.refresh();
+    });
 
   const confirmar = () =>
     iniciarConfirmacion(async () => {
@@ -213,6 +238,48 @@ export function DetalleCotizacion({
                 <RotateCw className={confirmando ? "animate-spin" : undefined} />
                 {confirmando ? "Confirmando…" : "Confirmar en Odoo"}
               </Button>
+            )}
+          </section>
+        )}
+
+        {despacho && (
+          <section className="bg-card flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border p-4 text-sm">
+            <div className="min-w-0 flex-1">
+              <p className="eyebrow mb-1">Sale del almacén</p>
+              <p className="text-muted-foreground text-xs">
+                {c.confirmadaEnOdoo
+                  ? "Ya es pedido de venta: la entrega sale de aquí."
+                  : "Por defecto, el taller si algo se produce allí; si no, el que tiene el stock (la tienda primero). Puedes cambiarlo."}
+              </p>
+            </div>
+            {c.confirmadaEnOdoo ? (
+              <p className="font-medium">{nombreDeAlmacen(despacho)}</p>
+            ) : (
+              <SelectorAlmacen
+                almacenes={almacenes}
+                valor={despacho.id}
+                alCambiar={(id) => id !== despacho.id && cambiarAlmacen(id)}
+                etiqueta="Almacén de despacho"
+                className="w-56"
+              />
+            )}
+            {faltantes && faltantes.length > 0 && (
+              <ul className="w-full border-t pt-2 text-xs" aria-label="Faltaría">
+                {faltantes.map((f) => (
+                  <li key={`${f.productoId}|${f.almacenId}`} className="text-st-observado flex flex-wrap gap-x-1.5">
+                    <span className="font-mono">{f.codigo}</span>
+                    <span>
+                      faltarían {+f.falta.toFixed(2)} en {almacenes.find((a) => a.id === f.almacenId)?.nombre}{" "}
+                      {MOTIVOS_FALTANTE[f.motivo]}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {f.origenSugeridoId
+                        ? `· hay ${+f.hayEnOrigen.toFixed(2)} en ${almacenes.find((a) => a.id === f.origenSugeridoId)?.nombre}`
+                        : "· no hay en ningún almacén"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             )}
           </section>
         )}

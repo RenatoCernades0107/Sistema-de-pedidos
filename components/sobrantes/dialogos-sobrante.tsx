@@ -2,18 +2,19 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
-import * as acciones from "@/app/(app)/sobrantes/acciones";
+import * as acciones from "@/app/(app)/almacen/acciones";
+import type { Almacen } from "@/lib/almacenes";
 import {
   buscarGrupos,
   colorDe,
   espesorTexto,
   medidaDe,
   nombreDeGrupo,
-  pideColor,
   type GrupoPlancha,
 } from "@/lib/cortes/catalogo";
 import { esEstandar, medidaSobrante, normalizarMedidas, type Sobrante } from "@/lib/sobrantes";
 import { ComboBusqueda, type Opcion } from "@/components/cotizaciones/combo-busqueda";
+import { SelectorAlmacen } from "@/components/almacen/comun";
 import { Button } from "@/components/ui/button";
 import { Campo } from "@/components/ui/campo";
 import { Input } from "@/components/ui/input";
@@ -33,19 +34,21 @@ const numero = (t: string) => {
 };
 
 /**
- * Registrar a mano un sobrante que ya está en el almacén: de qué material es,
- * cuánto mide y dónde se guardó. La app crea su lote en Odoo con una unidad en
- * stock, y después se imprime la etiqueta.
+ * Registrar a mano un sobrante que ya está en un almacén: de qué material es,
+ * cuánto mide, en qué almacén y dónde dentro de él. La app crea su lote en Odoo
+ * con una unidad en stock en ese almacén, y después se imprime la etiqueta.
  */
 export function DialogoRegistrarSobrante({
   abierto,
   alCambiar,
   catalogo,
+  almacenes,
   alRegistrar,
 }: {
   abierto: boolean;
   alCambiar: (abierto: boolean) => void;
   catalogo: GrupoPlancha[];
+  almacenes: Almacen[];
   alRegistrar: (codigo: string) => void;
 }) {
   return (
@@ -54,12 +57,13 @@ export function DialogoRegistrarSobrante({
         <DialogHeader>
           <DialogTitle>Registrar sobrante</DialogTitle>
           <DialogDescription>
-            Mide el pedazo y anota dónde lo guardas. Se crea en Odoo como un lote con su etiqueta.
+            Mide el pedazo y anota en qué almacén lo guardas. Se crea en Odoo como un lote con su etiqueta.
           </DialogDescription>
         </DialogHeader>
         {abierto && (
           <Formulario
             catalogo={catalogo}
+            almacenes={almacenes}
             alTerminar={(codigo) => {
               alCambiar(false);
               alRegistrar(codigo);
@@ -71,10 +75,18 @@ export function DialogoRegistrarSobrante({
   );
 }
 
-function Formulario({ catalogo, alTerminar }: { catalogo: GrupoPlancha[]; alTerminar: (codigo: string) => void }) {
+function Formulario({
+  catalogo,
+  almacenes,
+  alTerminar,
+}: {
+  catalogo: GrupoPlancha[];
+  almacenes: Almacen[];
+  alTerminar: (codigo: string) => void;
+}) {
   const [consulta, setConsulta] = useState("");
   const [grupo, setGrupo] = useState<GrupoPlancha | null>(null);
-  const [color, setColor] = useState("");
+  const [almacenId, setAlmacenId] = useState<string | null>(null);
   const [largo, setLargo] = useState("");
   const [ancho, setAncho] = useState("");
   const [ubicacion, setUbicacion] = useState("");
@@ -105,18 +117,17 @@ function Formulario({ catalogo, alTerminar }: { catalogo: GrupoPlancha[]; alTerm
   const a = numero(ancho);
   const medidas = l && a && l > 0 && a > 0 ? normalizarMedidas(l, a) : null;
   const estandar = grupo && medidas ? esEstandar(medidas, grupo.formatos) : false;
-  const conColor = grupo ? pideColor(grupo) : false;
 
   const enviar = (e: React.FormEvent) => {
     e.preventDefault();
     if (!grupo) return setError("Elige el material.");
-    if (conColor && !color.trim()) return setError("Escribe el color de la pieza.");
     if (!medidas) return setError("Escribe el largo y el ancho en centímetros.");
+    if (!almacenId) return setError("Elige en qué almacén está.");
     setError(null);
     iniciar(async () => {
       const r = await acciones.registrarSobrante({
         grupoId: grupo.id,
-        color: conColor ? color : null,
+        almacenId,
         largo: medidas.largo,
         ancho: medidas.ancho,
         ubicacion,
@@ -166,18 +177,12 @@ function Formulario({ catalogo, alTerminar }: { catalogo: GrupoPlancha[]; alTerm
         )}
 
         {/* Las medidas aparecen con el material elegido, y el largo llega con el foco. */}
-        {grupo && conColor && (
-          <Campo label="Color de la pieza" requerido ayuda="Este material comparte código entre colores.">
-            <Input autoFocus value={color} onChange={(e) => setColor(e.target.value)} maxLength={60} />
-          </Campo>
-        )}
-
         {grupo && (
           <>
             <div className="grid grid-cols-2 gap-3">
               <Campo label="Largo (cm)" requerido>
                 <Input
-                  autoFocus={!conColor}
+                  autoFocus
                   inputMode="decimal"
                   className="tnum"
                   value={largo}
@@ -195,9 +200,14 @@ function Formulario({ catalogo, alTerminar }: { catalogo: GrupoPlancha[]; alTerm
               </p>
             )}
 
-            <Campo label="Ubicación" ayuda="Dónde lo guardas: rack, fila, estante.">
-              <Input value={ubicacion} onChange={(e) => setUbicacion(e.target.value)} maxLength={80} placeholder="Rack 2, fila B" />
-            </Campo>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Campo grupo label="Almacén" requerido>
+                <SelectorAlmacen almacenes={almacenes} valor={almacenId} alCambiar={setAlmacenId} />
+              </Campo>
+              <Campo label="Ubicación" ayuda="Dónde dentro del almacén: rack, fila, estante.">
+                <Input value={ubicacion} onChange={(e) => setUbicacion(e.target.value)} maxLength={80} placeholder="Rack 2, fila B" />
+              </Campo>
+            </div>
           </>
         )}
 
@@ -226,7 +236,7 @@ export function DialogoUbicacion({ sobrante, alCerrar }: { sobrante: Sobrante | 
         <DialogHeader>
           <DialogTitle>Mover {sobrante?.codigo}</DialogTitle>
           <DialogDescription>
-            {sobrante && `${sobrante.material} · ${medidaSobrante(sobrante)} cm`}
+            {sobrante && `${sobrante.material} · ${medidaSobrante(sobrante)} cm · en ${sobrante.almacen}`}
           </DialogDescription>
         </DialogHeader>
         {sobrante && <FormUbicacion sobrante={sobrante} alCerrar={alCerrar} />}
@@ -255,7 +265,7 @@ function FormUbicacion({ sobrante, alCerrar }: { sobrante: Sobrante; alCerrar: (
 
   return (
     <form onSubmit={enviar} className="flex flex-col gap-4" noValidate>
-      <Campo label="Nueva ubicación">
+      <Campo label="Nueva ubicación" ayuda="Dentro del mismo almacén. Pasarlo a otro almacén es una transferencia.">
         <Input autoFocus value={ubicacion} onChange={(e) => setUbicacion(e.target.value)} maxLength={80} />
       </Campo>
       <DialogFooter>

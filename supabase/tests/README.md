@@ -41,6 +41,26 @@ Dos scripts, los dos pensados para correr contra el proyecto de Supabase en la n
   trae las mismas líneas que `lineas_de_pedido(codigo)` pedido por pedido, cada una con su pedido;
   Administración las ve con precios, el taller sin ellos, y una sesión sin perfil no ve nada.
   Necesita el seed (entra como `ana` y `miguel`) y termina en `ROLLBACK`.
+- **`almacenes.sql`** — verifica las migraciones `20261205000100`–`200`: los tres almacenes con su
+  papel (un solo taller y una sola tienda), que ya no hay código compartido entre colores y todos los
+  materiales registran sobrantes, los accesorios sembrados en sus categorías, que un sobrante necesita
+  su almacén, y por rol: el taller ve los almacenes pero no crea almacenes, ingresos ni accesorios, ni
+  toca el precio de un sobrante; Logística gestiona el stock (ingresos, accesorios, planchas nuevas)
+  sin cambiar el catálogo ni los precios; Administración fija y devuelve al calculado el precio de un
+  sobrante. Entra como el primer usuario activo de cada rol, así que no necesita las cuentas del seed.
+  Termina en `ROLLBACK`.
+- **`transferencias.sql`** — verifica la migración `20261205000300`: RLS en las tablas nuevas; que
+  Logística envía (el sobrante queda en tránsito y no sale dos veces), no transfiere a sí mismo y
+  anula solo lo que no salió en Odoo; que el taller recibe (el sobrante queda disponible en su
+  almacén nuevo) pero no crea ni anula transferencias ni escribe faltantes; un solo faltante abierto
+  por pedido, producto y almacén; y que `avisar_faltantes()` avisa a todo Administración y Logística
+  diciendo qué falta. Termina en `ROLLBACK`.
+- **`casos.sql`** — verifica la migración `20261205000400`: RLS en las tablas nuevas y que el estado
+  de un caso no se cambia sin `cerrar_caso`; que Logística reporta (una baja es negativa, no nace
+  cerrada, un sobrante no tiene dos casos abiertos) y cuenta (un conteo enviado no se toca ni se
+  envía dos veces) pero no cierra; que el taller no ve casos ni conteos; que Administración cierra
+  solo con razón y una sola vez, y que el sobrante dado de baja sale del almacén; y que
+  `avisar_casos()` avisa a toda Administración. Termina en `ROLLBACK`.
 - **`estado.sql`** — no verifica nada, solo reporta: cuántos pedidos, pagos y adjuntos
   hay, cómo se reparten los estados y si algún saldo quedó descuadrado.
 

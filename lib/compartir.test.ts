@@ -51,6 +51,7 @@ const cotizacion = (c: Partial<Cotizacion> = {}): Cotizacion => ({
   confirmadaEnOdoo: false,
   errorConfirmacion: null,
   tokenPublico: "b7d1c1a2-1111-4b5c-9d00-000000000001",
+  almacenDespachoId: null,
   ...c,
 });
 

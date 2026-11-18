@@ -1,8 +1,9 @@
 /**
- * La pantalla de Sobrantes: el taller registra un sobrante medido a mano, que
- * nace como lote en Odoo con su etiqueta; se busca por la medida que se
- * necesita; y "Sincronizar con Odoo" trae lo que solo está allá y da por
- * consumido lo que ya no está.
+ * Los sobrantes, en su pestaña del almacén: Logística registra un sobrante
+ * medido a mano en un almacén, que nace como lote en Odoo (en la ubicación de
+ * ese almacén) con su etiqueta; se busca por la medida que se necesita; el
+ * taller los ve pero no los cambia; y "Sincronizar con Odoo" trae lo que solo
+ * está allá y da por consumido lo que ya no está.
  *
  * Odoo es el falso de `e2e/odoo-falso.mts`. Los sobrantes de prueba llevan
  * "E2E" en la ubicación; al final se dan de baja (un sobrante no se borra).
@@ -22,7 +23,17 @@ interface Lote {
   cantidad: number;
 }
 
-const estado = async () => (await (await fetch(`${ODOO}/__estado`)).json()) as { lotes: Lote[]; modo: string | null };
+interface EstadoOdoo {
+  lotes: Lote[];
+  modo: string | null;
+  almacenes: { id: number; code: string; lot_stock_id: [number, string] }[];
+  quants: { lot_id: [number, string] | false; location_id: [number, string]; quantity: number }[];
+}
+
+const estado = async () => (await (await fetch(`${ODOO}/__estado`)).json()) as EstadoOdoo;
+/** La ubicación de stock de un almacén en el Odoo falso, por su código. */
+const ubicacionDe = async (codigo: string) => (await estado()).almacenes.find((a) => a.code === codigo)?.lot_stock_id[0];
+const SOBRANTES = "/almacen?vista=sobrantes";
 const modo = (m: "caido" | null) => fetch(`${ODOO}/__modo`, { method: "POST", body: JSON.stringify({ modo: m }) });
 
 /** Una llamada al Odoo falso, como si alguien trabajara directo en Odoo. */
@@ -70,7 +81,7 @@ test.afterAll(async () => {
   await limpiar();
 });
 
-async function registrar(page: Page, largo: string, ancho: string, ubicacion: string) {
+async function registrar(page: Page, largo: string, ancho: string, ubicacion: string, almacen = "Católica (taller)") {
   await page.getByRole("button", { name: "Registrar sobrante" }).click();
   const dialogo = page.getByRole("dialog", { name: "Registrar sobrante" });
   await dialogo.getByLabel("Buscar material").fill("eco cristal 3");
@@ -84,15 +95,24 @@ async function registrar(page: Page, largo: string, ancho: string, ubicacion: st
   await expect(dialogo.getByLabel("Largo (cm)")).toBeFocused();
   await dialogo.getByLabel("Largo (cm)").fill(largo);
   await dialogo.getByLabel("Ancho (cm)").fill(ancho);
+  await dialogo.getByRole("combobox", { name: "Almacén" }).click();
+  await page.getByRole("option", { name: almacen }).click();
   await dialogo.getByLabel("Ubicación").fill(ubicacion);
   await dialogo.getByRole("button", { name: "Registrar" }).click();
   return dialogo;
 }
 
-test("el taller registra un sobrante: nace como lote en Odoo y se imprime su etiqueta", async ({ page }) => {
-  await entrar(page, "operaciones");
+test("/sobrantes lleva a la pestaña del almacén", async ({ page }) => {
+  await entrar(page, "logistica");
   await page.goto("/sobrantes");
-  await expect(page.getByRole("heading", { name: "Sobrantes" })).toBeVisible();
+  await page.waitForURL(`**${SOBRANTES}`);
+  await expect(page.getByRole("heading", { name: "Almacén" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Sobrantes" })).toHaveAttribute("aria-selected", "true");
+});
+
+test("Logística registra un sobrante en un almacén: nace como lote en Odoo allí y se imprime su etiqueta", async ({ page }) => {
+  await entrar(page, "logistica");
+  await page.goto(SOBRANTES);
 
   // Un retazo no entra.
   const dialogo = await registrar(page, "100", "20", "E2E rack 1");
@@ -110,13 +130,18 @@ test("el taller registra un sobrante: nace como lote en Odoo y se imprime su eti
 
   const fila = page.getByRole("list", { name: "Sobrantes" }).getByRole("listitem").filter({ hasText: codigo });
   await expect(fila).toContainText("120×45 cm");
+  await expect(fila).toContainText("Católica");
   await expect(fila).toContainText("E2E rack 1");
   await expect(fila).toContainText("Disponible");
   await expect(fila).not.toContainText("No está en Odoo");
 
-  expect((await estado()).lotes).toEqual([
+  const e = await estado();
+  expect(e.lotes).toEqual([
     expect.objectContaining({ name: codigo, x_largo: 120, x_ancho: 45, note: "E2E rack 1", cantidad: 1 }),
   ]);
+  // En la ubicación de Católica, que la app creó en Odoo al hacer falta.
+  const quant = e.quants.find((q) => q.lot_id && q.lot_id[0] === e.lotes[0].id && q.quantity > 0);
+  expect(quant?.location_id[0]).toBe(await ubicacionDe("CAT"));
 
   // La etiqueta, con su QR.
   await fila.getByRole("button", { name: `Etiqueta de ${codigo}` }).click();
@@ -125,11 +150,21 @@ test("el taller registra un sobrante: nace como lote en Odoo y se imprime su eti
   await expect(etiqueta.getByRole("img", { name: `Código QR de ${codigo}` }).locator("svg")).toBeVisible();
   await expect(etiqueta).toContainText("120×45 cm");
   await expect(etiqueta).toContainText("Acrílico ECO · Cristal · 3 mm");
+  await expect(etiqueta).toContainText("Católica");
+});
+
+test("el taller ve los sobrantes, pero no los registra ni los mueve", async ({ page }) => {
+  await entrar(page, "operaciones");
+  await page.goto(SOBRANTES);
+  const fila = page.getByRole("list", { name: "Sobrantes" }).getByRole("listitem").filter({ hasText: "E2E rack 1" });
+  await expect(fila).toBeVisible();
+  await expect(page.getByRole("button", { name: "Registrar sobrante" })).toHaveCount(0);
+  await expect(fila.getByRole("button", { name: /Cambiar la ubicación/ })).toHaveCount(0);
 });
 
 test("se busca por la medida que se necesita, y se mueve de sitio", async ({ page }) => {
-  await entrar(page, "operaciones");
-  await page.goto("/sobrantes");
+  await entrar(page, "logistica");
+  await page.goto(SOBRANTES);
   const lista = page.getByRole("list", { name: "Sobrantes" });
   const buscar = page.getByLabel("Buscar sobrante");
 
@@ -151,9 +186,9 @@ test("se busca por la medida que se necesita, y se mueve de sitio", async ({ pag
 
 test("si Odoo falla, el sobrante queda registrado y se crea en Odoo al reintentar", async ({ page }) => {
   await entrar(page, "administracion");
-  await page.goto("/sobrantes");
+  await page.goto(SOBRANTES);
   await modo("caido");
-  await registrar(page, "91.5", "61", "E2E rack 2");
+  await registrar(page, "91.5", "61", "E2E rack 2", "Andahuaylas (tienda)");
   await expect(page.getByText(/Quedó registrado, pero no se creó en Odoo/)).toBeVisible();
   await modo(null);
 
@@ -161,6 +196,7 @@ test("si Odoo falla, el sobrante queda registrado y se crea en Odoo al reintenta
   await expect(fila).toContainText("No está en Odoo");
   // 91.5×61: un cuarto de plancha de 122×183.
   await expect(fila).toContainText("Estándar");
+  await expect(fila).toContainText("Andahuaylas");
   await fila.getByRole("button", { name: "Reintentar" }).click();
   await expect(fila).not.toContainText("No está en Odoo");
   expect((await estado()).lotes.map((l) => l.x_largo)).toEqual([120, 91.5]);
@@ -176,7 +212,7 @@ test("Sincronizar con Odoo trae lo que solo está allá y da por consumido lo qu
   const quant = await enOdoo<number>(
     "stock.quant",
     "create",
-    [{ product_id: producto, location_id: 8, lot_id: lote, inventory_quantity: 1 }],
+    [{ product_id: producto, location_id: await ubicacionDe("ESM"), lot_id: lote, inventory_quantity: 1 }],
     { context: { inventory_mode: true } },
   );
   await enOdoo("stock.quant", "action_apply_inventory", [[quant]]);
@@ -185,7 +221,7 @@ test("Sincronizar con Odoo trae lo que solo está allá y da por consumido lo qu
   await enOdoo("stock.quant", "write", [[quantRack2], { quantity: 0 }]);
 
   await entrar(page, "logistica");
-  await page.goto("/sobrantes");
+  await page.goto(SOBRANTES);
   await page.getByRole("button", { name: "Sincronizar con Odoo" }).click();
   await expect(page.getByText("1 traídos de Odoo · 1 ya no están en Odoo")).toBeVisible();
 
@@ -193,6 +229,8 @@ test("Sincronizar con Odoo trae lo que solo está allá y da por consumido lo qu
   const traido = lista.getByRole("listitem").filter({ hasText: loteOdoo });
   await expect(traido).toContainText("150×50 cm");
   await expect(traido).toContainText("E2E desde Odoo");
+  // Está en la ubicación de Esmeraldas: se trae a ese almacén.
+  await expect(traido).toContainText("Esmeraldas");
   await expect(lista.getByRole("listitem").filter({ hasText: "E2E rack 2" })).toHaveCount(0);
 
   await page.getByRole("button", { name: /^Todos/ }).click();

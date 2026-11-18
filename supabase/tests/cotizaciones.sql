@@ -476,15 +476,16 @@ declare
   v_grupo  uuid := (select g.id from public.grupos_plancha g join public.formatos_plancha f on f.grupo_id = g.id
                      order by f.codigo_odoo limit 1);
   v_corte  jsonb := (select corte from public.cotizacion_productos where cotizacion_id = v_cot and posicion = 1);
+  v_almacen uuid := (select id from public.almacenes where tipo = 'taller');
   a text;
   b text;
 begin
   -- Con código propio: así no gastan números de la secuencia, que no vuelve atrás.
-  insert into public.sobrantes (codigo, grupo_id, largo_cm, ancho_cm, ubicacion)
-  values ('PRUEBA-SQL-A', v_grupo, 183, 61, 'Prueba SQL')
+  insert into public.sobrantes (almacen_id, codigo, grupo_id, largo_cm, ancho_cm, ubicacion)
+  values (v_almacen, 'PRUEBA-SQL-A', v_grupo, 183, 61, 'Prueba SQL')
   returning codigo into a;
-  insert into public.sobrantes (codigo, grupo_id, largo_cm, ancho_cm, ubicacion, estado)
-  values ('PRUEBA-SQL-B', v_grupo, 100, 50, 'Prueba SQL', 'consumido')
+  insert into public.sobrantes (almacen_id, codigo, grupo_id, largo_cm, ancho_cm, ubicacion, estado)
+  values (v_almacen, 'PRUEBA-SQL-B', v_grupo, 100, 50, 'Prueba SQL', 'consumido')
   returning codigo into b;
 
   -- Reserva y guarda el acomodo.
