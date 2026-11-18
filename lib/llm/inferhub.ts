@@ -22,6 +22,8 @@
  * │     llega en `delta.reasoning_content` (o `reasoning` / `thinking`),     │
  * │     con los bloques firmados en `delta.thinking_blocks`, como lo hacen   │
  * │     las pasarelas tipo LiteLLM/OpenRouter con modelos de Anthropic.      │
+ * │ Si el modelo está saturado se pasa a INFERHUB_MODELOS_RESPALDO (por      │
+ * │ defecto `ag/claude-sonnet-5-5`, también SIN VERIFICAR en la pasarela).   │
  * │ Si alguna no se cumple, lo que hay que tocar es `cuerpoDePeticion` y     │
  * │ `transmitirChat`; los tipos exportados no cambian.                       │
  * └──────────────────────────────────────────────────────────────────────────┘
@@ -122,12 +124,18 @@ export class ErrorLlm extends Error {
   readonly codigo: CodigoErrorLlm;
   /** El estado HTTP, cuando el proveedor contestó con un error. */
   readonly estado?: number;
+  /**
+   * Si es pasajero (saturación, límite de peticiones, un corte al conectar) y
+   * vale la pena repetir la misma petición dentro de un momento.
+   */
+  readonly reintentable: boolean;
 
-  constructor(codigo: CodigoErrorLlm, mensaje: string, estado?: number) {
+  constructor(codigo: CodigoErrorLlm, mensaje: string, estado?: number, reintentable = false) {
     super(mensaje);
     this.name = "ErrorLlm";
     this.codigo = codigo;
     this.estado = estado;
+    this.reintentable = reintentable;
   }
 }
 
@@ -366,6 +374,12 @@ function cerrarLlamada(l: LlamadaEnCurso, indice: number): EventoLlm {
  * —enteras, con los argumentos ya juntados— y por último un único `fin`. No
  * ejecuta herramientas ni repite la llamada: ese bucle es de quien llama.
  *
+ * Si el error es pasajero (saturación o falta de cuota, 429, 5xx, no poder
+ * conectar) y todavía no se entregó nada, se repite con el mismo modelo
+ * `INFERHUB_REINTENTOS` veces (0 por defecto) y después se pasa al siguiente de
+ * `INFERHUB_MODELOS_RESPALDO`. Si todos fallan así, el error final dice que el
+ * modelo está saturado.
+ *
  * Lanza `ErrorLlm` si falta la clave, si el proveedor contesta con error o si
  * la respuesta no se entiende. Si `senal` aborta, sale con el error de aborto
  * del propio `fetch` (`AbortError`), sin envolver.
@@ -375,8 +389,109 @@ export async function* transmitirChat(peticion: PeticionChat): AsyncGenerator<Ev
   if (!clave) throw new ErrorLlm("no_configurado", LLM_NO_CONFIGURADO);
 
   const base = (process.env.INFERHUB_BASE_URL?.trim() || BASE_POR_DEFECTO).replace(/\/+$/, "");
-  const modelo = process.env.INFERHUB_MODELO?.trim() || MODELO_POR_DEFECTO;
+  const principal = process.env.INFERHUB_MODELO?.trim() || MODELO_POR_DEFECTO;
+  const modelos = [...new Set([principal, ...modelosDeRespaldo()])];
+  const reintentos = reintentosPorModelo();
 
+  let ultimo: ErrorLlm | null = null;
+  let intentos = 0;
+  for (const modelo of modelos) {
+    for (let intento = 0; intento <= reintentos; intento++) {
+      if (ultimo) await esperar(pausaAntesDe(intento), peticion.senal);
+      // Solo se repite lo que no llegó a entregar nada: si ya salió texto, quien
+      // escucha lo vio y repetirlo lo duplicaría.
+      let entrego = false;
+      intentos++;
+      try {
+        for await (const evento of unIntento(peticion, base, clave, modelo)) {
+          entrego = true;
+          yield evento;
+        }
+        return;
+      } catch (e) {
+        if (!(e instanceof ErrorLlm) || !e.reintentable || entrego || peticion.senal?.aborted) throw e;
+        ultimo = e;
+      }
+    }
+  }
+  // Con un solo intento no hay nada que resumir: el error tal cual.
+  if (ultimo && intentos <= 1) throw ultimo;
+  throw new ErrorLlm(
+    ultimo?.codigo ?? "respuesta",
+    `El modelo está saturado ahora mismo y no respondió tras ${intentos} intentos (${modelos.join(", ")}). Prueba de nuevo en un minuto.`,
+    ultimo?.estado,
+    true,
+  );
+}
+
+/* ── Reintentos ────────────────────────────────────────────────────────────── */
+
+/** Estados HTTP pasajeros: límite de peticiones, pasarela caída o saturada. */
+const ESTADOS_PASAJEROS = new Set([408, 429, 500, 502, 503, 504, 529]);
+
+/**
+ * Lo que dicen las pasarelas cuando no hay capacidad en ese momento (llega como
+ * error dentro del flujo, con estado 200). Ej.: "1156 of 1157 providers for
+ * this model are out of quota or cooling down … retry shortly".
+ */
+const SATURACION = /quota|cooling down|concurrency|rate.?limit|overloaded|capacity|too many requests|retry|unavailable|try again/i;
+
+/**
+ * `INFERHUB_REINTENTOS`: cuántas veces repetir con el mismo modelo antes de pasar
+ * al de respaldo. 0 por defecto: un modelo saturado rara vez se libera en
+ * segundos, así que conviene saltar enseguida al siguiente.
+ */
+function reintentosPorModelo(): number {
+  const n = Number.parseInt(process.env.INFERHUB_REINTENTOS?.trim() ?? "", 10);
+  return Number.isFinite(n) && n >= 0 ? Math.min(n, 5) : 0;
+}
+
+/** El respaldo si `INFERHUB_MODELOS_RESPALDO` no está definida. */
+const MODELOS_RESPALDO_POR_DEFECTO = ["ag/claude-sonnet-5-5"];
+
+/**
+ * `INFERHUB_MODELOS_RESPALDO`: modelos separados por coma a los que pasar, en
+ * orden, si el principal está saturado. Sin definir = `ag/claude-sonnet-5-5`;
+ * definida y vacía = ninguno.
+ */
+function modelosDeRespaldo(): string[] {
+  const valor = process.env.INFERHUB_MODELOS_RESPALDO;
+  if (valor === undefined) return MODELOS_RESPALDO_POR_DEFECTO;
+  return valor
+    .split(",")
+    .map((m) => m.trim())
+    .filter(Boolean);
+}
+
+/** Entre reintentos del mismo modelo, 2 s, 5 s, 10 s; el primer intento de cada modelo (también el de respaldo), sin pausa. */
+function pausaAntesDe(intento: number): number {
+  return intento === 0 ? 0 : [2000, 5000, 10000][Math.min(intento - 1, 2)];
+}
+
+/** Una pausa que se corta si quien escucha se va. */
+function esperar(ms: number, senal?: AbortSignal): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolver, rechazar) => {
+    if (senal?.aborted) return rechazar(senal.reason);
+    const reloj = setTimeout(() => {
+      senal?.removeEventListener("abort", alAbortar);
+      resolver();
+    }, ms);
+    const alAbortar = () => {
+      clearTimeout(reloj);
+      rechazar(senal?.reason);
+    };
+    senal?.addEventListener("abort", alAbortar, { once: true });
+  });
+}
+
+/** Una sola petición a un modelo, sin reintentos. */
+async function* unIntento(
+  peticion: PeticionChat,
+  base: string,
+  clave: string,
+  modelo: string,
+): AsyncGenerator<EventoLlm> {
   let respuesta: Response;
   try {
     respuesta = await fetch(`${base}/chat/completions`, {
@@ -392,11 +507,16 @@ export async function* transmitirChat(peticion: PeticionChat): AsyncGenerator<Ev
     });
   } catch (e) {
     if (peticion.senal?.aborted) throw e;
-    throw new ErrorLlm("red", "No se pudo conectar con el modelo. Intenta de nuevo.");
+    throw new ErrorLlm("red", "No se pudo conectar con el modelo. Intenta de nuevo.", undefined, true);
   }
 
   if (!respuesta.ok) {
-    throw new ErrorLlm("http", mensajeHttp(respuesta.status, await detalleDeError(respuesta)), respuesta.status);
+    throw new ErrorLlm(
+      "http",
+      mensajeHttp(respuesta.status, await detalleDeError(respuesta)),
+      respuesta.status,
+      ESTADOS_PASAJEROS.has(respuesta.status),
+    );
   }
   if (!respuesta.body) throw new ErrorLlm("respuesta", "El modelo respondió sin contenido.");
 
@@ -437,6 +557,8 @@ export async function* transmitirChat(peticion: PeticionChat): AsyncGenerator<Ev
         throw new ErrorLlm(
           "respuesta",
           `El modelo cortó la respuesta${typeof detalle === "string" ? ` (${detalle.slice(0, 300)})` : ""}.`,
+          undefined,
+          typeof detalle === "string" && SATURACION.test(detalle),
         );
       }
 
