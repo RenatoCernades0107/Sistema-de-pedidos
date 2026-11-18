@@ -188,6 +188,10 @@ E2E_URL=https://<dominio>.vercel.app npm run e2e
 
 ## Cómo está armado
 
+El recorrido de punta a punta (cotización → pedido → estados → almacén, con quién hace cada paso)
+está en [`docs/flujo-app.svg`](docs/flujo-app.svg); se edita en [`docs/flujo-app.excalidraw`](docs/flujo-app.excalidraw)
+(excalidraw.com → *Abrir*, o la extensión de VS Code).
+
 - `app/(app)/` — las vistas por rol. El layout carga los pedidos una vez y las cuatro páginas
   filtran sobre el mismo conjunto; `acciones.ts` son las Server Actions, el único camino de
   escritura en la base. `adjuntos-acciones.ts` es el de los archivos: el binario sube del navegador
