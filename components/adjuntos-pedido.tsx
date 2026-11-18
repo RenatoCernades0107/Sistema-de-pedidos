@@ -63,20 +63,35 @@ const nombreDeItem = (l: LineaDePedido) =>
 
 const GENERAL = "general";
 
-export function AdjuntosPedido({ pedido: p, lineas = [] }: { pedido: Pedido; lineas?: LineaDePedido[] }) {
+export function AdjuntosPedido({
+  pedido: p,
+  lineas = [],
+  posicion,
+}: {
+  pedido: Pedido;
+  lineas?: LineaDePedido[];
+  /**
+   * Con un ítem: solo sus archivos, y lo que se sube es un diseño de ese ítem.
+   * Sin él: todos los archivos del pedido, con el selector de tipo y de ítem.
+   */
+  posicion?: number;
+}) {
+  const deItem = posicion !== undefined;
   const { permisos } = useStore();
   const entrada = useRef<HTMLInputElement>(null);
   const [tipo, setTipo] = useState<TipoAdjunto>("diseno");
   /* A qué ítem se refieren los diseños que se suban. Solo los diseños se ligan a un
      ítem: la factura, la guía y la foto de entrega son del pedido entero. */
   const [item, setItem] = useState<string>(GENERAL);
-  const itemElegido = tipo === "diseno" && item !== GENERAL ? Number(item) : null;
+  const itemElegido = deItem ? posicion : tipo === "diseno" && item !== GENERAL ? Number(item) : null;
   const [porBorrar, setPorBorrar] = useState<Adjunto | null>(null);
   const [trabajando, iniciar] = useTransition();
 
-  const visibles: Adjunto[] = permisos.verEnvioCompleto
-    ? p.adjuntos
-    : p.adjuntos.filter((a) => a.tipo === "diseno" || a.tipo === "foto_entrega");
+  const visibles: Adjunto[] = (
+    permisos.verEnvioCompleto
+      ? p.adjuntos
+      : p.adjuntos.filter((a) => a.tipo === "diseno" || a.tipo === "foto_entrega")
+  ).filter((a) => !deItem || a.lineaPosicion === posicion);
 
   const elegidos = (e: React.ChangeEvent<HTMLInputElement>) => {
     const archivos = Array.from(e.target.files ?? []);
@@ -88,13 +103,13 @@ export function AdjuntosPedido({ pedido: p, lineas = [] }: { pedido: Pedido; lin
     iniciar(async () => {
       const { subidos, errores } = await subirAdjuntos(
         p.codigo,
-        tipo,
+        deItem ? "diseno" : tipo,
         archivos.map((archivo) => ({ archivo, lineaPosicion: itemElegido })),
       );
 
       if (subidos > 0) {
         toast.success(subidos === 1 ? "Archivo subido" : `${subidos} archivos subidos`, {
-          description: `${ADJUNTOS[tipo]} · ${p.codigo}`,
+          description: `${ADJUNTOS[deItem ? "diseno" : tipo]} · ${p.codigo}${itemElegido ? ` · Ítem ${itemElegido}` : ""}`,
         });
       }
       // Uno por archivo que no entró: con seis elegidos y dos caídos, saber cuáles
@@ -126,7 +141,7 @@ export function AdjuntosPedido({ pedido: p, lineas = [] }: { pedido: Pedido; lin
       {visibles.length === 0 ? (
         <div className="text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm">
           <Paperclip className="mx-auto mb-2 size-4 opacity-50" />
-          Sin archivos todavía
+          {deItem ? "Este ítem no tiene archivos" : "Sin archivos todavía"}
         </div>
       ) : (
         <ul className="flex flex-wrap gap-2">
@@ -151,7 +166,7 @@ export function AdjuntosPedido({ pedido: p, lineas = [] }: { pedido: Pedido; lin
                       <span className="text-muted-foreground block text-2xs">
                         {ADJUNTOS[a.tipo]} · {a.peso}
                       </span>
-                      {a.lineaPosicion != null && (
+                      {a.lineaPosicion != null && !deItem && (
                         <span className="text-primary block max-w-[16ch] truncate text-2xs">
                           Ítem {a.lineaPosicion}
                         </span>
@@ -179,6 +194,7 @@ export function AdjuntosPedido({ pedido: p, lineas = [] }: { pedido: Pedido; lin
 
       {permisos.adjuntarArchivos && (
         <div className="flex flex-wrap items-center gap-2">
+          {!deItem && (
           <Select value={tipo} onValueChange={(v) => v && setTipo(v as TipoAdjunto)}>
             <SelectTrigger size="sm" className="w-44" aria-label="Tipo de archivo">
               <SelectValue>{ADJUNTOS[tipo]}</SelectValue>
@@ -191,8 +207,9 @@ export function AdjuntosPedido({ pedido: p, lineas = [] }: { pedido: Pedido; lin
               ))}
             </SelectContent>
           </Select>
+          )}
 
-          {tipo === "diseno" && lineas.length > 0 && (
+          {!deItem && tipo === "diseno" && lineas.length > 0 && (
             <Select value={item} onValueChange={(v) => v && setItem(v)}>
               <SelectTrigger size="sm" className="w-56 max-w-full" aria-label="¿De qué es el archivo?">
                 <SelectValue>
@@ -234,7 +251,7 @@ export function AdjuntosPedido({ pedido: p, lineas = [] }: { pedido: Pedido; lin
             ) : (
               <Upload className="size-3.5" />
             )}
-            {trabajando ? "Subiendo…" : "Subir"}
+            {trabajando ? "Subiendo…" : deItem ? "Subir diseño" : "Subir"}
           </Button>
         </div>
       )}

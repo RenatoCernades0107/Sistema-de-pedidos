@@ -33,7 +33,7 @@ export function CorteGuardadoVista({
   const hayFraccion = c.planchas.some((p) => p.cobro.factor < 1);
 
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div className={cn("@container flex flex-col gap-3", className)}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="bg-brand-soft text-foreground inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium">
           <Scissors className="size-3" />
@@ -60,7 +60,7 @@ export function CorteGuardadoVista({
         ))}
       </ol>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 @md:grid-cols-2">
         {c.planchas.map((p, i) => (
           <figure key={i} className="flex flex-col gap-1">
             <PlanoCorte

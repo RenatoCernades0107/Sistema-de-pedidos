@@ -219,3 +219,28 @@ export async function borrarCotizacionesDePrueba() {
   const { error } = await supabase.from("cotizaciones").delete().like("cliente_nombre", "E2E%");
   if (error) throw new Error(`No se pudieron borrar las cotizaciones de prueba: ${error.message}`);
 }
+
+/**
+ * Abre la vista «Materiales del pedido» del detalle: lo estimado y lo usado,
+ * los botones para anotarlo, la hoja de corte y cómo va el stock en Odoo.
+ */
+export async function verMateriales(page: Page) {
+  await page.getByRole("tab", { name: /^Materiales del pedido/ }).click();
+  const region = page.getByRole("region", { name: "Materiales del pedido" });
+  await expect(region).toBeVisible();
+  return region;
+}
+
+/**
+ * Abre en el detalle el primer ítem que es un corte (se cuentan en piezas) y
+ * devuelve su panel: el detalle muestra un ítem a la vez.
+ */
+export async function abrirCorte(page: Page) {
+  const panel = page.getByRole("region", { name: "Productos y cortes" });
+  // Justo después de mover el pedido la página se está refrescando: se insiste hasta que abra.
+  await expect(async () => {
+    await page.getByRole("tab", { name: /^Ítem \d+: .*piezas?$/ }).first().click();
+    await expect(panel).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+  return panel;
+}

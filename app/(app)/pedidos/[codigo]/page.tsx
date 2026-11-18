@@ -12,7 +12,7 @@ import { leerChatInicial } from "@/lib/chat/consultas";
 /**
  * El pedido en sí sale del layout, que ya cargó la lista entera. Lo que se lee
  * aquí es lo que solo hace falta al abrirlo: sus productos y cortes, cómo va su
- * venta en Odoo y, con el piloto de sobrantes, lo que devolvió al almacén. Un
+ * venta en Odoo, el RUC o DNI del cliente y, con el piloto de sobrantes, lo que devolvió al almacén. Un
  * fallo al leerlos no tumba el detalle.
  */
 export default async function Page({ params, searchParams }: PageProps<"/pedidos/[codigo]">) {
@@ -21,7 +21,7 @@ export default async function Page({ params, searchParams }: PageProps<"/pedidos
   const abrirChat = (await searchParams).chat === "1";
   const supabase = await clienteServidor();
 
-  const [lineas, odoo, sobrantes, retazo, token, chat, almacenes, catalogo, faltantes] = await Promise.all([
+  const [lineas, odoo, sobrantes, retazo, token, chat, documento, almacenes, catalogo, faltantes] = await Promise.all([
     cargarLineasDePedido(codigo).catch((e) => {
       console.error("[pedidos] líneas", e);
       return null;
@@ -40,6 +40,11 @@ export default async function Page({ params, searchParams }: PageProps<"/pedidos
       console.error("[pedidos] chat", e);
       return null;
     }),
+    // Solo para Administración y Logística: a los demás la base no les devuelve nada.
+    supabase.rpc("cliente_de_pedido", { p_codigo: codigo }).then(
+      ({ data }) => data?.[0]?.documento ?? null,
+      () => null,
+    ),
     // Al pasar a Listo se dice a qué almacén se fue cada sobrante, y de qué material es.
     cargarAlmacenes().catch((e) => {
       console.error("[pedidos] almacenes", e);
@@ -68,6 +73,7 @@ export default async function Page({ params, searchParams }: PageProps<"/pedidos
       catalogo={catalogo}
       tokenSeguimiento={token}
       chat={chat && { ...chat, abrir: abrirChat }}
+      documentoCliente={documento}
     />
   );
 }
