@@ -30,7 +30,7 @@ export function CortesTerminado({
 }: {
   piezas: PiezaDeTerminado[];
   formato: { codigo: string; ancho: number; alto: number };
-  planchas: (PlanchaDibujable & { piezas: number })[];
+  planchas: (PlanchaDibujable & { piezas: number; origen?: { tipo: "plancha" } | { tipo: "sobrante"; id: string } })[];
   className?: string;
   /** Planos pequeños, de a tres por fila: para el editor. */
   compacto?: boolean;
@@ -75,7 +75,12 @@ export function CortesTerminado({
               titulo={`Plancha ${i + 1} de ${planchas.length}: ${p.piezas} piezas en ${n(p.ancho)}×${n(p.alto)} cm`}
             />
             <figcaption className="text-muted-foreground text-xs">
-              Plancha {i + 1} · {p.piezas} {p.piezas === 1 ? "pieza" : "piezas"}
+              {p.origen?.tipo === "sobrante" ? (
+                <span className="text-foreground font-medium">Sobrante {p.origen.id}</span>
+              ) : (
+                `Plancha ${i + 1}`
+              )}{" "}
+              · {p.piezas} {p.piezas === 1 ? "pieza" : "piezas"}
               {p.cobro.factor < 1 && ` · ${fraccionEnPalabras(p.cobro.nombre)} (${n(p.cobro.ancho)}×${n(p.cobro.alto)})`}
             </figcaption>
           </figure>

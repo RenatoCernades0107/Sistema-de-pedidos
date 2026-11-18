@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Check, CircleAlert, Loader2, Plus, Trash2, X } from "lucide-react";
+import { Loader2, Plus, Trash2, X } from "lucide-react";
 import type { RespuestaPrecios } from "@/app/api/cortes/precios/route";
-import type { RespuestaStock } from "@/app/api/cortes/stock/route";
 import {
   MODALIDADES,
+  calcularConSobrante,
   compararFormatos,
   type CalculoCorte,
+  type EleccionPlancha,
   type Modalidad,
   type PiezaPedida,
 } from "@/lib/cortes/calcular";
@@ -37,10 +38,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { OpcionesPlancha, useStock, type OpcionSobrante } from "./opciones-plancha";
 import { LeyendaPlano, PlanoCorte } from "./plano-corte";
-
-/** Cuántos formatos se proponen. Son los que se le preguntan a Odoo, de una vez. */
-const CANDIDATOS = 3;
 
 type CorteNuevo = Omit<LineaCorte, "tipo" | "clave"> & { clave?: string };
 
@@ -113,53 +112,6 @@ export function usePrecios(grupoId: string | null) {
   return estado?.grupoId === grupoId ? estado : nada;
 }
 
-type Stock = Record<string, number | null>;
-type PorAlmacen = RespuestaStock["porAlmacen"];
-
-/**
- * El stock de los formatos candidatos, en una sola consulta a Odoo. Espera a que
- * se deje de escribir: mientras cambian las piezas cambian los candidatos, y no
- * tiene sentido preguntar por cada tecla.
- */
-function useStock(codigos: string[]) {
-  const clave = [...codigos].sort().join(",");
-  const [estado, setEstado] = useState<{
-    clave: string;
-    stock: Stock | null;
-    porAlmacen: PorAlmacen;
-    error: boolean;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!clave) return;
-    const ctrl = new AbortController();
-    const temporizador = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/cortes/stock?codigos=${encodeURIComponent(clave)}`, { signal: ctrl.signal });
-        if (!res.ok) throw new Error();
-        const json = (await res.json()) as RespuestaStock;
-        setEstado({ clave, stock: json.stock, porAlmacen: json.porAlmacen ?? {}, error: false });
-      } catch {
-        if (!ctrl.signal.aborted) setEstado({ clave, stock: null, porAlmacen: {}, error: true });
-      }
-    }, 350);
-    return () => {
-      clearTimeout(temporizador);
-      ctrl.abort();
-    };
-  }, [clave]);
-
-  const alDia = estado?.clave === clave;
-  return {
-    /** `null` mientras Odoo no contesta por estos candidatos. */
-    stock: alDia ? estado.stock : null,
-    /** Por código, lo que hay en cada almacén (por su nombre). */
-    porAlmacen: alDia ? estado.porAlmacen : {},
-    validando: !!clave && !alDia,
-    fallo: alDia && estado.error,
-  };
-}
-
 /* ── El editor ─────────────────────────────────────────────────────────────── */
 
 /**
@@ -195,8 +147,8 @@ export function EditorCorte({
       ? inicial.piezas.map((p) => ({ ancho: String(p.ancho), alto: String(p.alto), cantidad: String(p.cantidad) }))
       : [FILA_VACIA],
   );
-  /** El formato que eligió la persona. Mientras sea `null`, manda la sugerencia. */
-  const [aMano, setAMano] = useState<string | null>(inicial?.calculo.formato.codigo ?? null);
+  /** La plancha o el sobrante que eligió la persona. Mientras sea `null`, manda la sugerencia. */
+  const [eleccion, setEleccion] = useState<EleccionPlancha | null>(inicial?.eleccion ?? null);
 
   const anchos = useRef(new Map<number, HTMLInputElement>());
   /**
@@ -210,37 +162,68 @@ export function EditorCorte({
   const { precios, sobrantes, error: errorPrecios } = usePrecios(grupoId);
   const piezas = useMemo(() => piezasDe(filas), [filas]);
 
-  const calculos = useMemo(() => {
-    if (!grupo || !precios || piezas.length === 0) return [];
-    const formatos = grupo.formatos
-      .filter((f) => precios[f.codigo])
-      .map((f) => ({ codigo: f.codigo, ancho: f.anchoCm, alto: f.largoCm, precio: precios[f.codigo].precio }));
-    // Los sobrantes del almacén donde se corta van primero.
-    const delAlmacen = grupo.sobrantesActivo ? contenedoresDe(sobrantes[lugar]) : [];
-    return compararFormatos(
-      { piezas, espesorMm: grupo.espesorMm, modalidad, rotable: grupo.rotable },
-      formatos,
-      config,
-      delAlmacen,
-      // La plancha más chica que sirva: las grandes se guardan para las medidas grandes.
-      "tamano",
-    );
-  }, [grupo, precios, sobrantes, piezas, modalidad, config, lugar]);
+  const entrada = useMemo(
+    () => (grupo ? { piezas, espesorMm: grupo.espesorMm, modalidad, rotable: grupo.rotable } : null),
+    [grupo, piezas, modalidad],
+  );
+  const formatos = useMemo(
+    () =>
+      grupo && precios
+        ? grupo.formatos
+            .filter((f) => precios[f.codigo])
+            .map((f) => ({ codigo: f.codigo, ancho: f.anchoCm, alto: f.largoCm, precio: precios[f.codigo].precio }))
+        : [],
+    [grupo, precios],
+  );
+  // Los sobrantes del almacén donde se corta.
+  const delAlmacen = useMemo(
+    () => (grupo?.sobrantesActivo ? sobrantes[lugar] : []),
+    [grupo, sobrantes, lugar],
+  );
 
-  const candidatos = calculos.slice(0, CANDIDATOS);
-  // El formato elegido a mano también se valida, aunque ya no esté entre los tres.
-  const elegidoAMano = aMano ? (calculos.find((c) => c.formato.codigo === aMano) ?? null) : null;
-  const aValidar = [...new Set([...candidatos, ...(elegidoAMano ? [elegidoAMano] : [])].map((c) => c.formato.codigo))];
-  const { stock, porAlmacen, validando, fallo: falloStock } = useStock(aValidar);
+  /** La sugerencia: la plancha más chica que sirva, con los sobrantes primero. */
+  const calculos = useMemo(() => {
+    if (!entrada || piezas.length === 0) return [];
+    // La plancha más chica que sirva: las grandes se guardan para las medidas grandes.
+    return compararFormatos(entrada, formatos, config, contenedoresDe(delAlmacen), "tamano");
+  }, [entrada, piezas, formatos, config, delAlmacen]);
+
+  /** Cada formato, solo con planchas nuevas: lo que pasa si se elige ese. */
+  const porFormato = useMemo(() => {
+    if (!entrada || piezas.length === 0) return [];
+    return compararFormatos(entrada, formatos, config, [], "tamano");
+  }, [entrada, piezas, formatos, config]);
+
+  /** Cada sobrante, primero él y lo demás de la plancha más chica que sirva. */
+  const opcionesSobrante: OpcionSobrante[] = useMemo(() => {
+    const base = porFormato[0];
+    return delAlmacen.map((s) => ({
+      codigo: s.codigo,
+      largo: s.largo,
+      ancho: s.ancho,
+      calculo:
+        entrada && base
+          ? calcularConSobrante(entrada, base.formato, config, contenedoresDe([s])[0])
+          : null,
+    }));
+  }, [delAlmacen, porFormato, entrada, config]);
+
+  const { stock, porAlmacen, validando, fallo: falloStock } = useStock(formatos.map((f) => f.codigo));
 
   const alcanza = (c: CalculoCorte) => {
+    const necesita = planchasNuevas(c);
+    if (necesita === 0) return true;
     const hay = stock?.[c.formato.codigo];
-    return typeof hay === "number" && hay >= planchasNuevas(c);
+    return typeof hay === "number" && hay >= necesita;
   };
   // Sin respuesta de Odoo no se sugiere nada: la sugerencia es "el mejor con stock".
-  const sugerido = stock ? (candidatos.find((c) => !c.problema && alcanza(c)) ?? null) : null;
-  const elegido = elegidoAMano ?? sugerido;
-  const mostrados = elegidoAMano && !candidatos.includes(elegidoAMano) ? [...candidatos, elegidoAMano] : candidatos;
+  const sugerido = stock ? (calculos.find((c) => !c.problema && alcanza(c)) ?? null) : null;
+  const elegido =
+    eleccion === null
+      ? sugerido
+      : eleccion.tipo === "formato"
+        ? (porFormato.find((c) => c.formato.codigo === eleccion.codigo) ?? null)
+        : (opcionesSobrante.find((o) => o.codigo === eleccion.codigo)?.calculo ?? null);
 
   const sinOdoo = grupo && precios ? grupo.formatos.filter((f) => !precios[f.codigo]) : [];
   const listo = !!grupo && !!elegido && !elegido.problema;
@@ -248,14 +231,14 @@ export function EditorCorte({
   const elegirGrupo = (g: GrupoPlancha) => {
     setGrupoId(g.id);
     setConsulta("");
-    setAMano(null);
+    setEleccion(null);
     // Con el material elegido, lo siguiente son las medidas.
     porEnfocar.current = 0;
   };
 
   const cambiarFila = (i: number, cambios: Partial<FilaPieza>) => {
     setFilas((fs) => fs.map((f, j) => (j === i ? { ...f, ...cambios } : f)));
-    setAMano(null);
+    setEleccion(null);
   };
 
   const agregarFila = () => {
@@ -284,6 +267,7 @@ export function EditorCorte({
       modalidad,
       lugar,
       piezas,
+      eleccion,
       calculo: elegido,
     });
   };
@@ -342,7 +326,7 @@ export function EditorCorte({
                     onClick={() => {
                       // El buscador aparece con `autoFocus`.
                       setGrupoId(null);
-                      setAMano(null);
+                      setEleccion(null);
                     }}
                   >
                     Cambiar
@@ -378,7 +362,7 @@ export function EditorCorte({
                   valores={[modalidad]}
                   onToggle={(v) => {
                     setModalidad(v as Modalidad);
-                    setAMano(null);
+                    setEleccion(null);
                   }}
                   opciones={Object.entries(MODALIDADES).map(([valor, label]) => ({ valor, label }))}
                 />
@@ -389,7 +373,7 @@ export function EditorCorte({
                     valores={[lugarManual]}
                     onToggle={(v) => {
                       setLugarManual(v as LugarCorte);
-                      setAMano(null);
+                      setEleccion(null);
                     }}
                     opciones={Object.entries(LUGARES_CORTE).map(([valor, label]) => ({ valor, label }))}
                   />
@@ -462,7 +446,7 @@ export function EditorCorte({
                           aria-label={`Quitar la pieza ${i + 1}`}
                           onClick={() => {
                             setFilas((fs) => fs.filter((_, j) => j !== i));
-                            setAMano(null);
+                            setEleccion(null);
                           }}
                         >
                           <Trash2 />
@@ -502,36 +486,20 @@ export function EditorCorte({
                 </p>
               )}
 
-              {mostrados.length > 0 && (
+              {porFormato.length > 0 && (
                 <div className="flex flex-col gap-2">
-                  <div className="flex flex-wrap items-baseline gap-x-3">
-                    <p className="text-xs font-medium">Plancha</p>
-                    <p className="text-muted-foreground text-xs" aria-live="polite">
-                      {validando
-                        ? "Validando el stock en Odoo…"
-                        : falloStock
-                          ? "No se pudo validar el stock en Odoo. Puedes elegir igual."
-                          : sugerido && !elegidoAMano
-                            ? "Elegida la más pequeña con stock."
-                            : !elegido
-                              ? "Ninguna tiene stock suficiente: elige una igual o cambia las piezas."
-                              : null}
-                    </p>
-                  </div>
-                  <ul className="grid gap-2 sm:grid-cols-3" aria-label="Formatos de plancha">
-                    {mostrados.map((c) => (
-                      <li key={c.formato.codigo}>
-                        <TarjetaFormato
-                          calculo={c}
-                          elegido={elegido?.formato.codigo === c.formato.codigo}
-                          validando={validando}
-                          hay={stock ? (stock[c.formato.codigo] ?? null) : undefined}
-                          porAlmacen={porAlmacen[c.formato.codigo]}
-                          alElegir={() => setAMano(c.formato.codigo)}
-                        />
-                      </li>
-                    ))}
-                  </ul>
+                  <OpcionesPlancha
+                    formatos={porFormato}
+                    sobrantes={opcionesSobrante}
+                    almacenSobrantes={lugar}
+                    sugerido={sugerido}
+                    eleccion={eleccion}
+                    alElegir={setEleccion}
+                    stock={stock}
+                    porAlmacen={porAlmacen}
+                    validando={validando}
+                    falloStock={falloStock}
+                  />
                   {sinOdoo.length > 0 && (
                     <p className="text-muted-foreground text-xs">
                       Sin producto en Odoo, y por eso fuera de la comparación: {sinOdoo.map((f) => f.codigo).join(", ")}.
@@ -610,92 +578,5 @@ export function EditorCorte({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function TarjetaFormato({
-  calculo: c,
-  elegido,
-  validando,
-  hay,
-  porAlmacen,
-  alElegir,
-}: {
-  calculo: CalculoCorte;
-  elegido: boolean;
-  validando: boolean;
-  /** `undefined`: Odoo todavía no contesta. `null`: Odoo no lleva ese stock. */
-  hay: number | null | undefined;
-  /** Lo que hay en cada almacén, por su nombre. */
-  porAlmacen?: Record<string, number>;
-  alElegir: () => void;
-}) {
-  const necesita = planchasNuevas(c);
-  const alcanza = typeof hay === "number" && hay >= necesita;
-
-  return (
-    <button
-      type="button"
-      aria-pressed={elegido}
-      // Hasta que Odoo conteste no se elige: el check es lo que da paso.
-      disabled={validando || !!c.problema}
-      onClick={alElegir}
-      className={cn(
-        "flex h-full w-full flex-col gap-1 rounded-lg border p-3 text-left transition-colors",
-        "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
-        "disabled:cursor-default",
-        elegido ? "border-primary/60 bg-primary/8" : "enabled:hover:border-foreground/25",
-        c.problema && "opacity-60",
-      )}
-    >
-      <span className="flex items-baseline justify-between gap-2">
-        <span className="tnum text-sm font-medium">
-          {c.formato.ancho}×{c.formato.alto}
-        </span>
-        <span className="text-muted-foreground font-mono text-2xs">{c.formato.codigo}</span>
-      </span>
-
-      {c.problema ? (
-        <span className="text-destructive text-xs">{c.problema}</span>
-      ) : (
-        <>
-          <span className="tnum text-base font-semibold">{money(c.total)}</span>
-          <span className="text-muted-foreground text-xs">
-            {necesita} {necesita === 1 ? "plancha" : "planchas"} · {Math.round(c.desperdicioPct)} % de retazo
-          </span>
-        </>
-      )}
-
-      <span className="mt-auto flex items-center gap-1.5 pt-1 text-xs">
-        {hay === undefined ? (
-          <>
-            <Loader2 className="text-muted-foreground size-3.5 animate-spin" />
-            <span className="text-muted-foreground">Validando stock…</span>
-          </>
-        ) : hay === null ? (
-          <>
-            <CircleAlert className="text-muted-foreground size-3.5" />
-            <span className="text-muted-foreground">Odoo no lleva su stock</span>
-          </>
-        ) : alcanza ? (
-          <>
-            <Check className="text-st-entregado size-3.5" />
-            <span className="text-st-entregado font-medium">Hay {hay}</span>
-          </>
-        ) : (
-          <>
-            <CircleAlert className="text-destructive size-3.5" />
-            <span className="text-destructive font-medium">{hay <= 0 ? "Sin stock" : `Solo hay ${hay}`}</span>
-          </>
-        )}
-      </span>
-      {porAlmacen && Object.keys(porAlmacen).length > 0 && (
-        <span className="text-muted-foreground tnum text-2xs" data-testid="stock-por-almacen">
-          {Object.entries(porAlmacen)
-            .map(([nombre, n]) => `${nombre} ${String(+n.toFixed(2))}`)
-            .join(" · ")}
-        </span>
-      )}
-    </button>
   );
 }

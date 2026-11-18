@@ -342,6 +342,7 @@ export function lineaParaEnviar(l: Linea) {
       lugar: l.lugar,
       piezas: l.piezas,
       formatoCodigo: l.calculo.formato.codigo,
+      eleccion: l.eleccion ?? null,
       totalMostrado: l.calculo.total,
     };
   }
@@ -362,6 +363,7 @@ export function lineaParaEnviar(l: Linea) {
       },
       grupoId: l.grupoId,
       opciones: l.opciones,
+      eleccion: l.eleccion ?? null,
       texto: l.texto.trim() || null,
       notas: l.notas.trim() || null,
       areaM2: l.areaManualM2,

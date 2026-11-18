@@ -371,17 +371,18 @@ test("un corte a medida se cotiza: calcula las planchas, valida el stock y llega
   await abrirCorte(page, "eco cristal 3", /Acrílico ECO.*Cristal.*3 mm/);
   await escribirPieza(page, 1, "60", "80", "10");
 
-  // Los tres formatos más chicos, y el stock de los tres en una sola consulta.
+  // Todos los formatos, con su stock y su desperdicio, y la sugerencia elegida.
   const formatos = page.getByRole("list", { name: "Formatos de plancha" });
-  await expect(formatos.getByRole("button")).toHaveCount(3);
-  await expect(page.getByText("Elegida la más pequeña con stock.")).toBeVisible();
+  const sugerida = page.getByTestId("opcion-sugerida");
+  await expect(sugerida).toHaveAttribute("aria-pressed", "true");
+  await expect(sugerida).toContainText("122×183");
   const { llamadas } = await estado();
   expect(llamadas.filter((l) => l.modelo === "product.product" && l.metodo === "search_read").length).toBeGreaterThan(0);
 
   // 122×183: tres planchas (4 + 4 + 2 piezas); la tercera se cobra como media.
-  const elegida = formatos.getByRole("button", { name: /122×183/ });
-  await expect(elegida).toHaveAttribute("aria-pressed", "true");
+  const elegida = formatos.getByRole("button", { name: /122×183/ }).last();
   await expect(elegida).toContainText("3 planchas");
+  await expect(elegida).toContainText("% de desperdicio");
   await expect(elegida).toContainText("Hay 10");
   await expect(formatos.getByRole("button", { name: /122×244/ })).toContainText("Solo hay 1");
   // 200 + 200 + 200/2 × 1.20, más el láser, redondeado al sol.
@@ -433,9 +434,11 @@ test("el formato más chico sin stock no se sugiere, pero se puede elegir; un co
 
   const formatos = page.getByRole("list", { name: "Formatos de plancha" });
   const barata = formatos.getByRole("button", { name: /150×300/ });
-  const conStock = formatos.getByRole("button", { name: /205×305/ });
+  // La primera tarjeta es la sugerencia; las de cada formato van después.
+  const conStock = formatos.getByRole("button", { name: /205×305/ }).last();
   await expect(barata).toContainText("Sin stock");
-  await expect(conStock).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("opcion-sugerida")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("opcion-sugerida")).toContainText("205×305");
   await expect(conStock).toContainText("Hay 5");
   // Donde no cabe, se dice y no se puede elegir.
   await expect(formatos.getByRole("button", { name: /122×183/ })).toBeDisabled();

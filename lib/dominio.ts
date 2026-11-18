@@ -236,6 +236,12 @@ export const LUGARES: Record<LugarEntrega, string> = {
   agencia: "Agencia",
 };
 
+/** Dónde se recoge un pedido "En tienda" o "En taller". */
+export const DIRECCIONES_RECOJO: Partial<Record<LugarEntrega, string>> = {
+  tienda: "Prolongación Andahuaylas 1580, La Victoria",
+  taller: "Av. Isabel La Católica 753 Interior 148, La Victoria",
+};
+
 export const UBICACIONES: Record<Ubicacion, string> = {
   tienda: "En tienda",
   taller: "En taller",

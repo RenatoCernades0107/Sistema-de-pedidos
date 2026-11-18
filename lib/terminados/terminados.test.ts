@@ -276,6 +276,46 @@ describe("calcularTerminado con cortes", () => {
   });
 });
 
+describe("calcularTerminado con plancha o sobrante elegidos", () => {
+  const caja = { medidas: { m1: 20, m2: 20, m3: 20 }, cantidad: 2 };
+
+  it("sin elección usa el formato más barato y ofrece las alternativas", () => {
+    const c = calcularTerminado(conCortes({ ...caja, sobrantes: [{ id: "SOB-1", ancho: 60, alto: 60 }] }));
+    expect(c.eleccion).toBeNull();
+    expect(c.opciones?.formatos.map((f) => f.formato.codigo).sort()).toEqual(["F7E024", "F7E025"]);
+    expect(c.opciones?.sobrantes.map((s) => s.codigo)).toEqual(["SOB-1"]);
+    expect(c.opciones?.sugerido.formato.codigo).toBe(c.formato!.codigo);
+  });
+
+  it("un formato elegido manda", () => {
+    const c = calcularTerminado(conCortes({ ...caja, eleccion: { tipo: "formato", codigo: "F7E025" } }));
+    expect(c.eleccion).toEqual({ tipo: "formato", codigo: "F7E025" });
+    expect(c.formato?.codigo).toBe("F7E025");
+  });
+
+  it("un sobrante elegido se usa sin cambiar el precio, y la ficha lo guarda", () => {
+    const sin = calcularTerminado(conCortes(caja));
+    const c = calcularTerminado(
+      conCortes({ ...caja, sobrantes: [{ id: "SOB-1", ancho: 60, alto: 60 }], eleccion: { tipo: "sobrante", codigo: "SOB-1" } }),
+    );
+    expect(c.eleccion).toEqual({ tipo: "sobrante", codigo: "SOB-1" });
+    expect(c.corte!.planchas.some((p) => p.origen.tipo === "sobrante")).toBe(true);
+    expect(c.costoMaterial).toBe(sin.costoMaterial);
+    const g = guardarCorteDeTerminado(c)!;
+    expect(g.eleccion).toEqual({ tipo: "sobrante", codigo: "SOB-1" });
+    // De planchas nuevas solo se descuenta lo que no salió del sobrante.
+    const descontar = materialesADescontar({ materiales: c.materiales, corte: g }, null);
+    const nuevas = g.planchas.reduce((s, p) => s + (p.origen.tipo === "plancha" ? p.cobro.factor : 0), 0);
+    expect(descontar.find((m) => m.codigo === c.formato!.codigo)?.cantidad ?? 0).toBe(nuevas);
+  });
+
+  it("lo elegido que ya no está vuelve a la sugerencia", () => {
+    const c = calcularTerminado(conCortes({ ...caja, eleccion: { tipo: "sobrante", codigo: "SOB-9" } }));
+    expect(c.eleccion).toBeNull();
+    expect(c.corte).not.toBeNull();
+  });
+});
+
 describe("formatosConPrecio", () => {
   it("solo los activos con precio, una vez por código", () => {
     const formatos = [

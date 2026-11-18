@@ -13,6 +13,8 @@ import { money } from "@/lib/formato";
 import type { LineaTerminado } from "@/lib/lineas-cotizacion";
 import type { ProductoOdoo } from "@/lib/odoo/tipos";
 import type { ConfigCortes } from "@/lib/cortes/config";
+import type { EleccionPlancha } from "@/lib/cortes/calcular";
+import { contenedoresDe } from "@/lib/sobrantes";
 import {
   calcularTerminado,
   formatosConPrecio,
@@ -41,6 +43,7 @@ import {
 } from "@/lib/terminados/geometria";
 import { cn } from "@/lib/utils";
 import { usePrecios } from "@/components/cortes/editor-corte";
+import { OpcionesPlancha, useStock } from "@/components/cortes/opciones-plancha";
 import { ArmadoCaja } from "@/components/terminados/armado-caja";
 import { SinModelo } from "@/components/terminados/sin-modelo";
 import { CortesTerminado } from "@/components/terminados/cortes-terminado";
@@ -233,7 +236,19 @@ export function EditorTerminado({
   const grupo = planchas.find((g) => g.id === grupoId) ?? null;
   // Cada color tiene su grupo: el color es el del material elegido.
   const color = grupo ? colorDe(grupo) : "";
-  const { precios, error: errorPrecios } = usePrecios(grupoId);
+  const { precios, sobrantes: sobrantesPorLugar, error: errorPrecios } = usePrecios(grupoId);
+  /** La plancha o el sobrante elegidos a mano, para el material en que se eligieron. */
+  const [eleccionDe, setEleccionDe] = useState<{ grupoId: string | null; eleccion: EleccionPlancha | null }>({
+    grupoId: inicial?.grupoId ?? null,
+    eleccion: inicial?.eleccion ?? null,
+  });
+  const eleccion = eleccionDe.grupoId === grupoId ? eleccionDe.eleccion : null;
+  const setEleccion = useCallback((e: EleccionPlancha | null) => setEleccionDe({ grupoId, eleccion: e }), [grupoId]);
+  // Los terminados se hacen en el taller: sus sobrantes.
+  const sobrantesTaller = useMemo(
+    () => (grupo?.sobrantesActivo ? sobrantesPorLugar.taller : []),
+    [grupo, sobrantesPorLugar],
+  );
 
   const plancha = useMemo(
     () => (grupo && precios ? planchaDeReferencia(grupo.formatos, new Map(Object.entries(precios))) : null),
@@ -281,9 +296,28 @@ export function EditorTerminado({
         formatos,
         configCortes,
         espesorMm: grupo?.espesorMm,
+        sobrantes: contenedoresDe(sobrantesTaller),
+        eleccion,
       }),
-    [geometria, medidas, areaManual, unidades, plancha, accesorios, tipo, catalogo, opciones, formatos, configCortes, grupo],
+    [
+      geometria,
+      medidas,
+      areaManual,
+      unidades,
+      plancha,
+      accesorios,
+      tipo,
+      catalogo,
+      opciones,
+      formatos,
+      configCortes,
+      grupo,
+      sobrantesTaller,
+      eleccion,
+    ],
   );
+
+  const stockPlanchas = useStock(calculo.opciones ? calculo.opciones.formatos.map((c) => c.formato.codigo) : []);
 
   /** Si el producto lo dibuja una plantilla del motor CAD: sus parámetros en mm. */
   const parametrosCad = useMemo(
@@ -369,6 +403,7 @@ export function EditorTerminado({
       cantidad: unidades,
       precioUnitario: Math.round(precioFinal * 100) / 100,
       reservar,
+      eleccion: calculo.eleccion ?? null,
       calculo,
       // El enlace al diseño CAD se conserva mientras siga siendo un personalizado.
       disenoVersionId: producto ? null : (inicial?.disenoVersionId ?? null),
@@ -752,6 +787,29 @@ export function EditorTerminado({
           </p>
         )}
       </section>
+
+      {calculo.opciones && (
+        <section aria-label="Plancha o sobrante">
+          <OpcionesPlancha
+            formatos={calculo.opciones.formatos}
+            sobrantes={sobrantesTaller.map((s) => ({
+              codigo: s.codigo,
+              largo: s.largo,
+              ancho: s.ancho,
+              calculo: calculo.opciones?.sobrantes.find((o) => o.codigo === s.codigo)?.calculo ?? null,
+            }))}
+            almacenSobrantes="taller"
+            sugerido={calculo.opciones.sugerido}
+            eleccion={calculo.eleccion ?? null}
+            alElegir={setEleccion}
+            stock={stockPlanchas.stock}
+            porAlmacen={stockPlanchas.porAlmacen}
+            validando={stockPlanchas.validando}
+            falloStock={stockPlanchas.fallo}
+            importe="material"
+          />
+        </section>
+      )}
 
       <section className="flex flex-col gap-2" aria-labelledby="titulo-materiales">
         <div>

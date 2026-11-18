@@ -7,7 +7,7 @@
 
 import { cache } from "react";
 import { clienteServidor } from "./supabase-servidor";
-import { calcularCorte } from "./cortes/calcular";
+import { calcularConSobrante, calcularCorte } from "./cortes/calcular";
 import { colorDe, type FormatoPlancha, type GrupoPlancha } from "./cortes/catalogo";
 import { leerConfigCortes, type ConfigCortes } from "./cortes/config";
 import { guardarCorte, lugarDeCorte, resumenPiezas, tituloCorte, type CorteGuardado } from "./cortes/guardado";
@@ -173,12 +173,22 @@ export async function prepararCorte(
   const lugar = lugarDeCorte(linea);
   const almacen = almacenDeLugar(await cargarAlmacenes(), lugar);
   const delAlmacen = grupo.sobrantesActivo && almacen ? contenedoresDe(await sobrantesDisponibles(grupo.id, almacen.id)) : [];
-  const calculo = calcularCorte(
-    { piezas: linea.piezas, espesorMm: grupo.espesorMm, modalidad: linea.modalidad, rotable: grupo.rotable },
-    { codigo: formato.codigo, ancho: formato.anchoCm, alto: formato.largoCm, precio: plancha.precio },
-    config,
-    delAlmacen,
-  );
+  const entrada = { piezas: linea.piezas, espesorMm: grupo.espesorMm, modalidad: linea.modalidad, rotable: grupo.rotable };
+  const formatoCorte = { codigo: formato.codigo, ancho: formato.anchoCm, alto: formato.largoCm, precio: plancha.precio };
+  const eleccion = linea.eleccion ?? null;
+  let calculo;
+  if (eleccion?.tipo === "formato") {
+    // Elegido a mano: solo planchas nuevas de ese formato.
+    calculo = calcularCorte(entrada, formatoCorte, config);
+  } else if (eleccion?.tipo === "sobrante") {
+    const sobrante = delAlmacen.find((s) => s.id === eleccion.codigo);
+    if (!sobrante) {
+      return fallo(`El sobrante ${eleccion.codigo} ya no está disponible. Abre el corte y elige otra plancha.`);
+    }
+    calculo = calcularConSobrante(entrada, formatoCorte, config, sobrante);
+  } else {
+    calculo = calcularCorte(entrada, formatoCorte, config, delAlmacen);
+  }
   if (calculo.problema) return fallo(calculo.problema);
   if (Math.abs(calculo.total - linea.totalMostrado) > 0.01) {
     return fallo(
@@ -199,6 +209,7 @@ export async function prepararCorte(
       piezas: linea.piezas,
       servicio: { productoId: servicio.id, codigo: codigoServicio, nombre: servicio.nombre },
       sobrantes: grupo.sobrantesActivo,
+      eleccion,
     },
     calculo,
   );
