@@ -39,7 +39,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { OpcionesPlancha, useStock, type OpcionSobrante } from "./opciones-plancha";
-import { LeyendaPlano, PlanoCorte } from "./plano-corte";
+import { PlanosPaginados } from "./planos-paginados";
 
 type CorteNuevo = Omit<LineaCorte, "tipo" | "clave"> & { clave?: string };
 
@@ -294,7 +294,7 @@ export function EditorCorte({
   return (
     <Dialog open onOpenChange={(abierto) => !abierto && alCerrar()}>
       <DialogContent
-        className="flex max-h-[92dvh] flex-col gap-0 p-0 sm:max-w-3xl"
+        className="flex max-h-[92dvh] flex-col gap-0 p-0 sm:max-w-3xl lg:max-w-6xl"
         onKeyDown={(e) => {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
             // Que no llegue al formulario de debajo: aquí Ctrl+Enter agrega el corte.
@@ -311,7 +311,13 @@ export function EditorCorte({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-5 overflow-y-auto px-5 py-4">
+        {/*
+          Dos columnas desde `lg`: a la izquierda el formulario y a la derecha el
+          plano, cada una con su propio scroll para ver el plano mientras se
+          escriben las piezas. Por debajo de `lg` se apilan y scrollea todo junto.
+        */}
+        <div className="min-h-0 flex-1 overflow-y-auto lg:grid lg:grid-cols-2 lg:overflow-hidden">
+        <div className="flex flex-col gap-5 px-5 py-4 lg:min-h-0 lg:overflow-y-auto">
           {/* 1. Material */}
           {grupo ? (
             <div className="flex flex-wrap items-end gap-3">
@@ -525,31 +531,22 @@ export function EditorCorte({
                       reservados al registrar el pedido.
                     </p>
                   )}
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {elegido.planchas.slice(0, 4).map((p, i) => (
-                      <figure key={i} className="flex flex-col gap-1">
-                        <PlanoCorte plancha={p} titulo={`Plancha ${i + 1} de ${elegido.planchas.length}`} />
-                        <figcaption className="text-muted-foreground text-xs">
-                          {p.origen.tipo === "sobrante" ? (
-                            <span className="text-foreground font-medium">Sobrante {p.origen.id} · </span>
-                          ) : (
-                            `Plancha ${i + 1} · `
-                          )}
-                          {p.piezas} {p.piezas === 1 ? "pieza" : "piezas"} · {Math.round(p.usoPct)} % usado
-                        </figcaption>
-                      </figure>
-                    ))}
-                  </div>
-                  {elegido.planchas.length > 4 && (
-                    <p className="text-muted-foreground text-xs">
-                      Y {elegido.planchas.length - 4} planchas más. El plano completo queda en el pedido.
-                    </p>
-                  )}
-                  <LeyendaPlano conSobrante={elegido.planchas.some((p) => p.cobro.factor < 1)} />
                 </div>
               )}
             </>
           )}
+        </div>
+
+        {/* El plano: a la derecha en pantallas anchas, debajo en el celular. */}
+        <div className="bg-muted/20 border-t px-5 py-4 lg:min-h-0 lg:overflow-y-auto lg:border-t-0 lg:border-l">
+          {elegido && !elegido.problema ? (
+            <PlanosPaginados planchas={elegido.planchas} />
+          ) : (
+            <p className="text-muted-foreground hidden min-h-48 items-center justify-center rounded-lg border border-dashed px-4 py-5 text-center text-sm lg:flex lg:h-full">
+              El plano del corte aparecerá aquí cuando haya piezas y una plancha elegida.
+            </p>
+          )}
+        </div>
         </div>
 
         <DialogFooter className="m-0 flex-row items-center border-t px-5 py-3">
