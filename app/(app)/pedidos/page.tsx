@@ -1,5 +1,8 @@
 import { Suspense } from "react";
 import { exigirSesion } from "@/lib/sesion";
+import { ROLES } from "@/lib/dominio";
+import { cargarBorradores } from "@/lib/borradores-servidor";
+import { ListaBorradores } from "@/components/borradores/lista-borradores";
 import { VistaPedidos } from "@/components/vista-pedidos";
 
 /**
@@ -11,10 +14,12 @@ import { VistaPedidos } from "@/components/vista-pedidos";
  * El `Suspense` es el que pide `useSearchParams` para que el build no falle.
  */
 export default async function Page() {
-  await exigirSesion();
+  const perfil = await exigirSesion();
+  // Los pedidos a medio llenar de quien mira (solo si puede crear pedidos).
+  const borradores = ROLES[perfil.rol].crearPedido ? await cargarBorradores("pedido") : [];
   return (
     <Suspense>
-      <VistaPedidos />
+      <VistaPedidos borradores={<ListaBorradores borradores={borradores} nombre="pedido" />} />
     </Suspense>
   );
 }

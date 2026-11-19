@@ -120,5 +120,5 @@ export function useTerminadosCad({
     </>
   );
 
-  return { nuevo, editar, abriendo, editores };
+  return { nuevo, editar, abriendo, editores, disenosDeLinea };
 }

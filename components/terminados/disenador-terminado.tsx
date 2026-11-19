@@ -174,8 +174,18 @@ function Contenido({
   alCerrar: () => void;
   alAgregar: (terminado: TerminadoDeDiseno) => void;
 }) {
-  const { plantilla, plantillas, resultado } = useDiseno();
+  const { plantilla, plantillas, resultado, versionVigente, material } = useDiseno();
   const [confirmando, setConfirmando] = useState(false);
+  /* Cómo abrió: si al volver algo cambió (el modelo, el producto del catálogo,
+     una versión guardada desde aquí, la cantidad o el precio), se pregunta antes. */
+  const [alAbrir] = useState(() => ({ plantilla, versionVigente, productoCodigo, material: JSON.stringify(material) }));
+  const [pieCambiado, setPieCambiado] = useState(false);
+  const cambiado =
+    pieCambiado ||
+    plantilla !== alAbrir.plantilla ||
+    versionVigente !== alAbrir.versionVigente ||
+    productoCodigo !== alAbrir.productoCodigo ||
+    JSON.stringify(material) !== alAbrir.material;
 
   // El producto del catálogo vale mientras el diseño siga en su plantilla (el chat puede cambiarla).
   // Si se llegó al modelo por el chat, el producto es el primero del catálogo con esa plantilla:
@@ -185,9 +195,9 @@ function Contenido({
     (plantilla ? (terminados.productos.find((p) => p.activo && p.plantillaCad === plantilla) ?? null) : null);
   const nombre = producto?.nombre ?? plantillas.find((p) => p.codigo === plantilla)?.nombre ?? linea?.nombre ?? null;
 
-  /** Cancelar: un diseño recién creado se borra; si ya tenía algo, se pregunta antes. */
+  /** Cancelar: un diseño recién creado se borra; si ya se eligió o cambió algo, se pregunta antes. */
   const cancelar = () => {
-    if (nuevo && resultado) return setConfirmando(true);
+    if (cambiado || (nuevo && resultado)) return setConfirmando(true);
     descartar();
   };
   const descartar = () => {
@@ -246,6 +256,7 @@ function Contenido({
             nombre={nombre}
             alCancelar={cancelar}
             alAgregar={alAgregar}
+            alCambiar={setPieCambiado}
           />
         }
       />
@@ -253,9 +264,11 @@ function Contenido({
       <AlertDialog open={confirmando} onOpenChange={setConfirmando}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>¿Descartar este producto?</AlertDialogTitle>
+            <AlertDialogTitle>{nuevo ? "¿Descartar este producto?" : "¿Descartar los cambios?"}</AlertDialogTitle>
             <AlertDialogDescription>
-              No se agrega al pedido y se borra el diseño con su conversación.
+              {nuevo
+                ? "No se agrega al pedido y se borra el diseño con su conversación."
+                : "La línea del pedido se queda como estaba: la cantidad, el precio y el modelo que cambiaste no se aplican."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -690,6 +703,7 @@ function PieTerminado({
   nombre,
   alCancelar,
   alAgregar,
+  alCambiar,
 }: {
   disenoId: string;
   nuevo: boolean;
@@ -699,6 +713,8 @@ function PieTerminado({
   nombre: string | null;
   alCancelar: () => void;
   alAgregar: (terminado: TerminadoDeDiseno) => void;
+  /** Si la cantidad o el precio ya no son los de la apertura. */
+  alCambiar: (cambiado: boolean) => void;
 }) {
   const { cargando, esperarGuardado, catalogo, setUnidades } = useDiseno();
   const costo = useCostoDiseno();
@@ -706,6 +722,9 @@ function PieTerminado({
   const [cantidad, setCantidad] = useState(linea ? String(linea.cantidad) : "1");
   const [precio, setPrecio] = useState(linea ? String(linea.precioUnitario) : "");
   const [agregando, setAgregando] = useState(false);
+  const [alAbrir] = useState({ cantidad, precio });
+  const pieCambiado = cantidad !== alAbrir.cantidad || precio !== alAbrir.precio;
+  useEffect(() => alCambiar(pieCambiado), [pieCambiado, alCambiar]);
 
   const unidades = Math.floor(Number(cantidad) || 0);
   // Planchas, DXF y costo se acomodan para el lote: un poco después de teclear,

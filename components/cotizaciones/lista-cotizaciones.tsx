@@ -26,10 +26,13 @@ export function ListaCotizaciones({
   cotizaciones,
   puedeAsistente,
   odooListo,
+  borradores,
 }: {
   cotizaciones: Cotizacion[];
   puedeAsistente: boolean;
   odooListo: boolean;
+  /** Las cotizaciones a medio llenar de quien mira, arriba de la lista. */
+  borradores?: React.ReactNode;
 }) {
   const [consulta, setConsulta] = useState("");
   const [canal, setCanal] = useState<Filtro>("todas");
@@ -73,6 +76,8 @@ export function ListaCotizaciones({
       </header>
 
       {!odooListo && <AvisoOdoo className="mb-4" />}
+
+      {borradores}
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="relative w-full max-w-sm">

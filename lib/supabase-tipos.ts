@@ -188,6 +188,57 @@ export type Database = {
         }
         Relationships: []
       }
+      borradores: {
+        Row: {
+          actualizado_en: string
+          cotizacion_id: string | null
+          creado_en: string
+          creado_por: string
+          datos: Json
+          id: string
+          resumen: Json
+          tipo: string
+          vence_en: string
+        }
+        Insert: {
+          actualizado_en?: string
+          cotizacion_id?: string | null
+          creado_en?: string
+          creado_por?: string
+          datos: Json
+          id?: string
+          resumen?: Json
+          tipo: string
+          vence_en?: string
+        }
+        Update: {
+          actualizado_en?: string
+          cotizacion_id?: string | null
+          creado_en?: string
+          creado_por?: string
+          datos?: Json
+          id?: string
+          resumen?: Json
+          tipo?: string
+          vence_en?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "borradores_cotizacion_id_fkey"
+            columns: ["cotizacion_id"]
+            isOneToOne: false
+            referencedRelation: "cotizaciones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "borradores_creado_por_fkey"
+            columns: ["creado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cad_diseno_versiones: {
         Row: {
           acomodo: Json | null
@@ -3295,6 +3346,7 @@ export type Database = {
         Args: { p_conversacion_id: string }
         Returns: boolean
       }
+      purgar_borradores: { Args: never; Returns: undefined }
       purgar_notificaciones: { Args: never; Returns: undefined }
       quitar_miembro: {
         Args: { p_conversacion_id: string; p_usuario_id: string }

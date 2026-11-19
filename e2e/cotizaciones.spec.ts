@@ -491,6 +491,74 @@ test("la lista filtra, y el formulario sugiere lo usado", async ({ page }) => {
   await expect(page.getByRole("option", { name: /ACRILICO F8 CRISTAL 3MM/ })).toBeVisible();
 });
 
+test("cerrar el corte con medidas escritas pregunta antes de descartar", async ({ page }) => {
+  await entrar(page, "administracion");
+  await page.goto("/cotizaciones/nueva");
+  await abrirCorte(page, "eco cristal 3", /Acrílico ECO.*Cristal.*3 mm/);
+  await escribirPieza(page, 1, "60", "80", "2");
+
+  const dialogo = page.getByRole("dialog", { name: "Corte a medida" });
+  await page.keyboard.press("Escape");
+  const aviso = page.getByRole("alertdialog", { name: "¿Descartar este corte?" });
+  await expect(aviso).toBeVisible();
+  await aviso.getByRole("button", { name: "Seguir editando" }).click();
+  await expect(dialogo).toBeVisible();
+  await expect(page.getByLabel("Ancho de la pieza 1")).toHaveValue("60");
+
+  await page.keyboard.press("Escape");
+  await page.getByRole("alertdialog").getByRole("button", { name: "Descartar" }).click();
+  await expect(dialogo).toHaveCount(0);
+
+  // Sin nada escrito, se cierra sin preguntar.
+  await page.getByRole("button", { name: "Corte a medida" }).click();
+  await expect(dialogo).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialogo).toHaveCount(0);
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+});
+
+test("lo llenado queda como borrador: se retoma, se elimina y al crear desaparece", async ({ page }) => {
+  await entrar(page, "administracion");
+  await page.goto("/cotizaciones/nueva");
+  await elegirCliente(page, "nunez", /E2E Ñuñez Talleres EIRL/);
+  await agregarProducto(page, "ACRILICO F8", "ACRILICO F8 CRISTAL 3MM");
+  await expect(page.getByTestId("estado-borrador")).toHaveText("Borrador guardado");
+  await expect(page).toHaveURL(/borrador=[0-9a-f-]{36}/);
+
+  // Se sale sin crear: en la lista está el borrador.
+  await page.goto("/cotizaciones");
+  const borrador = page.getByTestId("borrador").filter({ hasText: "E2E Ñuñez Talleres EIRL" });
+  await expect(borrador).toHaveCount(1);
+  await expect(borrador).toContainText("1 producto");
+
+  // Retomarlo trae el cliente y la línea.
+  await borrador.getByRole("link", { name: "Retomar" }).click();
+  await expect(page.getByTestId("cliente-elegido")).toContainText("E2E Ñuñez Talleres EIRL");
+  await expect(page.getByLabel("Cantidad de ACRILICO F8 CRISTAL 3MM")).toBeVisible();
+
+  // Al crear la cotización, el borrador se va.
+  await page.getByRole("button", { name: "Crear cotización" }).click();
+  await expect(page).toHaveURL(/\/cotizaciones\/[0-9a-f-]{36}$/);
+  await page.goto("/cotizaciones");
+  await expect(page.getByTestId("borrador").filter({ hasText: "E2E Ñuñez Talleres EIRL" })).toHaveCount(0);
+
+  // Otro borrador, y esta vez se elimina desde la lista.
+  await page.goto("/cotizaciones/nueva");
+  await elegirCliente(page, "20123456786", /E2E Corporación Andina SAC/);
+  await expect(page.getByTestId("estado-borrador")).toHaveText("Borrador guardado");
+  const url = page.url();
+  await page.goto("/cotizaciones");
+  const otro = page.getByTestId("borrador").filter({ hasText: "E2E Corporación Andina SAC" });
+  await otro.getByRole("button", { name: "Eliminar borrador" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Eliminar" }).click();
+  await expect(otro).toHaveCount(0);
+
+  // Su enlace ya no lo abre: se avisa y el formulario arranca vacío.
+  await page.goto(url);
+  await expect(page.getByTestId("borrador-vencido")).toBeVisible();
+  await expect(page.getByTestId("cliente-elegido")).toHaveCount(0);
+});
+
 for (const [rol, vista] of [
   ["logistica", "/pedidos"],
   ["operaciones", "/pedidos"],
