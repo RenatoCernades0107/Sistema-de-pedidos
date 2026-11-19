@@ -113,6 +113,16 @@ export function OpcionesPlancha({
 }) {
   const hayDe = (codigo: string) => (stock ? (stock[codigo] ?? null) : validando ? undefined : null);
 
+  // Si la sugerencia es solo planchas nuevas de un formato, es esa misma tarjeta
+  // del formato: se muestra una vez, la primera y marcada como sugerida. Con
+  // sobrantes de por medio la sugerencia es otro corte y va aparte.
+  const fusionado =
+    sugerido && sugerido.planchas.every((p) => p.origen.tipo === "plancha") ? sugerido.formato.codigo : null;
+  const hayFusion = fusionado !== null && formatos.some((c) => c.formato.codigo === fusionado);
+  const lista = hayFusion
+    ? [...formatos.filter((c) => c.formato.codigo === fusionado), ...formatos.filter((c) => c.formato.codigo !== fusionado)]
+    : formatos;
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-baseline gap-x-3">
@@ -127,29 +137,40 @@ export function OpcionesPlancha({
       </div>
 
       <ul className="grid gap-2 sm:grid-cols-3" aria-label="Formatos de plancha">
-        <li>
-          <TarjetaSugerida
-            calculo={sugerido}
-            elegido={eleccion === null}
-            validando={validando}
-            hay={sugerido ? hayDe(sugerido.formato.codigo) : null}
-            importe={importe}
-            alElegir={() => alElegir(null)}
-          />
-        </li>
-        {formatos.map((c) => (
-          <li key={c.formato.codigo}>
-            <TarjetaFormato
-              calculo={c}
-              elegido={mismaEleccion(eleccion, { tipo: "formato", codigo: c.formato.codigo })}
+        {!hayFusion && (
+          <li>
+            <TarjetaSugerida
+              calculo={sugerido}
+              elegido={eleccion === null}
               validando={validando}
-              hay={hayDe(c.formato.codigo)}
-              porAlmacen={porAlmacen[c.formato.codigo]}
+              hay={sugerido ? hayDe(sugerido.formato.codigo) : null}
               importe={importe}
-              alElegir={() => alElegir({ tipo: "formato", codigo: c.formato.codigo })}
+              alElegir={() => alElegir(null)}
             />
           </li>
-        ))}
+        )}
+        {lista.map((c) => {
+          const esSugerida = hayFusion && c.formato.codigo === fusionado;
+          return (
+            <li key={c.formato.codigo}>
+              <TarjetaFormato
+                calculo={c}
+                sugerida={esSugerida}
+                // La sugerida sigue a las piezas: elegirla es no fijar ningún formato.
+                elegido={
+                  esSugerida
+                    ? eleccion === null || mismaEleccion(eleccion, { tipo: "formato", codigo: c.formato.codigo })
+                    : mismaEleccion(eleccion, { tipo: "formato", codigo: c.formato.codigo })
+                }
+                validando={validando}
+                hay={hayDe(c.formato.codigo)}
+                porAlmacen={porAlmacen[c.formato.codigo]}
+                importe={importe}
+                alElegir={() => alElegir(esSugerida ? null : { tipo: "formato", codigo: c.formato.codigo })}
+              />
+            </li>
+          );
+        })}
       </ul>
 
       {sobrantes.length > 0 && (
@@ -238,6 +259,7 @@ function TarjetaSugerida({
 
 export function TarjetaFormato({
   calculo: c,
+  sugerida = false,
   elegido,
   validando,
   hay,
@@ -246,6 +268,8 @@ export function TarjetaFormato({
   alElegir,
 }: {
   calculo: CalculoCorte;
+  /** Es también la sugerencia del sistema: se marca y es la que sigue a las piezas. */
+  sugerida?: boolean;
   elegido: boolean;
   validando: boolean;
   /** `undefined`: Odoo todavía no contesta. `null`: Odoo no lleva ese stock. */
@@ -265,7 +289,14 @@ export function TarjetaFormato({
       disabled={validando || !!c.problema}
       onClick={alElegir}
       className={claseTarjeta(elegido, !!c.problema)}
+      data-testid={sugerida ? "opcion-sugerida" : undefined}
     >
+      {sugerida && (
+        <span className="flex items-center gap-1.5 text-sm font-medium">
+          <Sparkles className="text-primary size-3.5" />
+          Sugerida
+        </span>
+      )}
       <span className="flex items-baseline justify-between gap-2">
         <span className="tnum text-sm font-medium">
           {c.formato.ancho}×{c.formato.alto}
