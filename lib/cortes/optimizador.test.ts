@@ -122,6 +122,18 @@ describe("casos fijos", () => {
     expect(r.planchas.map((p) => p.piezas)).toEqual([58, 42]);
   });
 
+  it("30×50 en 122×183 con kerf: caben 14 por plancha, no 12", () => {
+    // 3 filas de 4 paradas y, en la franja de abajo, 2 acostadas. Una acostada en
+    // medio de una fila deja una cuña muerta y se pierden dos piezas por plancha.
+    const uno = empaquetar(122, 183, varias(14, 30, 50), { kerf: 0.3 });
+    expect(uno.planchas.map((p) => p.piezas)).toEqual([14]);
+
+    const piezas = varias(40, 30, 50);
+    const r = empaquetar(122, 183, piezas, { kerf: 0.3 });
+    expect(r.planchas.map((p) => p.piezas)).toEqual([14, 14, 12]);
+    expect(r.noCaben).toHaveLength(0);
+  });
+
   it("abre otra plancha cuando la primera se llena", () => {
     const piezas = varias(10, 60, 80);
     const r = empaquetar(122, 183, piezas);

@@ -161,13 +161,29 @@ abstract class ConMemoria implements Nodo {
 type Regla = "perezosa" | "horizontal" | "vertical";
 const REGLAS: readonly Regla[] = ["perezosa", "horizontal", "vertical"];
 
+/**
+ * Cómo se arma una pasada: la `regla` de corte y el desempate de `alineado`.
+ *
+ * La puntuación de `Hoja` vale lo mismo para la pieza parada y para la acostada
+ * (ver `Hoja.calcular`), así que entre las dos decide el orden o el ruido de la
+ * coma flotante. Eso a veces mete una pieza girada en medio de una fila y deja
+ * una cuña donde ya no entra nada: 40 de 30×50 en 122×183 salían 12 por plancha
+ * y 4 planchas, cuando caben 14 y bastan 3. Con `alineado`, a igual puntuación
+ * gana la orientación que pega la pieza al borde del hueco: cierra la fila en
+ * vez de abrir una cuña.
+ */
+interface Estilo {
+  regla: Regla;
+  alineado: boolean;
+}
+
 class Hoja extends ConMemoria {
   constructor(
     readonly x1: number,
     readonly y1: number,
     readonly x2: number,
     readonly y2: number,
-    readonly regla: Regla,
+    readonly estilo: Estilo,
     readonly pieza: Colocable | null = null,
   ) {
     super();
@@ -182,26 +198,30 @@ class Hoja extends ConMemoria {
     // Ojo: la suma vale W + H − w − h con la pieza parada o acostada, así que
     // esto no elige la orientación; la eligen las pasadas de `empaquetar`. Se
     // probó puntuar por el lado corto (Best Short Side Fit) y daba más planchas.
-    return 1 / (Math.max(sobraW, 0) + Math.max(sobraH, 0));
+    const sW = Math.max(sobraW, 0);
+    const sH = Math.max(sobraH, 0);
+    // El 1e-3 solo desempata: lo que separa dos huecos distintos es de varios cm.
+    return 1 / (sW + sH + (this.estilo.alineado ? 1e-3 * Math.min(sW, sH) : 0));
   }
 
   colocar(p: Colocable): Nodo | null {
     if (this.encaje(p.w, p.h) === 0) return null;
-    const { x1, y1, x2, y2, regla } = this;
+    const { x1, y1, x2, y2, estilo } = this;
+    const { regla } = estilo;
     const xp = x1 + p.w;
     const yp = y1 + p.h;
     const sobraW = x2 - xp > EPS;
     const sobraH = y2 - yp > EPS;
 
     // La pieza se ancla arriba a la izquierda; lo que sobra queda en L.
-    const ocupada = new Hoja(x1, y1, sobraW ? xp : x2, sobraH ? yp : y2, regla, p);
+    const ocupada = new Hoja(x1, y1, sobraW ? xp : x2, sobraH ? yp : y2, estilo, p);
     if (!sobraW && !sobraH) return ocupada;
-    if (!sobraW) return new Y(ocupada, new Hoja(x1, yp, x2, y2, regla));
-    if (!sobraH) return new Y(ocupada, new Hoja(xp, y1, x2, y2, regla));
+    if (!sobraW) return new Y(ocupada, new Hoja(x1, yp, x2, y2, estilo));
+    if (!sobraH) return new Y(ocupada, new Hoja(xp, y1, x2, y2, estilo));
 
     // Las dos particiones de guillotina posibles.
-    const horizontal = new Y(new Hoja(xp, y1, x2, yp, regla), new Hoja(x1, yp, x2, y2, regla));
-    const vertical = new Y(new Hoja(xp, y1, x2, y2, regla), new Hoja(x1, yp, xp, y2, regla));
+    const horizontal = new Y(new Hoja(xp, y1, x2, yp, estilo), new Hoja(x1, yp, x2, y2, estilo));
+    const vertical = new Y(new Hoja(xp, y1, x2, y2, estilo), new Hoja(x1, yp, xp, y2, estilo));
     if (regla === "horizontal") return new Y(ocupada, horizontal);
     if (regla === "vertical") return new Y(ocupada, vertical);
     return new Y(ocupada, new O(horizontal, vertical));
@@ -300,7 +320,9 @@ const area = (p: Pick<Pieza, "ancho" | "alto">) => p.ancho * p.alto;
 
 /**
  * Los órdenes que se prueban, cada uno con las tres `PREFERENCIAS` de
- * orientación y las tres `REGLAS` de corte: 63 pasadas. Ninguno gana siempre.
+ * orientación y las tres `REGLAS` de corte: 63 pasadas, y otras 63 con el
+ * desempate `alineado` si las primeras no llegan a la cota del área. Ninguno
+ * gana siempre.
  * Con 2000 piezas el cálculo con precios tarda menos de un segundo, y se puede
  * permitir: quien cotiza prefiere esperar a que le sobre una plancha.
  * `sort` es estable, así que a igualdad manda el orden en que llegaron.
@@ -346,7 +368,7 @@ function unaPasada(
   margen: number,
   previos: Contenedor[],
   preferencia: Preferencia,
-  regla: Regla,
+  estilo: Estilo,
 ): ResultadoCorte {
   // El área útil: sin los bordes, y con un kerf de más porque la última pieza
   // de cada fila no necesita el corte que la separaría de la siguiente.
@@ -356,7 +378,7 @@ function unaPasada(
   const noCaben: Pieza[] = [];
 
   const abrir = (ancho: number, alto: number, origen: Origen): Abierta => {
-    const nueva = { ancho, alto, origen, raiz: new Hoja(0, 0, util(ancho), util(alto), regla), piezas: 0 };
+    const nueva = { ancho, alto, origen, raiz: new Hoja(0, 0, util(ancho), util(alto), estilo), piezas: 0 };
     abiertas.push(nueva);
     return nueva;
   };
@@ -375,7 +397,9 @@ function unaPasada(
     if (!mejor) {
       // La orientación que mejor encaja en la plancha vacía; a igualdad, la preferida.
       const cabe = (ancho: number, alto: number) => {
-        const vacia = new Hoja(0, 0, util(ancho), util(alto), regla);
+        // En la plancha vacía la orientación la decide la preferencia de la
+        // pasada: el desempate por alineación solo vale con piezas ya puestas.
+        const vacia = new Hoja(0, 0, util(ancho), util(alto), { ...estilo, alineado: false });
         let elegida: Colocable | undefined;
         let mejorEncaje = 0;
         for (const c of candidatas) {
@@ -454,7 +478,8 @@ export const planchasNuevas = (r: ResultadoCorte) =>
  * Empaqueta las piezas en planchas de `ancho × alto`.
  *
  * Determinista: la misma entrada da el mismo resultado. Prueba siete órdenes,
- * cada uno con tres preferencias de orientación y tres reglas de corte, y se
+ * cada uno con tres preferencias de orientación y tres reglas de corte (y otra
+ * vuelta con el desempate `alineado` si hace falta), y se
  * queda con la pasada que deja menos piezas fuera, abre menos planchas nuevas,
  * cuesta menos (`opciones.costo`) y, a igualdad, deja la plancha menos usada
  * más vacía: llena las primeras y deja el sobrante más grande, que es el que
@@ -481,17 +506,30 @@ export function empaquetar(
     return false;
   };
 
+  // Primero las pasadas de siempre y después las alineadas: `gana` es estricto,
+  // así que una alineada solo desplaza a una anterior si es mejor. Las alineadas
+  // duplican el trabajo, y no hacen falta cuando ya se abren tantas planchas
+  // como exige el área: más planchas que esa cota es donde puede haber ganancia.
   let mejor: { r: ResultadoCorte; clave: number[] } | null = null;
-  for (const regla of REGLAS) {
-    for (const orden of ORDENES) {
-      const ordenadas = [...validas].sort(orden);
-      for (const preferencia of PREFERENCIAS) {
-        const r = unaPasada(ancho, alto, ordenadas, rotar, kerf, margen, previos, preferencia, regla);
-        const k = clave(r);
-        if (!mejor || gana(k, mejor.clave)) mejor = { r, clave: k };
+  const probar = (alineado: boolean) => {
+    for (const regla of REGLAS) {
+      for (const orden of ORDENES) {
+        const ordenadas = [...validas].sort(orden);
+        for (const preferencia of PREFERENCIAS) {
+          const r = unaPasada(ancho, alto, ordenadas, rotar, kerf, margen, previos, preferencia, { regla, alineado });
+          const k = clave(r);
+          if (!mejor || gana(k, mejor.clave)) mejor = { r, clave: k };
+        }
       }
     }
-  }
+  };
+
+  probar(false);
+  const colocadas = new Set(mejor!.r.noCaben);
+  const areaPiezas = validas.reduce((s, p) => s + (colocadas.has(p) ? 0 : area(p)), 0);
+  const areaPrevios = previos.reduce((s, c) => s + c.ancho * c.alto, 0);
+  const cota = Math.ceil(Math.max(0, areaPiezas - areaPrevios) / (ancho * alto) - 1e-9);
+  if (planchasNuevas(mejor!.r) > cota) probar(true);
   return mejor!.r;
 }
 
