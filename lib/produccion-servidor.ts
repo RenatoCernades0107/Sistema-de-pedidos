@@ -16,10 +16,11 @@
 import { almacenDeLugar } from "./almacenes";
 import { cargarAlmacenes, odooDeAlmacenId, odooDeLugar } from "./almacenes-servidor";
 import { cargarConfigCortes, cargarGrupoPlancha } from "./cortes-servidor";
-import { calcularCorte } from "./cortes/calcular";
+import { calcularCorte, desperdicioFisicoPct } from "./cortes/calcular";
 import type { GrupoPlancha } from "./cortes/catalogo";
 import {
   guardarCorte,
+  guardarPlanchas,
   lugarDeCorte,
   planchasNuevas,
   sobrantesUsados,
@@ -37,6 +38,7 @@ import {
   crearProduccion,
   type DondeProducir,
   type SobranteReal,
+  type SobrantesConsumidos,
 } from "./odoo/produccion";
 import { materialesADescontar, type TerminadoGuardado } from "./terminados/guardado";
 import { almacenDeVenta, origenDe } from "./odoo/pedidos-venta";
@@ -67,7 +69,7 @@ export const conPiloto = (l: { corte: CorteGuardado | null }) => !!l.corte?.sobr
 
 
 /** Los lotes de Odoo de los sobrantes del almacén que usa un corte. */
-async function lotesConsumidos(corte: CorteGuardado): Promise<number[]> {
+async function lotesConsumidos(corte: Pick<CorteGuardado, "planchas">): Promise<number[]> {
   const codigos = sobrantesUsados(corte);
   if (codigos.length === 0) return [];
   const supabase = await clienteServidor();
@@ -166,7 +168,7 @@ export async function producirCortes(
  */
 export async function reservarSobrantes(
   cotizacionId: string,
-  lineas: { posicion: number; corte: CorteGuardado | null }[],
+  lineas: { posicion: number; corte: CorteGuardado | null; terminado?: TerminadoGuardado | null }[],
 ): Promise<Resultado> {
   const supabase = await clienteServidor();
   const config = await cargarConfigCortes();
@@ -179,10 +181,19 @@ export async function reservarSobrantes(
     // Solo los sobrantes del almacén donde se corta.
     const almacen = almacenDeLugar(almacenes, lugarDeCorte(corte));
 
+    const eleccion = corte.eleccion ?? null;
     for (let intento = 0; intento < 4; intento++) {
       // El último intento, sin sobrantes: planchas nuevas, que siempre se pueden.
-      const disponibles =
-        intento < 3 && almacen ? contenedoresDe(await sobrantesDisponibles(grupo.id, almacen.id)) : [];
+      // Con un formato elegido a mano no se usan sobrantes; con un sobrante
+      // elegido, solo ese (si otro pedido se lo llevó, lo que haya).
+      let disponibles =
+        intento < 3 && almacen && eleccion?.tipo !== "formato"
+          ? contenedoresDe(await sobrantesDisponibles(grupo.id, almacen.id))
+          : [];
+      if (eleccion?.tipo === "sobrante") {
+        const ese = disponibles.filter((s) => s.id === eleccion.codigo);
+        if (ese.length) disponibles = ese;
+      }
       const calculo = calcularCorte(
         { piezas: corte.piezas, espesorMm: corte.espesorMm, modalidad: corte.modalidad, rotable: corte.rotable },
         corte.formato,
@@ -208,7 +219,44 @@ export async function reservarSobrantes(
       // Otro pedido se llevó alguno a la vez: se vuelve a leer lo disponible.
     }
   }
-  return { ok: true };
+
+  const avisos: string[] = [];
+  for (const l of lineas) {
+    const t = l.terminado;
+    if (!t?.corte || sobrantesUsados(t.corte).length === 0) continue;
+    const codigos = sobrantesUsados(t.corte);
+    const reservar = (ficha: TerminadoGuardado, cuales: string[]) =>
+      supabase.rpc("reservar_sobrantes_de_terminado", {
+        p_cotizacion: cotizacionId,
+        p_posicion: l.posicion,
+        p_terminado: ficha as unknown as Json,
+        p_codigos: cuales,
+      });
+    const { error } = await reservar(t, codigos);
+    if (!error) continue;
+    if (!error.message.includes("SOBRANTE_OCUPADO")) {
+      return { ok: false, error: `No se reservó el sobrante de ${t.nombre}: ${mensajeDeError(error)}` };
+    }
+    // Otro pedido se lo llevó: el producto sale de planchas nuevas, al mismo precio.
+    const calculo = calcularCorte(
+      { piezas: t.corte.piezas, espesorMm: t.material?.espesorMm ?? 0, modalidad: "laser", rotable: t.corte.rotable },
+      t.corte.formato,
+      config,
+    );
+    const sinSobrante: TerminadoGuardado = {
+      ...t,
+      corte: {
+        ...t.corte,
+        planchas: guardarPlanchas(calculo.planchas),
+        desperdicioPct: Math.round(desperdicioFisicoPct(calculo) * 10) / 10,
+        eleccion: null,
+      },
+    };
+    const otra = await reservar(sinSobrante, []);
+    if (otra.error) return { ok: false, error: `No se guardó ${t.nombre}: ${mensajeDeError(otra.error)}` };
+    avisos.push(`${codigos.join(", ")} ya no estaba libre: ${t.nombre} se hará con planchas nuevas`);
+  }
+  return avisos.length ? { ok: false, error: `${avisos.join(". ")}.` } : { ok: true };
 }
 
 export interface SobranteConfirmado {
@@ -429,6 +477,15 @@ type LineaTerminado = {
   produccionId?: number | null;
 };
 
+/** Los sobrantes del almacén que eligió un producto terminado, con sus lotes. `null`: ninguno. */
+async function sobrantesDeTerminado(t: TerminadoGuardado): Promise<SobrantesConsumidos | null> {
+  if (!t.corte || sobrantesUsados(t.corte).length === 0 || !t.material) return null;
+  const grupo = await cargarGrupoPlancha(t.material.grupoId);
+  const material = grupo ? materialOdoo(grupo) : null;
+  if (!material) throw new ErrorOdoo("El material del producto terminado ya no tiene planchas en el catálogo.");
+  return { material, lotes: await lotesConsumidos(t.corte) };
+}
+
 /**
  * La orden de fabricación de un producto terminado, si todavía no la tiene. Nace
  * con los materiales estimados: al confirmarse, Odoo los reserva.
@@ -440,6 +497,7 @@ async function asegurarFabricacion(cotizacionId: string, orderId: number | null,
     productoId: l.productoId,
     cantidad: l.cantidad,
     componentes: materialesADescontar(l.terminado!, null),
+    sobrantes: (await sobrantesDeTerminado(l.terminado!)) ?? undefined,
     // Los productos terminados se fabrican siempre en el taller.
     donde: await dondeProducir("taller", orderId),
   });
@@ -498,8 +556,22 @@ export async function cerrarTerminadosDePedido(
     try {
       const moId = await asegurarFabricacion(cotizacionId, orderId, l);
       const { filas, reales } = await sobrantesParaOdoo(pedido.id, l.posicion, "terminado");
-      const lotes = await cerrarFabricacion(moId, materialesADescontar(l.terminado!, l.materialesUsados), reales);
+      const consumidos = await sobrantesDeTerminado(l.terminado!);
+      const lotes = await cerrarFabricacion(
+        moId,
+        materialesADescontar(l.terminado!, l.materialesUsados),
+        reales,
+        consumidos,
+      );
       await anotarLotes(filas, lotes);
+      // El sobrante del almacén que usó ya no está.
+      if (consumidos) {
+        await supabase.rpc("soltar_sobrantes_de_pedido", {
+          p_codigo: codigoPedido,
+          p_consumir: true,
+          p_posicion: l.posicion,
+        });
+      }
 
       const { error } = await supabase.rpc("anotar_produccion", {
         p_cotizacion: cotizacionId,

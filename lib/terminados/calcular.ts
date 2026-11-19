@@ -20,7 +20,15 @@
  * guardar, con los precios que lee él de Odoo.
  */
 
-import { compararFormatos, MAX_PIEZAS, type CalculoCorte, type FormatoCorte } from "../cortes/calcular";
+import {
+  calcularConSobrante,
+  compararFormatos,
+  MAX_PIEZAS,
+  type CalculoCorte,
+  type EleccionPlancha,
+  type FormatoCorte,
+} from "../cortes/calcular";
+import type { Contenedor } from "../cortes/optimizador";
 import type { ConfigCortes } from "../cortes/config";
 import { areaM2, type Geometria, type Medidas } from "./geometria";
 import { piezasDeTerminado, type PiezaDeTerminado } from "./piezas";
@@ -82,6 +90,20 @@ export interface EntradaTerminado {
   configCortes?: ConfigCortes;
   /** El espesor del material: lo pide el cálculo del corte. */
   espesorMm?: number;
+  /** Los sobrantes del material que se pueden usar, en el taller. */
+  sobrantes?: Contenedor[];
+  /** La plancha o el sobrante elegidos a mano. `null`: el formato más barato. */
+  eleccion?: EleccionPlancha | null;
+}
+
+/** Las alternativas para el acomodo, para que quien cotiza elija. */
+export interface OpcionesDeAcomodo {
+  /** Cada formato, con planchas nuevas, del más barato al menos. */
+  formatos: CalculoCorte[];
+  /** Cada sobrante, primero él y lo demás del formato sugerido. */
+  sobrantes: { codigo: string; calculo: CalculoCorte }[];
+  /** El formato que se usa si no se elige nada. */
+  sugerido: CalculoCorte;
 }
 
 export interface CalculoTerminado {
@@ -107,6 +129,10 @@ export interface CalculoTerminado {
   aviso: string | null;
   /** La merma que se aplicó (0 si el material salió del acomodo). */
   mermaPct: number;
+  /** La elección a mano que de verdad se usó (`null`: la sugerencia). */
+  eleccion?: EleccionPlancha | null;
+  /** Las alternativas de plancha y sobrante. `null`: no hubo acomodo. */
+  opciones?: OpcionesDeAcomodo | null;
 }
 
 export const redondear2 = (x: number) => Math.round((x + Number.EPSILON) * 100) / 100;
@@ -176,12 +202,27 @@ export function formatosConPrecio<F extends { codigo: string; anchoCm: number; l
 }
 
 type Acomodo =
-  | { corte: CalculoCorte; formato: FormatoTerminado; aviso: null }
-  | { corte: null; formato: null; aviso: string | null };
+  | {
+      corte: CalculoCorte;
+      /** El mismo formato con planchas nuevas: de ahí sale el precio, salga de donde salga. */
+      cobro: CalculoCorte;
+      formato: FormatoTerminado;
+      aviso: null;
+      eleccion: EleccionPlancha | null;
+      opciones: OpcionesDeAcomodo;
+    }
+  | { corte: null; cobro: null; formato: null; aviso: string | null; eleccion: null; opciones: null };
 
-/** El acomodo en el formato más barato, o por qué no lo hay. */
+/** El acomodo en el formato elegido (o el más barato), o por qué no lo hay. */
 function acomodar(e: EntradaTerminado, piezas: PiezaDeTerminado[] | null, manual: boolean): Acomodo {
-  const nada = (aviso: string | null): Acomodo => ({ corte: null, formato: null, aviso });
+  const nada = (aviso: string | null): Acomodo => ({
+    corte: null,
+    cobro: null,
+    formato: null,
+    aviso,
+    eleccion: null,
+    opciones: null,
+  });
   if (!piezas || piezas.length === 0) return nada(null);
   if (manual) return nada("Con el área escrita a mano, el material se estima por área y no por cortes.");
   const formatos = (e.formatos ?? []).filter((f) => f.precio > 0 && f.ancho > 0 && f.alto > 0);
@@ -192,12 +233,10 @@ function acomodar(e: EntradaTerminado, piezas: PiezaDeTerminado[] | null, manual
     return nada(`Son ${total} piezas, más de las ${MAX_PIEZAS} que se acomodan de una vez: el material se estima por área.`);
   }
 
-  const opciones = compararFormatos(
-    { piezas, espesorMm: e.espesorMm ?? 0, modalidad: "laser", rotable: true },
-    formatos,
-    e.configCortes,
-  );
-  const mejor = opciones.find((o) => o.noCaben.length === 0 && o.planchas.length > 0);
+  const entrada = { piezas, espesorMm: e.espesorMm ?? 0, modalidad: "laser" as const, rotable: true };
+  const delFormato = compararFormatos(entrada, formatos, e.configCortes);
+  const sirve = (c: CalculoCorte) => c.noCaben.length === 0 && c.planchas.length > 0;
+  const mejor = delFormato.find(sirve);
   if (!mejor) {
     const grande = Math.max(...formatos.map((f) => Math.max(f.ancho, f.alto)));
     const fuera = piezas.find((p) => Math.max(p.ancho, p.alto) > grande) ?? piezas[0];
@@ -206,8 +245,27 @@ function acomodar(e: EntradaTerminado, piezas: PiezaDeTerminado[] | null, manual
         "material: el material se estima por área.",
     );
   }
-  const formato = formatos.find((f) => f.codigo === mejor.formato.codigo)!;
-  return { corte: mejor, formato, aviso: null };
+  const configCortes = e.configCortes;
+  const sobrantes = (e.sobrantes ?? []).map((s) => ({
+    codigo: s.id,
+    calculo: calcularConSobrante(entrada, mejor.formato, configCortes, s),
+  }));
+  const opciones: OpcionesDeAcomodo = { formatos: delFormato, sobrantes, sugerido: mejor };
+
+  let corte = mejor;
+  let eleccion: EleccionPlancha | null = null;
+  const pedida = e.eleccion ?? null;
+  if (pedida?.tipo === "formato") {
+    const c = delFormato.find((x) => x.formato.codigo === pedida.codigo);
+    if (c && sirve(c)) [corte, eleccion] = [c, pedida];
+  } else if (pedida?.tipo === "sobrante") {
+    const c = sobrantes.find((x) => x.codigo === pedida.codigo)?.calculo;
+    if (c && !c.problema && c.noCaben.length === 0) [corte, eleccion] = [c, pedida];
+  }
+  // El precio: el del mismo formato con planchas nuevas.
+  const cobro = delFormato.find((x) => x.formato.codigo === corte.formato.codigo)!;
+  const formato = formatos.find((f) => f.codigo === corte.formato.codigo)!;
+  return { corte, cobro, formato, aviso: null, eleccion, opciones };
 }
 
 export function calcularTerminado(e: EntradaTerminado): CalculoTerminado {
@@ -217,13 +275,13 @@ export function calcularTerminado(e: EntradaTerminado): CalculoTerminado {
 
   const porUnidad = piezasDeTerminado(e.geometria, e.medidas, e.anchoDeLetra);
   const piezas = porUnidad && cantidad > 0 ? piezasDeLinea(porUnidad, cantidad) : null;
-  const { corte, formato, aviso } = acomodar(e, piezas, manual);
+  const { corte, cobro, formato, aviso, eleccion, opciones } = acomodar(e, piezas, manual);
 
   const mermaPct = corte ? 0 : Math.max(0, e.mermaPct);
   const areaTotalM2 = redondear4((areaUnidadM2 ?? 0) * cantidad * (1 + mermaPct / 100));
   const areaPlancha = e.plancha ? (e.plancha.anchoCm * e.plancha.largoCm) / 10000 : 0;
-  const planchas = corte
-    ? redondear2(corte.planchas.reduce((s, p) => s + p.cobro.factor, 0))
+  const planchas = cobro
+    ? redondear2(cobro.planchas.reduce((s, p) => s + p.cobro.factor, 0))
     : areaPlancha > 0
       ? redondear2(areaTotalM2 / areaPlancha)
       : 0;
@@ -281,5 +339,7 @@ export function calcularTerminado(e: EntradaTerminado): CalculoTerminado {
     formato,
     aviso,
     mermaPct,
+    eleccion,
+    opciones,
   };
 }

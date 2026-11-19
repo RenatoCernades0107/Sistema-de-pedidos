@@ -3313,6 +3313,15 @@ export type Database = {
         }
         Returns: undefined
       }
+      reservar_sobrantes_de_terminado: {
+        Args: {
+          p_codigos: string[]
+          p_cotizacion: string
+          p_posicion: number
+          p_terminado: Json
+        }
+        Returns: undefined
+      }
       restaurar_version_diseno: {
         Args: { p_diseno_id: string; p_version: number }
         Returns: number

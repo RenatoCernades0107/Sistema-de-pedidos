@@ -11,7 +11,7 @@
  * terminado, que el taller fabrica y trae su ficha (`lib/terminados/`).
  */
 
-import type { CalculoCorte, Modalidad, PiezaPedida } from "./cortes/calcular";
+import type { CalculoCorte, EleccionPlancha, Modalidad, PiezaPedida } from "./cortes/calcular";
 import type { LugarCorte } from "./cortes/guardado";
 import type { Accesorio, CalculoTerminado } from "./terminados/calcular";
 import type { Geometria, Medidas } from "./terminados/geometria";
@@ -53,6 +53,8 @@ export interface LineaCorte {
   /** Dónde se corta: el láser, siempre en el taller; un manual, en el taller o la tienda. */
   lugar: LugarCorte;
   piezas: PiezaPedida[];
+  /** La plancha o el sobrante que eligió a mano quien cotiza; `null`: la sugerencia. */
+  eleccion?: EleccionPlancha | null;
   /**
    * El cálculo sobre el formato elegido. Es lo que se enseña mientras se arma;
    * al guardar, el servidor lo rehace con sus propios precios.
@@ -87,6 +89,8 @@ export interface LineaTerminado {
   /** El precio final de cada unidad: el sugerido, o el que escribió quien cotiza. */
   precioUnitario: number;
   reservar: boolean;
+  /** La plancha o el sobrante que eligió a mano quien cotiza; `null`: la sugerencia. */
+  eleccion?: EleccionPlancha | null;
   /** Si sale de un diseño CAD: la versión que se cotiza (`cad_diseno_versiones.id`). */
   disenoVersionId?: string | null;
   /** Lo que se enseña mientras se arma; al guardar, el servidor lo rehace. */

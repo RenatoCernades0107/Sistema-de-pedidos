@@ -15,7 +15,7 @@ import { useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Check, MapPin, Package, RotateCw, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { LUGARES } from "@/lib/dominio";
+import { DIRECCIONES_RECOJO, LUGARES } from "@/lib/dominio";
 import { describirLinea, primerNombre } from "@/lib/compartir";
 import { fechaCompleta, fechaHora } from "@/lib/formato";
 import { momentoEnLima } from "@/lib/fecha";
@@ -155,7 +155,21 @@ export function VistaSeguimiento({ seguimiento: s, leidoEn }: { seguimiento: Seg
               <MapPin className="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
               <span>
                 {LUGARES[s.lugarEntrega]}
-                {s.direccion && <span className="text-muted-foreground block font-normal">{s.direccion}</span>}
+                {DIRECCIONES_RECOJO[s.lugarEntrega] ? (
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                      `${DIRECCIONES_RECOJO[s.lugarEntrega]}, Lima, Perú`,
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-muted-foreground hover:text-foreground block font-normal underline-offset-2 hover:underline"
+                    data-testid="direccion-recojo"
+                  >
+                    {DIRECCIONES_RECOJO[s.lugarEntrega]}
+                  </a>
+                ) : (
+                  s.direccion && <span className="text-muted-foreground block font-normal">{s.direccion}</span>
+                )}
                 {s.esProvincia && (s.agencia || s.destino) && (
                   <span className="text-muted-foreground block font-normal">
                     {[s.agencia, s.destino].filter(Boolean).join(" · ")}

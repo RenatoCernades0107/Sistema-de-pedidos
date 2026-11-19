@@ -14,8 +14,8 @@ import { productosPorCodigo } from "@/lib/odoo/catalogos";
 import { stockPorCodigo } from "@/lib/odoo/productos";
 import { error, errorDeBusqueda, puertaDeBusqueda } from "../../cotizaciones/buscar/respuesta";
 
-/** Los candidatos son tres; con margen para que el formato elegido a mano también entre. */
-const MAXIMO = 8;
+/** Todos los formatos de un material: se enseñan todos, con su stock. */
+const MAXIMO = 20;
 
 export interface RespuestaStock {
   /** Por código. `null`: Odoo no lleva el stock de ese producto, o no existe. */

@@ -10,7 +10,8 @@
  */
 
 import { z } from "zod";
-import { esquemaPlancha, guardarPlanchas, type PlanchaGuardada } from "../cortes/guardado";
+import { desperdicioFisicoPct, type EleccionPlancha } from "../cortes/calcular";
+import { esquemaEleccion, esquemaPlancha, guardarPlanchas, type PlanchaGuardada } from "../cortes/guardado";
 import type { CalculoTerminado, MaterialEstimado } from "./calcular";
 import type { PiezaDeTerminado } from "./piezas";
 import type { ClaseOpcion } from "./catalogo";
@@ -41,6 +42,8 @@ export interface CorteDeTerminado {
   rotable: boolean;
   planchas: PlanchaGuardada[];
   desperdicioPct: number;
+  /** La plancha o el sobrante que se eligió a mano. `null`: el formato más barato. */
+  eleccion?: EleccionPlancha | null;
 }
 
 export interface TerminadoGuardado {
@@ -83,7 +86,9 @@ export interface TerminadoGuardado {
 }
 
 /** Los cortes del cálculo como se guardan, o `null` si el material salió del área. */
-export function guardarCorteDeTerminado(c: Pick<CalculoTerminado, "corte" | "piezas">): CorteDeTerminado | null {
+export function guardarCorteDeTerminado(
+  c: Pick<CalculoTerminado, "corte" | "piezas" | "eleccion">,
+): CorteDeTerminado | null {
   if (!c.corte || !c.piezas) return null;
   const { codigo, ancho, alto, precio } = c.corte.formato;
   return {
@@ -91,7 +96,8 @@ export function guardarCorteDeTerminado(c: Pick<CalculoTerminado, "corte" | "pie
     formato: { codigo, ancho, alto, precio },
     rotable: true,
     planchas: guardarPlanchas(c.corte.planchas),
-    desperdicioPct: Math.round(c.corte.desperdicioPct * 10) / 10,
+    desperdicioPct: Math.round(desperdicioFisicoPct(c.corte) * 10) / 10,
+    eleccion: c.eleccion ?? null,
   };
 }
 
@@ -153,6 +159,7 @@ const esquema = z.object({
       rotable: z.boolean().catch(true),
       planchas: z.array(esquemaPlancha),
       desperdicioPct: numero.catch(0),
+      eleccion: esquemaEleccion,
     })
     .nullable()
     .catch(null)
@@ -233,9 +240,16 @@ export const cantidadDeMaterial = (m: { cantidad: number; unidad: string | null 
  * lo estimado.
  */
 export function materialesADescontar(
-  t: Pick<TerminadoGuardado, "materiales">,
+  t: Pick<TerminadoGuardado, "materiales"> & Partial<Pick<TerminadoGuardado, "corte">>,
   usados: MaterialUsado[] | null,
 ): MaterialUsado[] {
+  // Con un sobrante del almacén, de planchas nuevas sale solo lo que no entró en él.
+  const conSobrante = !!t.corte?.planchas.some((p) => p.origen.tipo === "sobrante");
+  const planchasNuevas = conSobrante
+    ? Math.round(
+        t.corte!.planchas.reduce((s, p) => s + (p.origen.tipo === "plancha" ? p.cobro.factor : 0), 0) * 1000,
+      ) / 1000
+    : null;
   const lista =
     usados ??
     t.materiales.map((m) => ({
@@ -243,7 +257,7 @@ export function materialesADescontar(
       codigo: m.codigo,
       nombre: m.nombre,
       unidad: m.unidad,
-      cantidad: m.cantidad,
+      cantidad: m.esPlancha && planchasNuevas !== null ? planchasNuevas : m.cantidad,
     }));
   // El mismo producto dos veces se suma: Odoo lo consume una vez.
   const porProducto = new Map<number, MaterialUsado>();

@@ -551,6 +551,12 @@ const medidaDePieza = z
   .max(2000, "Esa medida no es razonable")
   .refine((n) => decimalesDe(n) <= 2, "Las medidas admiten hasta 2 decimales");
 
+/** De qué se corta: un formato de plancha nueva o un sobrante, por su código. */
+const esquemaEleccionPlancha = z
+  .object({ tipo: z.enum(["formato", "sobrante"]), codigo: z.string().trim().min(1).max(40) })
+  .nullable()
+  .optional();
+
 /**
  * Un corte a medida. Del navegador llegan el material (por su grupo del
  * catálogo), las piezas y el formato de plancha elegido; el precio, las planchas
@@ -577,6 +583,8 @@ export const esquemaLineaCorte = z.object({
     .min(1, "Un corte necesita al menos una pieza")
     .max(40, "Son demasiadas medidas distintas para un solo corte"),
   formatoCodigo: z.string().trim().min(1, "Elige el formato de plancha").max(40),
+  /** La plancha o el sobrante elegidos a mano. `null`: la sugerencia. */
+  eleccion: esquemaEleccionPlancha,
   /**
    * El total que la pantalla le enseñó a quien cotiza. Si el servidor calcula
    * otro —cambió un precio mientras tanto—, no se guarda a ciegas.
@@ -617,6 +625,8 @@ export const esquemaLineaTerminado = z
     grupoId: z.uuid("Elige el material").nullable(),
     /** Los ids de las personalizaciones, acabados y complementos elegidos. */
     opciones: z.array(z.number().int().positive()).max(80),
+    /** La plancha o el sobrante elegidos a mano. `null`: la sugerencia. */
+    eleccion: esquemaEleccionPlancha,
     texto: z.string().trim().max(300, "El texto es demasiado largo").nullable(),
     notas: z.string().trim().max(1000, "Las notas son demasiado largas").nullable(),
     /** El área de una unidad corregida a mano (m²). `null`: la que dé la forma. */

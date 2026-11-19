@@ -575,7 +575,15 @@ export interface FabricacionNueva {
   cantidad: number;
   /** Lo que se prevé consumir: es lo que la orden reserva al confirmarse. */
   componentes: Componente[];
+  /** Los sobrantes del almacén que se usan (sus lotes), con su material. */
+  sobrantes?: SobrantesConsumidos;
   donde: DondeProducir;
+}
+
+/** Sobrantes del almacén que consume una orden: un lote por pedazo. */
+export interface SobrantesConsumidos {
+  material: MaterialDeSobrante;
+  lotes: number[];
 }
 
 async function movimientoCrudo(c: Componente, desde: number, hacia: number) {
@@ -613,6 +621,25 @@ export function crearFabricacion(p: FabricacionNueva): Promise<ProduccionCreada>
     for (const c of p.componentes) {
       if (c.cantidad > 0) crudos.push([0, 0, await movimientoCrudo(c, deStock, aProduccion)]);
     }
+    // Los sobrantes elegidos: un componente más, que al cerrar se consume lote por lote.
+    if (p.sobrantes?.lotes.length) {
+      await asegurarCamposDeLote();
+      const sobranteId = await productoSobrante(p.sobrantes.material);
+      crudos.push([
+        0,
+        0,
+        await movimiento(
+          {
+            product_id: sobranteId,
+            product_uom_qty: p.sobrantes.lotes.length,
+            product_uom: await uomDe(sobranteId),
+            location_id: deStock,
+            location_dest_id: aProduccion,
+          },
+          "Sobrantes que usa el producto terminado",
+        ),
+      ]);
+    }
 
     const id = await ejecutar<number>("mrp.production", "create", [
       {
@@ -643,6 +670,7 @@ export function cerrarFabricacion(
   id: number,
   usados: Componente[],
   sobrantesReales: SobranteReal[] = [],
+  consumidos: SobrantesConsumidos | null = null,
 ): Promise<Map<string, number>> {
   return alDia(async () => {
     const leer = async () => {
@@ -681,8 +709,32 @@ export function cerrarFabricacion(
     const campoMov = picked ? "quantity" : "quantity_done";
     const cuanto = new Map(usados.map((u) => [u.productoId, u.cantidad]));
     const vistos = new Set<number>();
+    // Los sobrantes del almacén se consumen lote por lote, no por cantidad.
+    const sobranteId = consumidos?.lotes.length ? await productoSobrante(consumidos.material) : null;
     for (const m of crudos) {
       const producto = productoDe(m);
+      if (sobranteId !== null && producto === sobranteId && !vistos.has(producto)) {
+        vistos.add(producto);
+        const { campoLinea } = await campoCantidad();
+        const [mov] = await ejecutar<Fila[]>("stock.move", "read", [[m.id]], {
+          fields: ["location_id", "location_dest_id"],
+        });
+        for (const lote of consumidos!.lotes) {
+          await ejecutar("stock.move.line", "create", [
+            {
+              move_id: m.id,
+              product_id: sobranteId,
+              lot_id: lote,
+              location_id: idDe(mov?.location_id),
+              location_dest_id: idDe(mov?.location_dest_id),
+              [campoLinea]: 1,
+              ...(picked ? { picked: true } : {}),
+            },
+          ]);
+        }
+        if (picked) await ejecutar("stock.move", "write", [[m.id], { picked: true }]);
+        continue;
+      }
       // Dos movimientos del mismo material: el primero se lleva todo.
       const cantidad = producto !== null && !vistos.has(producto) ? (cuanto.get(producto) ?? 0) : 0;
       if (producto !== null) vistos.add(producto);

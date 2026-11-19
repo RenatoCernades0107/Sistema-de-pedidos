@@ -298,3 +298,75 @@ export function compararFormatos(
       );
     });
 }
+
+/**
+ * Lo que eligió a mano quien arma el corte. Sin elección (`null`) manda la
+ * sugerencia: la plancha que convenga, con los sobrantes del almacén primero.
+ *  - "formato": solo planchas nuevas de ese formato.
+ *  - "sobrante": ese sobrante primero; lo que no quepa, de planchas nuevas.
+ */
+export type EleccionPlancha = { tipo: "formato"; codigo: string } | { tipo: "sobrante"; codigo: string };
+
+export const mismaEleccion = (a: EleccionPlancha | null | undefined, b: EleccionPlancha | null | undefined) =>
+  (a ?? null) === (b ?? null) || (!!a && !!b && a.tipo === b.tipo && a.codigo === b.codigo);
+
+/**
+ * Del área de las planchas que de verdad se abren (sobrantes incluidos), la que
+ * no acaba en una pieza. `desperdicioPct` mide el acomodo con que se cobra, que
+ * es siempre sobre planchas nuevas.
+ */
+export function desperdicioFisicoPct(c: Pick<CalculoCorte, "planchas">): number {
+  const area = c.planchas.reduce((s, p) => s + p.ancho * p.alto, 0);
+  const usada = c.planchas.reduce((s, p) => s + p.areaUsada, 0);
+  return area > 0 ? Math.max(0, (1 - usada / area) * 100) : 0;
+}
+
+/** Cuántas piezas salen de un sobrante en un cálculo. */
+export function piezasEnSobrante(c: Pick<CalculoCorte, "planchas">, codigo: string): number {
+  return c.planchas.reduce(
+    (s, p) => s + (p.origen.tipo === "sobrante" && p.origen.id === codigo ? p.piezas : 0),
+    0,
+  );
+}
+
+/**
+ * El corte con un sobrante elegido: primero ese pedazo y, lo que no quepa, de
+ * planchas nuevas de `formato`. El precio es el de siempre. Si ninguna pieza
+ * entra en el sobrante, el cálculo lo dice en `problema`.
+ */
+export function calcularConSobrante(
+  entrada: EntradaCorte,
+  formato: FormatoCorte,
+  config: ConfigCortes,
+  sobrante: Contenedor,
+): CalculoCorte {
+  const c = calcularCorte(entrada, formato, config, [sobrante]);
+  if (c.problema || piezasEnSobrante(c, sobrante.id) > 0) return c;
+  return {
+    ...c,
+    problema: `Ninguna pieza entra en el sobrante ${sobrante.id} (${numero(sobrante.ancho)}×${numero(sobrante.alto)} cm).`,
+  };
+}
+
+/**
+ * El cálculo de una elección a mano, o `null` si lo elegido ya no existe (el
+ * formato salió del catálogo, el sobrante ya no está disponible). Con un
+ * sobrante, lo que no quepa va al primer formato de `formatos` que sirva.
+ */
+export function calcularEleccion(
+  entrada: EntradaCorte,
+  formatos: FormatoCorte[],
+  config: ConfigCortes,
+  sobrantes: Contenedor[],
+  eleccion: EleccionPlancha,
+  criterio: CriterioFormato = "precio",
+): CalculoCorte | null {
+  if (eleccion.tipo === "formato") {
+    const f = formatos.find((x) => x.codigo === eleccion.codigo);
+    return f ? calcularCorte(entrada, f, config) : null;
+  }
+  const s = sobrantes.find((x) => x.id === eleccion.codigo);
+  if (!s) return null;
+  const base = compararFormatos(entrada, formatos, config, [], criterio)[0];
+  return base ? calcularConSobrante(entrada, base.formato, config, s) : null;
+}

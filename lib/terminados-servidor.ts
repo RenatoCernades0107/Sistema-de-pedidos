@@ -7,6 +7,10 @@
  */
 
 import { cache } from "react";
+import { almacenDeLugar } from "./almacenes";
+import { cargarAlmacenes } from "./almacenes-servidor";
+import { contenedoresDe } from "./sobrantes";
+import { sobrantesDisponibles } from "./sobrantes-servidor";
 import { cargarConfigCortes, cargarGrupoPlancha, preciosDeGrupo } from "./cortes-servidor";
 import { colorDe } from "./cortes/catalogo";
 import type { NuevaLineaTerminado } from "./esquemas";
@@ -293,6 +297,18 @@ export async function prepararTerminado(
     accesorios.push({ productoId: p.id, codigo: p.codigo, nombre: p.nombre, unidad: p.unidad, cantidad: a.cantidad, precio: p.precio });
   }
 
+  // Un sobrante elegido a mano: tiene que seguir libre en el taller, donde se hace.
+  const eleccion = linea.eleccion ?? null;
+  let sobrantes: ReturnType<typeof contenedoresDe> = [];
+  if (eleccion?.tipo === "sobrante") {
+    const almacen = grupo?.sobrantesActivo ? almacenDeLugar(await cargarAlmacenes(), "taller") : null;
+    sobrantes = grupo && almacen ? contenedoresDe(await sobrantesDisponibles(grupo.id, almacen.id)) : [];
+    if (!sobrantes.some((x) => x.id === eleccion.codigo)) {
+      return fallo(`El sobrante ${eleccion.codigo} ya no está disponible. Abre el producto y elige otra plancha.`);
+    }
+    sobrantes = sobrantes.filter((x) => x.id === eleccion.codigo);
+  }
+
   const factor = tipo?.factor ?? 1;
   const geometria: Geometria = producto?.geometria ?? "manual";
   const calculo = calcularTerminado({
@@ -310,7 +326,12 @@ export async function prepararTerminado(
     formatos: grupo ? formatosConPrecio(grupo.formatos, precios) : [],
     configCortes,
     espesorMm: grupo?.espesorMm,
+    sobrantes,
+    eleccion,
   });
+  if (eleccion && calculo.eleccion?.codigo !== eleccion.codigo) {
+    return fallo("La plancha que elegiste ya no sirve para estas medidas. Abre el producto y elige otra.");
+  }
 
   const terminado: TerminadoGuardado = {
     version: 1,

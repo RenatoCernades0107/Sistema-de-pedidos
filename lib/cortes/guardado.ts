@@ -10,7 +10,14 @@
  */
 
 import { z } from "zod";
-import { MODALIDADES, type CalculoCorte, type LineaDesglose, type Modalidad, type PiezaPedida } from "./calcular";
+import {
+  MODALIDADES,
+  type CalculoCorte,
+  type EleccionPlancha,
+  type LineaDesglose,
+  type Modalidad,
+  type PiezaPedida,
+} from "./calcular";
 import type { Cobro } from "./cobro";
 import type { Origen, Panel } from "./optimizador";
 
@@ -68,6 +75,11 @@ export interface CorteGuardado {
   servicio: { productoId: number; codigo: string; nombre: string };
   /** Si el grupo registraba sobrantes en Odoo cuando se cotizó. */
   sobrantes: boolean;
+  /**
+   * La plancha o el sobrante que se eligió a mano. Sin ella (o `null`), manda la
+   * sugerencia: al reservar se usan los sobrantes que haya.
+   */
+  eleccion?: EleccionPlancha | null;
 }
 
 /** Los datos del corte que no salen del cálculo. */
@@ -82,6 +94,7 @@ export interface DatosCorte {
   piezas: PiezaPedida[];
   servicio: CorteGuardado["servicio"];
   sobrantes: boolean;
+  eleccion?: EleccionPlancha | null;
 }
 
 const redondear = (n: number, decimales: number) => {
@@ -120,6 +133,7 @@ export function guardarCorte(datos: DatosCorte, calculo: CalculoCorte): CorteGua
     desglose: calculo.desglose,
     servicio: datos.servicio,
     sobrantes: datos.sobrantes,
+    eleccion: datos.eleccion ?? null,
   };
 }
 
@@ -161,6 +175,13 @@ export const esquemaPlancha = z.object({
   paneles: z.array(panel),
 }) satisfies z.ZodType<PlanchaGuardada>;
 
+/** La plancha o el sobrante elegidos a mano, al leerlos de lo guardado. */
+export const esquemaEleccion = z
+  .object({ tipo: z.enum(["formato", "sobrante"]), codigo: z.string() })
+  .nullable()
+  .optional()
+  .catch(null);
+
 const esquema = z.object({
   version: z.literal(1),
   grupoId: z.string(),
@@ -181,6 +202,7 @@ const esquema = z.object({
   desglose: z.array(z.object({ etiqueta: z.string(), monto: numero, esTotal: z.boolean().optional() })),
   servicio: z.object({ productoId: numero, codigo: z.string(), nombre: z.string() }),
   sobrantes: z.boolean().catch(false),
+  eleccion: esquemaEleccion,
 }) satisfies z.ZodType<CorteGuardado>;
 
 /** El corte de una línea, o `null` si la línea no es un corte o el JSON no se entiende. */

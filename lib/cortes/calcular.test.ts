@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { calcularCorte, compararFormatos, filaDe, type EntradaCorte, type FormatoCorte } from "./calcular";
+import {
+  calcularConSobrante,
+  calcularCorte,
+  calcularEleccion,
+  compararFormatos,
+  desperdicioFisicoPct,
+  filaDe,
+  piezasEnSobrante,
+  type EntradaCorte,
+  type FormatoCorte,
+} from "./calcular";
 import { CONFIG_CORTES_DEFECTO, FRACCIONES_ESTANDAR, leerConfigCortes, type ConfigCortes } from "./config";
 import { parametrosLaser, tiempoLaser } from "./laser";
 import { precioManual } from "./manual";
@@ -285,5 +295,40 @@ describe("con sobrantes del almacén (piloto)", () => {
     const r = calcularCorte(corte([[60, 80, 6]]), F7, config, [{ id: "SOB-1", ancho: 61, alto: 183 }]);
     expect(r.planchas.map((p) => p.origen.tipo).sort()).toEqual(["plancha", "sobrante"]);
     expect(r.planchas.reduce((s, p) => s + p.piezas, 0)).toBe(6);
+  });
+});
+
+describe("plancha o sobrante elegidos a mano", () => {
+  const F7: FormatoCorte = { codigo: "F7E024", ancho: 122, alto: 183, precio: 200 };
+  const SOB = { id: "SOB-1", ancho: 61, alto: 183 };
+
+  it("un formato elegido usa solo planchas nuevas, aunque haya sobrantes", () => {
+    const r = calcularEleccion(corte([[60, 80, 2]]), [F7, F20], config, [SOB], { tipo: "formato", codigo: "F20E001" });
+    expect(r?.formato.codigo).toBe("F20E001");
+    expect(r?.planchas.every((p) => p.origen.tipo === "plancha")).toBe(true);
+  });
+
+  it("un sobrante elegido se usa, y lo que no entra va a planchas nuevas del formato que sirve", () => {
+    const r = calcularEleccion(corte([[60, 80, 6]]), [F7, F20], config, [SOB], { tipo: "sobrante", codigo: "SOB-1" }, "tamano");
+    expect(r?.formato.codigo).toBe("F7E024");
+    expect(piezasEnSobrante(r!, "SOB-1")).toBeGreaterThan(0);
+    expect(r?.planchas.reduce((s, p) => s + p.piezas, 0)).toBe(6);
+    expect(r?.problema).toBeNull();
+  });
+
+  it("lo elegido que ya no existe devuelve null", () => {
+    expect(calcularEleccion(corte([[60, 80, 1]]), [F7], config, [], { tipo: "sobrante", codigo: "SOB-9" })).toBeNull();
+    expect(calcularEleccion(corte([[60, 80, 1]]), [F7], config, [], { tipo: "formato", codigo: "X" })).toBeNull();
+  });
+
+  it("si ninguna pieza entra en el sobrante, lo dice", () => {
+    const r = calcularConSobrante(corte([[100, 100, 1]]), F7, config, SOB);
+    expect(r.problema).toMatch(/SOB-1/);
+  });
+
+  it("el desperdicio físico cuenta el área del sobrante y no la de una plancha nueva", () => {
+    const r = calcularConSobrante(corte([[60, 80, 2]]), F7, config, SOB);
+    const area = 61 * 183;
+    expect(desperdicioFisicoPct(r)).toBeCloseTo((1 - (2 * 60 * 80) / area) * 100, 5);
   });
 });
