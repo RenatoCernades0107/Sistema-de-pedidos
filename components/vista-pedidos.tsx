@@ -70,7 +70,8 @@ const POR_PAGINA = 50;
  *
  * Los cerrados no tienen vista propia: van mezclados, al final del orden.
  */
-export function VistaPedidos() {
+/** `borradores`: los pedidos a medio llenar de quien mira, arriba de todo. */
+export function VistaPedidos({ borradores }: { borradores?: React.ReactNode } = {}) {
   const { pedidos, permisos, trabajadores } = useStore();
   const params = useSearchParams();
   const alcance = alcanceDe(permisos, params.get("ver"));
@@ -185,6 +186,8 @@ export function VistaPedidos() {
           </Button>
         )}
       </header>
+
+      {borradores}
 
       {/* Alcance: antes eran vistas separadas en el menú. Con uno solo (el taller)
           no hay nada que elegir. El número cuenta solo lo abierto. */}

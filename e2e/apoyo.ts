@@ -218,6 +218,9 @@ export async function borrarCotizacionesDePrueba() {
 
   const { error } = await supabase.from("cotizaciones").delete().like("cliente_nombre", "E2E%");
   if (error) throw new Error(`No se pudieron borrar las cotizaciones de prueba: ${error.message}`);
+
+  // Los borradores que dejaron las pruebas (los de la cuenta de Administración).
+  await supabase.from("borradores").delete().like("resumen->>cliente", "E2E%");
 }
 
 /**

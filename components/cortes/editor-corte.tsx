@@ -38,6 +38,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { useCerrarConAviso } from "@/components/ui/confirmar-descarte";
 import { OpcionesPlancha, useStock, type OpcionSobrante } from "./opciones-plancha";
 import { PlanosPaginados } from "./planos-paginados";
 
@@ -291,8 +292,26 @@ export function EditorCorte({
     [catalogo, consulta],
   );
 
+  /* Cerrar con medidas escritas o el material cambiado pregunta antes: se perdería. */
+  const [filasIniciales] = useState(filas);
+  const sucio =
+    grupoId !== (inicial?.grupoId ?? null) ||
+    modalidad !== (inicial?.modalidad ?? "laser") ||
+    lugarManual !== (inicial?.lugar ?? "tienda") ||
+    JSON.stringify(eleccion) !== JSON.stringify(inicial?.eleccion ?? null) ||
+    JSON.stringify(filas.filter((f) => f.ancho || f.alto || f.cantidad)) !==
+      JSON.stringify(filasIniciales.filter((f) => f.ancho || f.alto || f.cantidad));
+  const { pedirCierre, dialogo } = useCerrarConAviso(sucio, alCerrar, {
+    titulo: inicial ? "¿Descartar los cambios del corte?" : "¿Descartar este corte?",
+    descripcion: inicial
+      ? "El corte se queda como estaba y lo que cambiaste se pierde."
+      : "No se agrega y las medidas que escribiste se pierden.",
+  });
+
   return (
-    <Dialog open onOpenChange={(abierto) => !abierto && alCerrar()}>
+    <>
+    {dialogo}
+    <Dialog open onOpenChange={(abierto) => !abierto && pedirCierre()}>
       <DialogContent
         className="flex max-h-[92dvh] flex-col gap-0 p-0 sm:max-w-3xl lg:max-w-6xl"
         onKeyDown={(e) => {
@@ -565,7 +584,7 @@ export function EditorCorte({
             )}
           </div>
           {/* En el celular basta la X de arriba: aquí el ancho es para el total. */}
-          <Button type="button" variant="ghost" onClick={alCerrar} className="hidden sm:inline-flex">
+          <Button type="button" variant="ghost" onClick={pedirCierre} className="hidden sm:inline-flex">
             <X />
             Cancelar
           </Button>
@@ -575,5 +594,6 @@ export function EditorCorte({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    </>
   );
 }

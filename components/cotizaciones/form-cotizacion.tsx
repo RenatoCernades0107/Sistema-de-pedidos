@@ -34,7 +34,9 @@ import { BarraEnvio } from "@/components/ui/barra-envio";
 import { CabeceraFormulario } from "@/components/ui/cabecera-formulario";
 import { Campo, Opciones } from "@/components/ui/campo";
 import { Seccion } from "@/components/ui/seccion";
-import { useAvisoSalida } from "@/lib/use-aviso-salida";
+import { useBorrador } from "@/lib/use-borrador";
+import { resumenDe, type BorradorAbierto, type DatosBorradorCotizacion } from "@/lib/borradores";
+import { IndicadorBorrador } from "@/components/borradores/lista-borradores";
 import { Textarea } from "@/components/ui/textarea";
 import { BuscadorCliente } from "./buscador-cliente";
 import { BuscadorProducto } from "./buscador-producto";
@@ -56,6 +58,7 @@ export function FormCotizacion({
   terminados,
   diseno,
   lineaInicial = null,
+  borrador = null,
 }: {
   catalogo: GrupoPlancha[];
   config: ConfigCortes;
@@ -68,15 +71,20 @@ export function FormCotizacion({
    * `/disenos`): entra como línea, y el lápiz vuelve a abrir el diseño.
    */
   lineaInicial?: { linea: Omit<LineaTerminado, "tipo" | "clave">; disenoId: string } | null;
+  /** El borrador que se retoma: el formulario arranca tal como quedó. */
+  borrador?: BorradorAbierto<DatosBorradorCotizacion> | null;
 }) {
   const router = useRouter();
-  const [canal, setCanal] = useState<Canal>("tienda");
-  const [cliente, setCliente] = useState<ClienteOdoo | null>(null);
-  const [arranque] = useState(() => (lineaInicial ? ponerTerminado([], lineaInicial.linea) : null));
-  const [lineas, setLineas] = useState<Linea[]>(arranque?.lineas ?? []);
+  const previo = borrador?.datos ?? null;
+  const [canal, setCanal] = useState<Canal>(previo?.canal ?? "tienda");
+  const [cliente, setCliente] = useState<ClienteOdoo | null>(previo?.cliente ?? null);
+  const [arranque] = useState(() =>
+    lineaInicial ? ponerTerminado(previo?.lineas ?? [], lineaInicial.linea) : null,
+  );
+  const [lineas, setLineas] = useState<Linea[]>(arranque?.lineas ?? previo?.lineas ?? []);
   /** El editor de corte: cerrado, abierto para uno nuevo, o editando el de esa clave. */
   const [corte, setCorte] = useState<{ clave: string | null } | null>(null);
-  const [notas, setNotas] = useState("");
+  const [notas, setNotas] = useState(previo?.notas ?? "");
   const [resaltada, setResaltada] = useState<string | null>(null);
   const [pendiente, iniciar] = useTransition();
   /** Ya se intentó crear: desde ahí, lo que falta se dice junto a su sección. */
@@ -108,7 +116,10 @@ export function FormCotizacion({
     terminados,
     diseno,
     cliente: cliente?.nombre,
-    enlazadas: arranque && lineaInicial ? { [arranque.clave]: lineaInicial.disenoId } : undefined,
+    enlazadas: {
+      ...previo?.disenosDeLinea,
+      ...(arranque && lineaInicial ? { [arranque.clave]: lineaInicial.disenoId } : {}),
+    },
   });
 
   const elegirCliente = (c: ClienteOdoo | null) => {
@@ -140,7 +151,25 @@ export function FormCotizacion({
   const problemaLineas = problemaDeLineas(lineas);
   const problema = !cliente ? "Elige el cliente." : problemaLineas;
 
-  useAvisoSalida(!creada && (!!cliente || lineas.length > 0 || notas.trim() !== ""));
+  // Mientras se llena, todo queda guardado como borrador (solo lo ve quien lo crea).
+  const autoguardado = useBorrador({
+    tipo: "cotizacion",
+    idInicial: borrador?.id ?? null,
+    datos: {
+      version: 1,
+      canal,
+      cliente,
+      lineas,
+      notas,
+      // Solo las de líneas que siguen en la cotización.
+      disenosDeLinea: Object.fromEntries(
+        Object.entries(terminadosCad.disenosDeLinea).filter(([clave]) => lineas.some((l) => l.clave === clave)),
+      ),
+    },
+    resumen: resumenDe(cliente, lineas),
+    conContenido: !!cliente || lineas.length > 0 || notas.trim() !== "",
+    activo: !creada,
+  });
 
   const crear = () => {
     if (pendiente) return;
@@ -172,6 +201,8 @@ export function FormCotizacion({
         });
       }
       setCreada(true);
+      // Ya es una cotización: el borrador sobra.
+      await autoguardado.terminar();
       router.push(`/cotizaciones/${r.id}`);
     });
   };
@@ -192,12 +223,15 @@ export function FormCotizacion({
         titulo="Nueva cotización"
         subtitulo="Se crea también en Odoo."
         lateral={
+          <div className="flex flex-col items-end gap-0.5">
+          <IndicadorBorrador estado={autoguardado.estado} />
           <p className="text-muted-foreground hidden text-xs md:block">
             Crear sin soltar el teclado:{" "}
             <kbd className="kbd">Ctrl</kbd>{" "}
             +{" "}
             <kbd className="kbd">Enter</kbd>
           </p>
+          </div>
         }
       />
 

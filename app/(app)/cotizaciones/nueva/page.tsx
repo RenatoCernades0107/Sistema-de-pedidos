@@ -9,6 +9,8 @@ import { AvisoOdoo } from "@/components/cotizaciones/aviso-odoo";
 import { lineaDeDiseno } from "@/lib/cad/cotizar";
 import { disenoParaCotizar } from "@/lib/cad/cotizar-servidor";
 import { catalogoParaDiseno, plantillasDelMotor } from "@/lib/cad/pagina-servidor";
+import { abrirBorrador } from "@/lib/borradores-servidor";
+import { AvisoBorradorVencido } from "@/components/borradores/aviso-borrador";
 
 /**
  * `?diseno=<id>`: viene de «Agregar a cotización» en `/disenos`. La cotización
@@ -18,7 +20,7 @@ import { catalogoParaDiseno, plantillasDelMotor } from "@/lib/cad/pagina-servido
  */
 export default async function Page({ searchParams }: PageProps<"/cotizaciones/nueva">) {
   const perfil = await exigirCotizaciones();
-  const disenoParam = (await searchParams).diseno;
+  const { diseno: disenoParam, borrador: borradorParam } = await searchParams;
   const disenoId = typeof disenoParam === "string" && /^[0-9a-f-]{36}$/i.test(disenoParam) ? disenoParam : null;
 
   if (!odooConfigurado()) {
@@ -44,10 +46,15 @@ export default async function Page({ searchParams }: PageProps<"/cotizaciones/nu
     catalogoParaDiseno(perfil.rol === "administracion"),
   ]);
 
-  const desdeDiseno = disenoId ? await disenoParaCotizar(disenoId, catalogo) : null;
+  // Retomar un borrador: arranca como quedó. Su diseño ya está entre sus líneas,
+  // así que `?diseno=` (que queda en la URL) no se vuelve a agregar.
+  const borrador = typeof borradorParam === "string" ? await abrirBorrador(borradorParam, "cotizacion") : null;
+  const borradorPerdido = typeof borradorParam === "string" && !borrador;
+  const desdeDiseno = disenoId && !borrador ? await disenoParaCotizar(disenoId, catalogo) : null;
 
   return (
     <>
+      {borradorPerdido && <AvisoBorradorVencido />}
       {desdeDiseno && !desdeDiseno.ok && (
         <p role="alert" className="text-destructive px-4 pt-5 text-sm md:px-6">
           {desdeDiseno.error}
@@ -63,6 +70,8 @@ export default async function Page({ searchParams }: PageProps<"/cotizaciones/nu
           corte: { kerfMm: planchas.kerfMm, margenMm: planchas.margenMm },
           costos: planchas.costos,
         }}
+        key={borrador?.id ?? "nueva"}
+        borrador={borrador}
         lineaInicial={
           desdeDiseno?.ok
             ? { linea: lineaDeDiseno(desdeDiseno.diseno), disenoId: desdeDiseno.diseno.disenoId }

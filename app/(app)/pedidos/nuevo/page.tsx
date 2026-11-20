@@ -11,6 +11,8 @@ import { AvisoOdoo } from "@/components/cotizaciones/aviso-odoo";
 import { cargarCatalogoTerminados } from "@/lib/terminados-servidor";
 import { catalogoParaDiseno, plantillasDelMotor } from "@/lib/cad/pagina-servidor";
 import { NuevoPedidoForm, type DesdeCotizacion } from "@/components/nuevo-pedido-form";
+import { abrirBorrador } from "@/lib/borradores-servidor";
+import { AvisoBorradorVencido } from "@/components/borradores/aviso-borrador";
 
 /**
  * `/pedidos/nuevo` y, con `?cotizacion=<id>`, el mismo formulario con lo
@@ -19,7 +21,7 @@ import { NuevoPedidoForm, type DesdeCotizacion } from "@/components/nuevo-pedido
  */
 export default async function Page({ searchParams }: PageProps<"/pedidos/nuevo">) {
   const perfil = await exigirCrearPedido();
-  const { cotizacion: idCotizacion } = await searchParams;
+  const { cotizacion: idCotizacion, borrador: idBorrador } = await searchParams;
 
   // Los pedidos se arman con el cliente y los productos de Odoo.
   if (!ROLES[perfil.rol].gestionarCotizaciones || !odooConfigurado()) {
@@ -30,6 +32,9 @@ export default async function Page({ searchParams }: PageProps<"/pedidos/nuevo">
       </div>
     );
   }
+
+  // Retomar un borrador: el formulario arranca como quedó.
+  const borrador = typeof idBorrador === "string" ? await abrirBorrador(idBorrador, "pedido") : null;
 
   let desde: DesdeCotizacion | undefined;
   if (typeof idCotizacion === "string") {
@@ -63,7 +68,12 @@ export default async function Page({ searchParams }: PageProps<"/pedidos/nuevo">
   ]);
 
   return (
+    <>
+    {typeof idBorrador === "string" && !borrador && <AvisoBorradorVencido />}
     <NuevoPedidoForm
+      key={borrador?.id ?? "nuevo"}
+      // Un borrador de otro pedido (otra cotización) no se mezcla con este.
+      borrador={borrador && borrador.cotizacionId === (desde?.id ?? null) ? borrador : null}
       catalogo={catalogo}
       config={config}
       terminados={terminados}
@@ -75,5 +85,6 @@ export default async function Page({ searchParams }: PageProps<"/pedidos/nuevo">
       }}
       desdeCotizacion={desde}
     />
+    </>
   );
 }

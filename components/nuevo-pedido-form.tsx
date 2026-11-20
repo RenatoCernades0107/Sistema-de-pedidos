@@ -37,6 +37,9 @@ import { BarraEnvio } from "@/components/ui/barra-envio";
 import { CabeceraFormulario } from "@/components/ui/cabecera-formulario";
 import { Seccion } from "@/components/ui/seccion";
 import { useAvisoSalida } from "@/lib/use-aviso-salida";
+import { useBorrador } from "@/lib/use-borrador";
+import { resumenDe, type BorradorAbierto, type DatosBorradorPedido } from "@/lib/borradores";
+import { IndicadorBorrador } from "@/components/borradores/lista-borradores";
 import { Input } from "@/components/ui/input";
 import { Campo, Opciones } from "@/components/ui/campo";
 import { Textarea } from "@/components/ui/textarea";
@@ -139,6 +142,7 @@ export function NuevoPedidoForm({
   terminados,
   diseno,
   desdeCotizacion,
+  borrador = null,
 }: {
   catalogo: GrupoPlancha[];
   config: ConfigCortes;
@@ -147,13 +151,16 @@ export function NuevoPedidoForm({
   /** Para diseñar los productos terminados con el motor CAD (la vista de /disenos). */
   diseno: DatosDiseno;
   desdeCotizacion?: DesdeCotizacion;
+  /** El borrador que se retoma: el formulario arranca tal como quedó (menos los archivos). */
+  borrador?: BorradorAbierto<DatosBorradorPedido> | null;
 }) {
   const router = useRouter();
   const volverA = desdeCotizacion ? `/cotizaciones/${desdeCotizacion.id}` : "/pedidos";
   const { permisos, registrarPedido, trabajadores, ubigeo, pendiente, pedidos } = useStore();
 
-  const [cliente, setCliente] = useState<ClienteOdoo | null>(null);
-  const [lineas, setLineas] = useState<Linea[]>([]);
+  const previo = borrador?.datos ?? null;
+  const [cliente, setCliente] = useState<ClienteOdoo | null>(previo?.cliente ?? null);
+  const [lineas, setLineas] = useState<Linea[]>(previo?.lineas ?? []);
   const [corte, setCorte] = useState<{ clave: string | null } | null>(null);
   const [resaltada, setResaltada] = useState<string | null>(null);
   const [errorLineas, setErrorLineas] = useState<string | null>(null);
@@ -169,8 +176,8 @@ export function NuevoPedidoForm({
      Postgres al registrarlo. */
   const [archivos, setArchivos] = useState<Record<string, File[]>>({});
   /* Las indicaciones de cada ítem para el taller, por su clave. */
-  const [indicaciones, setIndicaciones] = useState<Record<string, string>>({});
-  const [conObservaciones, setConObservaciones] = useState(false);
+  const [indicaciones, setIndicaciones] = useState<Record<string, string>>(previo?.indicaciones ?? {});
+  const [conObservaciones, setConObservaciones] = useState(previo?.conObservaciones ?? false);
   const [registrado, setRegistrado] = useState(false);
   const refForm = useRef<HTMLFormElement>(null);
   /* Los controles que no son inputs registrados (botoneras, Select): cuando
@@ -204,6 +211,8 @@ export function NuevoPedidoForm({
       metodoPago: "efectivo",
       notasEntrega: "",
       observaciones: "",
+      // Lo del borrador encima de lo de siempre.
+      ...(previo?.campos as Partial<Campos> | undefined),
     },
   });
 
@@ -274,6 +283,7 @@ export function NuevoPedidoForm({
     terminados,
     diseno,
     cliente: cliente?.nombre,
+    enlazadas: previo?.disenosDeLinea,
   });
 
   const elegirCliente = (c: ClienteOdoo | null) => {
@@ -335,8 +345,44 @@ export function NuevoPedidoForm({
           { etiqueta: "Total", valor: money(total) },
         ];
 
-  const hayArchivos = Object.values(archivos).some((a) => a.length > 0);
-  useAvisoSalida(!registrado && (!!cliente || lineas.length > 0 || hayArchivos || form.formState.isDirty));
+  const nombresArchivos = Object.values(archivos).flatMap((a) => a.map((f) => f.name));
+  const hayArchivos = nombresArchivos.length > 0;
+  // Los archivos no entran al borrador: son lo único que se perdería al salir.
+  useAvisoSalida(!registrado && hayArchivos);
+
+  /* Mientras se llena, todo (menos los archivos) queda guardado como borrador;
+     solo lo ve quien lo crea. */
+  const campos = form.watch();
+  const autoguardado = useBorrador({
+    tipo: "pedido",
+    idInicial: borrador?.id ?? null,
+    cotizacionId: desdeCotizacion?.id ?? null,
+    datos: {
+      version: 1,
+      cliente,
+      lineas,
+      campos: campos as Record<string, unknown>,
+      indicaciones: Object.fromEntries(Object.entries(indicaciones).filter(([, t]) => t.trim())),
+      conObservaciones,
+      disenosDeLinea: Object.fromEntries(
+        Object.entries(terminadosCad.disenosDeLinea).filter(([clave]) => lineas.some((l) => l.clave === clave)),
+      ),
+      // Hasta que se adjunte algo, se sigue avisando de los que tenía.
+      archivosOmitidos: hayArchivos ? nombresArchivos : (previo?.archivosOmitidos ?? []),
+    },
+    resumen: desdeCotizacion
+      ? { cliente: desdeCotizacion.cliente.nombre, productos: desdeCotizacion.lineas.length, total: desdeCotizacion.total }
+      : resumenDe(cliente, lineas),
+    conContenido:
+      !!borrador ||
+      !!cliente ||
+      lineas.length > 0 ||
+      hayArchivos ||
+      conObservaciones ||
+      Object.values(indicaciones).some((t) => t.trim()) ||
+      form.formState.isDirty,
+    activo: !registrado,
+  });
 
   if (!permisos.crearPedido || !permisos.gestionarCotizaciones) {
     return (
@@ -430,6 +476,8 @@ export function NuevoPedidoForm({
       // El código lo pone Postgres, así que hasta que no conteste no hay a dónde ir.
       if (!resultado.ok || !resultado.codigo) return;
       setRegistrado(true);
+      // Ya es un pedido: el borrador sobra.
+      await autoguardado.terminar();
 
       /* Los planos van después del alta y no antes: hasta aquí no había pedido al
          que colgarlos. Si alguno falla, el pedido ya está registrado y se dice
@@ -493,6 +541,7 @@ export function NuevoPedidoForm({
         }
         lateral={
           <div className="text-right">
+            <IndicadorBorrador estado={autoguardado.estado} />
             <p className="eyebrow">Código que se generará</p>
             <p className="tnum mt-1 inline-block bg-brand-soft text-brand-foreground rounded-md px-2 py-0.5 text-sm font-semibold">
               {codigoPreview}
@@ -500,6 +549,17 @@ export function NuevoPedidoForm({
           </div>
         }
       />
+
+      {(previo?.archivosOmitidos.length ?? 0) > 0 && !hayArchivos && (
+        <p
+          role="alert"
+          className="mb-4 max-w-3xl rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm"
+          data-testid="aviso-archivos-borrador"
+        >
+          Este borrador tenía {previo!.archivosOmitidos.length === 1 ? "un archivo adjunto" : `${previo!.archivosOmitidos.length} archivos adjuntos`}{" "}
+          ({previo!.archivosOmitidos.join(", ")}). Los archivos no se guardan en el borrador: vuelve a adjuntarlos.
+        </p>
+      )}
 
       <form
         id={ID_FORM}

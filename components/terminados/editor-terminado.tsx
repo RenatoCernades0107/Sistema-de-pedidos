@@ -57,6 +57,7 @@ import { armadoDeCaja } from "@/lib/terminados/armado";
 import { BuscadorProducto } from "@/components/cotizaciones/buscador-producto";
 import { ComboBusqueda, type Opcion } from "@/components/cotizaciones/combo-busqueda";
 import { Button } from "@/components/ui/button";
+import { useCerrarConAviso } from "@/components/ui/confirmar-descarte";
 import { Campo, Opciones } from "@/components/ui/campo";
 import {
   Dialog,
@@ -229,6 +230,26 @@ export function EditorTerminado({
   );
   const [reservar, setReservar] = useState(inicial?.reservar ?? false);
   const [buscandoAccesorio, setBuscandoAccesorio] = useState(false);
+
+  /* Lo elegido o escrito, para saber si cerrar pierde algo: se compara con cómo abrió. */
+  const foto = JSON.stringify([
+    estandar,
+    tipoCodigo,
+    productoCodigo,
+    nombre,
+    medidaId,
+    medidas,
+    grupoId,
+    opciones,
+    textoPedido,
+    notas,
+    areaManual,
+    accesorios,
+    cantidad,
+    precio,
+    reservar,
+  ]);
+  const [fotoInicial] = useState(foto);
 
   const producto = estandar ? (catalogo.productos.find((p) => p.codigo === productoCodigo) ?? null) : null;
   const tipo = catalogo.tipos.find((t) => t.codigo === (producto?.tipo ?? tipoCodigo)) ?? null;
@@ -969,8 +990,18 @@ export function EditorTerminado({
     />
   );
 
+  const sucio = foto !== fotoInicial || JSON.stringify(eleccionDe.eleccion) !== JSON.stringify(inicial?.eleccion ?? null);
+  const { pedirCierre, dialogo } = useCerrarConAviso(sucio, alCerrar, {
+    titulo: inicial ? "¿Descartar los cambios del producto?" : "¿Descartar este producto?",
+    descripcion: inicial
+      ? "El producto se queda como estaba y lo que cambiaste se pierde."
+      : "No se agrega y lo que elegiste o escribiste se pierde.",
+  });
+
   return (
-    <Dialog open onOpenChange={(abierto) => !abierto && alCerrar()}>
+    <>
+    {dialogo}
+    <Dialog open onOpenChange={(abierto) => !abierto && pedirCierre()}>
       <DialogContent
         className="flex h-[94dvh] flex-col gap-0 p-0 sm:max-w-3xl lg:max-w-[min(96vw,1440px)]"
         onKeyDown={(e) => {
@@ -1107,7 +1138,7 @@ export function EditorTerminado({
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
             {falta && <p className="text-muted-foreground text-xs">{falta}</p>}
-            <Button type="button" variant="outline" onClick={alCerrar}>
+            <Button type="button" variant="outline" onClick={pedirCierre}>
               Cancelar
             </Button>
             <Button type="button" onClick={guardar} disabled={!!falta}>
@@ -1117,5 +1148,6 @@ export function EditorTerminado({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    </>
   );
 }
