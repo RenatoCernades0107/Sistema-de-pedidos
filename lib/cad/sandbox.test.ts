@@ -6,7 +6,9 @@ import {
   exportarDxfLibre,
   exportarDxfPlanchasLibre,
   leerReferencia,
+  olvidarSaludSandbox,
   renderizar,
+  verificarSandbox,
 } from "./sandbox";
 
 const fetchFalso = vi.fn<typeof fetch>();
@@ -39,6 +41,7 @@ async function errorDe(promesa: Promise<unknown>): Promise<ErrorSandboxCad> {
 
 beforeEach(() => {
   fetchFalso.mockReset();
+  olvidarSaludSandbox();
   vi.stubGlobal("fetch", fetchFalso);
   vi.stubEnv("CAD_SANDBOX_BASE_URL", "http://sandbox.test/");
   vi.stubEnv("CAD_SANDBOX_API_KEY", "clave-sandbox");
@@ -147,9 +150,87 @@ describe("transporte", () => {
     expect(await renderizar({ glb_base64: "Z2xURg==" })).toBe("data:image/png;base64,iVBORw0KGgo=");
   });
 
+  it("un 404 de FastAPI (ruta que no existe) dice que la URL es de otro servicio", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    fetchFalso.mockResolvedValue(respuesta({ detail: "Not Found" }, 404));
+    const e = await errorDe(ejecutarCodigo("x"));
+    expect(e.codigo).toBe("ruta_inexistente");
+    expect(e.estado).toBe(404);
+    expect(e.message).toContain("/ejecutar");
+    expect(e.message).toContain("CAD_SANDBOX_BASE_URL");
+  });
+
+  it("si la ruta de referencias no existe, no se confunde con una referencia que falta", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    fetchFalso.mockResolvedValue(respuesta({ detail: "Not Found" }, 404));
+    expect((await errorDe(leerReferencia("SKILL.md"))).codigo).toBe("ruta_inexistente");
+  });
+
+  it("un 401 apunta a la clave del sandbox", async () => {
+    fetchFalso.mockResolvedValue(respuesta({ detail: "Clave inválida" }, 401));
+    const e = await errorDe(ejecutarCodigo("x"));
+    expect(e.codigo).toBe("no_autorizado");
+    expect(e.message).toContain("CAD_SANDBOX_API_KEY");
+  });
+
   it("una referencia inexistente es null y la ruta se codifica por tramos", async () => {
     fetchFalso.mockResolvedValue(respuesta({ detail: { codigo: "referencia_desconocida", mensaje: "no" } }, 404));
     expect(await leerReferencia("plugins/a b.md")).toBeNull();
     expect(llamada().url).toBe("http://sandbox.test/referencias/plugins/a%20b.md");
+  });
+});
+
+describe("salud", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  it("ok cuando /salud dice que es el sandbox", async () => {
+    fetchFalso.mockResolvedValue(respuesta({ ok: true, version: "0.1.0", servicio: "sandbox" }));
+    expect(await verificarSandbox()).toEqual({ ok: true });
+    expect(llamada().url).toBe("http://sandbox.test/salud");
+    expect(fetchFalso).toHaveBeenCalledTimes(1);
+  });
+
+  it("detecta que la URL es la del motor", async () => {
+    fetchFalso.mockResolvedValue(respuesta({ ok: true, version: "0.1.0", servicio: "motor" }));
+    const r = await verificarSandbox();
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.motivo).toContain("motor");
+  });
+
+  it("sin `servicio` (despliegue anterior) mira si existe /ejecutar", async () => {
+    fetchFalso
+      .mockResolvedValueOnce(respuesta({ ok: true, version: "0.1.0" }))
+      .mockResolvedValueOnce(respuesta({ detail: "Not Found" }, 404));
+    const r = await verificarSandbox();
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.motivo).toContain("/ejecutar");
+    expect(llamada(1)).toMatchObject({ url: "http://sandbox.test/ejecutar", metodo: "POST" });
+  });
+
+  it("sin `servicio` y con /ejecutar que existe (401 o 422) está bien", async () => {
+    fetchFalso
+      .mockResolvedValueOnce(respuesta({ ok: true, version: "0.1.0" }))
+      .mockResolvedValueOnce(respuesta({ detail: { codigo: "parametros_invalidos" } }, 422));
+    expect(await verificarSandbox()).toEqual({ ok: true });
+  });
+
+  it("sin conexión no está disponible", async () => {
+    fetchFalso.mockRejectedValue(new TypeError("fetch failed"));
+    expect((await verificarSandbox()).ok).toBe(false);
+  });
+
+  it("guarda el resultado un rato", async () => {
+    fetchFalso.mockResolvedValue(respuesta({ ok: true, servicio: "sandbox" }));
+    await verificarSandbox();
+    await verificarSandbox();
+    expect(fetchFalso).toHaveBeenCalledTimes(1);
+  });
+
+  it("sin URL configurada ni llama", async () => {
+    vi.stubEnv("CAD_SANDBOX_BASE_URL", "");
+    expect((await verificarSandbox()).ok).toBe(false);
+    expect(fetchFalso).not.toHaveBeenCalled();
   });
 });

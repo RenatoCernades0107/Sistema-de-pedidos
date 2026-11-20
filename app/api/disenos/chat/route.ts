@@ -57,6 +57,7 @@ import {
   leerReferencia,
   listarReferencias,
   renderizar,
+  verificarSandbox,
 } from "@/lib/cad/sandbox";
 import { PLANTILLA_LIBRE } from "@/lib/cad/tipos";
 import { promptDeTurno } from "@/lib/cad/prompt";
@@ -258,8 +259,10 @@ export async function POST(request: Request) {
 
   if (!llmConfigurado()) return error(LLM_NO_CONFIGURADO, 503, "llm_no_configurado");
 
-  // El diseño libre (código en el sandbox) solo con la bandera y el sandbox configurado.
-  const libreActivo = disenoLibreActivo();
+  // El diseño libre (código en el sandbox) solo con la bandera, el sandbox
+  // configurado y respondiendo como sandbox (no el motor, por una URL cruzada).
+  // Si no responde, el modelo ni lo intenta: no gasta intentos en un 404.
+  const libreActivo = disenoLibreActivo() && (await verificarSandbox()).ok;
   const herramientas = herramientasDisponibles(libreActivo);
   const maxVueltas = libreActivo ? MAX_VUELTAS_LIBRE : MAX_VUELTAS;
 

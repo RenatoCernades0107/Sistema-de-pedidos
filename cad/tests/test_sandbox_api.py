@@ -29,7 +29,9 @@ def generado():
 
 
 def test_salud():
-    assert cliente.get("/salud").json()["ok"] is True
+    datos = cliente.get("/salud").json()
+    assert datos["ok"] is True
+    assert datos["servicio"] == "sandbox"
 
 
 def test_ejecutar_misma_forma_que_generar(generado):

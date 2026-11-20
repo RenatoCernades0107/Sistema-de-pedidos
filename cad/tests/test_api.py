@@ -21,7 +21,7 @@ CAJA = {"plantilla": "caja", "parametros": {"largo": 200, "tipo_union": "encastr
 def test_salud(sin_clave):
     r = cliente.get("/salud")
     assert r.status_code == 200
-    assert r.json() == {"ok": True, "version": VERSION}
+    assert r.json() == {"ok": True, "version": VERSION, "servicio": "motor"}
 
 
 def test_plantillas(sin_clave):

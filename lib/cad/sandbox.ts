@@ -77,20 +77,41 @@ function deErrores(v: unknown): { campo: string; mensaje: string }[] | undefined
 }
 
 const POR_ESTADO: Record<number, { codigo: string; mensaje: string }> = {
-  401: { codigo: "no_autorizado", mensaje: "El sandbox CAD rechazó la clave de la aplicación. Avisa a soporte." },
+  401: {
+    codigo: "no_autorizado",
+    mensaje:
+      "El sandbox CAD rechazó la clave de la aplicación: revisa CAD_SANDBOX_API_KEY (debe ser la del sandbox, no la del motor).",
+  },
   404: { codigo: "no_encontrado", mensaje: "El sandbox CAD no tiene eso." },
   422: { codigo: "codigo_invalido", mensaje: "El código no produjo un diseño." },
 };
 const GENERICO = { codigo: "sandbox", mensaje: "El sandbox CAD falló. Intenta de nuevo." };
 
-async function errorDe(res: Response): Promise<ErrorSandboxCad> {
+/**
+ * Un 404 sin `detail` estructurado es el «Not Found» de FastAPI: la ruta no
+ * existe en esa URL. Casi siempre es que `CAD_SANDBOX_BASE_URL` apunta a otro
+ * servicio (el motor, que no tiene `/ejecutar`). Los 404 propios del sandbox
+ * (p. ej. una referencia que no existe) sí traen `detail` como objeto.
+ */
+function rutaInexistente(path: string, res: Response): ErrorSandboxCad {
+  console.error(`[cad] sandbox: ${res.status} en ${path}; CAD_SANDBOX_BASE_URL no parece ser el sandbox`);
+  return new ErrorSandboxCad(
+    `El sandbox CAD no tiene la ruta ${path}: CAD_SANDBOX_BASE_URL apunta a otro servicio (¿al motor?). Avisa a soporte.`,
+    "ruta_inexistente",
+    res.status,
+  );
+}
+
+async function errorDe(path: string, res: Response): Promise<ErrorSandboxCad> {
   const base = POR_ESTADO[res.status] ?? GENERICO;
   let detail: unknown;
   try {
     detail = ((await res.json()) as { detail?: unknown }).detail;
   } catch {
+    if (res.status === 404) return rutaInexistente(path, res);
     return new ErrorSandboxCad(base.mensaje, base.codigo, res.status);
   }
+  if (res.status === 404 && !esObjeto(detail)) return rutaInexistente(path, res);
   if (esObjeto(detail)) {
     const mensaje = typeof detail.mensaje === "string" && detail.mensaje ? detail.mensaje : base.mensaje;
     const codigo = typeof detail.codigo === "string" && detail.codigo ? detail.codigo : base.codigo;
@@ -109,7 +130,7 @@ async function peticion(path: string, init?: RequestInit): Promise<Response> {
   } catch {
     throw new ErrorSandboxCad("No se pudo conectar con el sandbox CAD.", "sin_conexion", 503);
   }
-  if (!res.ok) throw await errorDe(res);
+  if (!res.ok) throw await errorDe(path, res);
   return res;
 }
 
@@ -176,7 +197,74 @@ export async function leerReferencia(nombre: string): Promise<string | null> {
   try {
     return await (await peticion(`/referencias/${ruta}`)).text();
   } catch (e) {
-    if (e instanceof ErrorSandboxCad && e.estado === 404) return null;
+    if (e instanceof ErrorSandboxCad && e.estado === 404 && e.codigo !== "ruta_inexistente") return null;
     throw e;
   }
+}
+
+/* ── Chequeo de salud ──────────────────────────────────────────────────────── */
+
+export type SaludSandbox = { ok: true } | { ok: false; motivo: string };
+
+const ESPERA_SALUD_MS = 5000;
+const CACHE_OK_MS = 60_000;
+const CACHE_FALLO_MS = 15_000;
+let cacheSalud: { resultado: SaludSandbox; hasta: number } | null = null;
+
+/** Solo para las pruebas. */
+export function olvidarSaludSandbox() {
+  cacheSalud = null;
+}
+
+async function pedirSalud(path: string, init?: RequestInit): Promise<Response | string> {
+  try {
+    return await fetch(url(path), {
+      ...init,
+      headers: cabeceras(),
+      cache: "no-store",
+      signal: AbortSignal.timeout(ESPERA_SALUD_MS),
+    });
+  } catch {
+    return "no se pudo conectar con CAD_SANDBOX_BASE_URL";
+  }
+}
+
+async function comprobarSalud(): Promise<SaludSandbox> {
+  if (!sandboxConfigurado()) return { ok: false, motivo: "falta CAD_SANDBOX_BASE_URL" };
+
+  const salud = await pedirSalud("/salud");
+  if (typeof salud === "string") return { ok: false, motivo: salud };
+  if (!salud.ok) return { ok: false, motivo: `/salud respondió ${salud.status}` };
+  let servicio: unknown;
+  try {
+    servicio = ((await salud.json()) as { servicio?: unknown }).servicio;
+  } catch {
+    return { ok: false, motivo: "/salud no devolvió JSON" };
+  }
+  if (servicio === "sandbox") return { ok: true };
+  if (servicio !== undefined) {
+    return { ok: false, motivo: `CAD_SANDBOX_BASE_URL es del servicio «${String(servicio)}», no del sandbox` };
+  }
+
+  // Un sandbox desplegado antes de que `/salud` dijera `servicio`: se mira que
+  // exista `/ejecutar`. Sin cuerpo, el sandbox responde 401 o 422; el motor, 404.
+  const ejecutar = await pedirSalud("/ejecutar", { method: "POST", body: "{}" });
+  if (typeof ejecutar === "string") return { ok: false, motivo: ejecutar };
+  if (ejecutar.status === 404) {
+    return { ok: false, motivo: "CAD_SANDBOX_BASE_URL no tiene /ejecutar (¿apunta al motor?)" };
+  }
+  return { ok: true };
+}
+
+/**
+ * Comprueba que `CAD_SANDBOX_BASE_URL` responde y es de verdad el sandbox (no
+ * el motor). Se guarda un rato para no pagar la llamada en cada turno del chat.
+ */
+export async function verificarSandbox(): Promise<SaludSandbox> {
+  const ahora = Date.now();
+  if (cacheSalud && cacheSalud.hasta > ahora) return cacheSalud.resultado;
+  const resultado = await comprobarSalud();
+  cacheSalud = { resultado, hasta: ahora + (resultado.ok ? CACHE_OK_MS : CACHE_FALLO_MS) };
+  if (!resultado.ok) console.error(`[cad] sandbox no disponible: ${resultado.motivo}`);
+  return resultado;
 }

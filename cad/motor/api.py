@@ -223,7 +223,8 @@ def _geometria(funcion, *args: Any, **kwargs: Any):
 
 @app.get("/salud")
 def salud() -> dict[str, Any]:
-    return {"ok": True, "version": VERSION}
+    # `servicio` distingue el motor del sandbox: los dos viven en Function URLs parecidas.
+    return {"ok": True, "version": VERSION, "servicio": "motor"}
 
 
 @app.get("/plantillas", dependencies=protegido)
