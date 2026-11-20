@@ -32,6 +32,13 @@ Dos scripts, los dos pensados para correr contra el proyecto de Supabase en la n
   código), el nombre de una versión, el autor firmado por la sesión y el aviso
   `diseno_modificado` (a otro autor sí, a uno mismo no, uno cada 30 minutos salvo que
   la persona vuelva a guardar). Crea sus propias personas de prueba; termina en `ROLLBACK`.
+- **`signup_publico.sql`** — verifica la migración `20261209000100`: el rol del perfil solo se toma
+  de `app_metadata`; un alta con el rol en `user_metadata` (lo que controla quien se registra) nace
+  desactivada y sin rol efectivo. Termina en `ROLLBACK`.
+- **`intentos_login.sql`** — verifica la migración `20261209000200`: el bloqueo del login a los 5
+  fallos por usuario o 20 por IP en 15 minutos, que se levanta pasada la ventana o con un ingreso
+  correcto, y que sin la clave del servidor las funciones no hacen nada. Necesita la seed (usa el
+  secreto `login` de desarrollo) y termina en `ROLLBACK`.
 - **`correo_recuperacion.sql`** — verifica las migraciones `20261201000100` y `20261202000100`: el
   trigger que copia el correo de Auth al perfil, que `email_de_usuario` y
   `tiene_correo_recuperacion` no respondan sin la clave del servidor, el CHECK de formato y que

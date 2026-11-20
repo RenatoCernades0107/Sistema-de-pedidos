@@ -3304,6 +3304,11 @@ export type Database = {
         Args: { p_conversacion_id: string; p_hasta?: string }
         Returns: number
       }
+      limpiar_intentos_login: { Args: { clave: string; nombre_usuario: string }; Returns: undefined }
+      login_bloqueado: {
+        Args: { clave: string; direccion_ip: string; nombre_usuario: string }
+        Returns: boolean
+      }
       marcar_password_cambiada: { Args: never; Returns: undefined }
       nombrar_version_diseno: {
         Args: { p_diseno_id: string; p_nombre: string; p_version: number }
@@ -3404,6 +3409,10 @@ export type Database = {
       soltar_sobrantes_de_pedido: {
         Args: { p_codigo: string; p_consumir: boolean; p_posicion?: number }
         Returns: number
+      }
+      registrar_intento_fallido: {
+        Args: { clave: string; direccion_ip: string; nombre_usuario: string }
+        Returns: undefined
       }
       terminado_sin_precios: { Args: { t: Json }; Returns: Json }
       tiene_correo_recuperacion: { Args: { clave: string; nombre_usuario: string }; Returns: boolean }

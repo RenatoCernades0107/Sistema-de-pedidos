@@ -1,9 +1,25 @@
 "use server";
 
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { ERROR_LOGIN_SIN_CLAVE, claveDeLogin } from "@/lib/login-secreto";
+import { rutaInternaSegura } from "@/lib/ruta-segura";
 import { clienteServidor } from "@/lib/supabase-servidor";
+
+const ERROR_CREDENCIALES = "Usuario o contraseña incorrectos.";
+const ERROR_BLOQUEADO = "Demasiados intentos. Espera unos minutos e inténtalo otra vez.";
+
+/**
+ * La IP de quien pide el login, para el bloqueo por dirección. Detrás del proxy del
+ * hosting llega en `x-forwarded-for` (la primera es la del cliente). Vacía si no se
+ * sabe: entonces solo cuenta el límite por usuario.
+ */
+async function ipDelCliente(): Promise<string> {
+  const cabeceras = await headers();
+  const reenviada = cabeceras.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return reenviada || cabeceras.get("x-real-ip")?.trim() || "";
+}
 
 export interface EstadoLogin {
   error?: string;
@@ -38,21 +54,39 @@ export async function iniciarSesion(
   if (!clave) return { error: ERROR_LOGIN_SIN_CLAVE, usuario };
 
   const supabase = await clienteServidor();
+  const ip = await ipDelCliente();
+
+  // Mientras hay bloqueo no se anotan más fallos, así que se levanta a los 15 minutos
+  // del último y nadie lo alarga por seguir probando.
+  const { data: bloqueado } = await supabase.rpc("login_bloqueado", {
+    nombre_usuario: usuario,
+    direccion_ip: ip,
+    clave,
+  });
+  if (bloqueado) return { error: ERROR_BLOQUEADO, usuario };
+
+  const fallar = async (): Promise<EstadoLogin> => {
+    await supabase.rpc("registrar_intento_fallido", {
+      nombre_usuario: usuario,
+      direccion_ip: ip,
+      clave,
+    });
+    return { error: ERROR_CREDENCIALES, usuario };
+  };
 
   const { data: email } = await supabase.rpc("email_de_usuario", {
     nombre_usuario: usuario,
     clave,
   });
 
-  if (!email) {
-    return { error: "Usuario o contraseña incorrectos.", usuario };
-  }
+  // Usuario inexistente y contraseña equivocada cuentan y responden igual.
+  if (!email) return fallar();
 
   const { error } = await supabase.auth.signInWithPassword({ email, password });
 
-  if (error) {
-    return { error: "Usuario o contraseña incorrectos.", usuario };
-  }
+  if (error) return fallar();
+
+  await supabase.rpc("limpiar_intentos_login", { nombre_usuario: usuario, clave });
 
   const { data: { user } } = await supabase.auth.getUser();
   const { data: perfil } = await supabase
@@ -69,7 +103,7 @@ export async function iniciarSesion(
   }
 
   revalidatePath("/", "layout");
-  redirect(siguiente && siguiente.startsWith("/") ? siguiente : "/");
+  redirect(rutaInternaSegura(siguiente));
 }
 
 export async function cerrarSesion() {

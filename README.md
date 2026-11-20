@@ -88,6 +88,16 @@ mano):
   `seed.sql` (hay que haber aplicado las migraciones y la seed, `npx supabase db reset`). Con un
   Supabase alojado sí hay que definirla en `.env.local` con el valor de `secretos_app`. En producción
   es obligatoria: sin ella el login avisa de que no está configurado.
+- **Registro público apagado** (Authentication → Providers → Email → *Allow new users to sign up*
+  desactivado). Las cuentas las crea Administración con la Edge Function; con el registro abierto,
+  cualquiera con la clave publicable podría crearse una. Aunque lo hicieran, desde
+  `20261209000100` el rol del perfil sale solo de `app_metadata` y una cuenta sin rol nace
+  desactivada. Hay que volver a desplegar la Edge Function, que ahora manda el rol ahí.
+- **Política de contraseñas** (Authentication → Sign In / Providers → Email): mínimo 8 caracteres y
+  *letters and digits*, igual que `supabase/config.toml`. Los topes `timebox` e `inactivity_timeout`
+  de las sesiones solo existen en el plan Pro.
+- **Bloqueo por intentos**: 5 contraseñas falladas en 15 minutos bloquean al usuario (20 a una IP). Lo
+  guarda `intentos_login` (migración `20261209000200`) y no necesita configuración.
 - **Edge Function**: `npx supabase functions deploy administrar-usuarios`.
 - **SMTP propio** (Authentication → SMTP). El de prueba de Supabase solo manda a miembros del equipo
   y con un tope mínimo. En local, los correos se ven en Mailpit (`http://127.0.0.1:56324`).

@@ -26,9 +26,10 @@ end $$;
 
 -- ── 2. Una persona con rol guarda un mensaje con adjuntos ───────────────────
 
-insert into auth.users (id, email, raw_user_meta_data) values
+insert into auth.users (id, email, raw_user_meta_data, raw_app_meta_data) values
   ('00000000-0000-4000-8000-00000000d6a1', 'adj-ope@prueba.test',
-   '{"nombre":"Olga Prueba","usuario":"adj-ope","rol":"operaciones"}');
+   '{"nombre":"Olga Prueba","usuario":"adj-ope"}',
+   '{"rol":"operaciones"}');
 
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-00000000d6a1","role":"authenticated"}', true);
 set local role authenticated;

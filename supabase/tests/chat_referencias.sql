@@ -33,13 +33,16 @@ end $$;
 
 -- ── 2. Datos de prueba ──────────────────────────────────────────────────────
 
-insert into auth.users (id, email, raw_user_meta_data) values
+insert into auth.users (id, email, raw_user_meta_data, raw_app_meta_data) values
   ('00000000-0000-4000-8000-00000000d4a1', 'ref-admin@prueba.test',
-   '{"nombre":"Admin Ref","usuario":"ref-admin","rol":"administracion"}'),
+   '{"nombre":"Admin Ref","usuario":"ref-admin"}',
+   '{"rol":"administracion"}'),
   ('00000000-0000-4000-8000-00000000d4a2', 'ref-logi@prueba.test',
-   '{"nombre":"Logi Ref","usuario":"ref-logi","rol":"logistica"}'),
+   '{"nombre":"Logi Ref","usuario":"ref-logi"}',
+   '{"rol":"logistica"}'),
   ('00000000-0000-4000-8000-00000000d4a3', 'ref-ope@prueba.test',
-   '{"nombre":"Ope Ref","usuario":"ref-ope","rol":"operaciones"}');
+   '{"nombre":"Ope Ref","usuario":"ref-ope"}',
+   '{"rol":"operaciones"}');
 
 -- Los pedidos se copian de uno del seed para no repetir todas sus columnas.
 insert into public.pedidos (
