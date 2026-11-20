@@ -24,10 +24,11 @@ begin
     end if;
   end loop;
 
-  -- 1.1 Los tres almacenes, con su papel.
-  if (select string_agg(codigo || ':' || tipo, ',' order by orden) from public.almacenes where codigo in ('AND', 'CAT', 'ESM'))
-     <> 'AND:tienda,CAT:taller,ESM:deposito' then
-    raise exception 'FALLO: los almacenes sembrados no son Andahuaylas (tienda), Católica (taller) y Esmeraldas';
+  -- 1.1 Los almacenes, con su papel y el código que tienen en Odoo
+  -- (20261208000100: Andahuaylas = A2, Católica = A1, Chilca = A3).
+  if (select string_agg(codigo || ':' || tipo, ',' order by orden) from public.almacenes where codigo in ('A2', 'A1', 'ESM', 'A3'))
+     <> 'A2:tienda,A1:taller,ESM:deposito,A3:deposito' then
+    raise exception 'FALLO: los almacenes no son Andahuaylas (A2, tienda), Católica (A1, taller), Esmeraldas y Chilca (A3)';
   end if;
 
   -- 1.2 Cada color tiene su código: ya no hay código compartido. Y todos registran sobrantes.

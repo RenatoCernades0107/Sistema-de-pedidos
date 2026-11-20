@@ -168,9 +168,9 @@ export function PantallaAlmacen({
         <p className="bg-muted/40 mb-4 flex gap-2 rounded-xl border p-3 text-sm">
           <CircleAlert className="text-muted-foreground mt-0.5 size-4 shrink-0" />
           <span>
-            Hay stock en Odoo fuera de estos almacenes (columna <span className="font-medium">Anterior</span>: el almacén
-            que Odoo traía). Cuéntalo y regístralo con un ajuste en el almacén donde está de verdad; cuando los pedidos
-            abiertos terminen, el anterior se vacía en Odoo.
+            Hay stock en Odoo fuera de estos almacenes (columna <span className="font-medium">Anterior</span>: otra
+            ubicación de Odoo que la app no maneja). Cuéntalo y regístralo con un ajuste en el almacén donde está de
+            verdad.
           </span>
         </p>
       )}
