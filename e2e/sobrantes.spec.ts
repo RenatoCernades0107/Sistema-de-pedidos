@@ -10,7 +10,7 @@
  */
 
 import { expect, test, type Page } from "@playwright/test";
-import { entrar, sesionDe } from "./apoyo";
+import { elegirMaterialPorPasos, entrar, sesionDe } from "./apoyo";
 
 const ODOO = process.env.E2E_ODOO_FALSO ?? "http://127.0.0.1:8069";
 
@@ -84,12 +84,7 @@ test.afterAll(async () => {
 async function registrar(page: Page, largo: string, ancho: string, ubicacion: string, almacen = "Católica (taller)") {
   await page.getByRole("button", { name: "Registrar sobrante" }).click();
   const dialogo = page.getByRole("dialog", { name: "Registrar sobrante" });
-  await dialogo.getByLabel("Buscar material").fill("eco cristal 3");
-  await expect(dialogo.getByRole("option", { name: /Acrílico ECO.*Cristal.*3 mm/ }).first()).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-  await dialogo.getByLabel("Buscar material").press("Enter");
+  await elegirMaterialPorPasos(page, dialogo, { material: "Acrílico ECO", color: "Cristal", espesor: "3 mm" });
   await expect(dialogo.getByTestId("material-sobrante")).toContainText("Acrílico ECO · Cristal · 3 mm");
   // Al elegir el material, el foco salta solo al largo: se espera, o lo escrito antes cae ahí.
   await expect(dialogo.getByLabel("Largo (cm)")).toBeFocused();

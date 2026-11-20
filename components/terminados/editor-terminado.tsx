@@ -2,18 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Box, CircleAlert, Info, Plus, Trash2 } from "lucide-react";
-import {
-  buscarGrupos,
-  colorDe,
-  espesorTexto,
-  nombreDeGrupo,
-  type GrupoPlancha,
-} from "@/lib/cortes/catalogo";
+import { colorDe, nombreDeGrupo, type GrupoPlancha } from "@/lib/cortes/catalogo";
 import { money } from "@/lib/formato";
 import type { LineaTerminado } from "@/lib/lineas-cotizacion";
 import type { ProductoOdoo } from "@/lib/odoo/tipos";
 import type { ConfigCortes } from "@/lib/cortes/config";
 import type { EleccionPlancha } from "@/lib/cortes/calcular";
+import { planchasNuevas } from "@/lib/cortes/guardado";
 import { contenedoresDe } from "@/lib/sobrantes";
 import {
   calcularTerminado,
@@ -55,7 +50,7 @@ import {
 import { parametrosCadDe } from "@/lib/terminados/plantilla-cad";
 import { armadoDeCaja } from "@/lib/terminados/armado";
 import { BuscadorProducto } from "@/components/cotizaciones/buscador-producto";
-import { ComboBusqueda, type Opcion } from "@/components/cotizaciones/combo-busqueda";
+import { SelectorMaterialPasos } from "@/components/cortes/selector-material-pasos";
 import { Button } from "@/components/ui/button";
 import { useCerrarConAviso } from "@/components/ui/confirmar-descarte";
 import { Campo, Opciones } from "@/components/ui/campo";
@@ -217,7 +212,6 @@ export function EditorTerminado({
   const [medidaId, setMedidaId] = useState<string | null>(inicial ? OTRA_MEDIDA : null);
   const [medidas, setMedidas] = useState<TextoMedidas>(inicial ? aTexto(inicial.medidas) : SIN_MEDIDAS);
   const [grupoId, setGrupoId] = useState<string | null>(inicial?.grupoId ?? null);
-  const [consulta, setConsulta] = useState("");
   const [opciones, setOpciones] = useState<number[]>(inicial?.opciones ?? []);
   const [textoPedido, setTextoPedido] = useState(inicial?.texto ?? "");
   const [notas, setNotas] = useState(inicial?.notas ?? "");
@@ -340,6 +334,30 @@ export function EditorTerminado({
 
   const stockPlanchas = useStock(calculo.opciones ? calculo.opciones.formatos.map((c) => c.formato.codigo) : []);
 
+  // Un formato elegido que ya no sirve (cambiaron las medidas o las unidades) vuelve a la sugerencia,
+  // y no reaparece solo si después vuelve a servir.
+  const formatoQueNoSirve =
+    eleccionDe.grupoId === grupoId && eleccionDe.eleccion?.tipo === "formato" && !!calculo.opciones && calculo.eleccion === null;
+  if (formatoQueNoSirve) setEleccion(null);
+
+  /** La sugerida es la más barata; si Odoo dice que no alcanza, se avisa y se señala dónde hay. */
+  const avisoStock = (() => {
+    const sugerido = calculo.opciones?.sugerido;
+    if (!sugerido || calculo.eleccion !== null || !stockPlanchas.stock) return null;
+    const hay = stockPlanchas.stock[sugerido.formato.codigo];
+    const necesita = planchasNuevas(sugerido);
+    if (typeof hay !== "number" || hay >= necesita) return null;
+    const otros = (calculo.opciones?.formatos ?? []).filter((c) => {
+      const h = stockPlanchas.stock?.[c.formato.codigo];
+      return !c.problema && c.noCaben.length === 0 && typeof h === "number" && h >= planchasNuevas(c);
+    });
+    return otros.length > 0
+      ? `La sugerida (${sugerido.formato.ancho}×${sugerido.formato.alto}) no tiene stock suficiente. Con stock: ${otros
+          .map((c) => `${c.formato.ancho}×${c.formato.alto}`)
+          .join(", ")}.`
+      : `La sugerida (${sugerido.formato.ancho}×${sugerido.formato.alto}) no tiene stock suficiente y ningún otro formato alcanza.`;
+  })();
+
   /** Si el producto lo dibuja una plantilla del motor CAD: sus parámetros en mm. */
   const parametrosCad = useMemo(
     () =>
@@ -438,28 +456,6 @@ export function EditorTerminado({
         buscado,
       ),
     [catalogo, tipoCodigo, buscado],
-  );
-
-  const opcionesDeMaterial: Opcion[] = useMemo(
-    () =>
-      buscarGrupos(planchas, consulta).map((g) => ({
-        valor: g.id,
-        alElegir: () => {
-          setGrupoId(g.id);
-          setConsulta("");
-        },
-        contenido: (
-          <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
-            <span className="font-medium">{g.material}</span>
-            <span>{colorDe(g)}</span>
-            <span className="tnum">{espesorTexto(g.espesorMm)}</span>
-            {producto && espesorRecomendado(producto, g.espesorMm) && (
-              <span className="text-primary ml-auto text-xs">Espesor recomendado</span>
-            )}
-          </span>
-        ),
-      })),
-    [planchas, consulta, producto],
   );
 
   const campos = camposDe(geometria, producto);
@@ -606,47 +602,23 @@ export function EditorTerminado({
           </div>
 
           {/* Material */}
-          {grupo ? (
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-medium">Material</p>
-                <p
-                  className="bg-muted/50 mt-1.5 flex min-h-9 items-center gap-2 rounded-lg border px-3 text-sm"
-                  data-testid="material-elegido"
-                >
-                  <span className="min-w-0 flex-1 font-medium">{nombreDeGrupo(grupo)}</span>
-                  <Button type="button" variant="ghost" size="xs" onClick={() => setGrupoId(null)}>
-                    Cambiar
-                  </Button>
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-1.5">
-              <p className="text-xs font-medium">
-                Material {!estandar && <span className="text-muted-foreground font-normal">(opcional)</span>}
-              </p>
-              <ComboBusqueda
-                etiqueta="Buscar material"
-                placeholder="Material, color y espesor: eco cristal 3…"
-                consulta={consulta}
-                alEscribir={setConsulta}
-                opciones={opcionesDeMaterial}
-                cargando={false}
-                error={null}
-                vacio="Ningún material coincide. Los materiales se administran en Configuración."
-                fresco
-                enLinea
-              />
-              {producto && (producto.espesores.length > 0 || producto.colores.length > 0) && (
+          <SelectorMaterialPasos
+            catalogo={planchas}
+            grupo={grupo}
+            alElegir={(g) => setGrupoId(g.id)}
+            alCambiar={() => setGrupoId(null)}
+            opcional={!estandar}
+            espesorRecomendado={producto ? (mm) => espesorRecomendado(producto, mm) : undefined}
+            ayuda={
+              producto && (producto.espesores.length > 0 || producto.colores.length > 0) ? (
                 <p className="text-muted-foreground text-xs">
                   {producto.espesores.length > 0 &&
                     `Espesores recomendados: ${producto.espesores.map(textoDeEspesor).join(", ")}. `}
                   {producto.colores.length > 0 && `Se hace en: ${producto.colores.join(", ").toLowerCase()}.`}
                 </p>
-              )}
-            </div>
-          )}
+              ) : null
+            }
+          />
           {errorPrecios && (
             <p className="text-destructive flex items-center gap-1.5 text-xs">
               <CircleAlert className="size-3.5" />
@@ -751,13 +723,27 @@ export function EditorTerminado({
             </p>
           )}
           {calculo.corte && calculo.piezas ? (
-            <CortesTerminado
-              piezas={calculo.piezas}
-              formato={calculo.corte.formato}
-              planchas={calculo.corte.planchas}
-              compacto
-              className="bg-background rounded-lg border p-3"
-            />
+            <>
+              <CortesTerminado
+                piezas={calculo.piezas}
+                formato={calculo.corte.formato}
+                planchas={calculo.corte.planchas}
+                compacto
+                className="bg-background rounded-lg border p-3"
+              />
+              {calculo.opciones && (
+                <p className="text-muted-foreground text-xs">
+                  {calculo.eleccion ? "Plancha elegida a mano." : "Plancha sugerida."}{" "}
+                  <button
+                    type="button"
+                    onClick={() => setPestana("materiales")}
+                    className="text-primary cursor-pointer font-medium hover:underline"
+                  >
+                    Ver otros formatos
+                  </button>
+                </p>
+              )}
+            </>
           ) : (
             <p className="text-muted-foreground rounded-lg border border-dashed px-3 py-6 text-center text-sm">
               {calculo.areaUnidadM2
@@ -829,6 +815,12 @@ export function EditorTerminado({
             falloStock={stockPlanchas.fallo}
             importe="material"
           />
+          {avisoStock && (
+            <p className="text-destructive mt-2 flex items-start gap-1.5 text-xs" role="status" data-testid="aviso-stock-plancha">
+              <CircleAlert className="mt-px size-3.5 shrink-0" aria-hidden />
+              {avisoStock}
+            </p>
+          )}
         </section>
       )}
 

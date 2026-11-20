@@ -309,6 +309,44 @@ describe("calcularTerminado con plancha o sobrante elegidos", () => {
     expect(descontar.find((m) => m.codigo === c.formato!.codigo)?.cantidad ?? 0).toBe(nuevas);
   });
 
+  it("elegir otro formato recalcula planchas, costo y materiales, y se guarda", () => {
+    const sug = calcularTerminado(conCortes(caja));
+    const otro = sug.formato!.codigo === "F7E024" ? "F7E025" : "F7E024";
+    const c = calcularTerminado(conCortes({ ...caja, eleccion: { tipo: "formato", codigo: otro } }));
+    expect(c.eleccion).toEqual({ tipo: "formato", codigo: otro });
+    expect(c.formato!.codigo).toBe(otro);
+    expect(c.materiales[0]).toMatchObject({ esPlancha: true, codigo: otro, cantidad: c.planchas });
+    expect(c.costoMaterial).toBe(Math.round(c.planchas * c.formato!.precio * 100) / 100);
+    expect(c.costoMaterial).not.toBe(sug.costoMaterial);
+    // Las opciones ofrecen siempre todos los formatos, con la sugerencia aparte.
+    expect(c.opciones?.formatos).toHaveLength(2);
+    expect(c.opciones?.sugerido.formato.codigo).toBe(sug.formato!.codigo);
+    // La ficha guarda formato y elección; leerla de vuelta no la pierde.
+    const g = guardarCorteDeTerminado(c)!;
+    expect(g.formato.codigo).toBe(otro);
+    expect(g.eleccion).toEqual({ tipo: "formato", codigo: otro });
+    expect(g.planchas).toHaveLength(c.corte!.planchas.length);
+  });
+
+  it("un formato donde las piezas no entran vuelve a la sugerencia", () => {
+    // Las piezas de 40×40 no entran en una plancha de 30×30: ese formato no sirve.
+    const chico: FormatoTerminado = { codigo: "CHICO", ancho: 30, alto: 30, precio: 10, productoId: 30, nombre: "CHICO" };
+    const c = calcularTerminado(
+      conCortes({
+        medidas: { m1: 40, m2: 40, m3: 40 },
+        cantidad: 1,
+        formatos: [...FORMATOS, chico],
+        eleccion: { tipo: "formato", codigo: "CHICO" },
+      }),
+    );
+    expect(c.eleccion).toBeNull();
+    expect(c.formato!.codigo).not.toBe("CHICO");
+    expect(c.corte!.noCaben).toEqual([]);
+    // Y uno que ya no existe en el material, también.
+    const fuera = calcularTerminado(conCortes({ ...caja, eleccion: { tipo: "formato", codigo: "NO-EXISTE" } }));
+    expect(fuera.eleccion).toBeNull();
+  });
+
   it("lo elegido que ya no está vuelve a la sugerencia", () => {
     const c = calcularTerminado(conCortes({ ...caja, eleccion: { tipo: "sobrante", codigo: "SOB-9" } }));
     expect(c.eleccion).toBeNull();
@@ -398,6 +436,19 @@ describe("la ficha guardada", () => {
     const vieja: Record<string, unknown> = { ...guardado };
     delete vieja.corte;
     expect(leerTerminado(vieja)?.corte).toBeNull();
+  });
+
+  it("una ficha con corte, de antes de poder elegir plancha, se lee sin elección", () => {
+    const c = calcularTerminado(conCortes({ medidas: { m1: 20, m2: 20, m3: 20 }, cantidad: 2 }));
+    const corte: Record<string, unknown> = { ...guardarCorteDeTerminado(c)! };
+    delete corte.eleccion;
+    const vieja = { ...guardado, corte };
+    expect(leerTerminado(JSON.parse(JSON.stringify(vieja)))?.corte?.eleccion ?? null).toBeNull();
+    const conFormato = { ...guardado, corte: { ...corte, eleccion: { tipo: "formato", codigo: "F7E025" } } };
+    expect(leerTerminado(JSON.parse(JSON.stringify(conFormato)))?.corte?.eleccion).toEqual({
+      tipo: "formato",
+      codigo: "F7E025",
+    });
   });
 
   it("lo que no es una ficha es null", () => {

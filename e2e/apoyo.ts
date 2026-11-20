@@ -12,7 +12,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import type { Database } from "@/lib/supabase-tipos";
 
 export const USUARIOS = {
@@ -246,4 +246,37 @@ export async function abrirCorte(page: Page) {
     await expect(panel).toBeVisible({ timeout: 2_000 });
   }).toPass({ timeout: 30_000 });
   return panel;
+}
+
+/**
+ * Elige el material por los tres pasos del selector: Material → Color → Espesor.
+ *
+ * `ambito` es donde están los tres botones (un diálogo, o la página); las listas
+ * se abren fuera de él, así que sus opciones se buscan en la página. Cada paso
+ * abre el siguiente por sí solo. Los textos son los de la opción, tal cual:
+ * `{ material: "Acrílico ECO", color: "Cristal", espesor: "3 mm" }`. Un paso que
+ * solo tiene una opción se elige solo y no hay que pasarlo.
+ *
+ * Quien escribe rápido tiene además la búsqueda "Buscar material" ("eco cristal
+ * 3"), que sigue sirviendo para el resto de las pruebas.
+ */
+export async function elegirMaterialPorPasos(
+  page: Page,
+  ambito: Page | Locator,
+  paso: { material: string; color?: string; espesor?: string },
+) {
+  const pasos = [
+    { id: "paso-material", buscar: "Buscar material…", texto: paso.material },
+    { id: "paso-color", buscar: "Buscar color…", texto: paso.color },
+    { id: "paso-espesor", buscar: "Buscar espesor…", texto: paso.espesor },
+  ];
+  for (const [i, { id, buscar, texto }] of pasos.entries()) {
+    if (texto === undefined) continue;
+    // Después del primero, cada lista se abre sola al elegir el paso anterior.
+    if (i === 0) await ambito.getByTestId(id).click();
+    const filtro = page.getByPlaceholder(buscar);
+    await filtro.fill(texto);
+    const opcion = page.getByRole("option").filter({ has: page.getByText(texto, { exact: true }) });
+    await opcion.first().click();
+  }
 }
