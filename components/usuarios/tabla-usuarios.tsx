@@ -2,10 +2,11 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { KeyRound, Mail, MailPlus, MoreHorizontal, Power, PowerOff, UserPlus } from "lucide-react";
+import { KeyRound, Mail, MailPlus, MoreHorizontal, Power, PowerOff, Trash2, UserPlus } from "lucide-react";
 import { ROLES, type Rol } from "@/lib/dominio";
 import {
   desactivarUsuario,
+  eliminarUsuario,
   enviarCorreoDeRecuperacion,
   reactivarUsuario,
   restablecerContrasenaDe,
@@ -44,7 +45,7 @@ export interface Cuenta {
   email_recuperacion: string | null;
 }
 
-type Confirmacion = { tipo: "desactivar" | "restablecer"; cuenta: Cuenta } | null;
+type Confirmacion = { tipo: "desactivar" | "restablecer" | "eliminar"; cuenta: Cuenta } | null;
 
 export function TablaUsuarios({ usuarios, yoId }: { usuarios: Cuenta[]; yoId: string }) {
   const [creando, setCreando] = useState(false);
@@ -81,6 +82,13 @@ export function TablaUsuarios({ usuarios, yoId }: { usuarios: Cuenta[]; yoId: st
         const r = await desactivarUsuario({ id: cuenta.id });
         if (r.ok) toast.success(`${cuenta.nombre} ya no puede entrar`);
         else toast.error("No se pudo desactivar", { description: r.error });
+        return;
+      }
+
+      if (tipo === "eliminar") {
+        const r = await eliminarUsuario({ id: cuenta.id });
+        if (r.ok) toast.success(`Se eliminó la cuenta de ${cuenta.nombre}`);
+        else toast.error("No se pudo eliminar", { description: r.error });
         return;
       }
 
@@ -179,10 +187,20 @@ export function TablaUsuarios({ usuarios, yoId }: { usuarios: Cuenta[]; yoId: st
                               Desactivar cuenta
                             </DropdownMenuItem>
                           ) : (
-                            <DropdownMenuItem onClick={() => reactivar(c)} className="gap-2">
-                              <Power className="size-4 shrink-0" />
-                              Reactivar cuenta
-                            </DropdownMenuItem>
+                            <>
+                              <DropdownMenuItem onClick={() => reactivar(c)} className="gap-2">
+                                <Power className="size-4 shrink-0" />
+                                Reactivar cuenta
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                disabled={esYo}
+                                onClick={() => setConfirmar({ tipo: "eliminar", cuenta: c })}
+                                className="text-destructive gap-2"
+                              >
+                                <Trash2 className="size-4 shrink-0" />
+                                Eliminar cuenta
+                              </DropdownMenuItem>
+                            </>
                           )}
                         </DropdownMenuGroup>
                       </DropdownMenuContent>
@@ -218,21 +236,29 @@ export function TablaUsuarios({ usuarios, yoId }: { usuarios: Cuenta[]; yoId: st
             <AlertDialogTitle>
               {confirmar?.tipo === "desactivar"
                 ? `¿Desactivar la cuenta de ${confirmar.cuenta.nombre}?`
-                : `¿Poner una contraseña temporal a ${confirmar?.cuenta.nombre}?`}
+                : confirmar?.tipo === "eliminar"
+                  ? `¿Eliminar la cuenta de ${confirmar.cuenta.nombre}?`
+                  : `¿Poner una contraseña temporal a ${confirmar?.cuenta.nombre}?`}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {confirmar?.tipo === "desactivar"
                 ? "Dejará de poder entrar y se cerrarán sus sesiones abiertas. Sus pedidos y su historial se conservan, y puedes reactivarla cuando quieras."
-                : "Su contraseña actual deja de servir, se cierran sus sesiones abiertas y tendrá que elegir una nueva al entrar. La temporal se muestra una sola vez."}
+                : confirmar?.tipo === "eliminar"
+                  ? "Se borra para siempre y no se puede deshacer. Solo es posible si no tiene pedidos ni otros registros; si los tiene, déjala desactivada."
+                  : "Su contraseña actual deja de servir, se cierran sus sesiones abiertas y tendrá que elegir una nueva al entrar. La temporal se muestra una sola vez."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
-              variant={confirmar?.tipo === "desactivar" ? "destructive" : "default"}
+              variant={confirmar?.tipo === "restablecer" ? "default" : "destructive"}
               onClick={ejecutarConfirmacion}
             >
-              {confirmar?.tipo === "desactivar" ? "Desactivar" : "Generar contraseña"}
+              {confirmar?.tipo === "desactivar"
+                ? "Desactivar"
+                : confirmar?.tipo === "eliminar"
+                  ? "Eliminar"
+                  : "Generar contraseña"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

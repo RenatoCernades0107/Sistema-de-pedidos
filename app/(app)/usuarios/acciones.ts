@@ -71,6 +71,10 @@ export async function reactivarUsuario(entrada: unknown): Promise<ResultadoUsuar
   return conId("reactivar", entrada);
 }
 
+export async function eliminarUsuario(entrada: unknown): Promise<ResultadoUsuario> {
+  return conId("eliminar", entrada);
+}
+
 export async function restablecerContrasenaDe(entrada: unknown): Promise<ResultadoUsuario> {
   return conId("restablecer_password", entrada);
 }
