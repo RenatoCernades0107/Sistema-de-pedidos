@@ -88,6 +88,8 @@ Deno.serve(async (req) => {
       return await reactivar(c);
     case "restablecer_password":
       return await restablecerPassword(c, user.id);
+    case "eliminar":
+      return await eliminar(c, user.id);
     default:
       return fallo("Acción desconocida.");
   }
@@ -192,6 +194,38 @@ async function reactivar(c: Cuerpo) {
   if (error) {
     console.error("[administrar-usuarios] reactivar:", error.message);
     return fallo("No se pudo reactivar la cuenta.");
+  }
+  return json({ ok: true });
+}
+
+/**
+ * Borra la cuenta de verdad. Solo si está desactivada y no tiene pedidos. Las demás
+ * tablas que apuntan a la cuenta (pagos, historial…) no tienen `on delete`, así que si
+ * quedan filas la base rechaza el borrado y se responde con un motivo legible.
+ */
+async function eliminar(c: Cuerpo, quienLlama: string) {
+  const objetivo = await existe(c.id);
+  if (!objetivo) return fallo("No existe esa cuenta.");
+  if (objetivo.id === quienLlama) return fallo("No puedes eliminar tu propia cuenta.");
+  if (objetivo.activo) return fallo("Desactiva la cuenta antes de eliminarla.");
+
+  const { count, error: errorConteo } = await admin
+    .from("pedidos")
+    .select("id", { count: "exact", head: true })
+    .eq("creado_por", objetivo.id);
+  if (errorConteo) {
+    console.error("[administrar-usuarios] eliminar (pedidos):", errorConteo.message);
+    return fallo("No se pudo comprobar si la cuenta tiene pedidos.");
+  }
+  if (count) return fallo("Tiene pedidos: no se puede eliminar. Déjala desactivada para conservar el historial.");
+
+  const { error } = await admin.auth.admin.deleteUser(objetivo.id);
+  if (error) {
+    console.error("[administrar-usuarios] eliminar:", error.code ?? error.message);
+    if (/foreign key|23503|violates/i.test(`${error.code ?? ""} ${error.message}`)) {
+      return fallo("Tiene registros asociados (pagos, historial…): no se puede eliminar. Déjala desactivada.");
+    }
+    return fallo("No se pudo eliminar la cuenta.");
   }
   return json({ ok: true });
 }
