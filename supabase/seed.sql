@@ -41,8 +41,8 @@ insert into auth.users (
 select
   '00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated', 'authenticated',
   'ana@plexiacril.test', extensions.crypt('plexi2026', extensions.gen_salt('bf')), now(),
-  '{"provider":"email","providers":["email"]}'::jsonb,
-  jsonb_build_object('nombre', 'Ana Torres', 'usuario', 'ana', 'rol', 'administracion'),
+  jsonb_build_object('provider', 'email', 'providers', jsonb_build_array('email'), 'rol', 'administracion'),
+  jsonb_build_object('nombre', 'Ana Torres', 'usuario', 'ana'),
   now(), now(),
   '', '', '', '', '', '', '', ''
 -- El índice único de auth.users sobre email es parcial, así que ON CONFLICT no
@@ -60,8 +60,8 @@ insert into auth.users (
 select
   '00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated', 'authenticated',
   'carla@plexiacril.test', extensions.crypt('plexi2026', extensions.gen_salt('bf')), now(),
-  '{"provider":"email","providers":["email"]}'::jsonb,
-  jsonb_build_object('nombre', 'Carla Díaz', 'usuario', 'carla', 'rol', 'logistica'),
+  jsonb_build_object('provider', 'email', 'providers', jsonb_build_array('email'), 'rol', 'logistica'),
+  jsonb_build_object('nombre', 'Carla Díaz', 'usuario', 'carla'),
   now(), now(),
   '', '', '', '', '', '', '', ''
 -- El índice único de auth.users sobre email es parcial, así que ON CONFLICT no
@@ -79,8 +79,8 @@ insert into auth.users (
 select
   '00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated', 'authenticated',
   'miguel@plexiacril.test', extensions.crypt('plexi2026', extensions.gen_salt('bf')), now(),
-  '{"provider":"email","providers":["email"]}'::jsonb,
-  jsonb_build_object('nombre', 'Miguel Ruiz', 'usuario', 'miguel', 'rol', 'operaciones'),
+  jsonb_build_object('provider', 'email', 'providers', jsonb_build_array('email'), 'rol', 'operaciones'),
+  jsonb_build_object('nombre', 'Miguel Ruiz', 'usuario', 'miguel'),
   now(), now(),
   '', '', '', '', '', '', '', ''
 -- El índice único de auth.users sobre email es parcial, así que ON CONFLICT no

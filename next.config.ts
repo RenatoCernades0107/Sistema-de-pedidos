@@ -15,10 +15,29 @@ const VISTAS_ANTIGUAS: [string, string][] = [
   ["/historial", "/pedidos"],
 ];
 
+/**
+ * Cabeceras de seguridad para todas las rutas.
+ *
+ * Sin CSP de scripts a propósito: Next inyecta scripts en línea y una CSP estricta
+ * exige nonces en cada render; una a medias rompería la app. `frame-ancestors` sí va,
+ * porque no depende de eso: impide que otro sitio meta el login en un iframe
+ * (clickjacking). `SAMEORIGIN` y `'self'` dejan que la propia app se incruste.
+ */
+const CABECERAS_DE_SEGURIDAD = [
+  { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "X-Frame-Options", value: "SAMEORIGIN" },
+  { key: "Content-Security-Policy", value: "frame-ancestors 'self'" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+];
+
 const nextConfig: NextConfig = {
   // pdf.js lee los PDF que se adjuntan al chat de diseños (`lib/cad/adjuntos-servidor.ts`).
   // Se carga con el `import` de Node: empaquetado no encuentra su worker.
   serverExternalPackages: ["pdfjs-dist"],
+  headers() {
+    return [{ source: "/:path*", headers: CABECERAS_DE_SEGURIDAD }];
+  },
   redirects() {
     return VISTAS_ANTIGUAS.map(([source, destination]) => ({
       source,

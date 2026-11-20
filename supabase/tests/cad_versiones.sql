@@ -26,13 +26,16 @@ end $$;
 
 -- ── 2. Tres personas de prueba ──────────────────────────────────────────────
 
-insert into auth.users (id, email, raw_user_meta_data) values
+insert into auth.users (id, email, raw_user_meta_data, raw_app_meta_data) values
   ('00000000-0000-4000-8000-00000000d5a1', 'ver-admin@prueba.test',
-   '{"nombre":"Ana Prueba","usuario":"ver-admin","rol":"administracion"}'),
+   '{"nombre":"Ana Prueba","usuario":"ver-admin"}',
+   '{"rol":"administracion"}'),
   ('00000000-0000-4000-8000-00000000d5a2', 'ver-logi@prueba.test',
-   '{"nombre":"Carla Prueba","usuario":"ver-logi","rol":"logistica"}'),
+   '{"nombre":"Carla Prueba","usuario":"ver-logi"}',
+   '{"rol":"logistica"}'),
   ('00000000-0000-4000-8000-00000000d5a3', 'ver-ope@prueba.test',
-   '{"nombre":"Miguel Prueba","usuario":"ver-ope","rol":"operaciones"}');
+   '{"nombre":"Miguel Prueba","usuario":"ver-ope"}',
+   '{"rol":"operaciones"}');
 
 create temp table t (clave text primary key, valor text);
 grant all on t to authenticated;

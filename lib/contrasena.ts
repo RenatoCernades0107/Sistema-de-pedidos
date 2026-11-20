@@ -18,7 +18,14 @@ export async function actualizarPasswordAuth(
 ): Promise<string | null> {
   const { error } = await supabase.auth.updateUser({ password });
 
-  if (!error) return null;
+  if (!error) {
+    // Cambiar la contraseña no cierra las demás sesiones de la cuenta: una sesión
+    // robada seguiría viva. `others` conserva la actual y cierra el resto. Si falla, la
+    // contraseña ya cambió: se anota y no se le pide nada a la persona.
+    const { error: cierre } = await supabase.auth.signOut({ scope: "others" });
+    if (cierre) console.error("[contrasena] no se cerraron las otras sesiones:", cierre.code ?? cierre.message);
+    return null;
+  }
 
   return error.code === "same_password"
     ? "Esa es la contraseña que ya tenías. Elige una distinta."

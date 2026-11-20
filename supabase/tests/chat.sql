@@ -52,13 +52,16 @@ end $$;
 
 -- ── 2. Tres personas de prueba ──────────────────────────────────────────────
 
-insert into auth.users (id, email, raw_user_meta_data) values
+insert into auth.users (id, email, raw_user_meta_data, raw_app_meta_data) values
   ('00000000-0000-4000-8000-00000000c4a1', 'chat-admin@prueba.test',
-   '{"nombre":"Admin Chat","usuario":"chat-admin","rol":"administracion"}'),
+   '{"nombre":"Admin Chat","usuario":"chat-admin"}',
+   '{"rol":"administracion"}'),
   ('00000000-0000-4000-8000-00000000c4a2', 'chat-logi@prueba.test',
-   '{"nombre":"Logi Chat","usuario":"chat-logi","rol":"logistica"}'),
+   '{"nombre":"Logi Chat","usuario":"chat-logi"}',
+   '{"rol":"logistica"}'),
   ('00000000-0000-4000-8000-00000000c4a3', 'chat-ope@prueba.test',
-   '{"nombre":"Ope Chat","usuario":"chat-ope","rol":"operaciones"}');
+   '{"nombre":"Ope Chat","usuario":"chat-ope"}',
+   '{"rol":"operaciones"}');
 
 update public.usuarios set creado_en = now() - interval '1 day'
  where id in ('00000000-0000-4000-8000-00000000c4a1', '00000000-0000-4000-8000-00000000c4a2',

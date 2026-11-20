@@ -125,7 +125,10 @@ async function crear(c: Cuerpo) {
     email: correo || `${usuario}@${DOMINIO_INTERNO}`,
     password,
     email_confirm: true,
-    user_metadata: { nombre, usuario, rol: c.rol },
+    user_metadata: { nombre, usuario },
+    // El rol va en app_metadata, que solo escribe quien tiene la clave de servicio: el
+    // trigger del perfil ignora el de user_metadata, que controla quien se registra.
+    app_metadata: { rol: c.rol },
   });
 
   if (error || !data.user) {
