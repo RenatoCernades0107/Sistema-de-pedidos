@@ -772,6 +772,44 @@ describe("diseño libre", () => {
     expect(r.resumen).toBe("Error de ejecucion (línea 4)");
   });
 
+  it("si el sandbox no está disponible, lo dice y no deja reintentar", async () => {
+    const caido = Object.assign(new Error("El sandbox CAD no tiene la ruta /ejecutar"), {
+      codigo: "ruta_inexistente",
+      estado: 404,
+    });
+    const l = depsLibre({
+      ejecutarCodigo: vi.fn(async () => {
+        throw caido;
+      }),
+    });
+    const deps = dependencias({ libre: l });
+    const r = await ejecutarHerramienta("ejecutar_build123d", { codigo: CODIGO }, deps);
+    expect(r.ok).toBe(false);
+    const { error } = leer(r.contenido);
+    expect(error).toMatchObject({ codigo: "sandbox_no_disponible", causa: "ruta_inexistente" });
+    expect(error.mensaje).toContain("No reintentes");
+    expect(r.resumen).toBe("Diseño libre no disponible");
+
+    const otra = await ejecutarHerramienta("ejecutar_build123d", { codigo: CODIGO }, deps);
+    expect(leer(otra.contenido).error.codigo).toBe("demasiados_intentos");
+    expect(l.ejecutarCodigo).toHaveBeenCalledTimes(1);
+  });
+
+  it("ver_render con el sandbox caído también dice que no está disponible", async () => {
+    const l = depsLibre({
+      renderizarActual: vi.fn(async () => {
+        throw Object.assign(new Error("No se pudo conectar con el sandbox CAD."), { codigo: "sin_conexion", estado: 503 });
+      }),
+    });
+    const deps = dependencias({
+      libre: l,
+      obtenerDisenoActual: vi.fn(async () => ({ plantilla: "libre", parametros: {}, version: 7, origen: "chat" as const, codigo: CODIGO })),
+    });
+    const r = await ejecutarHerramienta("ver_render", {}, deps);
+    expect(leer(r.contenido).error.codigo).toBe("sandbox_no_disponible");
+    expect(l.intentos.n).toBe(MAX_INTENTOS_LIBRE);
+  });
+
   it("corta tras el máximo de intentos del turno", async () => {
     const l = depsLibre({ intentos: { n: MAX_INTENTOS_LIBRE } });
     const r = await ejecutarHerramienta("ejecutar_build123d", { codigo: CODIGO }, dependencias({ libre: l }));

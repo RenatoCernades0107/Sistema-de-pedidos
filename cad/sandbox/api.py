@@ -159,7 +159,8 @@ def _error_codigo(datos: dict[str, Any], codigo_fuente: str) -> HTTPException:
 
 @app.get("/salud")
 def salud() -> dict[str, Any]:
-    return {"ok": True, "version": VERSION}
+    # `servicio` distingue el motor del sandbox: los dos viven en Function URLs parecidas.
+    return {"ok": True, "version": VERSION, "servicio": "sandbox"}
 
 
 @app.post("/ejecutar", dependencies=protegido)

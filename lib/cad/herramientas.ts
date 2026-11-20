@@ -1214,6 +1214,47 @@ const PISTAS_ERROR: Record<ErrorCodigoLibre["tipo"], string> = {
   salida: "El resultado fue demasiado grande: reduce piezas o detalles.",
 };
 
+/**
+ * Un fallo del sandbox que no es del código (URL equivocada, clave rechazada,
+ * caído, sin conexión): reintentar no sirve. Se reconoce por la forma de
+ * `ErrorSandboxCad` sin `errorCodigo` y con un estado que no es 422.
+ */
+function errorDeSandbox(e: unknown): { codigo: string; mensaje: string } | null {
+  if (errorDeCodigo(e)) return null;
+  const x = errorDeMotor(e);
+  if (!x || x.estado === 422) return null;
+  return { codigo: x.codigo, mensaje: x.mensaje };
+}
+
+/**
+ * Corre una herramienta del diseño libre. Si el sandbox no está disponible,
+ * agota los intentos del turno y le dice al modelo que no reintente.
+ */
+async function conSandbox(
+  herramienta: () => Promise<ResultadoHerramienta>,
+  deps: DependenciasCad,
+): Promise<ResultadoHerramienta> {
+  try {
+    return await herramienta();
+  } catch (e) {
+    const error = errorDeSandbox(e);
+    if (!error) throw e;
+    console.error(`[cad] sandbox no disponible (${error.codigo}): ${error.mensaje}`);
+    if (deps.libre) deps.libre.intentos.n = MAX_INTENTOS_LIBRE;
+    return fallo(
+      {
+        codigo: "sandbox_no_disponible",
+        causa: error.codigo,
+        mensaje:
+          `El diseño libre no está disponible ahora (${error.mensaje}). No reintentes: dile a la persona que esa ` +
+          "parte no se pudo hacer porque el servicio de diseño personalizado no responde, que avise a soporte, " +
+          "y ofrece lo que sí se puede con las plantillas.",
+      },
+      "Diseño libre no disponible",
+    );
+  }
+}
+
 function sinLibre(nombre: string): ResultadoHerramienta {
   return fallo(
     {
@@ -1419,11 +1460,11 @@ export async function ejecutarHerramienta(
     }
     switch (nombre as NombreHerramientaLibre) {
       case "leer_referencia_cad":
-        return await leerReferenciaCad(argumentos, deps);
+        return await conSandbox(() => leerReferenciaCad(argumentos, deps), deps);
       case "ejecutar_build123d":
-        return await ejecutarBuild123d(argumentos, deps);
+        return await conSandbox(() => ejecutarBuild123d(argumentos, deps), deps);
       case "ver_render":
-        return await verRender(deps);
+        return await conSandbox(() => verRender(deps), deps);
       default:
         return fallo(
           {

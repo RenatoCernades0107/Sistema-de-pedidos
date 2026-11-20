@@ -18,6 +18,13 @@ uv run pytest tests/test_sandbox_*.py
 En Next.js: `CAD_SANDBOX_BASE_URL=http://localhost:8002`, `CAD_DISENO_LIBRE=1`
 (y `CAD_SANDBOX_API_KEY` si el servicio la exige).
 
+`CAD_SANDBOX_BASE_URL` es la URL del **sandbox** (output `SandboxUrl` de
+`serverless info`), no la del motor (`MotorUrl`): las dos son Function URLs
+parecidas. Para comprobarlo, `curl <url>/salud` debe decir `"servicio":"sandbox"`
+(el motor dice `"motor"`). El chat hace esa misma comprobación (cacheada ~1 min)
+y, si falla, no ofrece el diseño libre y deja el motivo en el log
+(`[cad] sandbox no disponible: …`).
+
 Los logs funcionan igual que en el motor (ver «Logs» en `cad/README.md`): un 422 de
 `/ejecutar` dice si fue el cuerpo (`parametros_invalidos`) o el código (`codigo_invalido`,
 con tipo, línea y traza).
