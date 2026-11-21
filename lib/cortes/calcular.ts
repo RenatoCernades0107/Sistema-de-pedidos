@@ -11,7 +11,8 @@
 import type { ConfigCortes } from "./config";
 import { cobrarPlancha, opcionesDeCobro, type PlanchaCobrada } from "./cobro";
 import { tiempoLaser, type PiezaPedida } from "./laser";
-import { mensajeSinPrecioManual, precioManual } from "./manual";
+import { mensajeSinPrecioManual, tarifaManual } from "./manual";
+import { cortesManuales, largoTotal } from "./metros";
 import { empaquetar, type Contenedor, type Pieza, type ResultadoCorte } from "./optimizador";
 
 export type { PiezaPedida } from "./laser";
@@ -65,6 +66,8 @@ export interface CalculoCorte {
   desperdicioPct: number;
   /** Solo con láser. */
   minutosLaser: number | null;
+  /** Solo con corte manual: los metros lineales de cutter. */
+  metrosManual: number | null;
   desglose: LineaDesglose[];
   /** Si el cálculo no se puede usar tal cual, por qué. */
   problema: string | null;
@@ -138,6 +141,7 @@ export function calcularCorte(
     total: 0,
     desperdicioPct: 0,
     minutosLaser: null,
+    metrosManual: null,
     desglose: [],
     problema,
   });
@@ -194,7 +198,7 @@ export function calcularCorte(
         etiqueta:
           `Plancha ${i + 1}: las piezas caben en ${p.cobro.nombre} ` +
           `(${numero(p.cobro.ancho)}×${numero(p.cobro.alto)}) → ${soles(formato.precio)} × ${p.cobro.nombre}` +
-          (config.cobro.recargoPct ? ` + ${numero(config.cobro.recargoPct)} %` : ""),
+          (p.cobro.recargoPct ? ` + ${numero(p.cobro.recargoPct)} %` : ""),
         monto: p.cobro.monto,
       };
     }
@@ -206,6 +210,8 @@ export function calcularCorte(
 
   let servicioBruto = 0;
   let minutosLaser: number | null = null;
+  let metrosManual: number | null = null;
+  let tarifa: number | null = null;
   let problema: string | null = null;
 
   if (entrada.modalidad === "laser") {
@@ -213,9 +219,13 @@ export function calcularCorte(
     minutosLaser = t.segundos / 60;
     servicioBruto = t.costo * (1 + config.laser.igvPct / 100);
   } else {
-    const porPieza = precioManual(config.manual.precios, entrada.espesorMm);
-    if (porPieza === null) problema = mensajeSinPrecioManual(entrada.espesorMm);
-    else servicioBruto = total * porPieza;
+    // Sobre el acomodo que de verdad se corta, sobrantes del almacén incluidos.
+    // Los cortes quedan en cada plancha: el plano dibuja los mismos que se cobran.
+    planchas = planchas.map((p) => ({ ...p, cortes: cortesManuales(p, { kerf, margen: config.corte.margen }) }));
+    metrosManual = planchas.reduce((s, p) => s + largoTotal(p.cortes ?? []), 0) / 100;
+    tarifa = tarifaManual(config.manual.tarifas, entrada.espesorMm);
+    if (tarifa === null) problema = mensajeSinPrecioManual(entrada.espesorMm);
+    else servicioBruto = metrosManual * tarifa;
   }
 
   // El redondeo va sobre el total; lo absorbe el servicio, que es la línea que
@@ -228,7 +238,9 @@ export function calcularCorte(
     etiqueta:
       entrada.modalidad === "laser"
         ? `Corte láser: ${total} ${total === 1 ? "pieza" : "piezas"}, ${numero(minutosLaser ?? 0)} min`
-        : `Corte manual: ${total} ${total === 1 ? "pieza" : "piezas"} de ${numero(entrada.espesorMm)} mm`,
+        : `Corte manual: ${numero(metrosManual ?? 0)} m lineales` +
+          (tarifa === null ? "" : ` × ${soles(tarifa)}/m`) +
+          ` (${numero(entrada.espesorMm)} mm)`,
     monto: servicio,
   });
   desglose.push({ etiqueta: "Total", monto: redondear2(totalFinal), esTotal: true });
@@ -251,6 +263,7 @@ export function calcularCorte(
     total: redondear2(totalFinal),
     desperdicioPct: areaPlanchas > 0 ? (1 - areaUsada / areaPlanchas) * 100 : 0,
     minutosLaser,
+    metrosManual,
     desglose,
     problema,
   };

@@ -1,5 +1,6 @@
 import { filaDe } from "@/lib/cortes/calcular";
 import type { Cobro } from "@/lib/cortes/cobro";
+import type { CorteManual } from "@/lib/cortes/metros";
 import type { Panel } from "@/lib/cortes/optimizador";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +23,9 @@ const n = (x: number) => String(+x.toFixed(1));
  * en verde y con su medida. La línea discontinua es el primer corte: separa el
  * pedazo que se cobra.
  *
+ * En un corte manual van además los cortes de cutter: líneas rojas con un
+ * círculo que dice en qué orden se hacen (ver `metros.ts`).
+ *
  * El color nunca va solo: cada zona tiene su texto.
  */
 export function PlanoCorte({
@@ -29,8 +33,11 @@ export function PlanoCorte({
   titulo,
   className,
   compacto = false,
+  cortes,
 }: {
   plancha: PlanchaDibujable;
+  /** Los cortes de cutter, en orden. Solo en corte manual. */
+  cortes?: CorteManual[];
   /** Para lectores de pantalla y para el `<title>` del dibujo. */
   titulo: string;
   className?: string;
@@ -51,6 +58,9 @@ export function PlanoCorte({
   const letra = Math.max(W, H) / 34;
   const trazo = Math.max(W, H) / 400;
   const fraccion = p.cobro.factor < 1;
+  const conCortes = !!cortes?.length;
+  const punto = (x: number, y: number) => (girar ? { x: y, y: x } : { x, y });
+  const marcas = conCortes && !compacto ? marcasDeCortes(cortes!, letra * 1.25) : [];
 
   return (
     <svg
@@ -134,7 +144,36 @@ export function PlanoCorte({
         );
       })}
 
-      {fraccion && (
+      {conCortes && (
+        <g className="stroke-destructive" strokeWidth={trazo * 1.8} strokeLinecap="round">
+          {cortes!.map((c) => {
+            const a = punto(c.x1, c.y1);
+            const b = punto(c.x2, c.y2);
+            return <line key={c.n} x1={a.x} y1={a.y} x2={b.x} y2={b.y} />;
+          })}
+        </g>
+      )}
+      {marcas.map((m) => {
+        const { x, y } = punto(m.x, m.y);
+        return (
+          <g key={m.n}>
+            <circle cx={x} cy={y} r={letra * 0.62} className="fill-destructive" />
+            <text
+              x={x}
+              y={y}
+              textAnchor="middle"
+              dominantBaseline="central"
+              fontSize={letra * (m.n > 99 ? 0.5 : m.n > 9 ? 0.62 : 0.75)}
+              className="font-semibold"
+              fill="white"
+            >
+              {m.n}
+            </text>
+          </g>
+        );
+      })}
+
+      {fraccion && !conCortes && (
         <rect
           x={0}
           y={0}
@@ -150,8 +189,44 @@ export function PlanoCorte({
   );
 }
 
+/**
+ * Dónde va el número de cada corte: en el medio de su línea y, si ahí ya hay
+ * otro (dos cortes que se cruzan), corrido a lo largo de la línea.
+ */
+function marcasDeCortes(cortes: CorteManual[], separacion: number) {
+  const puestas: { n: number; x: number; y: number }[] = [];
+  const libre = (x: number, y: number) => puestas.every((m) => Math.hypot(m.x - x, m.y - y) >= separacion);
+  for (const c of cortes) {
+    const mx = (c.x1 + c.x2) / 2;
+    const my = (c.y1 + c.y2) / 2;
+    const dx = (c.x2 - c.x1) / (c.largo || 1);
+    const dy = (c.y2 - c.y1) / (c.largo || 1);
+    let lugar = { x: mx, y: my };
+    for (const k of [0, 1, -1, 2, -2, 3, -3]) {
+      const d = k * separacion;
+      // Sin salirse de la línea.
+      if (Math.abs(d) > c.largo / 2) continue;
+      if (libre(mx + dx * d, my + dy * d)) {
+        lugar = { x: mx + dx * d, y: my + dy * d };
+        break;
+      }
+    }
+    puestas.push({ n: c.n, ...lugar });
+  }
+  return puestas;
+}
+
 /** Qué significa cada zona del plano, en palabras. */
-export function LeyendaPlano({ conSobrante, className }: { conSobrante: boolean; className?: string }) {
+export function LeyendaPlano({
+  conSobrante,
+  conCortes = false,
+  className,
+}: {
+  conSobrante: boolean;
+  /** Corte manual: explica las líneas rojas. */
+  conCortes?: boolean;
+  className?: string;
+}) {
   return (
     <ul className={cn("text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs", className)}>
       <li className="flex items-center gap-1.5">
@@ -168,11 +243,22 @@ export function LeyendaPlano({ conSobrante, className }: { conSobrante: boolean;
             <span className="bg-st-entregado-soft border-st-entregado/50 size-3 rounded-[3px] border" aria-hidden />
             Sobrante que vuelve al almacén
           </li>
-          <li className="flex items-center gap-1.5">
-            <span className="border-foreground w-4 border-t-2 border-dashed" aria-hidden />
-            Primer corte: lo que se cobra
-          </li>
+          {!conCortes && (
+            <li className="flex items-center gap-1.5">
+              <span className="border-foreground w-4 border-t-2 border-dashed" aria-hidden />
+              Primer corte: lo que se cobra
+            </li>
+          )}
         </>
+      )}
+      {conCortes && (
+        <li className="flex items-center gap-1.5">
+          <span className="relative flex w-5 items-center" aria-hidden>
+            <span className="border-destructive w-5 border-t-2" />
+            <span className="bg-destructive absolute left-1/2 size-2.5 -translate-x-1/2 rounded-full" />
+          </span>
+          Corte con cutter (el número es el orden)
+        </li>
       )}
     </ul>
   );

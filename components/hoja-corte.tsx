@@ -12,6 +12,7 @@ import { materialDeTerminado, tituloTerminado } from "@/lib/terminados/guardado"
 import { indicacionesDe, origenDePlancha, piezasDePlancha } from "@/lib/hoja-corte";
 import { planchasCalculadas, type LineaDePedido } from "@/lib/pedido-lineas";
 import { LeyendaPlano, PlanoCorte } from "@/components/cortes/plano-corte";
+import { cortesParaPlano, resumenCortes } from "@/lib/cortes/metros";
 import { DescargarDxf } from "@/components/cortes/descargar-dxf";
 import { DescargarDxfDiseno } from "@/components/disenos/descargar-dxf-diseno";
 import { Button } from "@/components/ui/button";
@@ -184,6 +185,7 @@ function vistaDe(l: LineaDePedido) {
       titulo: `${MODALIDADES[c.modalidad]} · ${materialDeCorte(c)}`,
       nombreArchivo: [materialDeCorte(c)],
       laser: c.modalidad === "laser",
+      manual: c.modalidad === "manual",
       unidades: null as string | null,
       piezas: c.piezas.map((p) => ({ ...p, nombre: null as string | null })),
       formato: c.formato,
@@ -199,6 +201,7 @@ function vistaDe(l: LineaDePedido) {
     nombreArchivo: [tituloTerminado(t)],
     // Las piezas de un producto terminado se calculan siempre para láser.
     laser: true,
+    manual: false,
     unidades: `${n(l.cantidad)} ${l.cantidad === 1 ? "unidad" : "unidades"}`,
     piezas: c.piezas.map((p) => ({ ...p, nombre: p.nombre as string | null })),
     formato: c.formato,
@@ -296,7 +299,9 @@ function Corte({
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 print:grid-cols-1">
-        {c.planchas.map((p, i) => (
+        {c.planchas.map((p, i) => {
+          const cortes = cortesParaPlano(p, c.manual);
+          return (
           <figure
             key={i}
             // En papel, al 85 %: así entran dos planchas por hoja A4 sin achicar los números.
@@ -315,19 +320,22 @@ function Corte({
                     .join(", ")}
                   {p.cobro.factor < 1 &&
                     ` · cortar primero ${fraccionEnPalabras(p.cobro.nombre)} (${n(p.cobro.ancho)}×${n(p.cobro.alto)}): el resto vuelve al almacén`}
+                  {cortes && ` · ${resumenCortes(cortes)}`}
                 </span>
               </span>
             </figcaption>
             <PlanoCorte
               plancha={p}
+              cortes={cortes}
               titulo={`Plancha ${i + 1} de ${c.planchas.length}: ${p.piezas} piezas en ${n(p.ancho)}×${n(p.alto)} cm`}
             />
           </figure>
-        ))}
+          );
+        })}
       </div>
 
       <div className="flex break-inside-avoid flex-wrap items-end justify-between gap-x-6 gap-y-3">
-        <LeyendaPlano conSobrante={hayFraccion} />
+        <LeyendaPlano conSobrante={hayFraccion} conCortes={c.manual} />
         {c.esCorte && (
           <p className="text-sm">
             Planchas usadas:{" "}
