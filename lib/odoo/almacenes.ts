@@ -481,6 +481,8 @@ export async function darDeBaja(b: Baja): Promise<number> {
       {
         product_id: b.productoId,
         scrap_qty: b.cantidad,
+        // Obligatorio en Odoo: sin la unidad, el desecho no se crea.
+        product_uom_id: await uomDe(b.productoId),
         location_id: b.ubicacionId,
         origin: b.origen,
         ...(b.loteId ? { lot_id: b.loteId } : {}),
