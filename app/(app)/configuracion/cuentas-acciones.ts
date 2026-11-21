@@ -8,7 +8,7 @@
  * pagan los clientes. Solo después de comprobarla el servidor le presenta a la
  * base su clave (`LOGIN_SECRET`), sin la cual las funciones no escriben. El resto
  * de las reglas (24 horas de espera, avisos, sin ediciones) están en la base:
- * ver `supabase/migrations/20261210000100_cuentas_bancarias.sql`.
+ * ver `supabase/migrations/20261211000100_cuentas_bancarias.sql`.
  */
 
 import { headers } from "next/headers";

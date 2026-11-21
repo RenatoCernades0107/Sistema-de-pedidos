@@ -3,6 +3,7 @@
 import { useState, type KeyboardEvent } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { CalculoCorte } from "@/lib/cortes/calcular";
+import { resumenCortes } from "@/lib/cortes/metros";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { LeyendaPlano, PlanoCorte } from "./plano-corte";
@@ -69,7 +70,7 @@ export function PlanosPaginados({
       )}
 
       <figure className="flex flex-col gap-1.5">
-        <PlanoCorte plancha={p} titulo={`Plancha ${actual + 1} de ${total}`} />
+        <PlanoCorte plancha={p} cortes={p.cortes} titulo={`Plancha ${actual + 1} de ${total}`} />
         <figcaption className="text-muted-foreground text-xs">
           {p.origen.tipo === "sobrante" ? (
             <span className="text-foreground font-medium">Sobrante {p.origen.id} · </span>
@@ -77,10 +78,14 @@ export function PlanosPaginados({
             `Plancha ${actual + 1} · `
           )}
           {p.piezas} {p.piezas === 1 ? "pieza" : "piezas"} · {Math.round(p.usoPct)} % usado
+          {p.cortes && <> · {resumenCortes(p.cortes)}</>}
         </figcaption>
       </figure>
 
-      <LeyendaPlano conSobrante={planchas.some((x) => x.cobro.factor < 1)} />
+      <LeyendaPlano
+        conSobrante={planchas.some((x) => x.cobro.factor < 1)}
+        conCortes={planchas.some((x) => !!x.cortes?.length)}
+      />
     </div>
   );
 }

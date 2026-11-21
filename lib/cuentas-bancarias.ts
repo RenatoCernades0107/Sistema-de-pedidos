@@ -1,7 +1,7 @@
 /**
  * Las cuentas bancarias que salen en el PDF de la cotización.
  *
- * Las reglas de seguridad viven en la base (`20261210000100_cuentas_bancarias.sql`):
+ * Las reglas de seguridad viven en la base (`20261211000100_cuentas_bancarias.sql`):
  * no se editan, una nueva espera 24 horas antes de salir en un PDF, solo se
  * escriben con la clave del servidor y Administración recibe un aviso de cada
  * cambio. Aquí solo está lo que se valida en el formulario y cómo se escriben.

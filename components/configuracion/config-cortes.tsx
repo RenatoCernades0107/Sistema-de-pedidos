@@ -22,9 +22,10 @@ type Fila = Record<string, string>;
 interface Borrador {
   laser: { tabla: Fila[]; factorVelocidad: string; overheadPorPieza: string; costoPorMinuto: string; igvPct: string };
   manual: Fila[];
-  recargoPct: string;
   /** Los nombres de las fracciones estándar encendidas. */
   fracciones: string[];
+  /** El recargo de cada fracción estándar, por nombre (también de las apagadas). */
+  recargos: Record<string, string>;
   redondearAlSol: boolean;
   corte: { kerfLaser: string; kerfManual: string; margen: string; retazoMin: string };
   servicios: { laser: string; manual: string };
@@ -57,11 +58,16 @@ function aBorrador(c: ConfigCortes): Borrador {
       costoPorMinuto: t(c.laser.costoPorMinuto),
       igvPct: t(c.laser.igvPct),
     },
-    manual: c.manual.precios.map((p) => ({ mm: t(p.mm), precio: t(p.precio) })),
-    recargoPct: t(c.cobro.recargoPct),
+    manual: c.manual.tarifas.map((f) => ({ hastaMm: t(f.hastaMm), solesPorMetro: t(f.solesPorMetro) })),
     fracciones: FRACCIONES_ESTANDAR.filter((e) =>
       c.cobro.fracciones.some((f) => Math.abs(f.factor - e.factor) < 1e-9),
     ).map((e) => e.nombre),
+    recargos: Object.fromEntries(
+      FRACCIONES_ESTANDAR.map((e) => {
+        const guardada = c.cobro.fracciones.find((f) => Math.abs(f.factor - e.factor) < 1e-9);
+        return [e.nombre, t(guardada?.recargoPct ?? e.recargoPct)];
+      }),
+    ),
     redondearAlSol: c.cobro.redondearAlSol,
     corte: {
       kerfLaser: t(c.corte.kerfLaser),
@@ -76,12 +82,14 @@ function aBorrador(c: ConfigCortes): Borrador {
 /** Las fracciones que la pantalla no conoce (tiras, por ejemplo) se conservan tal cual. */
 function aConfig(b: Borrador, original: ConfigCortes) {
   const otras = original.cobro.fracciones.filter((f) => !esEstandar(f.factor));
-  const elegidas = FRACCIONES_ESTANDAR.filter((f) => b.fracciones.includes(f.nombre));
+  const elegidas = FRACCIONES_ESTANDAR.filter((f) => b.fracciones.includes(f.nombre)).map((f) => ({
+    ...f,
+    recargoPct: b.recargos[f.nombre] ?? t(f.recargoPct),
+  }));
   return {
     laser: { ...b.laser, tabla: b.laser.tabla.filter((f) => f.mm.trim() !== "") },
-    manual: { precios: b.manual.filter((f) => f.mm.trim() !== "") },
+    manual: { tarifas: b.manual.filter((f) => f.hastaMm.trim() !== "") },
     cobro: {
-      recargoPct: b.recargoPct,
       fracciones: [...elegidas, ...otras],
       redondearAlSol: b.redondearAlSol,
     },
@@ -117,17 +125,17 @@ export function FormConfigCortes({ config }: { config: ConfigCortes }) {
     <div className="flex flex-col gap-4">
       <Seccion
         titulo="Corte manual"
-        descripcion="Se cobra por pieza, según el espesor. Solo se puede cotizar corte manual en los espesores de esta tabla: agrega una fila para las excepciones."
+        descripcion="Se hace con cutter y se cobra por metro lineal de corte, según el espesor. Cada fila vale hasta ese espesor: con filas de 2 y 3 mm, 2.5 mm paga la de 3. Más grueso que la última fila no se corta a mano."
       >
         <TablaEditable
           nombre="corte manual"
           columnas={[
-            { clave: "mm", titulo: "Espesor", sufijo: "mm" },
-            { clave: "precio", titulo: "Precio por pieza", prefijo: "S/" },
+            { clave: "hastaMm", titulo: "Hasta", sufijo: "mm" },
+            { clave: "solesPorMetro", titulo: "Por metro lineal", prefijo: "S/" },
           ]}
           filas={b.manual}
           alCambiar={(manual) => cambiar((p) => ({ ...p, manual }))}
-          nueva={{ mm: "", precio: "" }}
+          nueva={{ hastaMm: "", solesPorMetro: "" }}
         />
       </Seccion>
 
@@ -179,34 +187,47 @@ export function FormConfigCortes({ config }: { config: ConfigCortes }) {
 
       <Seccion
         titulo="Cobro del material"
-        descripcion="Si las piezas caben en un pedazo de la plancha, se cobra ese pedazo con un recargo y el resto queda en el almacén. Si no caben, se cobra la plancha completa."
+        descripcion="Si las piezas caben en un pedazo de la plancha, se cobra ese pedazo con su recargo y el resto queda en el almacén. Si no caben, se cobra la plancha completa. Media plancha a S/ 100 con 10 % sale S/ 55."
       >
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Numero
-            label="Recargo por fracción"
-            sufijo="%"
-            ayuda="Media plancha a S/ 100 con 20 % sale S/ 60."
-            valor={b.recargoPct}
-            alCambiar={(v) => cambiar((p) => ({ ...p, recargoPct: v }))}
-          />
-          <Campo grupo label="Fracciones que se venden" className="sm:col-span-2 lg:col-span-3">
-            <div className="flex flex-wrap gap-x-5 gap-y-2 pt-1.5">
-              {ETIQUETAS_FRACCION.map(([nombre, texto]) => (
-                <Casilla
-                  key={nombre}
-                  marcada={b.fracciones.includes(nombre)}
-                  alCambiar={(v) =>
-                    cambiar((p) => ({
-                      ...p,
-                      fracciones: v
-                        ? [...p.fracciones.filter((x) => x !== nombre), nombre]
-                        : p.fracciones.filter((x) => x !== nombre),
-                    }))
-                  }
-                  texto={`${texto} (${nombre})`}
-                />
-              ))}
-            </div>
+          <Campo grupo label="Fracciones que se venden y su recargo" className="sm:col-span-2 lg:col-span-4">
+            <ul className="flex flex-col gap-2 pt-1.5">
+              {ETIQUETAS_FRACCION.map(([nombre, texto]) => {
+                const marcada = b.fracciones.includes(nombre);
+                return (
+                  <li key={nombre} className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                    <div className="min-w-56">
+                      <Casilla
+                        marcada={marcada}
+                        alCambiar={(v) =>
+                          cambiar((p) => ({
+                            ...p,
+                            fracciones: v
+                              ? [...p.fracciones.filter((x) => x !== nombre), nombre]
+                              : p.fracciones.filter((x) => x !== nombre),
+                          }))
+                        }
+                        texto={`${texto} (${nombre})`}
+                      />
+                    </div>
+                    <div className="w-28">
+                      <ConUnidad sufijo="%">
+                        <Input
+                          inputMode="decimal"
+                          aria-label={`Recargo de ${texto.toLowerCase()}`}
+                          disabled={!marcada}
+                          value={b.recargos[nombre] ?? ""}
+                          onChange={(e) =>
+                            cambiar((p) => ({ ...p, recargos: { ...p.recargos, [nombre]: e.target.value } }))
+                          }
+                          className="tnum pr-8"
+                        />
+                      </ConUnidad>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
           </Campo>
           <Campo grupo label="Redondeo" className="sm:col-span-2 lg:col-span-4">
             <div className="flex flex-wrap gap-x-5 gap-y-2 pt-1.5">
@@ -234,7 +255,7 @@ export function FormConfigCortes({ config }: { config: ConfigCortes }) {
           <Numero
             label="Grosor del corte manual"
             sufijo="cm"
-            ayuda="La sierra come unos 0.3 cm."
+            ayuda="Con cutter no se pierde material: 0."
             valor={b.corte.kerfManual}
             alCambiar={(v) => cambiar((p) => ({ ...p, corte: { ...p.corte, kerfManual: v } }))}
           />

@@ -6,19 +6,11 @@
  * Lo usa también la app para "Descargar PDF", con `?descargar`.
  */
 
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import type { NextRequest } from "next/server";
 import { cotizacionPorToken } from "@/lib/compartir-servidor";
 import { generarPdfCotizacion } from "@/lib/pdf-cotizacion";
 import { nombreArchivoCotizacion } from "@/lib/compartir";
-
-let logo: Promise<Uint8Array | null> | null = null;
-/** El logo se lee del disco una vez por proceso. Si falta, el PDF sale sin él. */
-const leerLogo = () =>
-  (logo ??= readFile(path.join(process.cwd(), "public", "logo-plexiacril.png"))
-    .then((b) => new Uint8Array(b))
-    .catch(() => null));
+import { leerLogo } from "@/lib/logo-servidor";
 
 export async function GET(request: NextRequest, ctx: RouteContext<"/c/[token]/pdf">) {
   const { token } = await ctx.params;

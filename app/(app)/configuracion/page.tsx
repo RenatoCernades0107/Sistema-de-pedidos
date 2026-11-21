@@ -8,10 +8,13 @@ import { CatalogoPlanchas } from "@/components/configuracion/catalogo-planchas";
 import { FormConfigCortes } from "@/components/configuracion/config-cortes";
 import { FormConfigCotizaciones } from "@/components/configuracion/config-cotizaciones";
 import { cargarConfigCotizaciones } from "@/lib/cotizaciones-servidor";
+import { FormConfigListaPrecios } from "@/components/configuracion/config-lista-precios";
+import { cargarConfigListaPrecios } from "@/lib/lista-precios-servidor";
+import { cargarCategorias } from "@/lib/stock-servidor";
 import { cargarCuentasBancarias } from "@/lib/cuentas-bancarias-servidor";
 import { CuentasBancarias } from "@/components/configuracion/cuentas-bancarias";
 
-const PESTANAS = ["cortes", "planchas", "terminados", "cotizaciones", "cuentas"] as const;
+const PESTANAS = ["cortes", "planchas", "terminados", "cotizaciones", "lista-precios", "cuentas"] as const;
 
 /**
  * Lo que Administración ajusta sin tocar código: cómo se calcula y se cobra un
@@ -26,11 +29,13 @@ export default async function Page({ searchParams }: PageProps<"/configuracion">
   // `?tab=cuentas` es a donde lleva el aviso de una cuenta bancaria nueva.
   const { tab } = await searchParams;
   const inicial = PESTANAS.find((p) => p === tab) ?? "cortes";
-  const [config, grupos, terminados, configCotizaciones, cuentas] = await Promise.all([
+  const [config, grupos, terminados, configCotizaciones, configLista, categorias, cuentas] = await Promise.all([
     cargarConfigCortes(),
     cargarCatalogoPlanchas(),
     cargarCatalogoTerminados(),
     cargarConfigCotizaciones(),
+    cargarConfigListaPrecios(),
+    cargarCategorias(),
     cargarCuentasBancarias(),
   ]);
   const formatos = grupos.reduce((n, g) => n + g.formatos.length, 0);
@@ -61,6 +66,9 @@ export default async function Page({ searchParams }: PageProps<"/configuracion">
           <TabsTrigger value="cotizaciones" className="px-3">
             Cotizaciones
           </TabsTrigger>
+          <TabsTrigger value="lista-precios" className="px-3">
+            Lista de precios
+          </TabsTrigger>
           <TabsTrigger value="cuentas" className="px-3">
             Cuentas bancarias
           </TabsTrigger>
@@ -73,6 +81,13 @@ export default async function Page({ searchParams }: PageProps<"/configuracion">
         </TabsContent>
         <TabsContent value="cotizaciones">
           <FormConfigCotizaciones config={configCotizaciones} />
+        </TabsContent>
+        <TabsContent value="lista-precios">
+          <FormConfigListaPrecios
+            config={configLista}
+            materiales={[...new Set(grupos.map((g) => g.material))]}
+            categorias={categorias.map((c) => ({ id: c.id, nombre: c.nombre }))}
+          />
         </TabsContent>
         <TabsContent value="cuentas">
           <CuentasBancarias cuentas={cuentas} />

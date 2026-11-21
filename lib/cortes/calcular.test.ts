@@ -12,7 +12,7 @@ import {
 } from "./calcular";
 import { CONFIG_CORTES_DEFECTO, FRACCIONES_ESTANDAR, leerConfigCortes, type ConfigCortes } from "./config";
 import { parametrosLaser, tiempoLaser } from "./laser";
-import { precioManual } from "./manual";
+import { tarifaManual } from "./manual";
 import { EPS } from "./optimizador";
 
 const config = CONFIG_CORTES_DEFECTO;
@@ -33,8 +33,8 @@ describe("qué fracción de la plancha se cobra", () => {
     const r = calcularCorte(corte([[150, 60, 2], [40, 40, 1]]), F20_APAISADA, config);
     expect(r.planchas).toHaveLength(1);
     expect(r.planchas[0].cobro).toMatchObject({ nombre: "1/2", factor: 0.5, ancho: 152.5, alto: 205 });
-    // 480 / 2 × 1.20
-    expect(r.material).toBe(288);
+    // 480 / 2 × 1.10
+    expect(r.material).toBe(264);
   });
 
   it("2 de 250×60 usan el 48 %, pero no entran en ninguna media: plancha completa", () => {
@@ -49,8 +49,8 @@ describe("qué fracción de la plancha se cobra", () => {
   it("una de 140×95 cabe en un cuarto", () => {
     const r = calcularCorte(corte([[140, 95, 1]]), F20_APAISADA, config);
     expect(r.planchas[0].cobro).toMatchObject({ nombre: "1/4", ancho: 152.5, alto: 102.5 });
-    // 480 / 4 × 1.20
-    expect(r.material).toBe(144);
+    // 480 / 4 × 1.10
+    expect(r.material).toBe(132);
   });
 
   it("por encima de la mitad del área se cobra completa, sin nota", () => {
@@ -95,8 +95,8 @@ describe("qué fracción de la plancha se cobra", () => {
     const r = calcularCorte(corte([[60, 80, 10]]), f7, config);
     expect(r.planchas).toHaveLength(3);
     expect(r.planchas.map((p) => p.cobro.nombre).sort()).toEqual(["1", "1", "1/2"]);
-    // 200 + 200 + 200/2 × 1.20
-    expect(r.material).toBe(520);
+    // 200 + 200 + 200/2 × 1.10
+    expect(r.material).toBe(510);
     expect(r.piezas).toBe(10);
   });
 });
@@ -109,10 +109,10 @@ describe("con 1/16, 1/8 y 3/4 encendidas", () => {
   const F7: FormatoCorte = { codigo: "F7E030", ancho: 122, alto: 183, precio: 200 };
 
   it.each([
-    // [pieza, fracción, monto]: 200 × factor × 1.20
+    // [pieza, fracción, monto]: 200 × factor × (1 + su recargo)
     [[30, 40], "1/16", 15],
     [[50, 40], "1/8", 30],
-    [[100, 130], "3/4", 180],
+    [[100, 130], "3/4", 165],
   ] as const)("%j se cobra como %s", ([ancho, alto], nombre, monto) => {
     const r = calcularCorte(corte([[ancho, alto, 1]]), F7, todas);
     expect(r.planchas[0].cobro.nombre).toBe(nombre);
@@ -164,18 +164,44 @@ describe("servicio de corte", () => {
     expect(parametrosLaser(dos, 12).pasadas).toBe(2);
   });
 
-  it("manual: piezas por el precio de ese espesor", () => {
-    // 5 piezas de 4 mm a S/ 4 la pieza.
-    const r = calcularCorte(corte([[30, 30, 5]], { modalidad: "manual", espesorMm: 4 }), F20, config);
-    expect(r.servicio).toBe(20);
+  it("manual: metros lineales de cutter por la tarifa de ese espesor", () => {
+    const sinRedondeo: ConfigCortes = { ...config, cobro: { ...config.cobro, redondearAlSol: false } };
+    // Media plancha de 122×183 (61×183) partida al medio: el corte que la separa
+    // (183) más uno de 61.
+    const f7: FormatoCorte = { codigo: "F7E030", ancho: 122, alto: 183, precio: 200 };
+    const r = calcularCorte(corte([[61, 91.5, 2]], { modalidad: "manual", espesorMm: 4 }), f7, sinRedondeo);
+    expect(r.planchas[0].cobro.nombre).toBe("1/2");
+    expect(r.metrosManual).toBeCloseTo(2.44);
+    // 2.44 m × S/ 5
+    expect(r.servicio).toBeCloseTo(12.2);
     expect(r.minutosLaser).toBeNull();
     expect(r.problema).toBeNull();
+    expect(r.desglose.at(-2)?.etiqueta).toBe("Corte manual: 2.44 m lineales × S/ 5.00/m (4 mm)");
+    expect(r.planchas[0].cortes?.map((c) => c.largo)).toEqual([183, 61]);
   });
 
-  it("manual a un espesor que no está en la tabla: se dice, no se inventa un precio", () => {
-    expect(precioManual(config.manual.precios, 10)).toBeNull();
+  it("la tarifa manual va por tramos: cada fila vale hasta su espesor", () => {
+    const t = config.manual.tarifas;
+    expect(tarifaManual(t, 1.5)).toBe(3);
+    expect(tarifaManual(t, 2)).toBe(3);
+    expect(tarifaManual(t, 2.5)).toBe(4);
+    expect(tarifaManual(t, 3)).toBe(4);
+    expect(tarifaManual(t, 4)).toBe(5);
+    expect(tarifaManual(t, 5)).toBe(6);
+    expect(tarifaManual(t, 6)).toBe(6);
+    expect(tarifaManual(t, 8)).toBeNull();
+  });
+
+  it("el láser no trae cortes de cutter ni metros", () => {
+    const r = calcularCorte(corte([[30, 30, 5]]), F20, config);
+    expect(r.metrosManual).toBeNull();
+    expect(r.planchas.every((p) => p.cortes === undefined)).toBe(true);
+  });
+
+  it("manual más grueso que la tabla: se dice, no se inventa un precio", () => {
+    expect(tarifaManual(config.manual.tarifas, 10)).toBeNull();
     const r = calcularCorte(corte([[30, 30, 5]], { modalidad: "manual", espesorMm: 10 }), F20, config);
-    expect(r.problema).toMatch(/No hay precio de corte manual para 10 mm/);
+    expect(r.problema).toMatch(/No hay tarifa de corte manual para 10 mm/);
   });
 
   it("el total se redondea al sol hacia arriba y el redondeo lo absorbe el servicio", () => {
@@ -259,15 +285,36 @@ describe("configuración", () => {
     expect(leerConfigCortes("basura")).toEqual(config);
 
     const c = leerConfigCortes({
-      cobro: { recargoPct: 10, fracciones: config.cobro.fracciones, redondearAlSol: false },
+      cobro: { fracciones: config.cobro.fracciones, redondearAlSol: false },
       laser: { tabla: [] },
-      manual: { precios: [{ mm: 4, precio: 7 }, { mm: 2, precio: 3 }] },
+      manual: { tarifas: [{ hastaMm: 4, solesPorMetro: 7 }, { hastaMm: 2, solesPorMetro: 3 }] },
     });
-    expect(c.cobro.recargoPct).toBe(10);
+    expect(c.cobro.redondearAlSol).toBe(false);
     expect(c.laser).toEqual(config.laser);
     // Ordenada por espesor.
-    expect(c.manual.precios).toEqual([{ mm: 2, precio: 3 }, { mm: 4, precio: 7 }]);
+    expect(c.manual.tarifas).toEqual([{ hastaMm: 2, solesPorMetro: 3 }, { hastaMm: 4, solesPorMetro: 7 }]);
     expect(c.servicios).toEqual({ laser: "SRV002", manual: "SRV001" });
+  });
+
+  it("la configuración de antes: el recargo único y el precio por pieza", () => {
+    const sinRecargo = config.cobro.fracciones.map((f) => ({ nombre: f.nombre, factor: f.factor, formas: f.formas }));
+    const c = leerConfigCortes({
+      cobro: {
+        recargoPct: 25,
+        fracciones: [...sinRecargo, { nombre: "tira", factor: 0.3, formas: [[1, 0.3]] }],
+        redondearAlSol: false,
+      },
+      manual: { precios: [{ mm: 3, precio: 3 }] },
+    });
+    // Las estándar toman su recargo nuevo; una hecha a medida, el único de antes.
+    expect(c.cobro.fracciones.map((f) => [f.nombre, f.recargoPct])).toEqual([
+      ["1/4", 10],
+      ["tira", 25],
+      ["1/2", 10],
+    ]);
+    expect(c.cobro.redondearAlSol).toBe(false);
+    // Un precio por pieza no se lee como si fuera por metro.
+    expect(c.manual).toEqual(config.manual);
   });
 });
 

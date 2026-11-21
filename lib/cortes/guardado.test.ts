@@ -49,7 +49,7 @@ describe("el corte que se guarda", () => {
   it("conserva el cálculo entero: planchas, cobros, montos y desglose", () => {
     expect(corte.planchas).toHaveLength(3);
     expect(corte.planchas.map((p) => p.cobro.nombre).sort()).toEqual(["1", "1", "1/2"]);
-    expect(corte.montoMaterial).toBe(520);
+    expect(corte.montoMaterial).toBe(510);
     expect(corte.montoMaterial + corte.montoServicio).toBeCloseTo(corte.total, 2);
     expect(corte.desglose.at(-1)).toMatchObject({ esTotal: true, monto: corte.total });
   });
@@ -87,7 +87,7 @@ describe("el corte que se guarda", () => {
   it("agrupa las planchas por lo que se cobra de cada una, las completas primero", () => {
     expect(planchasPorCobro(corte)).toEqual([
       { nombre: "1", monto: 200, cantidad: 2 },
-      { nombre: "1/2", monto: 120, cantidad: 1 },
+      { nombre: "1/2", monto: 110, cantidad: 1 },
     ]);
   });
 });
@@ -115,7 +115,7 @@ describe("un corte en la cotización guardada", () => {
     const lineas = lineasParaOdoo(guardada);
     expect(lineas.map((l) => [l.productoId, l.cantidad, l.precioUnitario])).toEqual([
       [20, 2, 200],
-      [20, 1, 120],
+      [20, 1, 110],
       [31, 1, corte.montoServicio],
     ]);
     expect(lineas[0].descripcion).toBe("Para cortar: 10 × 60×80 cm");

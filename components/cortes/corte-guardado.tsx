@@ -8,6 +8,7 @@ import {
   type CorteGuardado,
 } from "@/lib/cortes/guardado";
 import { money } from "@/lib/formato";
+import { cortesParaPlano, resumenCortes } from "@/lib/cortes/metros";
 import { cn } from "@/lib/utils";
 import { PlanchasPaginadas } from "./planchas-paginadas";
 import { LeyendaPlano, PlanoCorte } from "./plano-corte";
@@ -32,6 +33,7 @@ export function CorteGuardadoVista({
 }) {
   const piezas = totalPiezas(c.piezas);
   const hayFraccion = c.planchas.some((p) => p.cobro.factor < 1);
+  const manual = c.modalidad === "manual";
 
   return (
     <div className={cn("@container flex flex-col gap-3", className)}>
@@ -62,10 +64,13 @@ export function CorteGuardadoVista({
       </ol>
 
       <PlanchasPaginadas>
-        {c.planchas.map((p, i) => (
+        {c.planchas.map((p, i) => {
+          const cortes = cortesParaPlano(p, manual);
+          return (
           <figure key={i} className="flex flex-col gap-1">
             <PlanoCorte
               plancha={p}
+              cortes={cortes}
               titulo={`Plancha ${i + 1} de ${c.planchas.length}: ${p.piezas} piezas en ${n(p.ancho)}×${n(p.alto)} cm`}
             />
             <figcaption className="text-muted-foreground text-xs">
@@ -81,11 +86,13 @@ export function CorteGuardadoVista({
                   · cortar primero {fraccionEnPalabras(p.cobro.nombre)} ({n(p.cobro.ancho)}×{n(p.cobro.alto)})
                 </>
               )}
+              {cortes && <> · {resumenCortes(cortes)}</>}
             </figcaption>
           </figure>
-        ))}
+          );
+        })}
       </PlanchasPaginadas>
-      <LeyendaPlano conSobrante={hayFraccion} />
+      <LeyendaPlano conSobrante={hayFraccion} conCortes={manual} />
 
       {conPrecios && (
         <dl className="bg-muted/30 flex flex-col gap-1 rounded-lg border px-3 py-2.5 text-sm">

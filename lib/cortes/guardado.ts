@@ -19,6 +19,7 @@ import {
   type PiezaPedida,
 } from "./calcular";
 import type { Cobro } from "./cobro";
+import type { CorteManual } from "./metros";
 import type { Origen, Panel } from "./optimizador";
 
 export interface PlanchaGuardada {
@@ -31,6 +32,8 @@ export interface PlanchaGuardada {
   piezas: number;
   cobro: Cobro;
   paneles: Panel[];
+  /** Solo con corte manual: los cortes de cutter, en orden. Los de antes no los traen. */
+  cortes?: CorteManual[];
 }
 
 /**
@@ -70,6 +73,8 @@ export interface CorteGuardado {
   montoServicio: number;
   total: number;
   minutosLaser: number | null;
+  /** Metros lineales de cutter (solo corte manual; los de antes no lo guardaban). */
+  metrosManual?: number | null;
   desglose: LineaDesglose[];
   /** El producto de Odoo con el que se factura el corte. */
   servicio: { productoId: number; codigo: string; nombre: string };
@@ -115,6 +120,9 @@ export function guardarPlanchas(planchas: CalculoCorte["planchas"]): PlanchaGuar
     piezas: p.piezas,
     cobro: { ...p.cobro, ancho: cm(p.cobro.ancho), alto: cm(p.cobro.alto) },
     paneles: p.paneles.map((x) => ({ ...x, x1: cm(x.x1), y1: cm(x.y1), x2: cm(x.x2), y2: cm(x.y2) })),
+    ...(p.cortes && {
+      cortes: p.cortes.map((x) => ({ ...x, x1: cm(x.x1), y1: cm(x.y1), x2: cm(x.x2), y2: cm(x.y2), largo: cm(x.largo) })),
+    }),
   }));
 }
 
@@ -130,6 +138,7 @@ export function guardarCorte(datos: DatosCorte, calculo: CalculoCorte): CorteGua
     montoServicio: calculo.servicio,
     total: calculo.total,
     minutosLaser: calculo.minutosLaser === null ? null : redondear(calculo.minutosLaser, 2),
+    metrosManual: calculo.metrosManual === null ? null : redondear(calculo.metrosManual, 2),
     desglose: calculo.desglose,
     servicio: datos.servicio,
     sobrantes: datos.sobrantes,
@@ -167,12 +176,18 @@ export const esquemaPlancha = z.object({
   cobro: z.object({
     nombre: z.string(),
     factor: numero,
+    // Los cortes de antes del recargo por fracción no lo guardaban.
+    recargoPct: numero.catch(0),
     ancho: numero,
     alto: numero,
     monto: numero,
     nota: z.string().nullable(),
   }),
   paneles: z.array(panel),
+  cortes: z
+    .array(z.object({ n: numero, x1: numero, y1: numero, x2: numero, y2: numero, largo: numero }))
+    .optional()
+    .catch(undefined),
 }) satisfies z.ZodType<PlanchaGuardada>;
 
 /** La plancha o el sobrante elegidos a mano, al leerlos de lo guardado. */
@@ -199,6 +214,7 @@ const esquema = z.object({
   montoServicio: numero,
   total: numero,
   minutosLaser: numero.nullable(),
+  metrosManual: numero.nullable().optional().catch(null),
   desglose: z.array(z.object({ etiqueta: z.string(), monto: numero, esTotal: z.boolean().optional() })),
   servicio: z.object({ productoId: numero, codigo: z.string(), nombre: z.string() }),
   sobrantes: z.boolean().catch(false),
