@@ -8,6 +8,9 @@ import { CatalogoPlanchas } from "@/components/configuracion/catalogo-planchas";
 import { FormConfigCortes } from "@/components/configuracion/config-cortes";
 import { FormConfigCotizaciones } from "@/components/configuracion/config-cotizaciones";
 import { cargarConfigCotizaciones } from "@/lib/cotizaciones-servidor";
+import { FormConfigListaPrecios } from "@/components/configuracion/config-lista-precios";
+import { cargarConfigListaPrecios } from "@/lib/lista-precios-servidor";
+import { cargarCategorias } from "@/lib/stock-servidor";
 
 /**
  * Lo que Administración ajusta sin tocar código: cómo se calcula y se cobra un
@@ -18,11 +21,13 @@ import { cargarConfigCotizaciones } from "@/lib/cotizaciones-servidor";
  */
 export default async function Page() {
   await exigirAdmin();
-  const [config, grupos, terminados, configCotizaciones] = await Promise.all([
+  const [config, grupos, terminados, configCotizaciones, configLista, categorias] = await Promise.all([
     cargarConfigCortes(),
     cargarCatalogoPlanchas(),
     cargarCatalogoTerminados(),
     cargarConfigCotizaciones(),
+    cargarConfigListaPrecios(),
+    cargarCategorias(),
   ]);
   const formatos = grupos.reduce((n, g) => n + g.formatos.length, 0);
 
@@ -52,6 +57,9 @@ export default async function Page() {
           <TabsTrigger value="cotizaciones" className="px-3">
             Cotizaciones
           </TabsTrigger>
+          <TabsTrigger value="lista-precios" className="px-3">
+            Lista de precios
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="cortes">
           <FormConfigCortes config={config} />
@@ -61,6 +69,13 @@ export default async function Page() {
         </TabsContent>
         <TabsContent value="cotizaciones">
           <FormConfigCotizaciones config={configCotizaciones} />
+        </TabsContent>
+        <TabsContent value="lista-precios">
+          <FormConfigListaPrecios
+            config={configLista}
+            materiales={[...new Set(grupos.map((g) => g.material))]}
+            categorias={categorias.map((c) => ({ id: c.id, nombre: c.nombre }))}
+          />
         </TabsContent>
         <TabsContent value="planchas">
           <CatalogoPlanchas grupos={grupos} odooConectado={odooConfigurado()} />

@@ -3079,6 +3079,7 @@ export type Database = {
         Returns: undefined
       }
       config_almacen: { Args: never; Returns: Json }
+      config_lista_precios: { Args: never; Returns: Json }
       conteo_abierto: { Args: { p_conteo: string }; Returns: boolean }
       buscar_pedidos_chat: {
         Args: { p_q: string }

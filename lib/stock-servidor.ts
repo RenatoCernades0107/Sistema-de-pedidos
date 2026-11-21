@@ -100,7 +100,7 @@ export const cargarCategorias = cache(async (): Promise<CategoriaAccesorio[]> =>
   return data ?? [];
 });
 
-async function cargarAccesorios() {
+export async function cargarAccesorios() {
   const supabase = await clienteServidor();
   const { data, error } = await supabase
     .from("accesorios")
