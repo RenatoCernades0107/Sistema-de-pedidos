@@ -126,6 +126,17 @@ export function TerminadoGuardadoVista({
       {t.corte && (
         <details className="ml-7 rounded-lg border px-3 py-2">
           <summary className="cursor-pointer text-xs font-medium">Cortes y acomodo en la plancha</summary>
+          {t.corte.eleccion && (
+            <p className="text-muted-foreground mt-2 text-xs" data-testid="plancha-elegida">
+              Plancha elegida a mano:{" "}
+              <span className="text-foreground font-medium">
+                {t.corte.eleccion.tipo === "sobrante"
+                  ? `sobrante ${t.corte.eleccion.codigo}, y lo demás de ${n(t.corte.formato.ancho)}×${n(t.corte.formato.alto)}`
+                  : `formato ${n(t.corte.formato.ancho)}×${n(t.corte.formato.alto)} (${t.corte.formato.codigo})`}
+              </span>
+              .
+            </p>
+          )}
           <CortesTerminado
             piezas={t.corte.piezas}
             formato={t.corte.formato}

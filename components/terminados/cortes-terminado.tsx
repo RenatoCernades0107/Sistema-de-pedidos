@@ -2,6 +2,7 @@ import { Scissors } from "lucide-react";
 import { fraccionEnPalabras } from "@/lib/cortes/guardado";
 import type { PiezaDeTerminado } from "@/lib/terminados/piezas";
 import { cn } from "@/lib/utils";
+import { PlanchasPaginadas } from "@/components/cortes/planchas-paginadas";
 import { LeyendaPlano, PlanoCorte, type PlanchaDibujable } from "@/components/cortes/plano-corte";
 
 const n = (x: number) => String(+x.toFixed(2));
@@ -66,7 +67,10 @@ export function CortesTerminado({
         ))}
       </ol>
 
-      <div className={cn("grid gap-3", compacto ? "grid-cols-2 sm:grid-cols-3" : "sm:grid-cols-2")}>
+      <PlanchasPaginadas
+        columnas={compacto ? "grid-cols-2 md:grid-cols-3" : undefined}
+        porPagina={compacto ? { movil: 2, escritorio: 6 } : undefined}
+      >
         {planchas.map((p, i) => (
           <figure key={i} className="flex flex-col gap-1">
             <PlanoCorte
@@ -85,7 +89,7 @@ export function CortesTerminado({
             </figcaption>
           </figure>
         ))}
-      </div>
+      </PlanchasPaginadas>
       <LeyendaPlano conSobrante={hayFraccion} />
     </div>
   );

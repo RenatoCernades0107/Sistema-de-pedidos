@@ -15,7 +15,7 @@
  */
 
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { borrarCotizacionesDePrueba, entrar, sesionDe, verMateriales } from "./apoyo";
+import { borrarCotizacionesDePrueba, elegirMaterialPorPasos, entrar, sesionDe, verMateriales } from "./apoyo";
 
 const ODOO = process.env.E2E_ODOO_FALSO ?? "http://127.0.0.1:8069";
 /**
@@ -84,13 +84,9 @@ async function nuevoPedido(page: Page) {
   await cliente.press("Enter");
 }
 
+/** El material por los tres pasos (Material → Color → Espesor), como en mostrador. */
 async function elegirMaterial(dialogo: ReturnType<Page["getByRole"]>) {
-  await dialogo.getByLabel("Buscar material").fill("eco cristal 3");
-  await expect(dialogo.getByRole("option", { name: /Acrílico ECO.*Cristal.*3 mm/ }).first()).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-  await dialogo.getByLabel("Buscar material").press("Enter");
+  await elegirMaterialPorPasos(dialogo.page(), dialogo, { material: "Acrílico ECO", color: "Cristal", espesor: "3 mm" });
   await expect(dialogo.getByTestId("material-elegido")).toContainText("Acrílico ECO · Cristal · 3 mm");
 }
 

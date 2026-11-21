@@ -12,21 +12,13 @@ import {
   type Modalidad,
   type PiezaPedida,
 } from "@/lib/cortes/calcular";
-import {
-  buscarGrupos,
-  colorDe,
-  espesorTexto,
-  medidaDe,
-  nombreDeGrupo,
-  type GrupoPlancha,
-} from "@/lib/cortes/catalogo";
+import { colorDe, type GrupoPlancha } from "@/lib/cortes/catalogo";
 import type { ConfigCortes } from "@/lib/cortes/config";
 import { LUGARES_CORTE, lugarDeCorte, planchasNuevas, planchasTexto, type LugarCorte } from "@/lib/cortes/guardado";
 import { contenedoresDe } from "@/lib/sobrantes";
 import { money } from "@/lib/formato";
 import type { LineaCorte } from "@/lib/lineas-cotizacion";
 import { cn } from "@/lib/utils";
-import { ComboBusqueda, type Opcion } from "@/components/cotizaciones/combo-busqueda";
 import { Button } from "@/components/ui/button";
 import { Campo, Opciones } from "@/components/ui/campo";
 import {
@@ -40,6 +32,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useCerrarConAviso } from "@/components/ui/confirmar-descarte";
 import { OpcionesPlancha, useStock, type OpcionSobrante } from "./opciones-plancha";
+import { SelectorMaterialPasos } from "./selector-material-pasos";
 import { PlanosPaginados } from "./planos-paginados";
 
 type CorteNuevo = Omit<LineaCorte, "tipo" | "clave"> & { clave?: string };
@@ -138,7 +131,6 @@ export function EditorCorte({
   alCerrar: () => void;
 }) {
   const [grupoId, setGrupoId] = useState<string | null>(inicial?.grupoId ?? null);
-  const [consulta, setConsulta] = useState("");
   const [modalidad, setModalidad] = useState<Modalidad>(inicial?.modalidad ?? "laser");
   /** Dónde se hace un corte manual. El láser va siempre al taller. */
   const [lugarManual, setLugarManual] = useState<LugarCorte>(inicial?.lugar ?? "tienda");
@@ -157,7 +149,6 @@ export function EditorCorte({
    * en el momento: la fila todavía no está pintada cuando se pide.
    */
   const porEnfocar = useRef<number | null>(null);
-  const buscador = useRef<HTMLInputElement>(null);
 
   const grupo = catalogo.find((g) => g.id === grupoId) ?? null;
   const { precios, sobrantes, error: errorPrecios } = usePrecios(grupoId);
@@ -231,7 +222,6 @@ export function EditorCorte({
 
   const elegirGrupo = (g: GrupoPlancha) => {
     setGrupoId(g.id);
-    setConsulta("");
     setEleccion(null);
     // Con el material elegido, lo siguiente son las medidas.
     porEnfocar.current = 0;
@@ -272,25 +262,6 @@ export function EditorCorte({
       calculo: elegido,
     });
   };
-
-  const opciones: Opcion[] = useMemo(
-    () =>
-      buscarGrupos(catalogo, consulta).map((g) => ({
-        valor: g.id,
-        alElegir: () => elegirGrupo(g),
-        contenido: (
-          <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
-            <span className="font-medium">{g.material}</span>
-            <span>{colorDe(g)}</span>
-            <span className="tnum">{espesorTexto(g.espesorMm)}</span>
-            <span className="text-muted-foreground ml-auto text-xs">
-              {g.formatos.map(medidaDe).join(" · ")}
-            </span>
-          </span>
-        ),
-      })),
-    [catalogo, consulta],
-  );
 
   /* Cerrar con medidas escritas o el material cambiado pregunta antes: se perdería. */
   const [filasIniciales] = useState(filas);
@@ -338,46 +309,16 @@ export function EditorCorte({
         <div className="min-h-0 flex-1 overflow-y-auto lg:grid lg:grid-cols-2 lg:overflow-hidden">
         <div className="flex flex-col gap-5 px-5 py-4 lg:min-h-0 lg:overflow-y-auto">
           {/* 1. Material */}
-          {grupo ? (
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-medium">Material</p>
-                <p className="bg-muted/50 mt-1.5 flex min-h-9 items-center gap-2 rounded-lg border px-3 text-sm" data-testid="material-elegido">
-                  <span className="min-w-0 flex-1 font-medium">{nombreDeGrupo(grupo)}</span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="xs"
-                    onClick={() => {
-                      // El buscador aparece con `autoFocus`.
-                      setGrupoId(null);
-                      setEleccion(null);
-                    }}
-                  >
-                    Cambiar
-                  </Button>
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-1.5">
-              <p className="text-xs font-medium">Material</p>
-              <ComboBusqueda
-                etiqueta="Buscar material"
-                placeholder="Material, color y espesor: eco cristal 3…"
-                consulta={consulta}
-                alEscribir={setConsulta}
-                opciones={opciones}
-                cargando={false}
-                error={null}
-                vacio="Ningún material coincide. Los materiales se administran en Configuración."
-                fresco
-                inputRef={buscador}
-                autoFocus
-                enLinea
-              />
-            </div>
-          )}
+          <SelectorMaterialPasos
+            catalogo={catalogo}
+            grupo={grupo}
+            alElegir={elegirGrupo}
+            alCambiar={() => {
+              setGrupoId(null);
+              setEleccion(null);
+            }}
+            autoFocus
+          />
 
           {grupo && (
             <>

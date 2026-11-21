@@ -1,19 +1,12 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import * as acciones from "@/app/(app)/almacen/acciones";
 import type { Almacen } from "@/lib/almacenes";
-import {
-  buscarGrupos,
-  colorDe,
-  espesorTexto,
-  medidaDe,
-  nombreDeGrupo,
-  type GrupoPlancha,
-} from "@/lib/cortes/catalogo";
+import type { GrupoPlancha } from "@/lib/cortes/catalogo";
 import { esEstandar, medidaSobrante, normalizarMedidas, type Sobrante } from "@/lib/sobrantes";
-import { ComboBusqueda, type Opcion } from "@/components/cotizaciones/combo-busqueda";
+import { SelectorMaterialPasos } from "@/components/cortes/selector-material-pasos";
 import { SelectorAlmacen } from "@/components/almacen/comun";
 import { Button } from "@/components/ui/button";
 import { Campo } from "@/components/ui/campo";
@@ -84,7 +77,6 @@ function Formulario({
   almacenes: Almacen[];
   alTerminar: (codigo: string) => void;
 }) {
-  const [consulta, setConsulta] = useState("");
   const [grupo, setGrupo] = useState<GrupoPlancha | null>(null);
   const [almacenId, setAlmacenId] = useState<string | null>(null);
   const [largo, setLargo] = useState("");
@@ -92,26 +84,6 @@ function Formulario({
   const [ubicacion, setUbicacion] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pendiente, iniciar] = useTransition();
-
-  const opciones: Opcion[] = useMemo(
-    () =>
-      buscarGrupos(catalogo, consulta).map((g) => ({
-        valor: g.id,
-        alElegir: () => {
-          setGrupo(g);
-          setError(null);
-        },
-        contenido: (
-          <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
-            <span className="font-medium">{g.material}</span>
-            <span>{colorDe(g)}</span>
-            <span className="tnum">{espesorTexto(g.espesorMm)}</span>
-            <span className="text-muted-foreground ml-auto text-xs">{g.formatos.map(medidaDe).join(" · ")}</span>
-          </span>
-        ),
-      })),
-    [catalogo, consulta],
-  );
 
   const l = numero(largo);
   const a = numero(ancho);
@@ -144,37 +116,17 @@ function Formulario({
   return (
     <form onSubmit={enviar} className="flex min-h-0 flex-col gap-4" noValidate>
       <div className="flex flex-col gap-4 overflow-y-auto">
-        {grupo ? (
-          <div>
-            <p className="text-xs font-medium">Material</p>
-            <p
-              className="bg-muted/50 mt-1.5 flex min-h-9 items-center gap-2 rounded-lg border px-3 text-sm"
-              data-testid="material-sobrante"
-            >
-              <span className="min-w-0 flex-1 font-medium">{nombreDeGrupo(grupo)}</span>
-              <Button type="button" variant="ghost" size="xs" onClick={() => setGrupo(null)}>
-                Cambiar
-              </Button>
-            </p>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-1.5">
-            <p className="text-xs font-medium">Material</p>
-            <ComboBusqueda
-              etiqueta="Buscar material"
-              placeholder="Material, color y espesor: eco cristal 3…"
-              consulta={consulta}
-              alEscribir={setConsulta}
-              opciones={opciones}
-              cargando={false}
-              error={null}
-              vacio="Ningún material coincide."
-              fresco
-              autoFocus
-              enLinea
-            />
-          </div>
-        )}
+        <SelectorMaterialPasos
+          catalogo={catalogo}
+          grupo={grupo}
+          alElegir={(g) => {
+            setGrupo(g);
+            setError(null);
+          }}
+          alCambiar={() => setGrupo(null)}
+          testId="material-sobrante"
+          autoFocus
+        />
 
         {/* Las medidas aparecen con el material elegido, y el largo llega con el foco. */}
         {grupo && (

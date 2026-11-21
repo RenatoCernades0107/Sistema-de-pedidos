@@ -92,6 +92,12 @@ test("el taller ve el corte sin precios, anota las planchas usadas al pasar a Li
   const lineas = await abrirCorte(page);
   await expect(lineas.getByText("Acrílico ECO · Cristal · 3 mm").first()).toBeVisible();
   await expect(lineas.getByRole("img", { name: /Plancha 1 de 3/ })).toBeVisible();
+  // En pantalla ancha los planos van de a dos: la tercera plancha está en la página siguiente.
+  await expect(lineas.getByText("Planchas 1–2 de 3")).toBeVisible();
+  await expect(lineas.getByRole("img", { name: /Plancha 3 de 3/ })).toHaveCount(0);
+  await lineas.getByRole("button", { name: "Siguiente" }).click();
+  await expect(lineas.getByText("Plancha 3 de 3", { exact: true })).toBeVisible();
+  await expect(lineas.getByRole("img", { name: /Plancha 3 de 3/ })).toBeVisible();
   // El taller no ve dinero.
   await expect(lineas.getByText(/S\/\s/)).toHaveCount(0);
   const materiales = await verMateriales(page);

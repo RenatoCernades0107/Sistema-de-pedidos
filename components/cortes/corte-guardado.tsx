@@ -9,6 +9,7 @@ import {
 } from "@/lib/cortes/guardado";
 import { money } from "@/lib/formato";
 import { cn } from "@/lib/utils";
+import { PlanchasPaginadas } from "./planchas-paginadas";
 import { LeyendaPlano, PlanoCorte } from "./plano-corte";
 
 const n = (x: number) => String(+x.toFixed(2));
@@ -60,7 +61,7 @@ export function CorteGuardadoVista({
         ))}
       </ol>
 
-      <div className="grid gap-3 @md:grid-cols-2">
+      <PlanchasPaginadas>
         {c.planchas.map((p, i) => (
           <figure key={i} className="flex flex-col gap-1">
             <PlanoCorte
@@ -83,7 +84,7 @@ export function CorteGuardadoVista({
             </figcaption>
           </figure>
         ))}
-      </div>
+      </PlanchasPaginadas>
       <LeyendaPlano conSobrante={hayFraccion} />
 
       {conPrecios && (
