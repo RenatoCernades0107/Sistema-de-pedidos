@@ -8,6 +8,7 @@ import type { PlanchasDeGrupo } from "@/lib/cad/materiales";
 import { nombreArchivo } from "@/lib/cad/esquema";
 import { PLANTILLA_LIBRE } from "@/lib/cad/tipos";
 import { Button } from "@/components/ui/button";
+import { PlanchasPaginadas } from "@/components/cortes/planchas-paginadas";
 import { colorDe, espesorTexto, type GrupoPlancha } from "@/lib/cortes/catalogo";
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -327,9 +328,13 @@ function SeccionGrupo({
           plancha.
         </p>
       )}
-      <ul className="flex flex-col gap-3">
+      {/* Panel angosto: una plancha por página. Las demás siguen montadas (ocultas) para el resaltado de piezas. */}
+      <PlanchasPaginadas
+        etiqueta={`Planchas de ${g.etiqueta}`}
+        porPagina={{ movil: 1, escritorio: 1 }}
+      >
         {acomodo.planchas.map((p, i) => (
-          <li key={i} className="bg-card rounded-lg border p-2">
+          <div key={i} className="bg-card rounded-lg border p-2">
             <p className="text-muted-foreground mb-1.5 flex justify-between text-xs tabular-nums">
               <span>
                 Plancha {i + 1} · {p.piezas.length} {p.piezas.length === 1 ? "pieza" : "piezas"} · uso{" "}
@@ -348,9 +353,9 @@ function SeccionGrupo({
               piezaActiva={piezaActiva}
               alCambiarPieza={alCambiarPieza}
             />
-          </li>
+          </div>
         ))}
-      </ul>
+      </PlanchasPaginadas>
     </section>
   );
 }
