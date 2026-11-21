@@ -210,7 +210,7 @@ const CAMPOS: Record<string, string[]> = {
   "stock.move.line": [
     "move_id", "product_id", "lot_id", "location_id", "location_dest_id", "quantity", "picked", "state", "date", "reference",
   ],
-  "stock.scrap": ["product_id", "scrap_qty", "location_id", "lot_id", "origin", "state", "name"],
+  "stock.scrap": ["product_id", "scrap_qty", "product_uom_id", "location_id", "lot_id", "origin", "state", "name"],
   "mrp.production": [
     "name", "product_id", "product_qty", "product_uom_id", "origin", "state", "qty_producing",
     "location_src_id", "location_dest_id", "move_raw_ids", "move_byproduct_ids", "move_finished_ids", "picking_type_id",
@@ -620,6 +620,13 @@ export async function crearOdooFalso(
     if (modelo === "stock.scrap") {
       for (const k of Object.keys(vals)) {
         if (!camposDe(modelo).includes(k)) throw new ErrorRpc("ValueError", `Invalid field '${k}' on model 'stock.scrap'`);
+      }
+      // Como el Odoo real: la unidad de medida es obligatoria.
+      if (!vals.product_uom_id) {
+        throw new ErrorRpc(
+          "odoo.exceptions.ValidationError",
+          "The operation cannot be completed:\n- Create/update: a mandatory field is not set.\n\nModel: Scrap (stock.scrap), Field: Unit of Measure (product_uom_id)",
+        );
       }
       t.push({ ...vals, id, name: `SP/${String(id).padStart(5, "0")}`, state: "draft", product_id: [vals.product_id, ""],
         location_id: [vals.location_id, ""], lot_id: vals.lot_id ? [vals.lot_id, ""] : false, origin: vals.origin ?? false });
