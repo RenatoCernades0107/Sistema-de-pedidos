@@ -14,6 +14,7 @@ import { describirLinea, EMPRESA } from "./compartir";
 import { fechaCompleta, money } from "./formato";
 import { diaEnLima } from "./fecha";
 import { textoValidez, VALIDEZ_POR_DEFECTO } from "./cotizaciones-config";
+import { tituloCuenta, type CuentaParaPdf } from "./cuentas-bancarias";
 
 type ParaPdf = Pick<
   Cotizacion,
@@ -101,7 +102,7 @@ const ANCHO_DESC = COL.cant - COL.desc - 12;
 export async function generarPdfCotizacion(
   c: ParaPdf,
   logoPng?: Uint8Array | null,
-  { validezDias = VALIDEZ_POR_DEFECTO }: { validezDias?: number } = {},
+  { validezDias = VALIDEZ_POR_DEFECTO, cuentas = [] }: { validezDias?: number; cuentas?: CuentaParaPdf[] } = {},
 ): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   const referencia = referenciaDe(c);
@@ -250,6 +251,47 @@ export async function generarPdfCotizacion(
   }
   y -= 8;
   escribir(textoValidez(c.creadoEn, validezDias), MARGEN, y, { fuente: negrita, tamano: 9, color: AZUL });
+
+  /* Cuentas para depositar. Cada cuenta en un bloque que no se parte entre hojas. */
+  if (cuentas.length) {
+    const ALTO_CUENTA = 30;
+    const ALTO_AVISO = 24;
+    y -= 26;
+    if (y - 16 - ALTO_CUENTA - ALTO_AVISO < MARGEN + 10) {
+      pagina = pdf.addPage(A4);
+      y = A4[1] - MARGEN;
+    }
+    escribir("CUENTAS PARA DEPÓSITO", MARGEN, y, { fuente: negrita, tamano: 8, color: GRIS });
+    y -= 6;
+    raya(y);
+    y -= 14;
+    for (const cuenta of cuentas) {
+      if (y - ALTO_CUENTA < MARGEN + 10) {
+        pagina = pdf.addPage(A4);
+        y = A4[1] - MARGEN;
+      }
+      escribir(tituloCuenta(cuenta), MARGEN, y, { fuente: negrita, tamano: 9.5 });
+      y -= 13;
+      const numeros = `N.° ${cuenta.numero}${cuenta.cci ? `     CCI ${cuenta.cci}` : ""}`;
+      escribir(numeros, MARGEN, y, { tamano: 9.5 });
+      y -= ALTO_CUENTA - 13;
+    }
+    if (y - ALTO_AVISO < MARGEN + 10) {
+      pagina = pdf.addPage(A4);
+      y = A4[1] - MARGEN;
+    }
+    // Lo que frena la estafa más común: alguien que le escribe al cliente "pague
+    // mejor a esta otra cuenta".
+    for (const r of partirEnRenglones(
+      `Solo recibimos pagos en estas cuentas. Si alguien te indica otra, no deposites y confírmalo antes con ${EMPRESA}.`,
+      normal,
+      8.5,
+      A4[0] - 2 * MARGEN,
+    )) {
+      escribir(r, MARGEN, y, { tamano: 8.5, color: GRIS });
+      y -= 11;
+    }
+  }
 
   /* Pie de cada hoja. */
   const hojas = pdf.getPages();
