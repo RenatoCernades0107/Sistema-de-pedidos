@@ -10,22 +10,30 @@ import { deFila, type Fila } from "./cotizaciones-servidor";
 import { leerSeguimiento, type Seguimiento } from "./seguimiento";
 import type { Cotizacion } from "./cotizaciones";
 import { leerConfigCotizaciones } from "./cotizaciones-config";
+import { leerCuentasPublicas, type CuentaParaPdf } from "./cuentas-bancarias";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** La cotización del enlace y su validez en días, o `null` si el token no es de ninguna. */
+/**
+ * La cotización del enlace, su validez en días y las cuentas para depositar, o
+ * `null` si el token no es de ninguna.
+ */
 export async function cotizacionPorToken(
   token: string,
-): Promise<{ cotizacion: Cotizacion; validezDias: number } | null> {
+): Promise<{ cotizacion: Cotizacion; validezDias: number; cuentas: CuentaParaPdf[] } | null> {
   // Un token mal formado haría fallar el cast a uuid de Postgres: es un 404.
   if (!UUID.test(token)) return null;
   const supabase = await clienteServidor();
   const { data, error } = await supabase.rpc("cotizacion_publica", { p_token: token });
   if (error) throw new Error(`No se pudo leer la cotización: ${error.message}`);
   if (!data || typeof data !== "object") return null;
-  // Los días los pone la función: el cliente no puede leer `configuracion`.
-  const { validezDias } = leerConfigCotizaciones({ validezDias: (data as Record<string, unknown>).validez_dias });
-  return { cotizacion: deFila(data as unknown as Fila), validezDias };
+  // Los días y las cuentas los pone la función: el cliente no puede leer
+  // `configuracion` ni `cuentas_bancarias`. Ella decide qué cuentas valen para
+  // esta cotización (las vigentes que ya lo eran cuando se emitió).
+  const extra = data as Record<string, unknown>;
+  const { validezDias } = leerConfigCotizaciones({ validezDias: extra.validez_dias });
+  const cuentas = leerCuentasPublicas(extra.cuentas_bancarias);
+  return { cotizacion: deFila(data as unknown as Fila), validezDias, cuentas };
 }
 
 /** El pedido del enlace, o `null` si el token no es de ninguno. Una vez por petición. */

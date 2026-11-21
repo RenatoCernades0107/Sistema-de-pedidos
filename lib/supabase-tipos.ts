@@ -986,6 +986,63 @@ export type Database = {
           },
         ]
       }
+      cuentas_bancarias: {
+        Row: {
+          banco: string
+          cci: string | null
+          creada_en: string
+          creada_por: string
+          id: string
+          moneda: string
+          numero: string
+          retirada_en: string | null
+          retirada_por: string | null
+          tipo: string
+          vigente_desde: string
+        }
+        Insert: {
+          banco: string
+          cci?: string | null
+          creada_en?: string
+          creada_por: string
+          id?: string
+          moneda: string
+          numero: string
+          retirada_en?: string | null
+          retirada_por?: string | null
+          tipo: string
+          vigente_desde: string
+        }
+        Update: {
+          banco?: string
+          cci?: string | null
+          creada_en?: string
+          creada_por?: string
+          id?: string
+          moneda?: string
+          numero?: string
+          retirada_en?: string | null
+          retirada_por?: string | null
+          tipo?: string
+          vigente_desde?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cuentas_bancarias_creada_por_fkey"
+            columns: ["creada_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cuentas_bancarias_retirada_por_fkey"
+            columns: ["retirada_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       departamentos: {
         Row: {
           id: number
@@ -3029,6 +3086,17 @@ export type Database = {
         Args: { p_usuario_id: string }
         Returns: string
       }
+      agregar_cuenta_bancaria: {
+        Args: {
+          clave: string
+          p_banco: string
+          p_cci: string
+          p_moneda: string
+          p_numero: string
+          p_tipo: string
+        }
+        Returns: string
+      }
       agregar_miembros: {
         Args: { p_conversacion_id: string; p_usuarios: string[] }
         Returns: number
@@ -3383,6 +3451,10 @@ export type Database = {
         Args: { p_diseno_id: string; p_version: number }
         Returns: number
       }
+      retirar_cuenta_bancaria: {
+        Args: { clave: string; p_id: string }
+        Returns: undefined
+      }
       resumen_conversaciones: {
         Args: never
         Returns: {
@@ -3520,6 +3592,7 @@ export type Database = {
         | "diseno_modificado"
         | "mover_stock"
         | "caso_stock"
+        | "cuenta_bancaria"
       tipo_pago: "contado" | "a_cuenta" | "credito"
       tipo_pedido: "CL" | "CM" | "SP" | "PT" | "AC"
       ubicacion: "tienda" | "taller" | "agencia"
@@ -3715,6 +3788,7 @@ export const Constants = {
         "diseno_modificado",
         "mover_stock",
         "caso_stock",
+        "cuenta_bancaria",
       ],
       tipo_pago: ["contado", "a_cuenta", "credito"],
       tipo_pedido: ["CL", "CM", "SP", "PT", "AC"],

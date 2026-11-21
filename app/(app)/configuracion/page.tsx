@@ -8,21 +8,30 @@ import { CatalogoPlanchas } from "@/components/configuracion/catalogo-planchas";
 import { FormConfigCortes } from "@/components/configuracion/config-cortes";
 import { FormConfigCotizaciones } from "@/components/configuracion/config-cotizaciones";
 import { cargarConfigCotizaciones } from "@/lib/cotizaciones-servidor";
+import { cargarCuentasBancarias } from "@/lib/cuentas-bancarias-servidor";
+import { CuentasBancarias } from "@/components/configuracion/cuentas-bancarias";
+
+const PESTANAS = ["cortes", "planchas", "terminados", "cotizaciones", "cuentas"] as const;
 
 /**
  * Lo que Administración ajusta sin tocar código: cómo se calcula y se cobra un
- * corte, qué planchas existen y cuántos días vale una cotización.
+ * corte, qué planchas existen, cuántos días vale una cotización y en qué
+ * cuentas se deposita.
  *
  * No es un `Alcance` de `/pedidos`: aquí no se filtran pedidos. Se entra por el
  * menú de herramientas, y solo Administración la ve.
  */
-export default async function Page() {
+export default async function Page({ searchParams }: PageProps<"/configuracion">) {
   await exigirAdmin();
-  const [config, grupos, terminados, configCotizaciones] = await Promise.all([
+  // `?tab=cuentas` es a donde lleva el aviso de una cuenta bancaria nueva.
+  const { tab } = await searchParams;
+  const inicial = PESTANAS.find((p) => p === tab) ?? "cortes";
+  const [config, grupos, terminados, configCotizaciones, cuentas] = await Promise.all([
     cargarConfigCortes(),
     cargarCatalogoPlanchas(),
     cargarCatalogoTerminados(),
     cargarConfigCotizaciones(),
+    cargarCuentasBancarias(),
   ]);
   const formatos = grupos.reduce((n, g) => n + g.formatos.length, 0);
 
@@ -36,7 +45,7 @@ export default async function Page() {
         </p>
       </header>
 
-      <Tabs defaultValue="cortes" className="max-w-5xl gap-4">
+      <Tabs defaultValue={inicial} className="max-w-5xl gap-4">
         <TabsList>
           <TabsTrigger value="cortes" className="px-3">
             Precios de corte
@@ -52,6 +61,9 @@ export default async function Page() {
           <TabsTrigger value="cotizaciones" className="px-3">
             Cotizaciones
           </TabsTrigger>
+          <TabsTrigger value="cuentas" className="px-3">
+            Cuentas bancarias
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="cortes">
           <FormConfigCortes config={config} />
@@ -61,6 +73,9 @@ export default async function Page() {
         </TabsContent>
         <TabsContent value="cotizaciones">
           <FormConfigCotizaciones config={configCotizaciones} />
+        </TabsContent>
+        <TabsContent value="cuentas">
+          <CuentasBancarias cuentas={cuentas} />
         </TabsContent>
         <TabsContent value="planchas">
           <CatalogoPlanchas grupos={grupos} odooConectado={odooConfigurado()} />
