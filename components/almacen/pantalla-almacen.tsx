@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { ArrowLeftRight, CircleAlert, PackageMinus, PackagePlus, Plus, Warehouse } from "lucide-react";
+import { ArrowLeftRight, CircleAlert, FileDown, PackageMinus, PackagePlus, Plus, Warehouse } from "lucide-react";
 import { TIPOS_ALMACEN } from "@/lib/almacenes";
+import { materialesConPrecio } from "@/lib/lista-precios";
 import type { GrupoPlancha } from "@/lib/cortes/catalogo";
 import type { Caso, Conteo, ConteoResumen } from "@/lib/casos";
 import type { FaltanteGuardado } from "@/lib/faltantes";
@@ -16,6 +17,7 @@ import { PantallaSobrantes } from "@/components/sobrantes/pantalla-sobrantes";
 import type { PedidoKardex, PermisosAlmacen } from "./comun";
 import { DialogoAlmacenes } from "./dialogo-almacenes";
 import { DialogoIngreso, ingresables } from "./dialogo-ingreso";
+import { DialogoListaPrecios } from "./dialogo-lista-precios";
 import { DialogoProducto } from "./dialogo-producto";
 import { DialogoBaja, type BajaInicial } from "./dialogo-baja";
 import { ListaCasos } from "./lista-casos";
@@ -72,7 +74,7 @@ export function PantallaAlmacen({
   const router = useRouter();
   const ruta = usePathname();
   const [vista, setVista] = useState<Vista>(inicial);
-  const [dialogo, setDialogo] = useState<"ingreso" | "producto" | "almacenes" | "transferencia" | "baja" | null>(null);
+  const [dialogo, setDialogo] = useState<"ingreso" | "producto" | "almacenes" | "transferencia" | "baja" | "lista" | null>(null);
   const [baja, setBaja] = useState<BajaInicial | undefined>(undefined);
   const [kardex, setKardex] = useState<PedidoKardex | null>(null);
   const [transferencia, setTransferencia] = useState<TransferenciaInicial | undefined>(undefined);
@@ -113,6 +115,12 @@ export function PantallaAlmacen({
         </div>
         {permisos.gestionarStock && (
           <div className="flex flex-wrap gap-2">
+            {permisos.verPrecios && (
+              <Button variant="outline" className="gap-1.5" onClick={() => setDialogo("lista")} disabled={!odooConectado}>
+                <FileDown className="size-4" />
+                Lista de precios
+              </Button>
+            )}
             <Button variant="outline" className="gap-1.5" onClick={() => setDialogo("almacenes")}>
               <Warehouse className="size-4" />
               Almacenes
@@ -287,6 +295,13 @@ export function PantallaAlmacen({
           planchas={planchas}
           categorias={categorias}
           ponePrecio={permisos.editarPrecios}
+          alCerrar={() => setDialogo(null)}
+        />
+      )}
+      {dialogo === "lista" && (
+        <DialogoListaPrecios
+          materiales={materialesConPrecio(planchas)}
+          categorias={categorias.filter((c) => accesorios.some((a) => a.categoriaId === c.id && a.activo && (a.precio ?? 0) > 0))}
           alCerrar={() => setDialogo(null)}
         />
       )}

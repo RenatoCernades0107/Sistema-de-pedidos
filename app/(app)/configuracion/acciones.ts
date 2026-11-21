@@ -18,6 +18,7 @@ import { esquemaConfigCortes } from "@/lib/cortes/config";
 import { CLAVE_CONFIG_TERMINADOS } from "@/lib/terminados-servidor";
 import { esquemaConfigTerminados } from "@/lib/terminados/config";
 import { CLAVE_CONFIG_COTIZACIONES, esquemaConfigCotizaciones } from "@/lib/cotizaciones-config";
+import { CLAVE_CONFIG_LISTA_PRECIOS, esquemaConfigListaPrecios } from "@/lib/lista-precios-config";
 import { productosPorCodigo } from "@/lib/odoo/catalogos";
 import { ErrorOdoo, ODOO_NO_CONFIGURADO, odooConfigurado } from "@/lib/odoo/rpc";
 import type { Json } from "@/lib/supabase-tipos";
@@ -426,6 +427,27 @@ export async function guardarConfigCotizaciones(entrada: unknown): Promise<Resul
   const { error } = await supabase
     .from("configuracion")
     .upsert({ clave: CLAVE_CONFIG_COTIZACIONES, valor: datos.data as unknown as Json }, { onConflict: "clave" });
+  if (error) return fallo(mensajeDeError(error));
+
+  refresh();
+  return { ok: true };
+}
+
+/** Los teléfonos, la nota del pie y las notas por material de la lista de precios en PDF. */
+export async function guardarConfigListaPrecios(entrada: unknown): Promise<Resultado> {
+  await exigirAdmin();
+  const datos = esquemaConfigListaPrecios.safeParse(entrada);
+  if (!datos.success) return fallo(datos.error.issues[0]?.message ?? "Los datos no son válidos.");
+
+  // Las secciones sin título ni nota no se guardan: valen los defectos.
+  const secciones = Object.fromEntries(Object.entries(datos.data.secciones).filter(([, v]) => v.titulo || v.nota));
+  const supabase = await clienteServidor();
+  const { error } = await supabase
+    .from("configuracion")
+    .upsert(
+      { clave: CLAVE_CONFIG_LISTA_PRECIOS, valor: { ...datos.data, secciones } as unknown as Json },
+      { onConflict: "clave" },
+    );
   if (error) return fallo(mensajeDeError(error));
 
   refresh();
