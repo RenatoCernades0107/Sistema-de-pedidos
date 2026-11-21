@@ -1,6 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Plexiacril">
-  <rect width="512" height="512" rx="96" fill="#18315A"/>
-  <text x="50%" y="52%" dy=".35em" text-anchor="middle"
-        font-family="Geist, Inter, system-ui, sans-serif" font-size="288" font-weight="700"
-        fill="#FFC100">P</text>
+  <rect width="512" height="512" rx="96" fill="#1F15C4"/>
+  <g fill="#E2CB01" transform="translate(166.4 105.6) scale(3.2)">
+    <path d="M4 13 L27 0 L56 16.5 L56 51 L33 64 L33 29 Z"/>
+    <path d="M0 46 L23 33 L23 94 L0 81 Z"/>
+  </g>
 </svg>

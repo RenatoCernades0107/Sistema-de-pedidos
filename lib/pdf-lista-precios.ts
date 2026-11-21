@@ -33,8 +33,8 @@ const A4: [number, number] = [595.28, 841.89];
 const [ANCHO, ALTO] = A4;
 
 /** Los colores del logo. */
-const AZUL = rgb(0, 75 / 255, 143 / 255);
-const AMARILLO = rgb(1, 193 / 255, 0);
+const AZUL = rgb(31 / 255, 21 / 255, 196 / 255);
+const AMARILLO = rgb(226 / 255, 203 / 255, 1 / 255);
 const NEGRO = rgb(0.1, 0.11, 0.13);
 const GRIS = rgb(0.42, 0.45, 0.5);
 const LINEA = rgb(0.84, 0.86, 0.9);

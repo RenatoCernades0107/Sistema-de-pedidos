@@ -5,9 +5,8 @@
  * icono que sale en la notificación. Sin ellos la PWA se instala con un cuadro en
  * blanco y el push llega pelado.
  *
- * La "P" va como trazado y no como <text>: rasterizar texto depende de las fuentes
- * que tenga instalada la máquina que corre el script, y Geist no está en ninguna.
- * Con el trazado, el PNG sale idéntico en cualquier sitio.
+ * El símbolo del logotipo (las dos piezas de la "P" en perspectiva) va como
+ * trazado, igual que en icono.svg, así el PNG sale idéntico en cualquier sitio.
  *
  *   node scripts/gen-iconos.cjs
  */
@@ -18,18 +17,17 @@ const sharp = require("sharp");
 
 const RAIZ = path.join(__dirname, "..");
 
-const FONDO = "#18315A";
-const MARCA = "#FFC100";
+const FONDO = "#1F15C4";
+const MARCA = "#E2CB01";
 
-/* La P de Plexiacril, dibujada sobre el lienzo de 512: asta vertical y ojo
-   rectangular con la contraforma recortada por `fill-rule: evenodd`. */
-const P =
-  "M176 128 h104 a92 92 0 0 1 0 184 h-52 v72 h-52 z" +
-  "M228 180 v80 h52 a40 40 0 0 0 0 -80 z";
+/* El símbolo de Plexiacril en su propio lienzo de 56 × 94: la pieza de arriba
+   (el ojo de la P) y el asta de la izquierda. `SIMBOLO` lo centra en el de 512. */
+const P = "M4 13 L27 0 L56 16.5 L56 51 L33 64 L33 29 Z M0 46 L23 33 L23 94 L0 81 Z";
+const SIMBOLO = `<g transform="translate(166.4 105.6) scale(3.2)"><path d="${P}" fill="${MARCA}"/></g>`;
 
 const SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
   <rect width="512" height="512" rx="96" fill="${FONDO}"/>
-  <path d="${P}" fill="${MARCA}" fill-rule="evenodd"/>
+  ${SIMBOLO}
 </svg>`;
 
 /* El icono maskable de Android se recorta en círculo, así que el dibujo tiene que
@@ -38,7 +36,7 @@ const SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" vi
 const SVG_MASKABLE = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
   <rect width="512" height="512" fill="${FONDO}"/>
   <g transform="translate(256 256) scale(0.72) translate(-256 -256)">
-    <path d="${P}" fill="${MARCA}" fill-rule="evenodd"/>
+    ${SIMBOLO}
   </g>
 </svg>`;
 
@@ -49,6 +47,9 @@ const SALIDAS = [
   // Next lo detecta por el nombre y emite el <link rel="apple-touch-icon"> solo.
   { svg: SVG, tamano: 180, destino: "app/apple-icon.png" },
 ];
+
+/* app/favicon.ico no sale de aquí (sharp no escribe .ico): se armó con los mismos
+   trazados a 16, 32, 48 y 64 px. */
 
 (async () => {
   for (const { svg, tamano, destino } of SALIDAS) {
