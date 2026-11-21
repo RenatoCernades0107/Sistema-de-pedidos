@@ -87,15 +87,15 @@ describe("costoDiseno", () => {
       config,
     })!;
 
-    // Todo entra en 1/4 de 305×205: 480 / 4 × 1.20.
-    expect(c.material).toBe(144);
+    // Todo entra en 1/4 de 305×205: 480 / 4 × 1.10.
+    expect(c.material).toBe(132);
     expect(c.planchas).toBe(0.25);
     // 2×700 + 2×600 + 2×500 = 3600 mm a 18 mm/s, más 6 × (0.1 + 2.5) s.
     const segundos = 3600 / 18 + 6 * 2.6;
     expect(c.minutosLaser).toBeCloseTo(segundos / 60, 9);
     const servicio = (segundos / 60) * 0.8 * 1.18;
-    expect(c.total).toBe(Math.ceil(144 + servicio));
-    expect(c.servicio).toBeCloseTo(c.total - 144, 9);
+    expect(c.total).toBe(Math.ceil(132 + servicio));
+    expect(c.servicio).toBeCloseTo(c.total - 132, 9);
     expect(c.problema).toBeNull();
   });
 

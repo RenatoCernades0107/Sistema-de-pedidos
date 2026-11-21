@@ -13,6 +13,7 @@
  */
 
 import type { ConfigCortes, Fraccion } from "./config";
+import type { CorteManual } from "./metros";
 import {
   EPS,
   empaquetar,
@@ -27,6 +28,8 @@ export interface Cobro {
   /** "1/16", "1/8", "1/4", "1/2", "3/4" o "1" para la plancha completa. */
   nombre: string;
   factor: number;
+  /** El recargo de esa fracción (0 en la plancha completa). */
+  recargoPct: number;
   /** El pedazo cobrado, anclado en la esquina (0,0) de la plancha. */
   ancho: number;
   alto: number;
@@ -37,6 +40,8 @@ export interface Cobro {
 
 export interface PlanchaCobrada extends PlanchaCortada {
   cobro: Cobro;
+  /** Solo con corte manual: los cortes de cutter, en orden (`metros.ts`). */
+  cortes?: CorteManual[];
 }
 
 const redondear2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -53,7 +58,6 @@ function sobrantes(W: number, H: number, w: number, h: number): Panel[] {
 
 export interface OpcionesCobro {
   precioPlancha: number;
-  recargoPct: number;
   fracciones: Fraccion[];
   rotar: boolean;
   kerf: number;
@@ -73,6 +77,7 @@ export function cobrarPlancha(
   const completa: Cobro = {
     nombre: "1",
     factor: 1,
+    recargoPct: 0,
     ancho: W,
     alto: H,
     monto: redondear2(o.precioPlancha),
@@ -115,9 +120,10 @@ export function cobrarPlancha(
         cobro: {
           nombre: f.nombre,
           factor: f.factor,
+          recargoPct: f.recargoPct,
           ancho: w,
           alto: h,
-          monto: redondear2(o.precioPlancha * f.factor * (1 + o.recargoPct / 100)),
+          monto: redondear2(o.precioPlancha * f.factor * (1 + f.recargoPct / 100)),
           nota: null,
         },
       };
@@ -143,7 +149,6 @@ export const opcionesDeCobro = (
   kerf: number,
 ): OpcionesCobro => ({
   precioPlancha,
-  recargoPct: config.cobro.recargoPct,
   fracciones: config.cobro.fracciones,
   rotar,
   kerf,

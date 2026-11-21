@@ -28,7 +28,7 @@ test.afterAll(async () => {
   }
 });
 
-test("Administración cambia el precio del corte manual y queda guardado", async ({ page }) => {
+test("Administración cambia la tarifa del corte manual y el recargo de una fracción", async ({ page }) => {
   await entrar(page, "administracion");
   await page.getByRole("link", { name: "Configuración" }).click();
   await expect(page.getByRole("heading", { name: "Configuración" })).toBeVisible();
@@ -36,27 +36,30 @@ test("Administración cambia el precio del corte manual y queda guardado", async
   const guardar = page.getByRole("button", { name: "Guardar cambios" });
   await expect(guardar).toBeDisabled();
 
-  // Una excepción: a mano también se corta 8 mm.
+  // Una excepción: a mano también se corta hasta 8 mm.
   const manual = page.locator("section").filter({ hasText: "Corte manual" }).first();
   await manual.getByRole("button", { name: "Agregar espesor" }).click();
-  const filas = await manual.getByLabel(/^Espesor, fila \d+ de corte manual$/).count();
-  await page.getByLabel(`Espesor, fila ${filas} de corte manual`).fill("8");
-  await page.getByLabel(`Precio por pieza, fila ${filas} de corte manual`).fill("9.5");
-  await page.getByLabel("Recargo por fracción").fill("25");
+  const filas = await manual.getByLabel(/^Hasta, fila \d+ de corte manual$/).count();
+  await page.getByLabel(`Hasta, fila ${filas} de corte manual`).fill("8");
+  await page.getByLabel(`Por metro lineal, fila ${filas} de corte manual`).fill("9.5");
+  await page.getByLabel("Recargo de media plancha").fill("15");
 
   await guardar.click();
   await expect(page.getByText("Configuración de cortes guardada")).toBeVisible();
 
   await page.reload();
-  await expect(page.getByLabel("Recargo por fracción")).toHaveValue("25");
-  await expect(page.getByLabel(`Espesor, fila ${filas} de corte manual`)).toHaveValue("8");
-  await expect(page.getByLabel(`Precio por pieza, fila ${filas} de corte manual`)).toHaveValue("9.5");
+  await expect(page.getByLabel("Recargo de media plancha")).toHaveValue("15");
+  await expect(page.getByLabel(`Hasta, fila ${filas} de corte manual`)).toHaveValue("8");
+  await expect(page.getByLabel(`Por metro lineal, fila ${filas} de corte manual`)).toHaveValue("9.5");
 
   const supabase = await sesionDe("administracion");
   const { data } = await supabase.from("configuracion").select("valor").eq("clave", "cortes").single();
-  const valor = data!.valor as { cobro: { recargoPct: number }; manual: { precios: { mm: number; precio: number }[] } };
-  expect(valor.cobro.recargoPct).toBe(25);
-  expect(valor.manual.precios).toContainEqual({ mm: 8, precio: 9.5 });
+  const valor = data!.valor as {
+    cobro: { fracciones: { nombre: string; recargoPct: number }[] };
+    manual: { tarifas: { hastaMm: number; solesPorMetro: number }[] };
+  };
+  expect(valor.cobro.fracciones).toContainEqual(expect.objectContaining({ nombre: "1/2", recargoPct: 15 }));
+  expect(valor.manual.tarifas).toContainEqual({ hastaMm: 8, solesPorMetro: 9.5 });
 });
 
 test("un número que no sirve se rechaza diciendo cuál", async ({ page }) => {
