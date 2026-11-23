@@ -84,3 +84,45 @@ export async function buscarUnaVez<T>(url: string): Promise<RespuestaBusqueda<T>
     return null;
   }
 }
+
+/**
+ * Los productos de unos códigos, en ese orden, contra la ruta de búsqueda de la
+ * pantalla (`?codigos=`). Sin códigos no pregunta. Lo usan los pasos de "Buscar
+ * plancha" y "Buscar accesorio".
+ */
+export function useProductosPorCodigo<T>(ruta: string, codigos: readonly string[]) {
+  const clave = codigos.join(",");
+  const [estado, setEstado] = useState<{
+    clave: string;
+    resultados: RespuestaBusqueda<T>["resultados"];
+    error: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!clave) return;
+    const ctrl = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch(`${ruta}?codigos=${encodeURIComponent(clave)}`, { signal: ctrl.signal });
+        const json = (await res.json()) as RespuestaBusqueda<T> & { error?: string };
+        setEstado(
+          res.ok
+            ? { clave, resultados: json.resultados, error: null }
+            : { clave, resultados: [], error: json.error ?? "No se pudieron leer los productos." },
+        );
+      } catch {
+        if (!ctrl.signal.aborted) {
+          setEstado({ clave, resultados: [], error: "No se pudieron leer los productos. Revisa la conexión." });
+        }
+      }
+    })();
+    return () => ctrl.abort();
+  }, [ruta, clave]);
+
+  const actual = clave && estado?.clave === clave ? estado : null;
+  return {
+    resultados: actual?.resultados ?? [],
+    error: actual?.error ?? null,
+    cargando: !!clave && !actual,
+  };
+}

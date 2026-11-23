@@ -7,13 +7,15 @@
  * `?exacto=1` devuelve solo coincidencias exactas de código: es lo que pide el
  * formulario cuando se da Enter antes de que llegue la búsqueda normal, que es
  * lo que hace un lector de código de barras.
+ * `?codigos=A,B` devuelve esos productos en ese orden: los pasos de "Buscar
+ * plancha" y "Buscar accesorio".
  */
 
 import type { NextRequest } from "next/server";
 import { buscarProductos, productosPorId } from "@/lib/odoo/catalogos";
 import { popularidadProductos } from "@/lib/cotizaciones-servidor";
 import type { ProductoOdoo, RespuestaBusqueda } from "@/lib/odoo/tipos";
-import { consultaDe, errorDeBusqueda, puertaDeBusqueda } from "../respuesta";
+import { codigosDe, consultaDe, errorDeBusqueda, puertaDeBusqueda, respuestaPorCodigos } from "../respuesta";
 
 const SUGERIDOS = 8;
 
@@ -23,8 +25,11 @@ export async function GET(request: NextRequest) {
 
   const q = consultaDe(request.nextUrl);
   const soloCodigoExacto = request.nextUrl.searchParams.get("exacto") === "1";
+  const codigos = codigosDe(request.nextUrl);
 
   try {
+    if (codigos) return Response.json(await respuestaPorCodigos(codigos));
+
     const popularidad = await popularidadProductos();
 
     if (!q) {
