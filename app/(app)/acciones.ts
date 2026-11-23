@@ -565,7 +565,7 @@ export async function editarEnvio(codigo: string, entrada: unknown): Promise<Res
  */
 export async function registrarAbono(entrada: unknown): Promise<Resultado> {
   const perfil: Perfil = await exigirSesion();
-  if (!ROLES[perfil.rol].verMontos) return fallo("Solo Administración registra abonos.");
+  if (!ROLES[perfil.rol].editarTodo) return fallo("Solo Administración registra abonos.");
 
   const datos = esquemaAbono.safeParse(entrada);
   if (!datos.success) return falloDeEsquema(datos.error);

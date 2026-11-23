@@ -4,7 +4,7 @@
  * Cuando entre Supabase (Fase 1), estos tipos son el contrato del cliente.
  */
 
-export type Rol = "administracion" | "logistica" | "operaciones";
+export type Rol = "administracion" | "logistica" | "operaciones" | "ventas";
 export type TipoPedido = "CL" | "CM" | "SP" | "PT" | "AC";
 export type ProductoTerminado =
   | "cajas"
@@ -329,8 +329,12 @@ export interface PermisosRol {
    * `gestiona_stock()` en la base.
    */
   gestionarStock: boolean;
+  /** Ver los precios de venta del almacén y descargar la lista de precios. */
+  verPrecios: boolean;
   /** Cambiar el precio de venta de planchas, accesorios y sobrantes. */
   editarPrecios: boolean;
+  /** Recibir una transferencia en camino: lo hace quien trabaja en el almacén de destino. */
+  recibirTransferencias: boolean;
   /**
    * Cerrar los casos de stock (bajas reportadas y diferencias de conteo) con una
    * razón, aplicándolos en Odoo o descartándolos. Como `cerrar_caso()` en la base.
@@ -365,7 +369,9 @@ export const ROLES: Record<Rol, PermisosRol> = {
     configurar: true,
     verAlmacen: true,
     gestionarStock: true,
+    verPrecios: true,
     editarPrecios: true,
+    recibirTransferencias: true,
     cerrarCasos: true,
     usarChat: true,
     usarCad: true,
@@ -393,7 +399,9 @@ export const ROLES: Record<Rol, PermisosRol> = {
     configurar: false,
     verAlmacen: true,
     gestionarStock: true,
+    verPrecios: true,
     editarPrecios: false,
+    recibirTransferencias: true,
     cerrarCasos: false,
     usarChat: true,
     usarCad: true,
@@ -421,7 +429,40 @@ export const ROLES: Record<Rol, PermisosRol> = {
     configurar: false,
     verAlmacen: true,
     gestionarStock: false,
+    verPrecios: false,
     editarPrecios: false,
+    recibirTransferencias: true,
+    cerrarCasos: false,
+    usarChat: true,
+    usarCad: true,
+  },
+  ventas: {
+    nombre: "Ventas",
+    descripcion:
+      "Cotiza y registra pedidos · ve montos, facturas y pagos · solo lee productos, stock y precios · sin métricas ni configuración",
+    // Abre en los pedidos que registró; "todos" para consultar el estado de cualquiera.
+    alcances: ["mios", "todos"],
+    base: () => true,
+    verCliente: true,
+    verTelefonoCliente: true,
+    verMontos: true,
+    verEnvioCompleto: true,
+    verAuditoria: false,
+    crearPedido: true,
+    editarTodo: false,
+    editarUbicacion: false,
+    asignarResponsable: false,
+    editarEnvio: false,
+    adjuntarArchivos: false,
+    usarAgenteCotizacion: true,
+    gestionarCotizaciones: true,
+    verMetricas: false,
+    configurar: false,
+    verAlmacen: true,
+    gestionarStock: false,
+    verPrecios: true,
+    editarPrecios: false,
+    recibirTransferencias: false,
     cerrarCasos: false,
     usarChat: true,
     usarCad: true,

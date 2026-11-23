@@ -22,7 +22,7 @@ const texto = (mensaje: string, status: number) =>
 export async function GET(request: NextRequest) {
   const perfil = await perfilActual();
   if (!perfil || bienvenidaPendiente(perfil)) return texto("Inicia sesión para descargar la lista de precios.", 401);
-  if (!ROLES[perfil.rol].gestionarStock) return texto("No tienes permiso para ver los precios.", 403);
+  if (!ROLES[perfil.rol].verPrecios) return texto("No tienes permiso para ver los precios.", 403);
 
   const params = request.nextUrl.searchParams;
   const diseno = params.get("diseno");

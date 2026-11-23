@@ -17,6 +17,7 @@ const VISTA_POR_ROL = {
   administracion: "pedidos_admin",
   logistica: "pedidos_logistica",
   operaciones: "pedidos_operaciones",
+  ventas: "pedidos_ventas",
 } as const;
 
 /** Las vistas devuelven todas las columnas como nullable; esto lo aterriza. */

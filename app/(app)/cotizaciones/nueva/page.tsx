@@ -1,5 +1,6 @@
 import { after } from "next/server";
 import { exigirCotizaciones } from "@/lib/sesion";
+import { ROLES } from "@/lib/dominio";
 import { cargarCatalogoPlanchas, cargarConfigCortes } from "@/lib/cortes-servidor";
 import { cargarCatalogoTerminados } from "@/lib/terminados-servidor";
 import { calentarCatalogos } from "@/lib/odoo/catalogos";
@@ -43,7 +44,7 @@ export default async function Page({ searchParams }: PageProps<"/cotizaciones/nu
     cargarConfigCortes(),
     cargarCatalogoTerminados(true),
     plantillasDelMotor(),
-    catalogoParaDiseno(perfil.rol === "administracion"),
+    catalogoParaDiseno(ROLES[perfil.rol].verPrecios),
   ]);
 
   // Retomar un borrador: arranca como quedó. Su diseño ya está entre sus líneas,

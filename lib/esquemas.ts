@@ -507,7 +507,7 @@ export const esquemaNuevoUsuario = z.object({
     .trim()
     .min(2, "Escribe el nombre")
     .max(80, "Como máximo 80 caracteres"),
-  rol: z.enum(["administracion", "logistica", "operaciones"], "Elige un rol"),
+  rol: z.enum(["administracion", "logistica", "operaciones", "ventas"], "Elige un rol"),
   correo: campoCorreo.refine(
     (v) => v === "" || z.email().safeParse(v).success,
     "Ese correo no es válido",

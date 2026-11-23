@@ -23,9 +23,11 @@ const COLOR_ESTADO: Record<TransferenciaResumen["estado"], string> = {
 export function ListaTransferencias({
   transferencias,
   gestiona,
+  recibe,
 }: {
   transferencias: TransferenciaResumen[];
   gestiona: boolean;
+  recibe: boolean;
 }) {
   const [pendiente, iniciar] = useTransition();
 
@@ -87,10 +89,12 @@ export function ListaTransferencias({
                     Anular
                   </Button>
                 )}
-                <Button size="sm" className="gap-1.5" onClick={() => hacer(t, "recibir")} disabled={pendiente} aria-label={`Recibir ${t.codigo}`}>
-                  <PackageCheck className="size-3.5" />
-                  Recibir
-                </Button>
+                {recibe && (
+                  <Button size="sm" className="gap-1.5" onClick={() => hacer(t, "recibir")} disabled={pendiente} aria-label={`Recibir ${t.codigo}`}>
+                    <PackageCheck className="size-3.5" />
+                    Recibir
+                  </Button>
+                )}
               </div>
             )}
           </div>

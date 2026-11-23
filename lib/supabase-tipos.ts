@@ -3072,6 +3072,78 @@ export type Database = {
           },
         ]
       }
+      pedidos_ventas: {
+        Row: {
+          cantidad: number | null
+          codigo: string | null
+          creado_por: string | null
+          departamento: string | null
+          departamento_id: number | null
+          detalle: string | null
+          direccion_entrega: string | null
+          es_provincia: boolean | null
+          estado: Database["public"]["Enums"]["estado_pedido"] | null
+          fecha_anulacion: string | null
+          fecha_creacion: string | null
+          fecha_entrega: string | null
+          fecha_prometida: string | null
+          flete_pagado: boolean | null
+          id: string | null
+          lugar_entrega: Database["public"]["Enums"]["lugar_entrega"] | null
+          monto_flete: number | null
+          motivo: string | null
+          nombre_agencia: string | null
+          nombre_cliente: string | null
+          nombre_persona_recoge: string | null
+          notas_entrega: string | null
+          numero_documento: string | null
+          observaciones: string | null
+          observaciones_envio: string | null
+          provincia: string | null
+          provincia_id: number | null
+          responsable: string | null
+          responsable_id: string | null
+          telefono_cliente: string | null
+          telefono_persona_recoge: string | null
+          tiene_comprobante: boolean | null
+          tipo_documento: Database["public"]["Enums"]["tipo_documento"] | null
+          tipo_producto_terminado:
+            | Database["public"]["Enums"]["producto_terminado"]
+            | null
+          tipos_pedido: Database["public"]["Enums"]["tipo_pedido"][] | null
+          ubicacion_actual: Database["public"]["Enums"]["ubicacion"] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "envios_provincia_departamento_id_fkey"
+            columns: ["departamento_id"]
+            isOneToOne: false
+            referencedRelation: "departamentos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "envios_provincia_pertenece_al_departamento"
+            columns: ["provincia_id", "departamento_id"]
+            isOneToOne: false
+            referencedRelation: "provincias"
+            referencedColumns: ["id", "departamento_id"]
+          },
+          {
+            foreignKeyName: "pedidos_creado_por_fkey"
+            columns: ["creado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pedidos_responsable_id_fkey"
+            columns: ["responsable_id"]
+            isOneToOne: false
+            referencedRelation: "trabajadores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       productos_mas_cotizados: {
         Row: {
           odoo_product_id: number | null
@@ -3579,7 +3651,7 @@ export type Database = {
         | "lamina_plegada"
         | "letras"
         | "manual"
-      rol: "administracion" | "logistica" | "operaciones"
+      rol: "administracion" | "logistica" | "operaciones" | "ventas"
       sincronizacion_odoo: "pendiente" | "sincronizada" | "error"
       tipo_adjunto: "diseno" | "factura" | "guia" | "foto_entrega"
       tipo_documento: "DNI" | "CE"
@@ -3775,7 +3847,7 @@ export const Constants = {
         "letras",
         "manual",
       ],
-      rol: ["administracion", "logistica", "operaciones"],
+      rol: ["administracion", "logistica", "operaciones", "ventas"],
       sincronizacion_odoo: ["pendiente", "sincronizada", "error"],
       tipo_adjunto: ["diseno", "factura", "guia", "foto_entrega"],
       tipo_documento: ["DNI", "CE"],
