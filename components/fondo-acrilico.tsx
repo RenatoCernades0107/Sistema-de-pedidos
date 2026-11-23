@@ -24,16 +24,16 @@ export function FondoAcrilico({ className }: { className?: string }) {
     >
       <defs>
         <linearGradient id={fondo} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#004c8f" />
-          <stop offset="1" stopColor="#00284d" />
+          <stop offset="0" stopColor="#1f15c4" />
+          <stop offset="1" stopColor="#110a6e" />
         </linearGradient>
         <linearGradient id={plancha} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0" stopColor="#ffffff" stopOpacity="0.14" />
           <stop offset="1" stopColor="#ffffff" stopOpacity="0.02" />
         </linearGradient>
         <linearGradient id={amarilla} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#ffc200" stopOpacity="0.55" />
-          <stop offset="1" stopColor="#ffc200" stopOpacity="0.08" />
+          <stop offset="0" stopColor="#e2cb01" stopOpacity="0.55" />
+          <stop offset="1" stopColor="#e2cb01" stopOpacity="0.08" />
         </linearGradient>
         <linearGradient id={brillo} x1="0" y1="0" x2="1" y2="0">
           <stop offset="0" stopColor="#ffffff" stopOpacity="0" />
@@ -45,7 +45,7 @@ export function FondoAcrilico({ className }: { className?: string }) {
       <g transform="rotate(-18 450 200)">
         <rect className="plancha" x="330" y="-60" width="300" height="380" rx="18" fill={`url(#${plancha})`} stroke="#fff" strokeOpacity="0.18" />
         <rect className="plancha plancha-2" x="390" y="10" width="300" height="380" rx="18" fill={`url(#${plancha})`} stroke="#fff" strokeOpacity="0.12" />
-        <rect className="plancha plancha-3" x="455" y="90" width="210" height="260" rx="16" fill={`url(#${amarilla})`} stroke="#ffc200" strokeOpacity="0.5" />
+        <rect className="plancha plancha-3" x="455" y="90" width="210" height="260" rx="16" fill={`url(#${amarilla})`} stroke="#e2cb01" strokeOpacity="0.5" />
       </g>
       <g transform="rotate(14 120 700)">
         <rect className="plancha plancha-4" x="-80" y="600" width="320" height="260" rx="18" fill={`url(#${plancha})`} stroke="#fff" strokeOpacity="0.12" />

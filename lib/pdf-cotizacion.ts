@@ -83,7 +83,7 @@ export function partirEnRenglones(texto: string, fuente: PDFFont, tamano: number
 
 const A4: [number, number] = [595.28, 841.89];
 const MARGEN = 48;
-const AZUL = rgb(0.07, 0.24, 0.53);
+const AZUL = rgb(31 / 255, 21 / 255, 196 / 255); // El azul del logo.
 const GRIS = rgb(0.42, 0.45, 0.5);
 const LINEA = rgb(0.86, 0.88, 0.91);
 const FONDO = rgb(0.96, 0.97, 0.98);
