@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
+import logo from "@/public/logo-plexiacril.webp";
 import { usePathname } from "next/navigation";
 import { motion } from "motion/react";
 import {
@@ -158,12 +160,9 @@ export function AppShell({
         <div className="flex h-14 items-center gap-3 px-4">
           {/* A la raíz, no a /admin: el taller no tiene esa vista. */}
           <Link href="/" className="flex items-center gap-2.5 rounded-md">
-            {/* Marca: azul y amarillo del logotipo, sin intermediarios */}
-            <span className="bg-primary text-brand grid size-7 place-items-center rounded-md text-xs font-bold">
-              P
-            </span>
-            <span className="hidden text-sm leading-tight font-semibold tracking-tight sm:block">
-              Plexiacril
+            {/* El logotipo; en oscuro va sobre blanco, que el azul se pierde sobre negro. */}
+            <span className="dark:rounded-md dark:bg-white dark:px-1.5 dark:py-1">
+              <Image src={logo} alt="Plexiacril" priority className="h-7 w-auto" />
             </span>
           </Link>
 
