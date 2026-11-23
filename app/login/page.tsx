@@ -21,7 +21,7 @@ export default function LoginPage() {
   return (
     <main className="grid min-h-dvh lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
       {/* ── Panel de marca (solo en pantallas anchas) ── */}
-      <aside className="relative hidden overflow-hidden bg-[#003a6e] text-white lg:flex lg:flex-col lg:justify-between lg:p-12 xl:p-16">
+      <aside className="relative hidden overflow-hidden bg-[#1a12a8] text-white lg:flex lg:flex-col lg:justify-between lg:p-12 xl:p-16">
         <FondoAcrilico />
 
         <span className="relative text-xs font-medium tracking-[0.2em] text-white/70 uppercase">
@@ -30,7 +30,7 @@ export default function LoginPage() {
 
         <div className="relative max-w-md">
           <h2 className="text-[2.5rem] leading-[1.1] font-semibold tracking-tight text-balance">
-            Cada pedido, <span className="text-[#ffc200]">bajo control</span>.
+            Cada pedido, <span className="text-[#e2cb01]">bajo control</span>.
           </h2>
           <p className="mt-4 text-[0.95rem] leading-relaxed text-white/75">
             La plataforma interna de Plexiacril para administración, logística y
@@ -41,7 +41,7 @@ export default function LoginPage() {
             {PUNTOS.map(({ icono: Icono, texto }) => (
               <li key={texto} className="flex items-center gap-3 text-sm text-white/90">
                 <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-white/10 ring-1 ring-white/15">
-                  <Icono className="size-4 text-[#ffc200]" />
+                  <Icono className="size-4 text-[#e2cb01]" />
                 </span>
                 {texto}
               </li>
