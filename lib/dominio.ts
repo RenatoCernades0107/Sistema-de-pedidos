@@ -439,13 +439,13 @@ export const ROLES: Record<Rol, PermisosRol> = {
   ventas: {
     nombre: "Ventas",
     descripcion:
-      "Cotiza y registra pedidos · solo lee productos, stock y precios · sin métricas ni configuración",
+      "Cotiza y registra pedidos · ve montos, facturas y pagos · solo lee productos, stock y precios · sin métricas ni configuración",
     // Abre en los pedidos que registró; "todos" para consultar el estado de cualquiera.
     alcances: ["mios", "todos"],
     base: () => true,
     verCliente: true,
     verTelefonoCliente: true,
-    verMontos: false,
+    verMontos: true,
     verEnvioCompleto: true,
     verAuditoria: false,
     crearPedido: true,

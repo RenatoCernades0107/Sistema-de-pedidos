@@ -4,10 +4,11 @@
 --   · Cotiza y registra pedidos. Ve solo SUS cotizaciones; Administración ve todas.
 --   · Lee el catálogo y los precios que usa el cotizador (solo lectura).
 --   · Lee el almacén y el stock (la política de lectura ya cubre a todo rol).
---   · Ve los pedidos como Logística: cliente y envío, sin montos, sin factura.
+--   · Ve los pedidos completos como Administración: cliente, envío, montos,
+--     comprobante, facturas y pagos. Sin auditoría.
 --   · No cambia estados, ubicación ni responsable de un pedido (el trigger
 --     `pedidos_escritura_por_rol` ya deja a todo rol desconocido sin columnas).
---   · No lee ni escribe pagos, salvo el abono inicial del pedido que registra.
+--   · Lee los pagos, pero solo registra el abono inicial del pedido que crea.
 
 create function public.es_ventas()
 returns boolean
@@ -88,14 +89,17 @@ create policy pagos_alta_ventas on public.pagos
     )
   );
 
--- Los pedidos que lee Ventas: lo de Logística (cliente y envío), sin dinero.
+-- Los pedidos que lee Ventas: lo de Administración (cliente, envío, dinero y
+-- comprobante). La auditoría es otra vista y sigue siendo solo de Administración.
 create view public.pedidos_ventas as
 select
   o.*,
   p.telefono_cliente, p.direccion_entrega, p.creado_por,
   e.nombre_agencia, e.nombre_persona_recoge, e.tipo_documento, e.numero_documento,
   e.telefono_persona_recoge, e.monto_flete, e.flete_pagado, e.observaciones_envio,
-  e.departamento_id, e.provincia_id
+  e.departamento_id, e.provincia_id,
+  p.tipo_pago, p.plazo_credito_dias, p.monto_total, p.monto_pagado, p.saldo, p.pagado,
+  p.numero_comprobante
 from public.pedidos_operaciones o
 join public.pedidos p on p.id = o.id
 left join public.envios_provincia e on e.pedido_id = p.id
@@ -103,27 +107,48 @@ where public.es_ventas();
 
 grant select on public.pedidos_ventas to authenticated;
 
--- ── Adjuntos: Ventas lee como el taller (diseños y fotos), no las facturas ──
+-- Los abonos de cada pedido: Administración y Ventas.
+create or replace view public.pagos_pedido as
+select
+  p.id,
+  p.pedido_id,
+  p.monto,
+  p.metodo,
+  p.fecha,
+  u.nombre as usuario
+from public.pagos p
+left join public.usuarios u on u.id = p.registrado_por
+where public.auth_rol() in ('administracion', 'ventas');
 
-drop policy adjuntos_lectura on public.adjuntos;
-create policy adjuntos_lectura on public.adjuntos
-  for select to authenticated
-  using (
-    public.auth_rol() is not null
-    and (public.auth_rol() not in ('operaciones', 'ventas') or tipo in ('diseno', 'foto_entrega'))
-  );
+-- Las líneas de un pedido traen sus precios e importes a quien ve el dinero.
+-- `lineas_de_pedido` y `lineas_de_pedidos` comparan con `es_admin()`: se
+-- reescriben desde su definición vigente, con `ve_precios()` en su lugar.
+create function public.ve_precios()
+returns boolean
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  select coalesce(public.auth_rol() in ('administracion', 'ventas'), false)
+$$;
 
-drop policy adjuntos_storage_lectura on storage.objects;
-create policy adjuntos_storage_lectura on storage.objects
-  for select to authenticated
-  using (
-    bucket_id = 'adjuntos'
-    and public.auth_rol() is not null
-    and (
-      public.auth_rol() not in ('operaciones', 'ventas')
-      or (storage.foldername(name))[3] in ('diseno', 'foto_entrega')
-    )
-  );
+revoke execute on function public.ve_precios() from public, anon;
+grant execute on function public.ve_precios() to authenticated;
+
+do $$
+declare
+  f record;
+begin
+  for f in
+    select pg_get_functiondef(p.oid) as def
+      from pg_proc p
+     where p.pronamespace = 'public'::regnamespace
+       and p.proname in ('lineas_de_pedido', 'lineas_de_pedidos')
+       and p.prosrc like '%public.es_admin()%'
+  loop
+    execute replace(f.def, 'public.es_admin()', 'public.ve_precios()');
+  end loop;
+end $$;
 
 -- ── Ventanillas que hoy son de Administración y Logística ───────────────────
 -- Las mismas funciones, con el rol de Ventas en la lista.

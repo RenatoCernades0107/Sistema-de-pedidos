@@ -953,6 +953,7 @@ const Vacio = ({
 }) => <span className="text-muted-foreground/70 italic">{children}</span>;
 
 function PanelPago({ pedido: p }: { pedido: Pedido }) {
+  const { permisos } = useStore();
   const saldo = saldoDe(p);
   const pct = p.montoTotal
     ? Math.min(100, Math.round((p.montoPagado / p.montoTotal) * 100))
@@ -1007,7 +1008,7 @@ function PanelPago({ pedido: p }: { pedido: Pedido }) {
           />
         </div>
 
-        {saldo > 0 && <RegistrarAbono pedido={p} />}
+        {saldo > 0 && permisos.editarTodo && <RegistrarAbono pedido={p} />}
 
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs">
           <p>

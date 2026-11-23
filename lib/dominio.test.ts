@@ -72,9 +72,10 @@ describe("gruposDe", () => {
   it("Ventas cotiza y registra pedidos, ve precios, y no gestiona stock ni cambia pedidos", () => {
     const v = ROLES.ventas;
     expect([v.gestionarCotizaciones, v.crearPedido, v.verAlmacen, v.verPrecios, v.usarCad]).toEqual([true, true, true, true, true]);
-    expect([v.gestionarStock, v.editarPrecios, v.verMetricas, v.configurar, v.verMontos, v.editarTodo, v.editarUbicacion]).toEqual([
-      false, false, false, false, false, false, false,
+    expect([v.gestionarStock, v.editarPrecios, v.verMetricas, v.configurar, v.editarTodo, v.editarUbicacion]).toEqual([
+      false, false, false, false, false, false,
     ]);
+    expect([v.verMontos, v.verEnvioCompleto]).toEqual([true, true]);
   });
 
   it("sin el Chat, que en el celular tiene pestaña propia, el grupo principal desaparece", () => {
