@@ -52,7 +52,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { BuscadorCliente } from "@/components/cotizaciones/buscador-cliente";
-import { BuscadorProducto, CodigoProducto } from "@/components/cotizaciones/buscador-producto";
+import { CodigoProducto } from "@/components/cotizaciones/buscador-producto";
+import { BarraAgregar } from "@/components/cotizaciones/barra-agregar";
 import { lineaParaEnviar } from "@/components/cotizaciones/form-cotizacion";
 import { IndicacionesDeLinea, LineasCotizacion } from "@/components/cotizaciones/lineas-cotizacion";
 import { tituloCorte } from "@/lib/cortes/guardado";
@@ -591,40 +592,36 @@ export function NuevoPedidoForm({
           ) : (
             <>
               <BuscadorCliente cliente={cliente} alElegir={elegirCliente} inputRef={buscadorCliente} />
-              {/* En una sola fila siempre: si el botón bajara de línea, la lista de
-                  resultados del buscador lo taparía. */}
-              <div className="flex items-start gap-2">
-                <div className="min-w-0 flex-1">
-                  <BuscadorProducto alAgregar={agregar} inputRef={buscadorProducto} />
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-10 shrink-0 gap-1.5"
-                  aria-label="Corte a medida"
-                  onClick={() => setCorte({ clave: null })}
-                  disabled={catalogo.length === 0}
-                  title={catalogo.length === 0 ? "No hay planchas en el catálogo" : undefined}
-                >
-                  <Scissors />
-                  <span>
-                    Corte<span className="hidden sm:inline"> a medida</span>
-                  </span>
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-10 shrink-0 gap-1.5"
-                  aria-label="Producto terminado"
-                  onClick={() => void terminadosCad.nuevo()}
-                  disabled={terminadosCad.abriendo}
-                >
-                  {terminadosCad.abriendo ? <Loader2 className="animate-spin" /> : <Package />}
-                  <span>
-                    <span className="hidden sm:inline">Producto </span>terminado
-                  </span>
-                </Button>
-              </div>
+              <BarraAgregar
+                alAgregar={agregar}
+                inputRef={buscadorProducto}
+                catalogo={catalogo}
+                acciones={
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-10 gap-1.5"
+                      onClick={() => setCorte({ clave: null })}
+                      disabled={catalogo.length === 0}
+                      title={catalogo.length === 0 ? "No hay planchas en el catálogo" : undefined}
+                    >
+                      <Scissors />
+                      Corte a medida
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-10 gap-1.5"
+                      onClick={() => void terminadosCad.nuevo()}
+                      disabled={terminadosCad.abriendo}
+                    >
+                      {terminadosCad.abriendo ? <Loader2 className="animate-spin" /> : <Package />}
+                      Producto terminado
+                    </Button>
+                  </>
+                }
+              />
               <LineasCotizacion
                 lineas={lineas}
                 resaltada={resaltada}

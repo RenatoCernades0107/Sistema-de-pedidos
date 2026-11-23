@@ -46,7 +46,7 @@ import { nombreDeGrupo, type GrupoPlancha } from "@/lib/cortes/catalogo";
 import { VisorArchivo } from "@/components/visor-archivo";
 import { urlAdjunto } from "@/app/(app)/adjuntos-acciones";
 import { cantidadDeMaterial } from "@/lib/terminados/guardado";
-import { BuscadorProducto } from "@/components/cotizaciones/buscador-producto";
+import { BarraAgregar } from "@/components/cotizaciones/barra-agregar";
 import { Input } from "@/components/ui/input";
 import type { ProductoOdoo } from "@/lib/odoo/tipos";
 import { cn } from "@/lib/utils";
@@ -713,8 +713,9 @@ export function MaterialesPedido({
                         <td className="tnum text-muted-foreground py-2 pr-3 pl-4 align-top">{filas.length === 0 ? l.posicion : ""}</td>
                         <td colSpan={3} className="py-2 pr-4">
                           <div className="max-w-md">
-                            <BuscadorProducto
+                            <BarraAgregar
                               alAgregar={(prod) => agregarMaterial(l.posicion, prod)}
+                              catalogo={catalogo}
                               ruta="/api/terminados/materiales"
                               sinPrecio
                               etiqueta={`Agregar material usado en ${l.terminado.nombre}`}
