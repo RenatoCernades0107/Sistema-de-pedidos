@@ -205,7 +205,7 @@ export async function crearTransferencia(entrada: unknown) {
 /** Recibe una transferencia en camino. Lo hace también el taller: es quien recibe lo que le llega. */
 export async function recibirTransferencia(id: unknown): Promise<ResultadoAlmacen> {
   const perfil = await exigirSesion();
-  if (!ROLES[perfil.rol].verAlmacen) return { ok: false, error: "Tu rol no recibe transferencias." };
+  if (!ROLES[perfil.rol].recibirTransferencias) return { ok: false, error: "Tu rol no recibe transferencias." };
   if (typeof id !== "string") return { ok: false, error: "Esa transferencia no existe." };
   const r = await transferencias.recibirTransferencia(id, ROLES[perfil.rol].gestionarStock);
   refresh();

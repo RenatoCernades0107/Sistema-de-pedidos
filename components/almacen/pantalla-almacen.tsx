@@ -113,7 +113,7 @@ export function PantallaAlmacen({
             {!permisos.gestionarStock && " Puedes verlo; lo cambian Administración y Logística."}
           </p>
         </div>
-        {permisos.gestionarStock && (
+        {(permisos.gestionarStock || permisos.verPrecios) && (
           <div className="flex flex-wrap gap-2">
             {permisos.verPrecios && (
               <Button variant="outline" className="gap-1.5" onClick={() => setDialogo("lista")} disabled={!odooConectado}>
@@ -121,6 +121,8 @@ export function PantallaAlmacen({
                 Lista de precios
               </Button>
             )}
+            {permisos.gestionarStock && (
+              <>
             <Button variant="outline" className="gap-1.5" onClick={() => setDialogo("almacenes")}>
               <Warehouse className="size-4" />
               Almacenes
@@ -141,6 +143,8 @@ export function PantallaAlmacen({
               <PackagePlus className="size-4" />
               Ingresar stock
             </Button>
+              </>
+            )}
           </div>
         )}
       </header>
@@ -274,7 +278,7 @@ export function PantallaAlmacen({
             <h2 id="titulo-transferencias" className="text-sm font-semibold">
               Transferencias
             </h2>
-            <ListaTransferencias transferencias={transferencias} gestiona={permisos.gestionarStock} />
+            <ListaTransferencias transferencias={transferencias} gestiona={permisos.gestionarStock} recibe={permisos.recibirTransferencias} />
           </section>
           {permisos.gestionarStock && (
             <section className="mt-6 flex flex-col gap-2" aria-labelledby="titulo-ingresos">

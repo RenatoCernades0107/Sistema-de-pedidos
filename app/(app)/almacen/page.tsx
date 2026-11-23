@@ -31,7 +31,7 @@ export default async function Page({ searchParams }: PageProps<"/almacen">) {
   // "ingresos" era la pestaña de antes: ahora está en Movimientos.
   const vista = pedida === "ingresos" ? "movimientos" : (VISTAS.find((v) => v === pedida) ?? "planchas");
 
-  const verPrecios = permisos.gestionarStock;
+  const verPrecios = permisos.verPrecios;
   const gestiona = permisos.gestionarStock;
   const [inventario, sobrantes, catalogo, ingresos, transferencias, faltantes, casos, conteos, conteo] = await Promise.all([
     cargarInventario({ verPrecios, gestionaStock: permisos.gestionarStock }),
@@ -65,6 +65,7 @@ export default async function Page({ searchParams }: PageProps<"/almacen">) {
         editarPrecios: permisos.editarPrecios,
         cerrarCasos: permisos.cerrarCasos,
         verPrecios,
+        recibirTransferencias: permisos.recibirTransferencias,
       }}
       odooConectado={odooConfigurado()}
     />

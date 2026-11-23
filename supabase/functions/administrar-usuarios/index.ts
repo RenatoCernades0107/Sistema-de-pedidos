@@ -26,7 +26,7 @@ const admin = createClient(SUPABASE_URL, CLAVE_SERVICIO, { auth: { persistSessio
 /** Mismo formato que el CHECK `usuarios_usuario_formato` de la base. */
 const FORMATO_USUARIO = /^[a-z0-9][a-z0-9._-]{2,29}$/;
 const FORMATO_CORREO = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-const ROLES = ["administracion", "logistica", "operaciones"];
+const ROLES = ["administracion", "logistica", "operaciones", "ventas"];
 /** Dominio del correo interno de una cuenta que todavía no registró el suyo. */
 const DOMINIO_INTERNO = "plexiacril.test";
 

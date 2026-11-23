@@ -24,8 +24,10 @@ export interface PermisosAlmacen {
   gestionarStock: boolean;
   /** Cambiar precios de venta (Administración). */
   editarPrecios: boolean;
-  /** Ver los precios (Administración y Logística). */
+  /** Ver los precios (Administración, Logística y Ventas). */
   verPrecios: boolean;
+  /** Recibir una transferencia en camino. */
+  recibirTransferencias: boolean;
 }
 
 /** Una cantidad del almacén: sin decimales de más. */

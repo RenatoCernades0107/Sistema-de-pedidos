@@ -27,7 +27,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-const ORDEN_ROLES: Rol[] = ["administracion", "logistica", "operaciones"];
+const ORDEN_ROLES: Rol[] = ["administracion", "logistica", "operaciones", "ventas"];
 
 /**
  * Alta de una cuenta. La contraseña no se escribe: la genera el servidor y vuelve

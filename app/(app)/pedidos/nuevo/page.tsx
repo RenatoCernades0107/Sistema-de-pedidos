@@ -64,7 +64,7 @@ export default async function Page({ searchParams }: PageProps<"/pedidos/nuevo">
     cargarConfigCortes(),
     cargarCatalogoTerminados(true),
     plantillasDelMotor(),
-    catalogoParaDiseno(perfil.rol === "administracion"),
+    catalogoParaDiseno(ROLES[perfil.rol].verPrecios),
   ]);
 
   return (
