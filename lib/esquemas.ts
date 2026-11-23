@@ -20,6 +20,7 @@ import { admiteDecimales, type TipoPedido } from "./dominio";
 import { rucValido, soloDigitos, tipoDeDocumento } from "./busqueda-inteligente";
 import { PLANCHAS_MAXIMAS, hastaDosDecimales } from "./pedido-lineas";
 import { hoy } from "./fecha";
+import { LARGO_MAXIMO_PASSWORD, LARGO_MINIMO_PASSWORD, evaluarPassword } from "./fortaleza-password";
 
 /* ── Piezas sueltas ─────────────────────────────────────────────────────────── */
 
@@ -443,22 +444,27 @@ export const esquemaEnlaceTrabajador = z.object({
 /* ── Contraseña ─────────────────────────────────────────────────────────────── */
 
 /**
- * Supabase Auth se conforma con 6 caracteres. Aquí se piden 8 porque la primera
- * contraseña de una cuenta la eligió otra persona y ya circuló por un chat: la
- * que la reemplaza no puede ser igual de corta que la que hubo que tirar.
+ * Supabase Auth se conforma con 6 caracteres. Aquí se exige una contraseña segura
+ * (ver `fortaleza-password.ts`) porque la primera de una cuenta la eligió otra
+ * persona y ya circuló por un chat: la que la reemplaza no puede ser débil.
  *
  * El techo no es una preferencia: bcrypt solo mira los primeros 72 bytes, y
  * GoTrue rechaza lo que pase de ahí con un error que no explica nada.
  */
-export const LARGO_MINIMO_PASSWORD = 8;
-export const LARGO_MAXIMO_PASSWORD = 72;
+export { LARGO_MINIMO_PASSWORD, LARGO_MAXIMO_PASSWORD };
 
 export const esquemaCambioPassword = z
   .object({
     password: z
       .string()
-      .min(LARGO_MINIMO_PASSWORD, `Al menos ${LARGO_MINIMO_PASSWORD} caracteres`)
-      .max(LARGO_MAXIMO_PASSWORD, `Como máximo ${LARGO_MAXIMO_PASSWORD} caracteres`),
+      .max(LARGO_MAXIMO_PASSWORD, `Como máximo ${LARGO_MAXIMO_PASSWORD} caracteres`)
+      .superRefine((valor, ctx) => {
+        // La misma regla que pinta la barra: verde en pantalla ⇔ aceptada aquí.
+        const { nivel, motivo } = evaluarPassword(valor);
+        if (nivel !== "segura") {
+          ctx.addIssue({ code: "custom", message: `La contraseña no es segura. ${motivo ?? ""}`.trim() });
+        }
+      }),
     confirmacion: z.string(),
   })
   .refine((v) => v.password === v.confirmacion, {
