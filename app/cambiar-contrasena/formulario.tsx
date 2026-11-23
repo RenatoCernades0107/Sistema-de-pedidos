@@ -3,7 +3,7 @@
 import { useActionState, useState, useTransition } from "react";
 import { AlertCircle, LoaderCircle, MailCheck } from "lucide-react";
 import { cerrarSesion } from "@/app/login/acciones";
-import { LARGO_MINIMO_PASSWORD } from "@/lib/esquemas";
+import { CampoPasswordNueva } from "@/components/campo-password-nueva";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,22 +37,7 @@ export function FormularioCambioPassword() {
   return (
     <>
       <form action={enviar} className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="password">Contraseña nueva</Label>
-          <Input
-            id="password"
-            name="password"
-            type="password"
-            autoComplete="new-password"
-            minLength={LARGO_MINIMO_PASSWORD}
-            autoFocus
-            required
-            aria-describedby="ayuda-password"
-          />
-          <p id="ayuda-password" className="text-muted-foreground text-xs">
-            Al menos {LARGO_MINIMO_PASSWORD} caracteres.
-          </p>
-        </div>
+        <CampoPasswordNueva autoFocus />
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="confirmacion">Repite la contraseña</Label>

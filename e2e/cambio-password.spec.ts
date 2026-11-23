@@ -7,7 +7,7 @@
  */
 
 import { expect, test } from "@playwright/test";
-import { CONTRASENA, entrar, marcarCambioPendiente } from "./apoyo";
+import { entrar, marcarCambioPendiente } from "./apoyo";
 
 test.beforeAll(async () => {
   await marcarCambioPendiente("logistica", false);
@@ -36,13 +36,30 @@ test("si las dos contraseñas no coinciden, avisa sin llegar a cambiar nada", as
   await entrar(page, "logistica");
   await page.goto("/cuenta/contrasena");
 
-  // A propósito nunca es CONTRASENA: que la nueva coincida con la de siempre
-  // dispararía el mismo aviso por otra razón y no probaría lo que hace falta.
-  await page.getByLabel("Contraseña nueva").fill(`${CONTRASENA}-nueva-1`);
-  await page.getByLabel("Repite la contraseña").fill(`${CONTRASENA}-nueva-2`);
+  // Dos contraseñas seguras y distintas entre sí (y de CONTRASENA): así el único
+  // fallo posible es que no coinciden, no que alguna sea débil.
+  await page.getByLabel("Contraseña nueva").fill("Zorro-Azul-4712");
+  await page.getByLabel("Repite la contraseña").fill("Zorro-Azul-4713");
   await page.getByRole("button", { name: "Guardar cambios" }).click();
 
   await expect(page.getByRole("alert")).toHaveText("Las dos contraseñas no coinciden");
   // Se queda en la misma pantalla: no hubo cambio que redirigir.
   await expect(page).toHaveURL(/\/cuenta\/contrasena/);
+});
+
+test("la barra pasa de roja a amarilla y a verde, y una contraseña débil no se envía", async ({ page }) => {
+  await entrar(page, "logistica");
+  await page.goto("/cuenta/contrasena");
+
+  const campo = page.getByLabel("Contraseña nueva");
+  const barra = page.getByRole("meter", { name: "Seguridad de la contraseña" });
+
+  await campo.fill("abc");
+  await expect(barra).toHaveAttribute("aria-valuetext", "Insegura");
+
+  await campo.fill("Zorrazul1");
+  await expect(barra).toHaveAttribute("aria-valuetext", "Casi: todavía falta algo");
+
+  await campo.fill("Zorro-Azul-4712");
+  await expect(barra).toHaveAttribute("aria-valuetext", "Segura");
 });
