@@ -219,7 +219,7 @@ export function SelectorMaterialPasos({
   );
 }
 
-interface Elemento {
+export interface Elemento {
   clave: string;
   texto: string;
   detalle?: string;
@@ -229,7 +229,7 @@ interface Elemento {
 }
 
 /** Un desplegable con búsqueda: el botón muestra lo elegido y la lista se filtra al escribir. */
-function Combo({
+export function Combo({
   etiqueta,
   testId,
   valor,

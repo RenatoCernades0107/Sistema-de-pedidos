@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Box, CircleAlert, Info, Plus, Trash2 } from "lucide-react";
+import { Box, CircleAlert, Info, Plus, Puzzle, Trash2 } from "lucide-react";
 import { colorDe, nombreDeGrupo, type GrupoPlancha } from "@/lib/cortes/catalogo";
 import { money } from "@/lib/formato";
 import type { LineaTerminado } from "@/lib/lineas-cotizacion";
@@ -50,6 +50,7 @@ import {
 import { parametrosCadDe } from "@/lib/terminados/plantilla-cad";
 import { armadoDeCaja } from "@/lib/terminados/armado";
 import { BuscadorProducto } from "@/components/cotizaciones/buscador-producto";
+import { BuscarAccesorio } from "@/components/cotizaciones/buscar-accesorio";
 import { SelectorMaterialPasos } from "@/components/cortes/selector-material-pasos";
 import { Button } from "@/components/ui/button";
 import { useCerrarConAviso } from "@/components/ui/confirmar-descarte";
@@ -224,6 +225,7 @@ export function EditorTerminado({
   );
   const [reservar, setReservar] = useState(inicial?.reservar ?? false);
   const [buscandoAccesorio, setBuscandoAccesorio] = useState(false);
+  const [porCategoria, setPorCategoria] = useState(false);
 
   /* Lo elegido o escrito, para saber si cerrar pierde algo: se compara con cómo abrió. */
   const foto = JSON.stringify([
@@ -925,9 +927,24 @@ export function EditorTerminado({
               etiqueta="Buscar accesorio"
               enLinea
             />
-            <Button type="button" variant="ghost" size="sm" className="self-end" onClick={() => setBuscandoAccesorio(false)}>
-              Listo
-            </Button>
+            <div className="flex items-center justify-between gap-2">
+              <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => setPorCategoria(true)}>
+                <Puzzle aria-hidden />
+                Buscar por categoría
+              </Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setBuscandoAccesorio(false)}>
+                Listo
+              </Button>
+            </div>
+            <BuscarAccesorio
+              abierto={porCategoria}
+              alCambiar={setPorCategoria}
+              ruta="/api/cotizaciones/buscar/productos"
+              alAgregar={(p) => {
+                agregarAccesorio(p);
+                setBuscandoAccesorio(false);
+              }}
+            />
           </div>
         ) : (
           <Button

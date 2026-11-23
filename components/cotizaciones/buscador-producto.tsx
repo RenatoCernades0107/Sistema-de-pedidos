@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type Ref } from "react";
+import { useState, type ReactNode, type Ref } from "react";
 import { money } from "@/lib/formato";
 import { compactar } from "@/lib/busqueda-inteligente";
 import type { ProductoOdoo, Resultado } from "@/lib/odoo/tipos";
@@ -81,51 +81,55 @@ export function BuscadorProducto({
   );
 }
 
-function FilaProducto({
+/**
+ * Un producto en una lista: arriba el código y el precio, y debajo el nombre a
+ * todo el ancho. Así el nombre nunca compite por el espacio con lo de los
+ * lados, que en un celular lo dejaba sin lugar.
+ */
+export function FilaProducto({
   resultado,
   consulta,
   sinPrecio,
+  extra,
 }: {
   resultado: Resultado<ProductoOdoo>;
   consulta: string;
   sinPrecio?: boolean;
+  /** Algo más en la línea de arriba, a la derecha (el stock). */
+  extra?: ReactNode;
 }) {
   const p = resultado.item;
   const exacto = resultado.porCodigo === "exacto";
   // Si lo que se escribió está en el código de barras, se enseña: es lo que lo trajo.
   const q = compactar(consulta);
   const porBarcode = !!p.barcode && q.length >= 3 && compactar(p.barcode).includes(q);
+  const pie = [resultado.veces ? `${resultado.veces}× cotizado` : null, p.unidad].filter(Boolean).join(" · ");
   return (
-    <>
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="flex min-w-0 items-start gap-2">
-          {p.codigo && (
-            <CodigoProducto codigo={p.codigo} consulta={consulta} destacado={exacto} />
+    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+        {p.codigo && <CodigoProducto codigo={p.codigo} consulta={consulta} destacado={exacto} />}
+        <span className="ml-auto flex shrink-0 items-baseline gap-1.5">
+          {extra}
+          {!sinPrecio && <span className="tnum font-medium">{money(p.precio)}</span>}
+        </span>
+      </span>
+      {/* Hasta tres líneas y no una cortada: lo que distingue dos planchas
+          ("… 3MM" / "… 5MM") suele estar al final del nombre. */}
+      <Resaltado texto={p.nombre} consulta={consulta} className="line-clamp-3 min-w-0 break-words" />
+      {(porBarcode || p.categoria || pie) && (
+        <span className="text-muted-foreground truncate text-xs">
+          {porBarcode ? (
+            <>
+              Código de barras <Resaltado texto={p.barcode!} consulta={consulta} codigo />
+            </>
+          ) : (
+            p.categoria
           )}
-          {/* Hasta dos líneas y no una cortada: lo que distingue dos planchas
-              ("… 3MM" / "… 5MM") suele estar al final del nombre. */}
-          <Resaltado texto={p.nombre} consulta={consulta} className="line-clamp-2 min-w-0" />
+          {pie && (porBarcode || p.categoria) ? " · " : ""}
+          {pie}
         </span>
-        {(porBarcode || p.categoria) && (
-          <span className="text-muted-foreground truncate text-xs">
-            {porBarcode ? (
-              <>
-                Código de barras <Resaltado texto={p.barcode!} consulta={consulta} codigo />
-              </>
-            ) : (
-              p.categoria
-            )}
-          </span>
-        )}
-      </span>
-      <span className="flex shrink-0 flex-col items-end">
-        {!sinPrecio && <span className="tnum font-medium">{money(p.precio)}</span>}
-        <span className="text-muted-foreground text-xs">
-          {resultado.veces ? `${resultado.veces}× · ` : ""}
-          {p.unidad ?? ""}
-        </span>
-      </span>
-    </>
+      )}
+    </span>
   );
 }
 
