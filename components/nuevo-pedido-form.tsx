@@ -25,6 +25,7 @@ import {
   cambiarCantidad,
   esCorte,
   ponerCorte,
+  ponerPrecioCorte,
   problemaDeLineas,
   quitarLinea,
   totalReferencial,
@@ -646,6 +647,8 @@ export function NuevoPedidoForm({
                   buscadorProducto.current?.focus();
                 }}
                 alEditarCorte={(clave) => setCorte({ clave })}
+                alCambiarPrecioCorte={(clave, precio) => ponerLineas(ponerPrecioCorte(lineas, clave, precio))}
+                descuentoMaxPct={config.cobro.descuentoMaxPct}
                 alEditarTerminado={(clave) => void terminadosCad.editar(clave)}
                 alTerminar={() => buscadorProducto.current?.focus()}
                 indicaciones={indicaciones}

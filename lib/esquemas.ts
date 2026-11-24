@@ -596,6 +596,11 @@ export const esquemaLineaCorte = z.object({
    * otro —cambió un precio mientras tanto—, no se guarda a ciegas.
    */
   totalMostrado: z.number().min(0),
+  /**
+   * El precio que quien cotiza dejó en lugar del calculado. `null`: el calculado.
+   * No puede bajar del mínimo que fija la configuración; eso lo revisa el servidor.
+   */
+  precioFinal: z.number().positive("El precio del corte tiene que ser mayor que cero").max(10_000_000).nullable().optional(),
 });
 
 const medidaDeTerminado = z

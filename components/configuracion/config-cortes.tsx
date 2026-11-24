@@ -27,6 +27,7 @@ interface Borrador {
   /** El recargo de cada fracción estándar, por nombre (también de las apagadas). */
   recargos: Record<string, string>;
   redondearAlSol: boolean;
+  descuentoMaxPct: string;
   corte: { kerfLaser: string; kerfManual: string; margen: string; retazoMin: string };
   servicios: { laser: string; manual: string };
 }
@@ -69,6 +70,7 @@ function aBorrador(c: ConfigCortes): Borrador {
       }),
     ),
     redondearAlSol: c.cobro.redondearAlSol,
+    descuentoMaxPct: t(c.cobro.descuentoMaxPct),
     corte: {
       kerfLaser: t(c.corte.kerfLaser),
       kerfManual: t(c.corte.kerfManual),
@@ -92,6 +94,7 @@ function aConfig(b: Borrador, original: ConfigCortes) {
     cobro: {
       fracciones: [...elegidas, ...otras],
       redondearAlSol: b.redondearAlSol,
+      descuentoMaxPct: b.descuentoMaxPct,
     },
     corte: b.corte,
     servicios: b.servicios,
@@ -237,6 +240,20 @@ export function FormConfigCortes({ config }: { config: ConfigCortes }) {
                 texto="Redondear el total del corte al sol, hacia arriba"
               />
             </div>
+          </Campo>
+          <Campo
+            label="Descuento máximo"
+            ayuda="Cuánto se puede bajar el precio de un corte respecto al calculado. Subirlo no tiene tope."
+          >
+            <ConUnidad sufijo="%">
+              <Input
+                inputMode="decimal"
+                aria-label="Descuento máximo sobre el precio del corte"
+                value={b.descuentoMaxPct}
+                onChange={(e) => cambiar((p) => ({ ...p, descuentoMaxPct: e.target.value }))}
+                className="tnum pr-8"
+              />
+            </ConUnidad>
           </Campo>
         </div>
       </Seccion>
