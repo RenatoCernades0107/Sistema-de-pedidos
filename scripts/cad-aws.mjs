@@ -74,12 +74,20 @@ switch (comando) {
     // Crea los parámetros SSM que lee serverless.yml. No pisa los que ya existen.
     for (const nombre of ["CAD_API_KEY", "CAD_SANDBOX_API_KEY"]) {
       const ruta = `/plexiacril/${stage}/${nombre}`;
-      const existe = spawnSync("aws", ["ssm", "get-parameter", "--name", ruta, "--region", region], { stdio: "ignore" });
+      const existe = spawnSync("aws", ["ssm", "get-parameter", "--name", ruta, "--region", region], { encoding: "utf8" });
+      if (existe.error) fallar(`No se pudo ejecutar aws: ${existe.error.message}`);
       if (existe.status === 0) {
         console.log(`= ${ruta} ya existe; no se toca (rotar: aws ssm put-parameter --overwrite y redesplegar).`);
         continue;
       }
-      aws(["ssm", "put-parameter", "--type", "SecureString", "--name", ruta, "--value", randomBytes(32).toString("hex")]);
+      // Solo se crea si AWS dice que no existe; cualquier otro error (credenciales, permisos) corta aquí.
+      if (!/ParameterNotFound/.test(existe.stderr)) fallar(`No se pudo consultar ${ruta}:\n${existe.stderr.trim()}`);
+      const crear = spawnSync(
+        "aws",
+        ["ssm", "put-parameter", "--type", "SecureString", "--name", ruta, "--value", randomBytes(32).toString("hex"), "--region", region],
+        { encoding: "utf8" },
+      );
+      if (crear.status !== 0) fallar(`No se pudo crear ${ruta}:\n${(crear.stderr || "").trim()}`);
       console.log(`+ ${ruta} creado. Ver el valor: aws ssm get-parameter --with-decryption --name ${ruta} --query Parameter.Value --output text`);
     }
     break;
