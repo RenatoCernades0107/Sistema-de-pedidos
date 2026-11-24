@@ -7,7 +7,7 @@
 #
 # Ver la sección «Despliegue en AWS» de cad/README.md.
 service: plexiacril-cad
-frameworkVersion: ">=3"
+frameworkVersion: "4"
 
 provider:
   name: aws
@@ -21,10 +21,18 @@ provider:
         path: ./
         file: Dockerfile
         platform: linux/amd64
+        # Lambda no acepta el índice OCI con atestaciones que Docker genera por defecto
+        # ("image manifest, config or layer media type ... is not supported").
+        buildOptions:
+          - --provenance=false
+          - --sbom=false
       sandbox:
         path: ./
         file: sandbox/Dockerfile
         platform: linux/amd64
+        buildOptions:
+          - --provenance=false
+          - --sbom=false
 
 params:
   default:

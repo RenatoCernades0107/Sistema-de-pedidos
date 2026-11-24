@@ -135,7 +135,7 @@ su Function URL (`authType: NONE`; la propia app exige `X-API-Key`):
 | `motor` | `Dockerfile` (`motor.api`) | 2048 MB / 60 s | rol por defecto (solo logs) |
 | `sandbox` | `sandbox/Dockerfile` (`sandbox.api`) | 2048 MB / 30 s | concurrencia reservada (5), rol propio solo con logs + ENI de VPC, en VPC sin NAT |
 
-**Requisitos:** Serverless Framework (v3 o v4) con credenciales de AWS, Docker
+**Requisitos:** Serverless Framework v4 (el script lo baja con `npx`; la primera vez pide `serverless login` o `SERVERLESS_ACCESS_KEY`) con credenciales de AWS, Docker
 (construye y sube las imágenes a ECR), y en la región:
 
 1. Parámetros SSM `SecureString`:
