@@ -681,6 +681,8 @@ const lineaDeCotizacion = z.union([esquemaLineaCorte, esquemaLineaTerminado, esq
 export const esquemaNuevaCotizacion = z.object({
   canal: z.enum(["tienda", "whatsapp"]),
   clienteId: z.number({ error: "Elige el cliente" }).int().positive("Elige el cliente"),
+  /** Quién atiende por la empresa (un contacto suyo en Odoo). Opcional. */
+  contactoId: z.number().int().positive().nullish(),
   lineas: z
     .array(lineaDeCotizacion)
     .min(1, "Agrega al menos un producto")
@@ -724,7 +726,49 @@ export const esquemaNuevoClienteOdoo = z.object({
   email: z
     .union([z.literal(""), z.email("Ese correo no es válido").max(200)])
     .transform((e) => e || null),
+  /**
+   * La persona que atiende, solo para una empresa (RUC 20): el teléfono y el correo
+   * de una empresa son de quien la representa. Todo vacío es "sin contacto".
+   */
+  contacto: z
+    .object({
+      nombre: z.string().trim().max(200, "El nombre del contacto es demasiado largo"),
+      cargo: z.string().trim().max(100, "El cargo es demasiado largo"),
+      telefono: z.string().trim().max(30, "El teléfono es demasiado largo"),
+      email: z.union([z.literal(""), z.email("Ese correo no es válido").max(200)]),
+    })
+    .superRefine((c, ctx) => {
+      if (!c.nombre && (c.cargo || c.telefono || c.email)) {
+        ctx.addIssue({ code: "custom", path: ["nombre"], message: "Escribe el nombre del contacto" });
+      }
+    })
+    .transform((c) =>
+      c.nombre
+        ? { nombre: c.nombre, cargo: c.cargo || null, telefono: c.telefono || null, email: c.email || null }
+        : null,
+    )
+    .optional(),
 });
+
+/** Una persona más de una empresa que ya existe: se agrega desde la cotización. */
+export const esquemaNuevoContacto = z.object({
+  empresaId: z.number().int().positive(),
+  nombre: z.string().trim().min(2, "Escribe el nombre del contacto").max(200, "El nombre es demasiado largo"),
+  cargo: z
+    .string()
+    .trim()
+    .max(100, "El cargo es demasiado largo")
+    .transform((c) => c || null),
+  telefono: z
+    .string()
+    .trim()
+    .max(30, "El teléfono es demasiado largo")
+    .transform((t) => t || null),
+  email: z
+    .union([z.literal(""), z.email("Ese correo no es válido").max(200)])
+    .transform((e) => e || null),
+});
+export type FormNuevoContacto = z.input<typeof esquemaNuevoContacto>;
 
 /* ── Registrar un pedido ────────────────────────────────────────────────────── */
 
@@ -746,6 +790,7 @@ export const esquemaRegistroPedido = z
   .object({
     cotizacionId: z.uuid().nullable(),
     clienteId: z.number().int().positive().nullable(),
+    contactoId: z.number().int().positive().nullish(),
     lineas: lineasDePedido.nullable(),
     esProvincia: z.boolean(),
     entrega: lugarEntrega,

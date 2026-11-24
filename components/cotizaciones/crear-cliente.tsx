@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { crearClienteOdoo } from "@/app/(app)/cotizaciones/acciones";
 import { esquemaNuevoClienteOdoo, type FormNuevoClienteOdoo, type NuevoClienteOdoo } from "@/lib/esquemas";
 import { rucValido, soloDigitos, tipoDeDocumento } from "@/lib/busqueda-inteligente";
-import type { ClienteOdoo } from "@/lib/odoo/tipos";
+import type { ClienteOdoo, ContactoOdoo } from "@/lib/odoo/tipos";
 import { rucEnRegla, type RespuestaRuc } from "@/lib/ruc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,6 +35,7 @@ export function prellenado(texto: string): FormNuevoClienteOdoo {
     direccion: "",
     telefono: "",
     email: "",
+    contacto: { nombre: "", cargo: "", telefono: "", email: "" },
   };
 }
 
@@ -52,7 +53,7 @@ export function CrearCliente({
   abierto: boolean;
   alCerrar: () => void;
   textoInicial: string;
-  alCrear: (cliente: ClienteOdoo) => void;
+  alCrear: (cliente: ClienteOdoo, contacto?: ContactoOdoo | null) => void;
 }) {
   return (
     <Dialog open={abierto} onOpenChange={(v) => !v && alCerrar()} triggerId={null}>
@@ -75,7 +76,7 @@ function Formulario({
   alCrear,
 }: {
   textoInicial: string;
-  alCrear: (cliente: ClienteOdoo) => void;
+  alCrear: (cliente: ClienteOdoo, contacto?: ContactoOdoo | null) => void;
 }) {
   const [pendiente, iniciar] = useTransition();
   const valores = prellenado(textoInicial);
@@ -94,6 +95,12 @@ function Formulario({
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const ruc = soloDigitos(documento ?? "");
   const rucConsultable = ruc.length === 11 && rucValido(ruc);
+  // Un RUC 20 es una empresa: su teléfono y correo son de la persona que la atiende.
+  const esEmpresa = ruc.length === 11 && ruc.startsWith("20");
+  // Si el RUC deja de ser de empresa, lo escrito como contacto se descarta: oculto, no debe bloquear el envío.
+  useEffect(() => {
+    if (!esEmpresa) form.resetField("contacto");
+  }, [esEmpresa, form]);
   useEffect(() => {
     if (!rucConsultable) return;
     const control = new AbortController();
@@ -128,7 +135,11 @@ function Formulario({
       // Se manda lo tecleado, no lo que devolvió el resolver: este ya pasó por
       // los `transform` del esquema ("" → null) y el servidor, que valida otra
       // vez con el mismo esquema, rechazaría ese null ("Invalid input").
-      const r = await crearClienteOdoo(form.getValues());
+      const crudo = form.getValues();
+      // Lo que no corresponde al tipo de cliente no viaja, aunque se haya tecleado antes de cambiar el RUC.
+      const r = await crearClienteOdoo(
+        esEmpresa ? { ...crudo, telefono: "", email: "" } : { ...crudo, contacto: undefined },
+      );
       if (!r.ok) {
         toast.error("No se pudo crear el cliente", { description: r.error });
         return;
@@ -140,7 +151,12 @@ function Formulario({
       } else {
         toast.success("Cliente creado en Odoo", { description: r.cliente.nombre });
       }
-      alCrear(r.cliente);
+      if (r.errorContacto) {
+        toast.warning("La empresa se creó, pero no su contacto", {
+          description: `${r.errorContacto} Agrégalo después desde la empresa.`,
+        });
+      }
+      alCrear(r.cliente, r.contacto);
     }),
   );
 
@@ -171,12 +187,39 @@ function Formulario({
       <Campo label="Dirección" error={errores.direccion?.message}>
         <Input placeholder="opcional" aria-invalid={!!errores.direccion} {...form.register("direccion")} />
       </Campo>
-      <Campo label="Teléfono" error={errores.telefono?.message}>
-        <Input inputMode="tel" placeholder="9XX XXX XXX" className="tnum" {...form.register("telefono")} />
-      </Campo>
-      <Campo label="Correo" error={errores.email?.message}>
-        <Input type="email" inputMode="email" placeholder="opcional" {...form.register("email")} />
-      </Campo>
+      {esEmpresa ? (
+        <fieldset className="flex flex-col gap-4 rounded-lg border p-3" data-testid="contacto-nuevo">
+          <legend className="text-muted-foreground px-1 text-sm font-medium">Persona de contacto</legend>
+          <p className="text-muted-foreground -mt-1 text-xs">
+            Quien atiende por la empresa. El teléfono y el correo son suyos. Puedes agregar más personas después.
+          </p>
+          <Campo label="Nombre" error={errores.contacto?.nombre?.message}>
+            <Input
+              placeholder="opcional"
+              aria-invalid={!!errores.contacto?.nombre}
+              {...form.register("contacto.nombre")}
+            />
+          </Campo>
+          <Campo label="Cargo" error={errores.contacto?.cargo?.message}>
+            <Input placeholder="Ej. Compras" {...form.register("contacto.cargo")} />
+          </Campo>
+          <Campo label="Teléfono" error={errores.contacto?.telefono?.message}>
+            <Input inputMode="tel" placeholder="9XX XXX XXX" className="tnum" {...form.register("contacto.telefono")} />
+          </Campo>
+          <Campo label="Correo" error={errores.contacto?.email?.message}>
+            <Input type="email" inputMode="email" placeholder="opcional" {...form.register("contacto.email")} />
+          </Campo>
+        </fieldset>
+      ) : (
+        <>
+          <Campo label="Teléfono" error={errores.telefono?.message}>
+            <Input inputMode="tel" placeholder="9XX XXX XXX" className="tnum" {...form.register("telefono")} />
+          </Campo>
+          <Campo label="Correo" error={errores.email?.message}>
+            <Input type="email" inputMode="email" placeholder="opcional" {...form.register("email")} />
+          </Campo>
+        </>
+      )}
 
       <DialogFooter>
         <DialogClose render={<Button variant="outline" type="button" />}>Cancelar</DialogClose>

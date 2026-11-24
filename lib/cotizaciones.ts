@@ -62,7 +62,10 @@ export interface Cotizacion {
     id: number;
     nombre: string;
     documento: string | null;
+    /** El teléfono con el que se contacta: el de la persona si la hay, y si no, el de la empresa. */
     telefono: string | null;
+    /** Quién atiende por la empresa, si se eligió. */
+    contacto: { id: number; nombre: string } | null;
   };
   odooOrderId: number | null;
   /** La referencia de Odoo (`S04254`): es como se nombra la cotización. */

@@ -28,7 +28,7 @@ import { EditorCorte } from "@/components/cortes/editor-corte";
 import type { DatosDiseno } from "@/components/terminados/disenador-terminado";
 import { useTerminadosCad } from "@/components/terminados/use-terminados-cad";
 import type { CatalogoTerminados } from "@/lib/terminados/catalogo";
-import type { ClienteOdoo, ProductoOdoo } from "@/lib/odoo/tipos";
+import type { ClienteOdoo, ContactoOdoo, ProductoOdoo } from "@/lib/odoo/tipos";
 import { Button } from "@/components/ui/button";
 import { BarraEnvio } from "@/components/ui/barra-envio";
 import { CabeceraFormulario } from "@/components/ui/cabecera-formulario";
@@ -78,6 +78,7 @@ export function FormCotizacion({
   const previo = borrador?.datos ?? null;
   const [canal, setCanal] = useState<Canal>(previo?.canal ?? "tienda");
   const [cliente, setCliente] = useState<ClienteOdoo | null>(previo?.cliente ?? null);
+  const [contacto, setContacto] = useState<ContactoOdoo | null>(previo?.contacto ?? null);
   const [arranque] = useState(() =>
     lineaInicial ? ponerTerminado(previo?.lineas ?? [], lineaInicial.linea) : null,
   );
@@ -122,8 +123,12 @@ export function FormCotizacion({
     },
   });
 
-  const elegirCliente = (c: ClienteOdoo | null) => {
-    flushSync(() => setCliente(c));
+  const elegirCliente = (c: ClienteOdoo | null, ct: ContactoOdoo | null = null) => {
+    flushSync(() => {
+      setCliente(c);
+      // El contacto es de una empresa: otro cliente, otro contacto.
+      setContacto(ct);
+    });
     // Con el cliente elegido, lo siguiente son los productos.
     if (c) buscadorProducto.current?.focus();
   };
@@ -159,6 +164,7 @@ export function FormCotizacion({
       version: 1,
       canal,
       cliente,
+      contacto,
       lineas,
       notas,
       // Solo las de líneas que siguen en la cotización.
@@ -185,6 +191,7 @@ export function FormCotizacion({
       const r = await crearCotizacion({
         canal,
         clienteId: cliente.id,
+        contactoId: cliente.esEmpresa ? (contacto?.id ?? null) : null,
         lineas: lineas.map(lineaParaEnviar),
         notas: notas.trim() || null,
       });
@@ -252,6 +259,8 @@ export function FormCotizacion({
           <BuscadorCliente
             cliente={cliente}
             alElegir={elegirCliente}
+            contacto={contacto}
+            alElegirContacto={setContacto}
             inputRef={buscadorCliente}
             autoFocus
           />

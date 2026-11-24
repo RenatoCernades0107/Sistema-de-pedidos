@@ -30,7 +30,7 @@ import {
   totalReferencial,
   type Linea,
 } from "@/lib/lineas-cotizacion";
-import type { ClienteOdoo, ProductoOdoo } from "@/lib/odoo/tipos";
+import type { ClienteOdoo, ContactoOdoo, ProductoOdoo } from "@/lib/odoo/tipos";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { BarraEnvio } from "@/components/ui/barra-envio";
@@ -161,6 +161,7 @@ export function NuevoPedidoForm({
 
   const previo = borrador?.datos ?? null;
   const [cliente, setCliente] = useState<ClienteOdoo | null>(previo?.cliente ?? null);
+  const [contacto, setContacto] = useState<ContactoOdoo | null>(previo?.contacto ?? null);
   const [lineas, setLineas] = useState<Linea[]>(previo?.lineas ?? []);
   const [corte, setCorte] = useState<{ clave: string | null } | null>(null);
   const [resaltada, setResaltada] = useState<string | null>(null);
@@ -287,8 +288,12 @@ export function NuevoPedidoForm({
     enlazadas: previo?.disenosDeLinea,
   });
 
-  const elegirCliente = (c: ClienteOdoo | null) => {
-    flushSync(() => setCliente(c));
+  const elegirCliente = (c: ClienteOdoo | null, ct: ContactoOdoo | null = null) => {
+    flushSync(() => {
+      setCliente(c);
+      // El contacto es de una empresa: otro cliente, otro contacto.
+      setContacto(ct);
+    });
     if (c) buscadorProducto.current?.focus();
   };
 
@@ -361,6 +366,7 @@ export function NuevoPedidoForm({
     datos: {
       version: 1,
       cliente,
+      contacto,
       lineas,
       campos: campos as Record<string, unknown>,
       indicaciones: Object.fromEntries(Object.entries(indicaciones).filter(([, t]) => t.trim())),
@@ -436,6 +442,7 @@ export function NuevoPedidoForm({
         {
           cotizacionId: desdeCotizacion?.id ?? null,
           clienteId: desdeCotizacion ? null : cliente!.id,
+          contactoId: desdeCotizacion || !cliente!.esEmpresa ? null : (contacto?.id ?? null),
           lineas: desdeCotizacion ? null : lineas.map(lineaParaEnviar),
           esProvincia,
           entrega: esProvincia ? "agencia" : v.entrega,
@@ -591,7 +598,13 @@ export function NuevoPedidoForm({
             />
           ) : (
             <>
-              <BuscadorCliente cliente={cliente} alElegir={elegirCliente} inputRef={buscadorCliente} />
+              <BuscadorCliente
+                cliente={cliente}
+                alElegir={elegirCliente}
+                contacto={contacto}
+                alElegirContacto={setContacto}
+                inputRef={buscadorCliente}
+              />
               <BarraAgregar
                 alAgregar={agregar}
                 inputRef={buscadorProducto}

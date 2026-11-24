@@ -51,6 +51,7 @@ import {
 
 const COLUMNAS = `
   id, canal, odoo_partner_id, cliente_nombre, cliente_documento, cliente_telefono,
+  odoo_contacto_id, contacto_nombre,
   odoo_order_id, odoo_order_name, sincronizacion, error_sincronizacion,
   monto_sin_impuestos, monto_impuestos, monto_total, notas, chat_agente_id, creado_en,
   confirmada_en_odoo, error_confirmacion, token_publico, almacen_despacho_id,
@@ -68,6 +69,8 @@ export interface Fila {
   cliente_nombre: string;
   cliente_documento: string | null;
   cliente_telefono: string | null;
+  odoo_contacto_id: number | null;
+  contacto_nombre: string | null;
   odoo_order_id: number | null;
   odoo_order_name: string | null;
   sincronizacion: Sincronizacion;
@@ -114,6 +117,10 @@ export function deFila(f: Fila): Cotizacion {
       nombre: f.cliente_nombre,
       documento: f.cliente_documento,
       telefono: f.cliente_telefono,
+      contacto:
+        f.odoo_contacto_id !== null && f.contacto_nombre
+          ? { id: f.odoo_contacto_id, nombre: f.contacto_nombre }
+          : null,
     },
     odooOrderId: f.odoo_order_id,
     odooOrderName: f.odoo_order_name,

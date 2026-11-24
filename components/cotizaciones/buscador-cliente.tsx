@@ -3,11 +3,14 @@
 import { useState, type Ref } from "react";
 import { Building2, Phone, UserPlus, UserRound, X } from "lucide-react";
 import { tipoDeDocumento } from "@/lib/busqueda-inteligente";
-import type { ClienteOdoo, Resultado } from "@/lib/odoo/tipos";
+import { toast } from "sonner";
+import { empresaDeContacto } from "@/app/(app)/cotizaciones/acciones";
+import type { ClienteOdoo, ContactoOdoo, Resultado } from "@/lib/odoo/tipos";
 import { Button } from "@/components/ui/button";
 import { ComboBusqueda, type Opcion } from "./combo-busqueda";
 import { CrearCliente } from "./crear-cliente";
 import { Resaltado } from "./resaltado";
+import { SelectorContacto } from "./selector-contacto";
 import { buscarUnaVez, useBusqueda } from "./use-busqueda";
 
 const RUTA = "/api/cotizaciones/buscar/clientes";
@@ -16,15 +19,23 @@ const RUTA = "/api/cotizaciones/buscar/clientes";
  * Elegir el cliente de Odoo. Vacío, ofrece los últimos cotizados; con texto,
  * busca por nombre, RUC/DNI, teléfono o correo. Si no está, se crea ahí mismo.
  * Elegido, se vuelve una tarjeta con "Cambiar".
+ *
+ * Si el cliente es una empresa y quien llama pasa `alElegirContacto`, debajo de
+ * la tarjeta se elige quién atiende. Y si lo que se encontró es una persona de
+ * una empresa, se elige la empresa y esa persona queda de contacto.
  */
 export function BuscadorCliente({
   cliente,
   alElegir,
+  contacto = null,
+  alElegirContacto,
   inputRef,
   autoFocus,
 }: {
   cliente: ClienteOdoo | null;
-  alElegir: (cliente: ClienteOdoo | null) => void;
+  alElegir: (cliente: ClienteOdoo | null, contacto?: ContactoOdoo | null) => void;
+  contacto?: ContactoOdoo | null;
+  alElegirContacto?: (contacto: ContactoOdoo | null) => void;
   inputRef?: Ref<HTMLInputElement>;
   autoFocus?: boolean;
 }) {
@@ -33,18 +44,30 @@ export function BuscadorCliente({
   const busqueda = useBusqueda<ClienteOdoo>(RUTA, consulta, !cliente);
   const q = consulta.trim();
 
-  const elegir = (c: ClienteOdoo) => {
+  const elegir = async (c: ClienteOdoo) => {
     setConsulta("");
+    if (!c.empresaId || !alElegirContacto) return alElegir(c);
+    // Una persona de una empresa: se cotiza a la empresa, con ella de contacto.
+    const r = await empresaDeContacto(c.id);
+    if (r.ok) return alElegir(r.empresa, r.contacto);
+    toast.warning("No se pudo leer su empresa en Odoo", { description: r.error });
     alElegir(c);
   };
 
   if (cliente) {
-    return <TarjetaCliente cliente={cliente} alCambiar={() => alElegir(null)} />;
+    return (
+      <>
+        <TarjetaCliente cliente={cliente} alCambiar={() => alElegir(null)} />
+        {cliente.esEmpresa && alElegirContacto && (
+          <SelectorContacto key={cliente.id} empresa={cliente} contacto={contacto} alElegir={alElegirContacto} />
+        )}
+      </>
+    );
   }
 
   const opciones: Opcion[] = busqueda.resultados.map((r) => ({
     valor: `cliente-${r.item.id}`,
-    alElegir: () => elegir(r.item),
+    alElegir: () => void elegir(r.item),
     contenido: <FilaCliente resultado={r} consulta={q} />,
   }));
 
@@ -91,7 +114,7 @@ export function BuscadorCliente({
           const r = await buscarUnaVez<ClienteOdoo>(`${RUTA}?q=${encodeURIComponent(q)}`);
           if (!r) return;
           const primero = r.resultados[0];
-          if (primero?.porCodigo === "exacto") elegir(primero.item);
+          if (primero?.porCodigo === "exacto") void elegir(primero.item);
           else if (!primero && q) setCrearCon(q);
         }}
         inputRef={inputRef}
@@ -101,10 +124,11 @@ export function BuscadorCliente({
         abierto={crearCon !== null}
         textoInicial={crearCon ?? ""}
         alCerrar={() => setCrearCon(null)}
-        alCrear={(c) => {
+        alCrear={(c, nuevoContacto) => {
           setCrearCon(null);
           busqueda.olvidar();
-          elegir(c);
+          setConsulta("");
+          alElegir(c, nuevoContacto);
         }}
       />
     </>

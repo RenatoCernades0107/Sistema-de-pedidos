@@ -152,6 +152,7 @@ export async function registrarPedido(entrada: unknown): Promise<Resultado> {
     const guardada = await registrarCotizacion({
       canal: "tienda",
       clienteId: v.clienteId!,
+      contactoId: v.contactoId,
       lineas: v.lineas!,
       notas: null,
     });

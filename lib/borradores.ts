@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Canal } from "@/lib/cotizaciones";
-import type { ClienteOdoo } from "@/lib/odoo/tipos";
+import type { ClienteOdoo, ContactoOdoo } from "@/lib/odoo/tipos";
 import { totalReferencial, type Linea } from "@/lib/lineas-cotizacion";
 
 /**
@@ -30,6 +30,8 @@ export interface DatosBorradorCotizacion {
   version: 1;
   canal: Canal;
   cliente: ClienteOdoo | null;
+  /** Quién atiende por la empresa, si se eligió. */
+  contacto?: ContactoOdoo | null;
   lineas: Linea[];
   notas: string;
   /** El diseño CAD de cada línea de producto terminado, por clave: para volver a abrirlo. */
@@ -39,6 +41,7 @@ export interface DatosBorradorCotizacion {
 export interface DatosBorradorPedido {
   version: 1;
   cliente: ClienteOdoo | null;
+  contacto?: ContactoOdoo | null;
   lineas: Linea[];
   /** Los campos de react-hook-form (entrega, pago, fechas…). */
   campos: Record<string, unknown>;
@@ -81,12 +84,15 @@ const esquemaLinea = z.looseObject({ clave: z.string().min(1).max(100) });
 
 const esquemaCliente = z.looseObject({ id: z.number().int(), nombre: z.string() }).nullable();
 
+const esquemaContacto = z.looseObject({ id: z.number().int(), nombre: z.string() }).nullish();
+
 const esquemaClaves = z.record(z.string().max(100), z.string().max(100));
 
 export const esquemaDatosCotizacion = z.object({
   version: z.literal(1),
   canal: z.string().max(40),
   cliente: esquemaCliente,
+  contacto: esquemaContacto,
   lineas: z.array(esquemaLinea).max(500),
   notas: z.string().max(2000),
   disenosDeLinea: esquemaClaves,
@@ -95,6 +101,7 @@ export const esquemaDatosCotizacion = z.object({
 export const esquemaDatosPedido = z.object({
   version: z.literal(1),
   cliente: esquemaCliente,
+  contacto: esquemaContacto,
   lineas: z.array(esquemaLinea).max(500),
   campos: z.record(z.string().max(60), z.unknown()),
   indicaciones: z.record(z.string().max(100), z.string().max(5000)),

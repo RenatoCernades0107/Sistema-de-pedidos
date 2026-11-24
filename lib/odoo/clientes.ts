@@ -7,13 +7,14 @@ import {
   camposExistentes,
   ejecutar,
   ErrorOdoo,
+  idDe,
   modeloExiste,
   nombreDe,
   registrarReinicio,
   terminosOdoo,
   texto,
 } from "./rpc";
-import type { ClienteOdoo } from "./tipos";
+import type { ClienteOdoo, ContactoOdoo } from "./tipos";
 
 const MODELO = "res.partner";
 
@@ -43,6 +44,7 @@ export function deCliente(f: Fila): ClienteOdoo {
     ciudad: texto(f.city),
     esEmpresa: f.is_company === true,
     empresa: nombreDe(f.parent_id),
+    empresaId: idDe(f.parent_id),
   };
 }
 
@@ -141,6 +143,80 @@ export async function buscarPorDocumento(documento: string): Promise<ClienteOdoo
   return filas[0] ? deCliente(filas[0]) : null;
 }
 
+/* ── Contactos de una empresa ──────────────────────────────────────────────── */
+
+/** `function` (el puesto) y `mobile` no existen en todas las versiones: se piden si están. */
+const CAMPOS_CONTACTO = ["name", "function", "phone", "mobile", "email", "parent_id", "type"];
+
+const camposContacto = () => camposExistentes(MODELO, CAMPOS_CONTACTO);
+
+function deContacto(f: Fila, empresaId: number): ContactoOdoo {
+  return {
+    id: f.id as number,
+    empresaId: idDe(f.parent_id) ?? empresaId,
+    nombre: texto(f.name) ?? "(sin nombre)",
+    cargo: texto(f.function),
+    telefono: texto(f.phone) ?? texto(f.mobile),
+    email: texto(f.email),
+  };
+}
+
+/**
+ * Las personas de una empresa: sus hijos de tipo contacto. Se leen en vivo de
+ * Odoo y no del índice, que se actualiza por tandas y no vería al que acaban de
+ * agregar. Las direcciones de factura o entrega (otros `type`) no son personas.
+ */
+export async function contactosDeEmpresa(empresaId: number): Promise<ContactoOdoo[]> {
+  const filas = await ejecutar<Fila[]>(
+    MODELO,
+    "search_read",
+    [[["parent_id", "=", empresaId], ["type", "=", "contact"]]],
+    { fields: await camposContacto(), order: "name" },
+  );
+  return filas.map((f) => deContacto(f, empresaId));
+}
+
+/**
+ * Una persona por su id, con su empresa. `null` si no existe, si no es de ninguna
+ * empresa o si no es una persona de tipo contacto (una dirección de entrega, por ejemplo).
+ */
+export async function leerContacto(id: number): Promise<ContactoOdoo | null> {
+  const filas = await ejecutar<Fila[]>(MODELO, "read", [[id]], { fields: await camposContacto() });
+  const f = filas[0];
+  const empresaId = f ? idDe(f.parent_id) : null;
+  if (!f || !empresaId || (f.type !== undefined && f.type !== "contact")) return null;
+  return deContacto(f, empresaId);
+}
+
+export interface DatosContactoNuevo {
+  nombre: string;
+  cargo?: string | null;
+  telefono: string | null;
+  email: string | null;
+}
+
+/**
+ * Agrega una persona a una empresa. Es un `res.partner` hijo: el RUC y la dirección
+ * fiscal siguen siendo los de la empresa; el teléfono y el correo, los de la persona.
+ */
+export async function crearContacto(empresaId: number, datos: DatosContactoNuevo): Promise<ContactoOdoo> {
+  const campos = await camposContacto();
+  const valores: Record<string, unknown> = {
+    name: datos.nombre.trim(),
+    parent_id: empresaId,
+    type: "contact",
+    is_company: false,
+  };
+  if (datos.cargo?.trim() && campos.includes("function")) valores.function = datos.cargo.trim();
+  if (datos.telefono) valores.phone = datos.telefono;
+  if (datos.email) valores.email = datos.email;
+
+  const id = await ejecutar<number>(MODELO, "create", [valores]);
+  const filas = await ejecutar<Fila[]>(MODELO, "read", [[id]], { fields: campos });
+  if (!filas[0]) throw new ErrorOdoo("Odoo creó el contacto pero no lo devolvió. Búscalo de nuevo.");
+  return deContacto(filas[0], empresaId);
+}
+
 /* ── Alta ──────────────────────────────────────────────────────────────────── */
 
 let peru: Promise<number | null> | null = null;
@@ -181,17 +257,33 @@ export interface DatosClienteNuevo {
   documento: string | null;
   /** Calle y número, tal como lo da SUNAT. Va a `street` del contacto. */
   direccion?: string | null;
+  /** El teléfono del cliente. De una empresa conviene darlo en `contacto`, que es de una persona. */
   telefono: string | null;
   email: string | null;
+  /**
+   * La primera persona de una empresa (RUC 20). Con ella, el teléfono y el correo
+   * van a la persona y la empresa queda sin ellos. Para una persona natural no
+   * se usa.
+   */
+  contacto?: DatosContactoNuevo | null;
+}
+
+export interface ClienteCreado {
+  cliente: ClienteOdoo;
+  existia: boolean;
+  /** El contacto que se creó junto con la empresa, si se pidió. */
+  contacto?: ContactoOdoo | null;
+  /** Si la empresa quedó creada pero su contacto no: el motivo, para avisarlo. */
+  errorContacto?: string | null;
 }
 
 /**
  * Crea el cliente en Odoo. Si ya hay uno con ese RUC/DNI no crea otro: devuelve
  * el existente y lo dice (`existia`), para que la pantalla lo seleccione y avise.
+ * En ese caso tampoco se le agrega el contacto: el que lo tecleó verá los que
+ * la empresa ya tiene y agregará el suyo desde ahí.
  */
-export async function crearCliente(
-  datos: DatosClienteNuevo,
-): Promise<{ cliente: ClienteOdoo; existia: boolean }> {
+export async function crearCliente(datos: DatosClienteNuevo): Promise<ClienteCreado> {
   const tipo = datos.documento ? tipoDeDocumento(datos.documento) : null;
 
   if (datos.documento) {
@@ -201,15 +293,18 @@ export async function crearCliente(
 
   const [pais, tipoDoc] = await Promise.all([idPeru(), tipo ? tipoDocumentoOdoo(tipo) : null]);
 
+  // RUC 20: persona jurídica. Un RUC 10 es una persona con negocio.
+  const esEmpresa = tipo === "RUC" && datos.documento!.startsWith("20");
+  const contacto = esEmpresa && datos.contacto?.nombre.trim() ? datos.contacto : null;
   const valores: Record<string, unknown> = {
     name: datos.nombre.trim(),
-    // RUC 20: persona jurídica. Un RUC 10 es una persona con negocio.
-    is_company: tipo === "RUC" && datos.documento!.startsWith("20"),
+    is_company: esEmpresa,
   };
   if (datos.documento) valores.vat = datos.documento;
   if (datos.direccion) valores.street = datos.direccion;
-  if (datos.telefono) valores.phone = datos.telefono;
-  if (datos.email) valores.email = datos.email;
+  // Con contacto, el teléfono y el correo son de la persona: la empresa no los lleva.
+  if (datos.telefono && !contacto) valores.phone = datos.telefono;
+  if (datos.email && !contacto) valores.email = datos.email;
   if (pais) valores.country_id = pais;
   if (tipoDoc) valores.l10n_latam_identification_type_id = tipoDoc;
 
@@ -226,5 +321,14 @@ export async function crearCliente(
   );
   const cliente = await leerCliente(id);
   if (!cliente) throw new ErrorOdoo("Odoo creó el cliente pero no lo devolvió. Búscalo de nuevo.");
-  return { cliente, existia: false };
+  if (!contacto) return { cliente, existia: false };
+
+  /* La empresa ya existe en Odoo: si el contacto falla no se deshace, se avisa.
+     Reintentarlo todo crearía la empresa dos veces; agregarlo después no cuesta. */
+  try {
+    return { cliente, existia: false, contacto: await crearContacto(id, contacto) };
+  } catch (e) {
+    const motivo = e instanceof Error ? e.message : "Odoo no lo aceptó.";
+    return { cliente, existia: false, contacto: null, errorContacto: motivo };
+  }
 }
