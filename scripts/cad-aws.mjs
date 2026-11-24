@@ -5,6 +5,7 @@
 // Variables (en .env.local o en el entorno):
 //   CAD_AWS_STAGE             stage (por defecto "prod")
 //   CAD_AWS_REGION            región (por defecto "us-east-1")
+//   CAD_AWS_PROFILE           perfil de AWS CLI (opcional; si no, el de AWS_PROFILE o el default)
 //   CAD_SANDBOX_SUBNET_A/B    subredes PRIVADAS sin ruta a NAT/IGW (solo deploy/remove)
 //   CAD_SANDBOX_SG            security group sin reglas de salida (solo deploy/remove)
 // Detalles en cad/README.md, sección «Despliegue en AWS».
@@ -15,6 +16,7 @@ import { fileURLToPath } from "node:url";
 const cwd = fileURLToPath(new URL("../cad", import.meta.url));
 const stage = process.env.CAD_AWS_STAGE || "prod";
 const region = process.env.CAD_AWS_REGION || "us-east-1";
+if (process.env.CAD_AWS_PROFILE) process.env.AWS_PROFILE = process.env.CAD_AWS_PROFILE;
 const [comando, destino = "todo"] = process.argv.slice(2);
 
 const FUNCIONES = ["motor", "sandbox"];
@@ -72,12 +74,20 @@ switch (comando) {
     // Crea los parámetros SSM que lee serverless.yml. No pisa los que ya existen.
     for (const nombre of ["CAD_API_KEY", "CAD_SANDBOX_API_KEY"]) {
       const ruta = `/plexiacril/${stage}/${nombre}`;
-      const existe = spawnSync("aws", ["ssm", "get-parameter", "--name", ruta, "--region", region], { stdio: "ignore" });
+      const existe = spawnSync("aws", ["ssm", "get-parameter", "--name", ruta, "--region", region], { encoding: "utf8" });
+      if (existe.error) fallar(`No se pudo ejecutar aws: ${existe.error.message}`);
       if (existe.status === 0) {
         console.log(`= ${ruta} ya existe; no se toca (rotar: aws ssm put-parameter --overwrite y redesplegar).`);
         continue;
       }
-      aws(["ssm", "put-parameter", "--type", "SecureString", "--name", ruta, "--value", randomBytes(32).toString("hex")]);
+      // Solo se crea si AWS dice que no existe; cualquier otro error (credenciales, permisos) corta aquí.
+      if (!/ParameterNotFound/.test(existe.stderr)) fallar(`No se pudo consultar ${ruta}:\n${existe.stderr.trim()}`);
+      const crear = spawnSync(
+        "aws",
+        ["ssm", "put-parameter", "--type", "SecureString", "--name", ruta, "--value", randomBytes(32).toString("hex"), "--region", region],
+        { encoding: "utf8" },
+      );
+      if (crear.status !== 0) fallar(`No se pudo crear ${ruta}:\n${(crear.stderr || "").trim()}`);
       console.log(`+ ${ruta} creado. Ver el valor: aws ssm get-parameter --with-decryption --name ${ruta} --query Parameter.Value --output text`);
     }
     break;
