@@ -142,6 +142,40 @@ describe("lo que cambia entre versiones", () => {
     expect(await modeloExiste("l10n_latam.identification.type")).toBe(true);
     expect(await modeloExiste("no.existe")).toBe(false);
   });
+
+  describe("sin permiso sobre ir.model (el usuario no es administrador)", () => {
+    const accesoDenegado = {
+      error: {
+        code: 200,
+        message: "Odoo Server Error",
+        data: { name: "odoo.exceptions.AccessError", message: "You are not allowed to access 'Models' (ir.model) records." },
+      },
+    };
+    const noExiste = { error: { code: 200, message: "Odoo Server Error", data: { name: "builtins.KeyError", message: "'no.existe'" } } };
+
+    it("lo averigua preguntándole al propio modelo", async () => {
+      odooQueResponde(({ method, args }) => {
+        if (method === "authenticate") return 7;
+        if (args[3] === "ir.model") return accesoDenegado;
+        return args[3] === "no.existe" ? noExiste : { name: {} };
+      });
+      expect(await modeloExiste("l10n_latam.identification.type")).toBe(true);
+      expect(await modeloExiste("no.existe")).toBe(false);
+    });
+
+    it("si tampoco tiene permiso sobre ese modelo, existe: el permiso es otro asunto", async () => {
+      odooQueResponde(({ method }) => (method === "authenticate" ? 7 : accesoDenegado));
+      expect(await modeloExiste("l10n_latam.identification.type")).toBe(true);
+    });
+
+    it("un fallo de red no se confunde con 'no existe'", async () => {
+      odooQueResponde(({ method, args }) => {
+        if (method === "authenticate") return 7;
+        return args[3] === "ir.model" ? accesoDenegado : new Response("x", { status: 502 });
+      });
+      await expect(modeloExiste("l10n_latam.identification.type")).rejects.toThrow("Odoo respondió 502");
+    });
+  });
 });
 
 describe("errorDeOdoo", () => {
