@@ -863,6 +863,7 @@ export type Database = {
           cliente_documento: string | null
           cliente_nombre: string
           cliente_telefono: string | null
+          contacto_nombre: string | null
           confirmada_en_odoo: boolean
           creado_en: string
           creado_por: string | null
@@ -875,6 +876,7 @@ export type Database = {
           monto_sin_impuestos: number | null
           monto_total: number | null
           notas: string | null
+          odoo_contacto_id: number | null
           odoo_order_id: number | null
           odoo_order_name: string | null
           odoo_partner_id: number
@@ -892,6 +894,7 @@ export type Database = {
           cliente_documento?: string | null
           cliente_nombre: string
           cliente_telefono?: string | null
+          contacto_nombre?: string | null
           confirmada_en_odoo?: boolean
           creado_en?: string
           creado_por?: string | null
@@ -904,6 +907,7 @@ export type Database = {
           monto_sin_impuestos?: number | null
           monto_total?: number | null
           notas?: string | null
+          odoo_contacto_id?: number | null
           odoo_order_id?: number | null
           odoo_order_name?: string | null
           odoo_partner_id: number
@@ -921,6 +925,7 @@ export type Database = {
           cliente_documento?: string | null
           cliente_nombre?: string
           cliente_telefono?: string | null
+          contacto_nombre?: string | null
           confirmada_en_odoo?: boolean
           creado_en?: string
           creado_por?: string | null
@@ -933,6 +938,7 @@ export type Database = {
           monto_sin_impuestos?: number | null
           monto_total?: number | null
           notas?: string | null
+          odoo_contacto_id?: number | null
           odoo_order_id?: number | null
           odoo_order_name?: string | null
           odoo_partner_id?: number
@@ -3266,11 +3272,13 @@ export type Database = {
           p_cliente_documento?: string
           p_cliente_nombre: string
           p_cliente_telefono?: string
+          p_contacto_nombre?: string
           p_lineas: Json
           p_monto_impuestos?: number
           p_monto_sin_impuestos?: number
           p_monto_total?: number
           p_notas?: string
+          p_odoo_contacto_id?: number
           p_odoo_order_id?: number
           p_odoo_order_name?: string
           p_odoo_partner_id: number

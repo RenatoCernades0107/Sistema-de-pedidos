@@ -234,7 +234,7 @@ test("un cliente que no está se crea en Odoo desde el buscador, sin duplicar", 
   expect((await estado()).partners.find((p) => p.vat === "20512345671")?.name).toBe("E2E Nueva Empresa SAC");
 
   // Con un RUC que ya existe no se crea otro: se elige el que había.
-  await page.getByRole("button", { name: "Cambiar" }).click();
+  await page.getByRole("button", { name: "Cambiar", exact: true }).click();
   const total = (await estado()).partners.length;
   await page.getByLabel("Buscar cliente").fill("E2E Otra Andina");
   await page.getByRole("option", { name: /Crear cliente «E2E Otra Andina»/ }).click();
@@ -244,6 +244,61 @@ test("un cliente que no está se crea en Odoo desde el buscador, sin duplicar", 
   await expect(page.getByText("Ese cliente ya estaba en Odoo")).toBeVisible();
   await expect(page.getByTestId("cliente-elegido")).toContainText("E2E Corporación Andina SAC");
   expect((await estado()).partners).toHaveLength(total);
+});
+
+test("una empresa nueva lleva su contacto; se elige quién atiende y su teléfono es el de la cotización", async ({ page }) => {
+  await entrar(page, "administracion");
+  await page.route("**/api/clientes/ruc/*", (ruta) => ruta.fulfill({ status: 404, json: { error: "sin consulta" } }));
+  await page.goto("/cotizaciones/nueva");
+
+  // La empresa se crea con su primera persona: el teléfono es de ella, no de la empresa.
+  await page.getByLabel("Buscar cliente").fill("20100070970");
+  await page.getByRole("option", { name: /Crear cliente «20100070970»/ }).click();
+  const dialogo = page.getByRole("dialog", { name: "Nuevo cliente" });
+  await dialogo.getByLabel("Nombre o razón social").fill("E2E Empresa Con Contacto SAC");
+  const contacto = dialogo.getByTestId("contacto-nuevo");
+  await contacto.getByLabel("Nombre").fill("E2E María Ruiz");
+  await contacto.getByLabel("Cargo").fill("Compras");
+  await contacto.getByLabel("Teléfono").fill("987654321");
+  await dialogo.getByRole("button", { name: "Crear cliente" }).click();
+
+  await expect(page.getByTestId("cliente-elegido")).toContainText("E2E Empresa Con Contacto SAC");
+  const selector = page.getByTestId("selector-contacto");
+  await expect(selector.getByRole("radio", { name: /E2E María Ruiz/ })).toHaveAttribute("aria-checked", "true");
+
+  type Partner = { id: number; name: string; phone: string | false; parent_id: [number, string] | false };
+  const partners = async () => (await estado()).partners as unknown as Partner[];
+  const empresa = (await partners()).find((p) => p.name === "E2E Empresa Con Contacto SAC")!;
+  expect(empresa.phone).toBe(false);
+  expect((await partners()).find((p) => p.name === "E2E María Ruiz")).toMatchObject({
+    phone: "987654321",
+    parent_id: [empresa.id, "E2E Empresa Con Contacto SAC"],
+  });
+
+  // Otra persona de la misma empresa, agregada sin salir de la cotización: queda elegida.
+  await selector.getByRole("button", { name: "Agregar contacto" }).click();
+  const nuevo = page.getByRole("dialog", { name: "Agregar contacto" });
+  await nuevo.getByLabel("Nombre").fill("E2E Luis Soto");
+  await nuevo.getByLabel("Teléfono").fill("955111222");
+  await nuevo.getByRole("button", { name: "Agregar contacto" }).click();
+  await expect(selector.getByRole("radio", { name: /E2E Luis Soto/ })).toHaveAttribute("aria-checked", "true");
+  await expect(selector.getByRole("radio", { name: /E2E María Ruiz/ })).toHaveAttribute("aria-checked", "false");
+
+  await agregarProducto(page, "ac-005", "ACRILICO F8 CRISTAL 5MM");
+  await page.getByRole("button", { name: "Crear cotización" }).click();
+  await expect(page).toHaveURL(/\/cotizaciones\/[0-9a-f-]{36}$/);
+
+  // El detalle dice quién atiende y con qué teléfono se le llama.
+  await expect(page.getByTestId("contacto-cotizacion")).toContainText("E2E Luis Soto");
+  await expect(page.getByText("955111222")).toBeVisible();
+
+  const supabase = await sesionDe("administracion");
+  const { data } = await supabase
+    .from("cotizaciones")
+    .select("odoo_partner_id, contacto_nombre, cliente_telefono")
+    .eq("id", idDeLaUrl(page))
+    .single();
+  expect(data).toMatchObject({ odoo_partner_id: empresa.id, contacto_nombre: "E2E Luis Soto", cliente_telefono: "955111222" });
 });
 
 test("si Odoo falla, se guarda igual y Reintentar la crea una sola vez", async ({ page }) => {

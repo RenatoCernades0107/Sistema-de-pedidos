@@ -8,7 +8,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { BASE, CLAVE, USUARIO, crearOdooFalso } from "../../e2e/odoo-falso.mjs";
 import { buscarClientes, buscarProductos, productosPorId } from "./catalogos";
-import { buscarClientesEnOdoo, cargarClientes, crearCliente } from "./clientes";
+import { buscarClientesEnOdoo, cargarClientes, contactosDeEmpresa, crearCliente } from "./clientes";
 import {
   confirmarPedidoDeVenta,
   crearPedidoDeVenta,
@@ -128,6 +128,18 @@ describe("crear clientes", () => {
     expect(r.cliente).toMatchObject({ nombre: "E2E Nueva Empresa SAC", documento: "20512345671" });
     const creado = odoo.estado().partners.find((p) => p.id === r.cliente.id)!;
     expect(creado).toMatchObject({ is_company: true, country_id: 173, l10n_latam_identification_type_id: 4 });
+  });
+
+  it("una empresa con contacto: la persona cuelga de la empresa y lleva el teléfono", async () => {
+    const r = await crearCliente({
+      nombre: "E2E Empresa Con Contacto SAC", documento: "20100070970",
+      telefono: null, email: null,
+      contacto: { nombre: "E2E María Ruiz", cargo: "Compras", telefono: "987654321", email: null },
+    });
+    expect(r.contacto).toMatchObject({ empresaId: r.cliente.id, nombre: "E2E María Ruiz", telefono: "987654321" });
+    expect(r.cliente.telefono).toBeNull();
+    const contactos = await contactosDeEmpresa(r.cliente.id);
+    expect(contactos.map((c) => c.nombre)).toEqual(["E2E María Ruiz"]);
   });
 
   it("con DNI: tipo DNI y persona", async () => {

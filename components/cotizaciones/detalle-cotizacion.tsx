@@ -287,6 +287,11 @@ export function DetalleCotizacion({
         <section className="bg-card rounded-xl border p-4">
           <p className="eyebrow mb-1.5">Cliente</p>
           <p className="font-medium">{c.cliente.nombre}</p>
+          {c.cliente.contacto && (
+            <p className="text-muted-foreground mt-0.5 text-sm" data-testid="contacto-cotizacion">
+              Atiende: <span className="text-foreground font-medium">{c.cliente.contacto.nombre}</span>
+            </p>
+          )}
           <p className="text-muted-foreground tnum mt-0.5 flex flex-wrap gap-x-3 text-sm">
             {c.cliente.documento && <span>{c.cliente.documento}</span>}
             {c.cliente.telefono && <span>{c.cliente.telefono}</span>}

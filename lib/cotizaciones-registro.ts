@@ -12,9 +12,9 @@ import { prepararTerminado } from "./terminados-servidor";
 import { mensajeDeError } from "./errores";
 import type { NuevaCotizacion } from "./esquemas";
 import { productosPorId } from "./odoo/catalogos";
-import { leerCliente } from "./odoo/clientes";
+import { contactosDeEmpresa, leerCliente } from "./odoo/clientes";
 import { ErrorOdoo } from "./odoo/rpc";
-import type { ClienteOdoo } from "./odoo/tipos";
+import type { ClienteOdoo, ContactoOdoo } from "./odoo/tipos";
 import { clienteServidor } from "./supabase-servidor";
 import type { Json } from "./supabase-tipos";
 
@@ -36,15 +36,23 @@ export async function registrarCotizacion(v: NuevaCotizacion): Promise<Cotizacio
   const deProducto = v.lineas.filter((l) => l.tipo !== "corte" && l.tipo !== "terminado");
   let cliente: ClienteOdoo | null;
   let productos: Awaited<ReturnType<typeof productosPorId>>;
+  let contactos: ContactoOdoo[] = [];
   try {
-    [cliente, productos] = await Promise.all([
+    [cliente, productos, contactos] = await Promise.all([
       leerCliente(v.clienteId),
       productosPorId(deProducto.map((l) => l.productoId)),
+      // El contacto se comprueba contra la empresa: del navegador solo llega su id.
+      v.contactoId ? contactosDeEmpresa(v.clienteId) : Promise.resolve([]),
     ]);
   } catch (e) {
     return fallo(mensajeOdoo(e));
   }
   if (!cliente) return fallo("Ese cliente ya no existe en Odoo. Búscalo de nuevo.");
+
+  const contacto = v.contactoId ? (contactos.find((c) => c.id === v.contactoId) ?? null) : null;
+  if (v.contactoId && !contacto) {
+    return fallo("Ese contacto ya no es de la empresa en Odoo. Elige el contacto de nuevo.");
+  }
 
   const lineas = [];
   for (const l of v.lineas) {
@@ -91,7 +99,10 @@ export async function registrarCotizacion(v: NuevaCotizacion): Promise<Cotizacio
     p_odoo_partner_id: cliente.id,
     p_cliente_nombre: cliente.nombre,
     p_cliente_documento: cliente.documento ?? undefined,
-    p_cliente_telefono: cliente.telefono ?? undefined,
+    // Se llama a quien atiende; si no tiene teléfono, al de la empresa.
+    p_cliente_telefono: contacto?.telefono ?? cliente.telefono ?? undefined,
+    p_odoo_contacto_id: contacto?.id,
+    p_contacto_nombre: contacto?.nombre,
     p_lineas: lineas as unknown as Json,
     p_notas: v.notas ?? undefined,
   });

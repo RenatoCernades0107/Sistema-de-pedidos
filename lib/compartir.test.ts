@@ -31,7 +31,7 @@ const linea = (l: Partial<LineaGuardada>): LineaGuardada => ({
 const cotizacion = (c: Partial<Cotizacion> = {}): Cotizacion => ({
   id: "0f8fad5b-d9cb-469f-a165-70867728950e",
   canal: "tienda",
-  cliente: { id: 1, nombre: "Juan Pérez", documento: "45678912", telefono: "981 342 705" },
+  cliente: { id: 1, nombre: "Juan Pérez", documento: "45678912", telefono: "981 342 705", contacto: null },
   odooOrderId: 7,
   odooOrderName: "S04254",
   sincronizacion: "sincronizada",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { esquemaNuevaCotizacion, esquemaNuevoClienteOdoo } from "./esquemas";
+import { esquemaNuevaCotizacion, esquemaNuevoClienteOdoo, esquemaNuevoContacto } from "./esquemas";
 
 const valida = {
   canal: "tienda",
@@ -72,5 +72,60 @@ describe("esquemaNuevoClienteOdoo", () => {
   it("pide el nombre y un correo bien escrito", () => {
     expect(mensaje(esquemaNuevoClienteOdoo.safeParse({ ...cliente, nombre: " " }))).toMatch(/nombre/);
     expect(mensaje(esquemaNuevoClienteOdoo.safeParse({ ...cliente, email: "no-es-correo" }))).toMatch(/correo/);
+  });
+});
+
+describe("esquemaNuevoClienteOdoo: contacto", () => {
+  const empresa = { nombre: "Corporación Andina SAC", documento: "20123456786", telefono: "", email: "" };
+  const vacio = { nombre: "", cargo: "", telefono: "", email: "" };
+
+  it("sin contacto, o con todo vacío, llega sin contacto", () => {
+    expect(esquemaNuevoClienteOdoo.parse(empresa).contacto).toBeUndefined();
+    expect(esquemaNuevoClienteOdoo.parse({ ...empresa, contacto: vacio }).contacto).toBeNull();
+  });
+
+  it("recorta y deja en null lo que falta", () => {
+    const r = esquemaNuevoClienteOdoo.parse({ ...empresa, contacto: { ...vacio, nombre: " María Ruiz ", telefono: "987654321" } });
+    expect(r.contacto).toEqual({ nombre: "María Ruiz", cargo: null, telefono: "987654321", email: null });
+  });
+
+  it("un teléfono o correo sin nombre no se acepta: ¿de quién sería?", () => {
+    expect(mensaje(esquemaNuevoClienteOdoo.safeParse({ ...empresa, contacto: { ...vacio, telefono: "987654321" } }))).toMatch(/nombre del contacto/);
+  });
+
+  it("el correo del contacto tiene que estar bien escrito", () => {
+    expect(mensaje(esquemaNuevoClienteOdoo.safeParse({ ...empresa, contacto: { ...vacio, nombre: "Ana", email: "no-es-correo" } }))).toMatch(/correo/);
+  });
+});
+
+describe("contactoId en la cotización", () => {
+  const base = {
+    canal: "tienda",
+    clienteId: 2,
+    lineas: [{ productoId: 10, cantidad: 1, precioUnitario: 100, descripcion: "" }],
+    notas: null,
+  };
+
+  it("es opcional y tiene que ser un id de Odoo", () => {
+    expect(esquemaNuevaCotizacion.safeParse(base).success).toBe(true);
+    expect(esquemaNuevaCotizacion.safeParse({ ...base, contactoId: null }).success).toBe(true);
+    expect(esquemaNuevaCotizacion.safeParse({ ...base, contactoId: 7 }).success).toBe(true);
+    expect(esquemaNuevaCotizacion.safeParse({ ...base, contactoId: 0 }).success).toBe(false);
+  });
+});
+
+describe("esquemaNuevoContacto", () => {
+  const contacto = { empresaId: 2, nombre: " María Ruiz ", cargo: "", telefono: "987654321", email: "" };
+
+  it("recorta y deja en null lo que falta", () => {
+    expect(esquemaNuevoContacto.parse(contacto)).toEqual({
+      empresaId: 2, nombre: "María Ruiz", cargo: null, telefono: "987654321", email: null,
+    });
+  });
+
+  it("pide la empresa y el nombre, y un correo bien escrito", () => {
+    expect(esquemaNuevoContacto.safeParse({ ...contacto, empresaId: 0 }).success).toBe(false);
+    expect(mensaje(esquemaNuevoContacto.safeParse({ ...contacto, nombre: " " }))).toMatch(/nombre del contacto/);
+    expect(mensaje(esquemaNuevoContacto.safeParse({ ...contacto, email: "no-es-correo" }))).toMatch(/correo/);
   });
 });

@@ -179,7 +179,7 @@ function sembrar() {
 const CAMPOS: Record<string, string[]> = {
   "res.partner": [
     "name", "vat", "phone", "email", "city", "is_company", "parent_id", "write_date", "active",
-    "country_id", "l10n_latam_identification_type_id", "customer_rank",
+    "country_id", "l10n_latam_identification_type_id", "customer_rank", "type", "function",
   ],
   "product.product": [
     "name", "display_name", "default_code", "barcode", "lst_price", "uom_id", "categ_id",
@@ -427,7 +427,10 @@ export async function crearOdooFalso(
       }
       t.push({
         id, name: vals.name, vat: vals.vat ?? false, phone: vals.phone ?? false, email: vals.email ?? false,
-        city: false, is_company: vals.is_company ?? false, parent_id: false, active: true,
+        city: false, is_company: vals.is_company ?? false, active: true,
+        // Un contacto es hijo de su empresa; sin `type`, Odoo lo toma como "contact".
+        parent_id: vals.parent_id ? [vals.parent_id, String(t.find((p) => p.id === vals.parent_id)?.name ?? "")] : false,
+        type: vals.type ?? "contact", function: vals.function ?? false,
         country_id: vals.country_id ?? false, l10n_latam_identification_type_id: tipo ?? false,
         write_date: ahora(),
       });

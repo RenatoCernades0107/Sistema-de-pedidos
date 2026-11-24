@@ -14,6 +14,23 @@ export interface ClienteOdoo {
   esEmpresa: boolean;
   /** Si es un contacto de una empresa, el nombre de esa empresa. */
   empresa: string | null;
+  /** Y su id: con él, elegir a esta persona es elegir a su empresa con ella de contacto. */
+  empresaId?: number | null;
+}
+
+/**
+ * Una persona de una empresa: un `res.partner` hijo (`parent_id`) de tipo contacto.
+ * El teléfono y el correo de quien atiende pertenecen a ella, no a la empresa.
+ */
+export interface ContactoOdoo {
+  id: number;
+  /** La empresa de la que es contacto. */
+  empresaId: number;
+  nombre: string;
+  /** El puesto (`function`), si Odoo lo tiene. */
+  cargo: string | null;
+  telefono: string | null;
+  email: string | null;
 }
 
 export interface ProductoOdoo {
