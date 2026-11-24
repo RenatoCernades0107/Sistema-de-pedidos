@@ -81,7 +81,7 @@ export default async function Page({ params }: PageProps<"/cotizaciones/[id]/edi
       diseno={{
         plantillas,
         avisoMotor: aviso,
-        corte: { kerfMm: planchas.kerfMm, margenMm: planchas.margenMm },
+        corte: { kerfMm: planchas.kerfMm, margenMm: planchas.margenMm, politica: planchas.politica },
         costos: planchas.costos,
       }}
       key={c.id}

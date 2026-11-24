@@ -200,7 +200,7 @@ export function OpcionesPlancha({
 type Importe = "total" | "material";
 const importeDe = (c: CalculoCorte, importe: Importe) => (importe === "material" ? c.material : c.total);
 
-const claseTarjeta = (elegido: boolean, problema: boolean) =>
+export const claseTarjeta = (elegido: boolean, problema: boolean) =>
   cn(
     "flex h-full w-full flex-col gap-1 rounded-lg border p-3 text-left transition-colors",
     "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
@@ -209,7 +209,7 @@ const claseTarjeta = (elegido: boolean, problema: boolean) =>
     problema && "opacity-60",
   );
 
-const desperdicioTexto = (pct: number) => `${Math.round(pct)} % de desperdicio`;
+export const desperdicioTexto = (pct: number) => `${Math.round(pct)} % de desperdicio`;
 
 function TarjetaSugerida({
   calculo: c,
@@ -378,7 +378,7 @@ function TarjetaSobrante({
   );
 }
 
-function LineaStock({ hay, necesita }: { hay: number | null | undefined; necesita: number }) {
+export function LineaStock({ hay, necesita }: { hay: number | null | undefined; necesita: number }) {
   if (necesita === 0) {
     return (
       <span className="mt-auto flex items-center gap-1.5 pt-1 text-xs">

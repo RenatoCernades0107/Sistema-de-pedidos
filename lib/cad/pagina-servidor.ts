@@ -6,6 +6,7 @@
 
 import { cargarCatalogoPlanchas, cargarConfigCortes } from "@/lib/cortes-servidor";
 import type { GrupoPlancha } from "@/lib/cortes/catalogo";
+import type { PoliticaSugerencia } from "@/lib/cortes/config";
 import { productosPorCodigo } from "@/lib/odoo/catalogos";
 import type { CostosDiseno } from "@/components/disenos/diseno-contexto";
 import { ErrorMotorCad, listarPlantillas } from "@/lib/cad/motor";
@@ -35,6 +36,8 @@ export async function catalogoParaDiseno(conPrecios: boolean): Promise<{
   grupos: GrupoPlancha[];
   kerfMm: number;
   margenMm: number;
+  /** La política de sugerencia de plancha de Configuración. */
+  politica: PoliticaSugerencia;
   costos: CostosDiseno | null;
 }> {
   try {
@@ -51,10 +54,10 @@ export async function catalogoParaDiseno(conPrecios: boolean): Promise<{
       }
     }
     // La configuración de cortes está en cm; el diseño, en mm.
-    return { grupos, kerfMm: config.corte.kerfLaser * 10, margenMm: config.corte.margen * 10, costos };
+    return { grupos, kerfMm: config.corte.kerfLaser * 10, margenMm: config.corte.margen * 10, politica: config.sugerencia.politica, costos };
   } catch (e) {
     console.error("[cad] catálogo de planchas", e);
-    return { grupos: [], kerfMm: 0, margenMm: 0, costos: null };
+    return { grupos: [], kerfMm: 0, margenMm: 0, politica: "precio", costos: null };
   }
 }
 

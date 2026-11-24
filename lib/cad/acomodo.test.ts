@@ -111,3 +111,39 @@ describe("problemaDeEspesor", () => {
     expect(problemaDeEspesor({}, [pieza("a", 1, 1, 1, 8)], { espesorMm: 3 })).toMatch(/8 mm/);
   });
 });
+
+describe("acomodar con política y formato elegido", () => {
+  const chico = { id: "chico", anchoMm: 600, altoMm: 600 };
+  const medio = { id: "medio", anchoMm: 1000, altoMm: 1000 };
+  const grande = { id: "grande", anchoMm: 2000, altoMm: 2000 };
+  const piezas = [pieza("a", 300, 300, 2)];
+
+  it("por defecto elige el que menos plancha gasta", () => {
+    expect(acomodar(piezas, [grande, medio, chico], { rotable: true })?.formatoId).toBe("chico");
+  });
+
+  it("con la política de tamaño elige la plancha más chica que sirve", () => {
+    expect(acomodar(piezas, [grande, medio], { rotable: true }, { politica: "tamano" })?.formatoId).toBe("medio");
+  });
+
+  it("con la política de precio elige el que menos cuesta, aunque desperdicie más", () => {
+    const precio: Record<string, number> = { chico: 100, medio: 40, grande: 300 };
+    const r = acomodar(piezas, [chico, medio, grande], { rotable: true }, {
+      politica: "precio",
+      costoDe: (x) => precio[x.formatoId],
+    });
+    expect(r?.formatoId).toBe("medio");
+  });
+
+  it("precio y promedio sin costos caen a la merma", () => {
+    expect(acomodar(piezas, [grande, chico], { rotable: true }, { politica: "precio" })?.formatoId).toBe("chico");
+    expect(acomodar(piezas, [grande, chico], { rotable: true }, { politica: "promedio" })?.formatoId).toBe("chico");
+  });
+
+  it("respeta el formato elegido si sirve y lo descarta si deja piezas fuera", () => {
+    const orden = { politica: "merma" as const };
+    expect(acomodar(piezas, [chico, grande], { rotable: true }, { ...orden, formatoId: "grande" })?.formatoId).toBe("grande");
+    const enorme = [pieza("z", 1500, 1500)];
+    expect(acomodar(enorme, [chico, grande], { rotable: true }, { ...orden, formatoId: "chico" })?.formatoId).toBe("grande");
+  });
+});

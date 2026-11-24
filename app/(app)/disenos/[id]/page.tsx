@@ -45,7 +45,7 @@ export default async function Page({ params, searchParams }: PageProps<"/disenos
       plantillas={plantillas}
       inicial={{ plantilla: diseno.plantilla, parametros: diseno.parametros, material, materiales }}
       catalogo={planchas.grupos}
-      corte={{ kerfMm: planchas.kerfMm, margenMm: planchas.margenMm }}
+      corte={{ kerfMm: planchas.kerfMm, margenMm: planchas.margenMm, politica: planchas.politica }}
       costos={planchas.costos}
       versionInicial={diseno.version}
       usuario={{ id: perfil.id, puedeAprobar: perfil.rol === "administracion" }}

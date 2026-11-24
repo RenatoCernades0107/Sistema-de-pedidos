@@ -41,6 +41,16 @@ export interface Fraccion {
   formas: [number, number][];
 }
 
+/**
+ * Qué formato de plancha sugiere el sistema:
+ *  - "precio": el que cuesta menos.
+ *  - "merma": el que menos desperdicia.
+ *  - "promedio": el mejor promedio entre la posición en precio y en merma.
+ *  - "tamano": la plancha más chica que sirva.
+ */
+export const POLITICAS_SUGERENCIA = ["precio", "merma", "promedio", "tamano"] as const;
+export type PoliticaSugerencia = (typeof POLITICAS_SUGERENCIA)[number];
+
 export interface ConfigCortes {
   laser: {
     tabla: FilaLaser[];
@@ -76,6 +86,8 @@ export interface ConfigCortes {
   };
   /** Los códigos de Odoo de los servicios de corte. */
   servicios: { laser: string; manual: string };
+  /** Cómo se escoge la plancha sugerida (corte a medida, terminados y diseños). */
+  sugerencia: { politica: PoliticaSugerencia };
 }
 
 /**
@@ -158,6 +170,7 @@ export const CONFIG_CORTES_DEFECTO: ConfigCortes = {
   },
   corte: { kerfLaser: 0, kerfManual: 0, margen: 0, retazoMin: 30 },
   servicios: { laser: "SRV002", manual: "SRV001" },
+  sugerencia: { politica: "precio" },
 };
 
 const D = CONFIG_CORTES_DEFECTO;
@@ -224,6 +237,7 @@ export const esquemaConfigCortes = z.object({
     retazoMin: z.coerce.number().min(0).max(200),
   }),
   servicios: z.object({ laser: codigo, manual: codigo }),
+  sugerencia: z.object({ politica: z.enum(POLITICAS_SUGERENCIA) }).default(D.sugerencia),
 }) satisfies z.ZodType<ConfigCortes>;
 
 /**
@@ -257,6 +271,7 @@ const tolerante = z.object({
   cobro: z.preprocess(completarRecargos, esquemaConfigCortes.shape.cobro).catch(D.cobro),
   corte: esquemaConfigCortes.shape.corte.catch(D.corte),
   servicios: esquemaConfigCortes.shape.servicios.catch(D.servicios),
+  sugerencia: esquemaConfigCortes.shape.sugerencia.catch(D.sugerencia),
 });
 
 /** Lo guardado, completado con los defectos. Nunca lanza. */

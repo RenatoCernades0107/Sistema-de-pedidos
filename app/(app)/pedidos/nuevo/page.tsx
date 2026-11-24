@@ -82,7 +82,7 @@ export default async function Page({ searchParams }: PageProps<"/pedidos/nuevo">
       diseno={{
         plantillas,
         avisoMotor: aviso,
-        corte: { kerfMm: planchas.kerfMm, margenMm: planchas.margenMm },
+        corte: { kerfMm: planchas.kerfMm, margenMm: planchas.margenMm, politica: planchas.politica },
         costos: planchas.costos,
       }}
       desdeCotizacion={desde}
