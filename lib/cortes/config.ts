@@ -58,6 +58,11 @@ export interface ConfigCortes {
     fracciones: Fraccion[];
     /** Redondear el total del corte hacia arriba, al sol entero. */
     redondearAlSol: boolean;
+    /**
+     * Cuánto se puede bajar el precio de un corte respecto al calculado (%).
+     * Subirlo no tiene tope.
+     */
+    descuentoMaxPct: number;
   };
   corte: {
     /** Lo que se come el láser en cada corte (cm). */
@@ -149,6 +154,7 @@ export const CONFIG_CORTES_DEFECTO: ConfigCortes = {
     // 1/16, 1/8 y 3/4 existen, pero se encienden en Configuración.
     fracciones: [fraccionEstandar("1/4"), fraccionEstandar("1/2")],
     redondearAlSol: true,
+    descuentoMaxPct: 5,
   },
   corte: { kerfLaser: 0, kerfManual: 0, margen: 0, retazoMin: 30 },
   servicios: { laser: "SRV002", manual: "SRV001" },
@@ -209,6 +215,7 @@ export const esquemaConfigCortes = z.object({
       .max(8)
       .transform((f) => [...f].sort((a, b) => a.factor - b.factor)),
     redondearAlSol: z.boolean(),
+    descuentoMaxPct: z.coerce.number().finite().min(0).max(50).default(5),
   }),
   corte: z.object({
     kerfLaser: z.coerce.number().min(0).max(2),

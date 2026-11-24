@@ -15,6 +15,7 @@ import {
   esCorte,
   esTerminado,
   ponerCorte,
+  ponerPrecioCorte,
   ponerTerminado,
   problemaDeLineas,
   quitarLinea,
@@ -310,6 +311,8 @@ export function FormCotizacion({
               buscadorProducto.current?.focus();
             }}
             alEditarCorte={(clave) => setCorte({ clave })}
+            alCambiarPrecioCorte={(clave, precio) => setLineas((ls) => ponerPrecioCorte(ls, clave, precio))}
+            descuentoMaxPct={config.cobro.descuentoMaxPct}
             alEditarTerminado={(clave) => void terminadosCad.editar(clave)}
             alTerminar={() => buscadorProducto.current?.focus()}
           />
@@ -383,6 +386,7 @@ export function lineaParaEnviar(l: Linea) {
       formatoCodigo: l.calculo.formato.codigo,
       eleccion: l.eleccion ?? null,
       totalMostrado: l.calculo.total,
+      precioFinal: l.precioFinal ?? null,
     };
   }
   if (esTerminado(l)) {

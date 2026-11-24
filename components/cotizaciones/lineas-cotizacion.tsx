@@ -4,6 +4,7 @@ import { useState, type KeyboardEvent, type ReactNode } from "react";
 import { Hammer, Minus, NotebookPen, Package, Pencil, Plus, Scissors, Trash2 } from "lucide-react";
 import { MODALIDADES } from "@/lib/cortes/calcular";
 import { materialDeCorte, resumenPiezas } from "@/lib/cortes/guardado";
+import { precioMinimoCorte } from "@/lib/cortes/precio";
 import { money } from "@/lib/formato";
 import {
   esCorte,
@@ -35,6 +36,8 @@ export function LineasCotizacion({
   alCambiarCantidad,
   alQuitar,
   alEditarCorte,
+  alCambiarPrecioCorte,
+  descuentoMaxPct = 5,
   alEditarTerminado,
   alTerminar,
   refCantidad,
@@ -49,6 +52,10 @@ export function LineasCotizacion({
   alQuitar: (clave: string) => void;
   /** Reabrir el editor de un corte ya agregado. */
   alEditarCorte: (clave: string) => void;
+  /** Cambiar el precio de un corte; `null` vuelve al calculado. */
+  alCambiarPrecioCorte: (clave: string, precio: number | null) => void;
+  /** Cuánto se puede bajar un corte respecto al calculado (%), de la configuración. */
+  descuentoMaxPct?: number;
   alEditarTerminado: (clave: string) => void;
   /** Enter en un número: volver al buscador. */
   alTerminar: () => void;
@@ -95,6 +102,8 @@ export function LineasCotizacion({
             linea={l}
             resaltada={resaltada === l.clave}
             alEditar={() => alEditarCorte(l.clave)}
+            alCambiarPrecio={(precio) => alCambiarPrecioCorte(l.clave, precio)}
+            descuentoMaxPct={descuentoMaxPct}
             alQuitar={() => alQuitar(l.clave)}
             pie={pieDe(l, `el corte de ${materialDeCorte(l)}`)}
           />
@@ -136,6 +145,8 @@ function LineaDeCorte({
   linea: l,
   resaltada,
   alEditar,
+  alCambiarPrecio,
+  descuentoMaxPct,
   alQuitar,
   pie,
 }: {
@@ -143,12 +154,17 @@ function LineaDeCorte({
   linea: LineaCorte;
   resaltada: boolean;
   alEditar: () => void;
+  alCambiarPrecio: (precio: number | null) => void;
+  descuentoMaxPct: number;
   alQuitar: () => void;
   pie?: ReactNode;
 }) {
   const c = l.calculo;
   const nombre = `${MODALIDADES[l.modalidad]} en ${materialDeCorte(l)}`;
   const planchas = c.planchas.length;
+  const minimo = precioMinimoCorte(c.total, descuentoMaxPct);
+  const precio = l.precioFinal ?? c.total;
+  const cambiado = Math.abs(precio - c.total) > 0.004;
 
   return (
     <li
@@ -198,9 +214,34 @@ function LineaDeCorte({
           </p>
           {c.problema && <p className="text-destructive mt-1 text-xs">{c.problema}</p>}
         </div>
-        <div className="ml-auto flex flex-col items-end gap-1">
-          <span className="text-muted-foreground text-xs">Subtotal</span>
-          <span className="tnum h-8 text-sm leading-8 font-semibold">{money(c.total)}</span>
+        <div
+          className="ml-auto flex flex-col items-end gap-1"
+          onBlur={() => {
+            // Nunca queda por debajo del mínimo: al salir del campo se corrige.
+            if (precio < minimo) alCambiarPrecio(minimo);
+          }}
+        >
+          <span className="text-muted-foreground text-xs">Precio</span>
+          <NumeroEditable
+            valor={precio}
+            alCambiar={(n) => alCambiarPrecio(n)}
+            etiqueta={`Precio del corte de ${materialDeCorte(l)}`}
+            decimales={2}
+            className="w-28 text-right font-semibold"
+          />
+          {precio < minimo ? (
+            <span className="text-destructive text-xs">Mínimo {money(minimo)}</span>
+          ) : cambiado ? (
+            <button
+              type="button"
+              onClick={() => alCambiarPrecio(null)}
+              className="text-muted-foreground hover:text-foreground text-xs underline underline-offset-2"
+            >
+              Calculado {money(c.total)}
+            </button>
+          ) : (
+            <span className="text-muted-foreground text-xs">Mínimo {money(minimo)}</span>
+          )}
         </div>
       </div>
       {pie}

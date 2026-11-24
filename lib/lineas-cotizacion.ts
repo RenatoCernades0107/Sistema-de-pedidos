@@ -60,6 +60,8 @@ export interface LineaCorte {
    * al guardar, el servidor lo rehace con sus propios precios.
    */
   calculo: CalculoCorte;
+  /** El precio que puso quien cotiza en lugar del calculado. `null`/ausente: el calculado. */
+  precioFinal?: number | null;
 }
 
 /** Un producto terminado: del catálogo (`productoCodigo`) o personalizado. */
@@ -111,7 +113,7 @@ export const subtotalDe = (l: Pick<LineaCotizacion, "cantidad" | "precioUnitario
   redondear2((Number(l.cantidad) || 0) * (Number(l.precioUnitario) || 0));
 
 /** Lo que suma una línea, sea producto o corte. */
-export const importeDe = (l: Linea) => (esCorte(l) ? l.calculo.total : subtotalDe(l));
+export const importeDe = (l: Linea) => (esCorte(l) ? (l.precioFinal ?? l.calculo.total) : subtotalDe(l));
 
 /**
  * La suma de las líneas. Es referencial: los impuestos y la lista de precios los
@@ -161,6 +163,10 @@ export function actualizarLinea<L extends Linea>(
 ): L[] {
   return lineas.map((l) => (esProducto(l) && l.clave === clave ? { ...l, ...cambios } : l));
 }
+
+/** Pone (o, con `null`, quita) el precio a mano de un corte. */
+export const ponerPrecioCorte = <L extends Linea>(lineas: L[], clave: string, precioFinal: number | null): L[] =>
+  lineas.map((l) => (esCorte(l) && l.clave === clave ? { ...l, precioFinal } : l));
 
 export const quitarLinea = <L extends Linea>(lineas: L[], clave: string) =>
   lineas.filter((l) => l.clave !== clave);

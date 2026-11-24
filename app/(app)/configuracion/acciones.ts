@@ -41,6 +41,7 @@ const ETIQUETAS: ReadonlyArray<readonly [RegExp, string]> = [
   [/^manual\.tarifas\.(\d+)\.hastaMm$/, "Corte manual, fila $1: el espesor"],
   [/^manual\.tarifas\.(\d+)\.solesPorMetro$/, "Corte manual, fila $1: el precio por metro"],
   [/^cobro\.fracciones\.(\d+)\.recargoPct$/, "El recargo de una fracción"],
+  [/^cobro\.descuentoMaxPct$/, "El descuento máximo sobre el precio del corte (0 a 50 %)"],
   [/^corte\.kerfLaser$/, "El grosor del corte láser"],
   [/^corte\.kerfManual$/, "El grosor del corte manual"],
   [/^corte\.margen$/, "El borde que se descarta"],

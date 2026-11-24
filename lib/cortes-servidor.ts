@@ -7,9 +7,10 @@
 
 import { cache } from "react";
 import { clienteServidor } from "./supabase-servidor";
-import { calcularConSobrante, calcularCorte } from "./cortes/calcular";
+import { calcularConSobrante, calcularCorte, type CalculoCorte } from "./cortes/calcular";
 import { colorDe, type FormatoPlancha, type GrupoPlancha } from "./cortes/catalogo";
 import { leerConfigCortes, type ConfigCortes } from "./cortes/config";
+import { conPrecioFinal, precioMinimoCorte } from "./cortes/precio";
 import { guardarCorte, lugarDeCorte, resumenPiezas, tituloCorte, type CorteGuardado } from "./cortes/guardado";
 import type { NuevaLineaCorte } from "./esquemas";
 import { productosPorCodigo } from "./odoo/catalogos";
@@ -176,7 +177,7 @@ export async function prepararCorte(
   const entrada = { piezas: linea.piezas, espesorMm: grupo.espesorMm, modalidad: linea.modalidad, rotable: grupo.rotable };
   const formatoCorte = { codigo: formato.codigo, ancho: formato.anchoCm, alto: formato.largoCm, precio: plancha.precio };
   const eleccion = linea.eleccion ?? null;
-  let calculo;
+  let calculo: CalculoCorte;
   if (eleccion?.tipo === "formato") {
     // Elegido a mano: solo planchas nuevas de ese formato.
     calculo = calcularCorte(entrada, formatoCorte, config);
@@ -195,6 +196,18 @@ export async function prepararCorte(
       `El precio del corte cambió mientras lo armabas (ahora es S/ ${calculo.total.toFixed(2)}). ` +
         "Ábrelo de nuevo para revisarlo.",
     );
+  }
+
+  // El precio a mano: sube sin tope, baja hasta el descuento máximo de la configuración.
+  if (linea.precioFinal != null) {
+    const minimo = precioMinimoCorte(calculo.total, config.cobro.descuentoMaxPct);
+    if (linea.precioFinal < minimo - 0.001) {
+      return fallo(
+        `El precio del corte no puede ser menor que S/ ${minimo.toFixed(2)} ` +
+          `(${config.cobro.descuentoMaxPct} % menos que el calculado).`,
+      );
+    }
+    calculo = conPrecioFinal(calculo, linea.precioFinal);
   }
 
   const corte = guardarCorte(
