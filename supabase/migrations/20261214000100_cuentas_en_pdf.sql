@@ -7,11 +7,11 @@
 -- no pide contraseña, solo ser Administración. Una cuenta nueva nace con
 -- `en_pdf = true`: el comportamiento de antes.
 
-alter table public.cuentas_bancarias add column en_pdf boolean not null default true;
+alter table public.cuentas_bancarias add column if not exists en_pdf boolean not null default true;
 
 -- `cuentas_bancarias_inmutables` solo compara los datos de la cuenta, así que
 -- `en_pdf` ya puede cambiar; el UPDATE de la función no toca nada más.
-create function public.mostrar_cuenta_en_pdf(p_id uuid, p_mostrar boolean)
+create or replace function public.mostrar_cuenta_en_pdf(p_id uuid, p_mostrar boolean)
 returns void
 language plpgsql
 security definer
