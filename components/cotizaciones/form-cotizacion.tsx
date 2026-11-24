@@ -3,10 +3,10 @@
 import { useCallback, useRef, useState, useTransition } from "react";
 import { flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Loader2, Package, Scissors } from "lucide-react";
+import { Loader2, Package, Scissors, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { crearCotizacion } from "@/app/(app)/cotizaciones/acciones";
-import { CANALES, type Canal } from "@/lib/cotizaciones";
+import { actualizarCotizacion, crearCotizacion } from "@/app/(app)/cotizaciones/acciones";
+import { CANALES, type Canal, type LineaGuardada } from "@/lib/cotizaciones";
 import { money } from "@/lib/formato";
 import {
   actualizarLinea,
@@ -26,6 +26,8 @@ import {
 import type { GrupoPlancha } from "@/lib/cortes/catalogo";
 import type { ConfigCortes } from "@/lib/cortes/config";
 import { EditorCorte } from "@/components/cortes/editor-corte";
+import { CorteGuardadoVista } from "@/components/cortes/corte-guardado";
+import { TerminadoGuardadoVista } from "@/components/terminados/terminado-guardado";
 import type { DatosDiseno } from "@/components/terminados/disenador-terminado";
 import { useTerminadosCad } from "@/components/terminados/use-terminados-cad";
 import type { CatalogoTerminados } from "@/lib/terminados/catalogo";
@@ -60,6 +62,7 @@ export function FormCotizacion({
   diseno,
   lineaInicial = null,
   borrador = null,
+  edicion = null,
 }: {
   catalogo: GrupoPlancha[];
   config: ConfigCortes;
@@ -74,19 +77,37 @@ export function FormCotizacion({
   lineaInicial?: { linea: Omit<LineaTerminado, "tipo" | "clave">; disenoId: string } | null;
   /** El borrador que se retoma: el formulario arranca tal como quedó. */
   borrador?: BorradorAbierto<DatosBorradorCotizacion> | null;
+  /**
+   * Editar una cotización que sigue en borrador, en vez de crear una. Los
+   * productos de Odoo se editan aquí; un corte o un producto terminado se
+   * conserva tal cual (`conservadas`) o se quita y se agrega de nuevo.
+   */
+  edicion?: {
+    id: string;
+    referencia: string;
+    version: number;
+    canal: Canal;
+    cliente: ClienteOdoo;
+    contacto: ContactoOdoo | null;
+    lineas: Linea[];
+    conservadas: LineaGuardada[];
+    notas: string;
+  } | null;
 }) {
   const router = useRouter();
   const previo = borrador?.datos ?? null;
-  const [canal, setCanal] = useState<Canal>(previo?.canal ?? "tienda");
-  const [cliente, setCliente] = useState<ClienteOdoo | null>(previo?.cliente ?? null);
-  const [contacto, setContacto] = useState<ContactoOdoo | null>(previo?.contacto ?? null);
+  const [canal, setCanal] = useState<Canal>(edicion?.canal ?? previo?.canal ?? "tienda");
+  const [cliente, setCliente] = useState<ClienteOdoo | null>(edicion?.cliente ?? previo?.cliente ?? null);
+  const [contacto, setContacto] = useState<ContactoOdoo | null>(edicion?.contacto ?? previo?.contacto ?? null);
   const [arranque] = useState(() =>
     lineaInicial ? ponerTerminado(previo?.lineas ?? [], lineaInicial.linea) : null,
   );
-  const [lineas, setLineas] = useState<Linea[]>(arranque?.lineas ?? previo?.lineas ?? []);
+  const [lineas, setLineas] = useState<Linea[]>(edicion?.lineas ?? arranque?.lineas ?? previo?.lineas ?? []);
+  /** Cortes y productos terminados que ya tenía la cotización y se dejan como están. */
+  const [conservadas, setConservadas] = useState<LineaGuardada[]>(edicion?.conservadas ?? []);
   /** El editor de corte: cerrado, abierto para uno nuevo, o editando el de esa clave. */
   const [corte, setCorte] = useState<{ clave: string | null } | null>(null);
-  const [notas, setNotas] = useState(previo?.notas ?? "");
+  const [notas, setNotas] = useState(edicion?.notas ?? previo?.notas ?? "");
   const [resaltada, setResaltada] = useState<string | null>(null);
   const [pendiente, iniciar] = useTransition();
   /** Ya se intentó crear: desde ahí, lo que falta se dice junto a su sección. */
@@ -153,8 +174,9 @@ export function FormCotizacion({
     else cantidades.current.delete(clave);
   }, []);
 
-  const total = totalReferencial(lineas);
-  const problemaLineas = problemaDeLineas(lineas);
+  const total = totalReferencial(lineas) + conservadas.reduce((suma, l) => suma + l.importe, 0);
+  // Una cotización con solo cortes o terminados conservados no está vacía.
+  const problemaLineas = conservadas.length > 0 && lineas.length === 0 ? null : problemaDeLineas(lineas);
   const problema = !cliente ? "Elige el cliente." : problemaLineas;
 
   // Mientras se llena, todo queda guardado como borrador (solo lo ve quien lo crea).
@@ -175,8 +197,10 @@ export function FormCotizacion({
     },
     resumen: resumenDe(cliente, lineas),
     conContenido: !!cliente || lineas.length > 0 || notas.trim() !== "",
-    activo: !creada,
+    // Editar una cotización no es llenar una nueva: no hay borrador que guardar.
+    activo: !creada && !edicion,
   });
+  const cantidadLineas = lineas.length + conservadas.length;
 
   const crear = () => {
     if (pendiente) return;
@@ -185,6 +209,30 @@ export function FormCotizacion({
       toast.error(problema ?? "Falta el cliente.");
       if (!cliente) buscadorCliente.current?.focus();
       else if (lineas.length === 0) buscadorProducto.current?.focus();
+      return;
+    }
+
+    if (edicion) {
+      iniciar(async () => {
+        const r = await actualizarCotizacion(edicion.id, {
+          canal,
+          clienteId: cliente.id,
+          contactoId: cliente.esEmpresa ? (contacto?.id ?? null) : null,
+          lineas: [
+            ...conservadas.map((l) => ({ tipo: "conservar" as const, posicion: l.posicion })),
+            ...lineas.map(lineaParaEnviar),
+          ],
+          notas: notas.trim() || null,
+        });
+        if (!r.ok) {
+          toast.error("No se guardaron los cambios", { description: r.error });
+          return;
+        }
+        if (r.enOdoo) toast.success(`${r.orderName} actualizada en Odoo`);
+        else toast.warning("Se guardó, pero Odoo no recibió los cambios", { description: r.errorOdoo ?? undefined });
+        setCreada(true);
+        router.push(`/cotizaciones/${edicion.id}`);
+      });
       return;
     }
 
@@ -226,13 +274,17 @@ export function FormCotizacion({
       }}
     >
       <CabeceraFormulario
-        volverA="/cotizaciones"
-        volverTexto="Cotizaciones"
-        titulo="Nueva cotización"
-        subtitulo="Se crea también en Odoo."
+        volverA={edicion ? `/cotizaciones/${edicion.id}` : "/cotizaciones"}
+        volverTexto={edicion ? edicion.referencia : "Cotizaciones"}
+        titulo={edicion ? `Editar ${edicion.referencia}` : "Nueva cotización"}
+        subtitulo={
+          edicion
+            ? `Es un borrador${edicion.version > 1 ? ` (v${edicion.version})` : ""}: los cambios también se llevan a Odoo. Al enviarla ya no se edita.`
+            : "Se crea también en Odoo."
+        }
         lateral={
           <div className="flex flex-col items-end gap-0.5">
-          <IndicadorBorrador estado={autoguardado.estado} />
+          {!edicion && <IndicadorBorrador estado={autoguardado.estado} />}
           <p className="text-muted-foreground hidden text-xs md:block">
             Crear sin soltar el teclado:{" "}
             <kbd className="kbd">Ctrl</kbd>{" "}
@@ -247,8 +299,8 @@ export function FormCotizacion({
         <Seccion
           n={1}
           titulo="Cliente y productos"
-          completa={!!cliente && lineas.length > 0 && !problemaLineas}
-          nota={lineas.length ? `${lineas.length} ${lineas.length === 1 ? "línea" : "líneas"}` : undefined}
+          completa={!!cliente && cantidadLineas > 0 && !problemaLineas}
+          nota={cantidadLineas ? `${cantidadLineas} ${cantidadLineas === 1 ? "línea" : "líneas"}` : undefined}
         >
           <Campo grupo label="Canal" ayuda="De dónde llegó el pedido de cotización.">
             <Opciones
@@ -316,6 +368,40 @@ export function FormCotizacion({
             alEditarTerminado={(clave) => void terminadosCad.editar(clave)}
             alTerminar={() => buscadorProducto.current?.focus()}
           />
+          {conservadas.length > 0 && (
+            <div className="flex flex-col gap-2" data-testid="lineas-conservadas">
+              <p className="text-muted-foreground text-xs">
+                Estas líneas se quedan como se cotizaron. Para cambiar una, quítala y agrégala otra vez.
+              </p>
+              <ul className="flex flex-col gap-2">
+                {conservadas.map((l) => (
+                  <li key={l.posicion} className="bg-card flex items-start gap-3 rounded-lg border px-3 py-2.5">
+                    <div className="min-w-0 flex-1">
+                      {l.corte ? (
+                        <CorteGuardadoVista corte={l.corte} conPrecios />
+                      ) : l.terminado ? (
+                        <TerminadoGuardadoVista
+                          terminado={l.terminado}
+                          cantidad={l.cantidad}
+                          importe={l.importe}
+                          conPrecios
+                        />
+                      ) : null}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Quitar ${l.nombre}`}
+                      onClick={() => setConservadas((ls) => ls.filter((x) => x.posicion !== l.posicion))}
+                    >
+                      <Trash2 />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {intentado && problemaLineas && (
             <p role="alert" className="text-destructive text-sm">
               {problemaLineas}
@@ -357,12 +443,12 @@ export function FormCotizacion({
 
       <BarraEnvio
         resumen={[
-          { etiqueta: lineas.length === 1 ? "Producto" : "Productos", valor: String(lineas.length) },
+          { etiqueta: cantidadLineas === 1 ? "Producto" : "Productos", valor: String(cantidadLineas) },
           { etiqueta: "Total", valor: money(total) },
         ]}
         problema={problema}
-        texto="Crear cotización"
-        textoPendiente="Creando en Odoo…"
+        texto={edicion ? "Guardar cambios" : "Crear cotización"}
+        textoPendiente={edicion ? "Actualizando en Odoo…" : "Creando en Odoo…"}
         pendiente={pendiente}
         onClick={crear}
       />

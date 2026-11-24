@@ -21,6 +21,7 @@ const POR_CONSTRAINT: ReadonlyArray<readonly [RegExp, string]> = [
   [/cotizacion_productos_cantidad_check/, "La cantidad de cada producto tiene que ser mayor que cero."],
   [/cotizacion_productos_precio_unitario_check/, "El precio de un producto no puede ser negativo."],
   [/cotizacion_productos_producto_nombre_check/, "Un producto llegó sin nombre desde Odoo."],
+  [/cotizaciones_reemplaza_a_idx/, "Ya hay una versión nueva en curso de esa cotización."],
   [/cotizaciones_cliente_nombre_check/, "El cliente llegó sin nombre desde Odoo."],
   [/cotizaciones_odoo_order_id_key/, "Esa cotización de Odoo ya está registrada."],
   [
@@ -66,6 +67,16 @@ const POR_CONSTRAINT: ReadonlyArray<readonly [RegExp, string]> = [
 /** Mensajes de los `raise exception` del esquema que conviene suavizar. */
 const POR_MENSAJE: ReadonlyArray<readonly [RegExp, string]> = [
   [/^Una cotización necesita al menos un producto/, "Agrega al menos un producto."],
+  [
+    /^COTIZACION_BLOQUEADA/,
+    "Esa cotización ya se envió o ya tiene pedido: no se edita. Crea una versión nueva.",
+  ],
+  [/^COTIZACION_SIN_ODOO/, "Primero tiene que estar creada en Odoo."],
+  [/^COTIZACION_DESACTUALIZADA/, "Los últimos cambios todavía no están en Odoo. Reintenta antes de enviarla."],
+  [/^COTIZACION_ESTADO/, "Ese cambio de estado de la cotización no es posible."],
+  [/^VERSION_NO_APLICA/, "Solo una cotización enviada tiene versión nueva."],
+  [/^VERSION_CON_PEDIDO/, "Ya tiene pedido: no se cambia lo que se aprobó."],
+  [/^VERSION_EXISTE/, "Ya hay una versión nueva en curso."],
   [
     /^Transición inválida/,
     "Ese cambio de estado ya no es posible: alguien movió el pedido antes. Recarga la página.",

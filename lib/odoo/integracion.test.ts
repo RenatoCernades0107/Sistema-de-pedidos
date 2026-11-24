@@ -10,6 +10,7 @@ import { BASE, CLAVE, USUARIO, crearOdooFalso } from "../../e2e/odoo-falso.mjs";
 import { buscarClientes, buscarProductos, productosPorId } from "./catalogos";
 import { buscarClientesEnOdoo, cargarClientes, contactosDeEmpresa, crearCliente } from "./clientes";
 import {
+  actualizarPedidoDeVenta,
   confirmarPedidoDeVenta,
   crearPedidoDeVenta,
   leerPedidoDeVenta,
@@ -212,6 +213,39 @@ describe("cotizaciones en Odoo", () => {
     // Odoo rechazaría un segundo action_confirm: la segunda vez ni se lo pide.
     await confirmarPedidoDeVenta(orderId);
     expect(odoo.estado().llamadas.filter((l) => l.metodo === "action_confirm")).toHaveLength(1);
+  });
+
+  it("actualizar reemplaza el cliente y todas las líneas de una cotización, y trae los montos nuevos", async () => {
+    const { orderId } = await crearPedidoDeVenta({
+      cotizacionId: "dddddddd-0000-0000-0000-000000000003",
+      clienteId: 1,
+      lineas: [linea(10, 1, 120), linea(10, 2, 50)],
+    });
+
+    const r = await actualizarPedidoDeVenta(orderId, { clienteId: 2, lineas: [linea(10, 3, 100)] });
+
+    expect(r).toMatchObject({ orderId, montoSinImpuestos: 300, montoTotal: 354 });
+    const leida = await leerPedidoDeVenta(orderId);
+    expect(leida?.clienteId).toBe(2);
+    expect(leida?.lineas.map((l) => [l.cantidad, l.precioUnitario])).toEqual([[3, 100]]);
+    // Se escribió sobre la misma orden: no se creó otra.
+    expect(odoo.estado().ordenes).toHaveLength(1);
+    expect(odoo.estado().llamadas.filter((l) => l.metodo === "create" && l.modelo === "sale.order")).toHaveLength(1);
+  });
+
+  it("actualizar no toca una orden que ya es pedido de venta", async () => {
+    const { orderId } = await crearPedidoDeVenta({
+      cotizacionId: "dddddddd-0000-0000-0000-000000000004",
+      clienteId: 1,
+      lineas: [linea(10, 1, 120)],
+    });
+    await confirmarPedidoDeVenta(orderId);
+
+    await expect(actualizarPedidoDeVenta(orderId, { clienteId: 1, lineas: [linea(10, 9, 9)] })).rejects.toThrow(
+      /ya no es una cotización/,
+    );
+    const leida = await leerPedidoDeVenta(orderId);
+    expect(leida?.lineas.map((l) => l.cantidad)).toEqual([1]);
   });
 
   it("si Odoo no confirma, el error es legible y la cotización sigue en borrador", async () => {

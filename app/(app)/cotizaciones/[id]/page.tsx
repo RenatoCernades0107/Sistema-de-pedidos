@@ -1,7 +1,13 @@
 import { notFound } from "next/navigation";
 import { exigirCotizaciones } from "@/lib/sesion";
 import { ROLES } from "@/lib/dominio";
-import { almacenDeDespacho, cargarConfigCotizaciones, cargarCotizacion } from "@/lib/cotizaciones-servidor";
+import {
+  almacenDeDespacho,
+  cargarConfigCotizaciones,
+  cargarCotizacion,
+  versionAnterior,
+  versionSiguiente,
+} from "@/lib/cotizaciones-servidor";
 import { cargarAlmacenes } from "@/lib/almacenes-servidor";
 import { faltantesPrevistos } from "@/lib/faltantes-servidor";
 import { cotizacionPorToken } from "@/lib/compartir-servidor";
@@ -17,6 +23,10 @@ export default async function Page({ params }: PageProps<"/cotizaciones/[id]">) 
     cargarAlmacenes(),
   ]);
   if (!cotizacion) notFound();
+  const [siguiente, anterior] = await Promise.all([
+    versionSiguiente(cotizacion.id),
+    versionAnterior(cotizacion.reemplazaA),
+  ]);
   // El elegido o, si nadie eligió, el que da la regla (taller si algo se produce allí).
   const despacho = await almacenDeDespacho(cotizacion).catch(() => null);
   // Mientras no tiene pedido: lo que faltaría con ese despacho, para cambiarlo o mover stock a tiempo.
@@ -39,6 +49,8 @@ export default async function Page({ params }: PageProps<"/cotizaciones/[id]">) 
       almacenes={almacenes}
       despachoId={despacho?.id ?? null}
       faltantes={previstos?.ok ? previstos.faltantes : null}
+      siguiente={siguiente}
+      anterior={anterior}
     />
   );
 }

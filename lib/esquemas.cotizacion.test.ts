@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { esquemaNuevaCotizacion, esquemaNuevoClienteOdoo, esquemaNuevoContacto } from "./esquemas";
+import {
+  esquemaEdicionCotizacion,
+  esquemaNuevaCotizacion,
+  esquemaNuevoClienteOdoo,
+  esquemaNuevoContacto,
+} from "./esquemas";
 
 const valida = {
   canal: "tienda",
@@ -127,5 +132,37 @@ describe("esquemaNuevoContacto", () => {
     expect(esquemaNuevoContacto.safeParse({ ...contacto, empresaId: 0 }).success).toBe(false);
     expect(mensaje(esquemaNuevoContacto.safeParse({ ...contacto, nombre: " " }))).toMatch(/nombre del contacto/);
     expect(mensaje(esquemaNuevoContacto.safeParse({ ...contacto, email: "no-es-correo" }))).toMatch(/correo/);
+  });
+});
+
+describe("esquemaEdicionCotizacion", () => {
+  it("acepta lo mismo que una cotización nueva", () => {
+    expect(esquemaEdicionCotizacion.safeParse(valida).success).toBe(true);
+  });
+
+  it("deja conservar una línea ya guardada, solo por su posición", () => {
+    const r = esquemaEdicionCotizacion.parse({
+      ...valida,
+      lineas: [{ tipo: "conservar", posicion: 2 }, valida.lineas[0]],
+    });
+    expect(r.lineas[0]).toEqual({ tipo: "conservar", posicion: 2 });
+  });
+
+  it("una línea conservada necesita una posición válida", () => {
+    const con = (l: object) => esquemaEdicionCotizacion.safeParse({ ...valida, lineas: [l] }).success;
+    expect(con({ tipo: "conservar" })).toBe(false);
+    expect(con({ tipo: "conservar", posicion: 0 })).toBe(false);
+    expect(con({ tipo: "conservar", posicion: 1.5 })).toBe(false);
+  });
+
+  it("la cotización nueva NO acepta líneas conservadas: no hay qué conservar", () => {
+    expect(
+      esquemaNuevaCotizacion.safeParse({ ...valida, lineas: [{ tipo: "conservar", posicion: 1 }] }).success,
+    ).toBe(false);
+  });
+
+  it("sigue exigiendo cliente y al menos una línea", () => {
+    expect(mensaje(esquemaEdicionCotizacion.safeParse({ ...valida, clienteId: 0 }))).toBe("Elige el cliente");
+    expect(mensaje(esquemaEdicionCotizacion.safeParse({ ...valida, lineas: [] }))).toBe("Agrega al menos un producto");
   });
 });

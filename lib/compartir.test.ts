@@ -52,6 +52,11 @@ const cotizacion = (c: Partial<Cotizacion> = {}): Cotizacion => ({
   errorConfirmacion: null,
   tokenPublico: "b7d1c1a2-1111-4b5c-9d00-000000000001",
   almacenDespachoId: null,
+  estado: "enviada",
+  enviadaEn: null,
+  version: 1,
+  reemplazaA: null,
+  errorEdicion: null,
   ...c,
 });
 

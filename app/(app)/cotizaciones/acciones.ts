@@ -16,9 +16,23 @@
 
 import { refresh } from "next/cache";
 import { exigirCotizaciones } from "@/lib/sesion";
-import { esquemaNuevaCotizacion, esquemaNuevoClienteOdoo, esquemaNuevoContacto } from "@/lib/esquemas";
-import { cambiarAlmacenDespacho, confirmarEnOdoo, olvidarPopularidad, sincronizarConOdoo } from "@/lib/cotizaciones-servidor";
-import { mensajeOdoo, registrarCotizacion } from "@/lib/cotizaciones-registro";
+import {
+  esquemaEdicionCotizacion,
+  esquemaNuevaCotizacion,
+  esquemaNuevoClienteOdoo,
+  esquemaNuevoContacto,
+} from "@/lib/esquemas";
+import {
+  cambiarAlmacenDespacho,
+  confirmarEnOdoo,
+  crearVersionNueva,
+  marcarEnviada,
+  olvidarPopularidad,
+  sincronizarCambiosConOdoo,
+  sincronizarConOdoo,
+  type ResultadoEnvio,
+} from "@/lib/cotizaciones-servidor";
+import { guardarEdicionCotizacion, mensajeOdoo, registrarCotizacion } from "@/lib/cotizaciones-registro";
 import { indiceClientes } from "@/lib/odoo/catalogos";
 import {
   contactosDeEmpresa,
@@ -68,6 +82,72 @@ export async function crearCotizacion(entrada: unknown): Promise<ResultadoCreaci
   return r.ok
     ? { ok: true, id, enOdoo: true, orderName: r.orderName, errorOdoo: null }
     : { ok: true, id, enOdoo: false, orderName: null, errorOdoo: r.error };
+}
+
+export type ResultadoEdicion =
+  | {
+      ok: true;
+      /** Si Odoo ya tiene los cambios. `false` es "se guardó, pero Odoo falló": hay que reintentar. */
+      enOdoo: boolean;
+      orderName: string | null;
+      errorOdoo: string | null;
+    }
+  | Fallo;
+
+/**
+ * Guarda los cambios de un borrador y los lleva a Odoo. Como al crear: primero
+ * se guarda y después se va a Odoo, para que un Odoo caído no haga perder lo
+ * editado; si falla, la cotización queda marcada y el detalle ofrece reintentar.
+ */
+export async function actualizarCotizacion(id: unknown, entrada: unknown): Promise<ResultadoEdicion> {
+  await exigirCotizaciones();
+  if (!odooConfigurado()) return fallo(ODOO_NO_CONFIGURADO);
+  if (typeof id !== "string") return fallo("Falta la cotización.");
+
+  const datos = esquemaEdicionCotizacion.safeParse(entrada);
+  if (!datos.success) return fallo(datos.error.issues[0]?.message ?? "Los datos no son válidos.");
+
+  const guardada = await guardarEdicionCotizacion(id, datos.data);
+  if (!guardada.ok) return guardada;
+
+  const r = await sincronizarCambiosConOdoo(id);
+  olvidarPopularidad();
+  refresh();
+
+  return r.ok
+    ? { ok: true, enOdoo: true, orderName: r.orderName, errorOdoo: null }
+    : { ok: true, enOdoo: false, orderName: null, errorOdoo: r.error };
+}
+
+/** Reintenta llevar a Odoo lo que se editó y no llegó. */
+export async function reintentarCambiosEnOdoo(id: string): Promise<{ ok: true; orderName: string } | Fallo> {
+  await exigirCotizaciones();
+  if (!odooConfigurado()) return fallo(ODOO_NO_CONFIGURADO);
+  if (typeof id !== "string") return fallo("Falta la cotización.");
+
+  const r = await sincronizarCambiosConOdoo(id);
+  refresh();
+  return r;
+}
+
+/** Bloquea el borrador: es lo que se le ofreció al cliente. Para cambiarla, una versión nueva. */
+export async function marcarCotizacionEnviada(id: unknown): Promise<ResultadoEnvio> {
+  await exigirCotizaciones();
+  if (typeof id !== "string") return fallo("Falta la cotización.");
+  const r = await marcarEnviada(id);
+  refresh();
+  return r;
+}
+
+/** Hace de una cotización enviada un borrador nuevo (v2, v3…). */
+export async function nuevaVersionDeCotizacion(
+  id: unknown,
+): Promise<{ ok: true; id: string; enOdoo: boolean; errorOdoo: string | null } | Fallo> {
+  await exigirCotizaciones();
+  if (typeof id !== "string") return fallo("Falta la cotización.");
+  const r = await crearVersionNueva(id);
+  refresh();
+  return r;
 }
 
 export async function reintentarSincronizacion(

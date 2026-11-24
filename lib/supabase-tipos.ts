@@ -870,7 +870,10 @@ export type Database = {
           error_anulacion: string | null
           error_confirmacion: string | null
           error_sincronizacion: string | null
+          error_edicion: string | null
           error_stock: string | null
+          estado: Database["public"]["Enums"]["estado_cotizacion"]
+          enviada_en: string | null
           id: string
           monto_impuestos: number | null
           monto_sin_impuestos: number | null
@@ -881,9 +884,11 @@ export type Database = {
           odoo_order_name: string | null
           odoo_partner_id: number
           pedido_id: string | null
+          reemplaza_a: string | null
           sincronizacion: Database["public"]["Enums"]["sincronizacion_odoo"]
           stock_descontado: boolean
           token_publico: string
+          version: number
         }
         Insert: {
           actualizado_en?: string
@@ -901,7 +906,10 @@ export type Database = {
           error_anulacion?: string | null
           error_confirmacion?: string | null
           error_sincronizacion?: string | null
+          error_edicion?: string | null
           error_stock?: string | null
+          estado?: Database["public"]["Enums"]["estado_cotizacion"]
+          enviada_en?: string | null
           id?: string
           monto_impuestos?: number | null
           monto_sin_impuestos?: number | null
@@ -912,9 +920,11 @@ export type Database = {
           odoo_order_name?: string | null
           odoo_partner_id: number
           pedido_id?: string | null
+          reemplaza_a?: string | null
           sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
           stock_descontado?: boolean
           token_publico?: string
+          version?: number
         }
         Update: {
           actualizado_en?: string
@@ -932,7 +942,10 @@ export type Database = {
           error_anulacion?: string | null
           error_confirmacion?: string | null
           error_sincronizacion?: string | null
+          error_edicion?: string | null
           error_stock?: string | null
+          estado?: Database["public"]["Enums"]["estado_cotizacion"]
+          enviada_en?: string | null
           id?: string
           monto_impuestos?: number | null
           monto_sin_impuestos?: number | null
@@ -943,9 +956,11 @@ export type Database = {
           odoo_order_name?: string | null
           odoo_partner_id?: number
           pedido_id?: string | null
+          reemplaza_a?: string | null
           sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"]
           stock_descontado?: boolean
           token_publico?: string
+          version?: number
         }
         Relationships: [
           {
@@ -953,6 +968,13 @@ export type Database = {
             columns: ["almacen_despacho_id"]
             isOneToOne: false
             referencedRelation: "almacenes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cotizaciones_reemplaza_a_fkey"
+            columns: ["reemplaza_a"]
+            isOneToOne: true
+            referencedRelation: "cotizaciones"
             referencedColumns: ["id"]
           },
           {
@@ -3263,7 +3285,23 @@ export type Database = {
         Returns: string
       }
       corte_sin_precios: { Args: { c: Json }; Returns: Json }
+      actualizar_cotizacion: {
+        Args: {
+          p_canal?: Database["public"]["Enums"]["canal_cotizacion"]
+          p_cliente_documento?: string
+          p_cliente_nombre: string
+          p_cliente_telefono?: string
+          p_contacto_nombre?: string
+          p_id: string
+          p_lineas: Json
+          p_notas?: string
+          p_odoo_contacto_id?: number
+          p_odoo_partner_id: number
+        }
+        Returns: undefined
+      }
       cotizacion_publica: { Args: { p_token: string }; Returns: Json }
+      nueva_version_cotizacion: { Args: { p_id: string }; Returns: string }
       crear_canal: {
         Args: { p_descripcion: string | null; p_miembros: string[]; p_nombre: string }
         Returns: string
@@ -3624,6 +3662,7 @@ export type Database = {
     }
     Enums: {
       canal_cotizacion: "tienda" | "whatsapp"
+      estado_cotizacion: "borrador" | "enviada" | "reemplazada"
       estado_pedido:
         | "registrado"
         | "en_proceso"
@@ -3815,6 +3854,7 @@ export const Constants = {
   public: {
     Enums: {
       canal_cotizacion: ["tienda", "whatsapp"],
+      estado_cotizacion: ["borrador", "enviada", "reemplazada"],
       estado_pedido: [
         "registrado",
         "en_proceso",
