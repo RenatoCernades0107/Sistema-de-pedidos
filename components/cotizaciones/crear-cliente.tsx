@@ -1,13 +1,14 @@
 "use client";
 
-import { useTransition } from "react";
-import { useForm } from "react-hook-form";
+import { useEffect, useState, useTransition } from "react";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { crearClienteOdoo } from "@/app/(app)/cotizaciones/acciones";
 import { esquemaNuevoClienteOdoo, type FormNuevoClienteOdoo, type NuevoClienteOdoo } from "@/lib/esquemas";
-import { soloDigitos, tipoDeDocumento } from "@/lib/busqueda-inteligente";
+import { rucValido, soloDigitos, tipoDeDocumento } from "@/lib/busqueda-inteligente";
 import type { ClienteOdoo } from "@/lib/odoo/tipos";
+import { rucEnRegla, type RespuestaRuc } from "@/lib/ruc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Campo } from "@/components/ui/campo";
@@ -31,6 +32,7 @@ export function prellenado(texto: string): FormNuevoClienteOdoo {
   return {
     nombre: esDocumento ? "" : limpio,
     documento: esDocumento ? soloDigitos(limpio) : "",
+    direccion: "",
     telefono: "",
     email: "",
   };
@@ -84,6 +86,43 @@ function Formulario({
   });
   const errores = form.formState.errors;
 
+  /* Con 11 dígitos válidos se pregunta por el RUC y se completan nombre y
+     dirección. Lo que el usuario ya escribió no se pisa. Si la consulta falla,
+     el formulario sigue siendo de llenado manual. */
+  const documento = useWatch({ control: form.control, name: "documento" });
+  type Resultado = { ruc: string; ok: RespuestaRuc | null; mensaje?: string };
+  const [resultado, setResultado] = useState<Resultado | null>(null);
+  const ruc = soloDigitos(documento ?? "");
+  const rucConsultable = ruc.length === 11 && rucValido(ruc);
+  useEffect(() => {
+    if (!rucConsultable) return;
+    const control = new AbortController();
+    (async () => {
+      try {
+        const r = await fetch(`/api/clientes/ruc/${ruc}`, { signal: control.signal });
+        const j = await r.json().catch(() => null);
+        if (!r.ok || !j?.razon_social) {
+          setResultado({ ruc, ok: null, mensaje: j?.error ?? "No se pudo consultar el RUC." });
+          return;
+        }
+        const datos = j as RespuestaRuc;
+        if (!form.getValues("nombre")?.trim()) form.setValue("nombre", datos.razon_social, { shouldValidate: true });
+        if (!form.getValues("direccion")?.trim() && datos.direccion) form.setValue("direccion", datos.direccion);
+        setResultado({ ruc, ok: datos });
+      } catch (e) {
+        if ((e as Error).name !== "AbortError") setResultado({ ruc, ok: null, mensaje: "No se pudo consultar el RUC." });
+      }
+    })();
+    return () => control.abort();
+  }, [ruc, rucConsultable, form]);
+  const consulta: ConsultaRuc = !rucConsultable
+    ? { tipo: "nada" }
+    : resultado?.ruc !== ruc
+      ? { tipo: "buscando" }
+      : resultado.ok
+        ? { tipo: "ok", ruc: resultado.ok }
+        : { tipo: "error", mensaje: resultado.mensaje ?? "" };
+
   const enviar = form.handleSubmit(() =>
     iniciar(async () => {
       // Se manda lo tecleado, no lo que devolvió el resolver: este ya pasó por
@@ -107,34 +146,34 @@ function Formulario({
 
   return (
     <form onSubmit={enviar} noValidate className="flex flex-col gap-4">
+      <Campo
+        label="RUC o DNI"
+        ayuda="Opcional. Con un RUC de 11 dígitos se completan los datos desde SUNAT."
+        error={errores.documento?.message}
+      >
+        <Input
+          inputMode="numeric"
+          maxLength={11}
+          className="tnum"
+          autoFocus
+          aria-invalid={!!errores.documento}
+          {...form.register("documento")}
+        />
+      </Campo>
+      <EstadoRuc consulta={consulta} />
       <Campo label="Nombre o razón social" requerido error={errores.nombre?.message}>
         <Input
-          autoFocus={!valores.nombre}
           placeholder="Ej. Corporación Andina SAC"
           aria-invalid={!!errores.nombre}
           {...form.register("nombre")}
         />
       </Campo>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Campo
-          label="RUC o DNI"
-          ayuda="Opcional. 11 dígitos el RUC, 8 el DNI."
-          error={errores.documento?.message}
-        >
-          <Input
-            inputMode="numeric"
-            maxLength={11}
-            className="tnum"
-            // Con el nombre ya puesto desde el buscador, lo que falta es el documento.
-            autoFocus={!!valores.nombre}
-            aria-invalid={!!errores.documento}
-            {...form.register("documento")}
-          />
-        </Campo>
-        <Campo label="Teléfono" error={errores.telefono?.message}>
-          <Input inputMode="tel" placeholder="9XX XXX XXX" className="tnum" {...form.register("telefono")} />
-        </Campo>
-      </div>
+      <Campo label="Dirección" error={errores.direccion?.message}>
+        <Input placeholder="opcional" aria-invalid={!!errores.direccion} {...form.register("direccion")} />
+      </Campo>
+      <Campo label="Teléfono" error={errores.telefono?.message}>
+        <Input inputMode="tel" placeholder="9XX XXX XXX" className="tnum" {...form.register("telefono")} />
+      </Campo>
       <Campo label="Correo" error={errores.email?.message}>
         <Input type="email" inputMode="email" placeholder="opcional" {...form.register("email")} />
       </Campo>
@@ -146,5 +185,31 @@ function Formulario({
         </Button>
       </DialogFooter>
     </form>
+  );
+}
+
+type ConsultaRuc =
+  | { tipo: "nada" }
+  | { tipo: "buscando" }
+  | { tipo: "ok"; ruc: RespuestaRuc }
+  | { tipo: "error"; mensaje: string };
+
+function EstadoRuc({ consulta }: { consulta: ConsultaRuc }) {
+  if (consulta.tipo === "nada") return null;
+  if (consulta.tipo === "buscando")
+    return <p className="text-sm text-muted-foreground" role="status">Consultando RUC en SUNAT…</p>;
+  if (consulta.tipo === "error")
+    return <p className="text-sm text-muted-foreground" role="status">{consulta.mensaje}</p>;
+  const { ruc } = consulta;
+  const enRegla = rucEnRegla(ruc);
+  return (
+    <p
+      role="status"
+      className={enRegla ? "text-sm text-emerald-700" : "text-sm font-medium text-amber-700"}
+    >
+      {enRegla
+        ? `SUNAT: ${ruc.estado} · ${ruc.condicion}`
+        : `Ojo, en SUNAT figura ${ruc.estado || "sin estado"} · ${ruc.condicion || "sin condición"}. Puedes crearlo igual.`}
+    </p>
   );
 }

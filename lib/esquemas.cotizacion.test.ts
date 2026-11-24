@@ -41,7 +41,13 @@ describe("esquemaNuevoClienteOdoo", () => {
 
   it("el documento es opcional y lo vacío llega como null", () => {
     const r = esquemaNuevoClienteOdoo.parse(cliente);
-    expect(r).toEqual({ nombre: "Corporación Andina SAC", documento: null, telefono: null, email: null });
+    expect(r).toEqual({ nombre: "Corporación Andina SAC", documento: null, direccion: null, telefono: null, email: null });
+  });
+
+  it("la dirección es opcional: se recorta y lo vacío llega como null", () => {
+    expect(esquemaNuevoClienteOdoo.parse({ ...cliente, direccion: "  JR. CENTENARIO 156  " }).direccion).toBe("JR. CENTENARIO 156");
+    expect(esquemaNuevoClienteOdoo.parse({ ...cliente, direccion: "" }).direccion).toBeNull();
+    expect(esquemaNuevoClienteOdoo.safeParse({ ...cliente, direccion: "x".repeat(201) }).success).toBe(false);
   });
 
   it("acepta un DNI de 8 y un RUC de 11 válido, aunque traigan espacios o guiones", () => {

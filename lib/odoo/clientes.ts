@@ -179,6 +179,8 @@ async function tipoDocumentoOdoo(tipo: "RUC" | "DNI"): Promise<number | null> {
 export interface DatosClienteNuevo {
   nombre: string;
   documento: string | null;
+  /** Calle y número, tal como lo da SUNAT. Va a `street` del contacto. */
+  direccion?: string | null;
   telefono: string | null;
   email: string | null;
 }
@@ -205,6 +207,7 @@ export async function crearCliente(
     is_company: tipo === "RUC" && datos.documento!.startsWith("20"),
   };
   if (datos.documento) valores.vat = datos.documento;
+  if (datos.direccion) valores.street = datos.direccion;
   if (datos.telefono) valores.phone = datos.telefono;
   if (datos.email) valores.email = datos.email;
   if (pais) valores.country_id = pais;
