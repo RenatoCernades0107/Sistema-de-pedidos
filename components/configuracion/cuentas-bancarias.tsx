@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Landmark, Plus, ShieldCheck, TriangleAlert } from "lucide-react";
-import { agregarCuentaBancaria, retirarCuentaBancaria } from "@/app/(app)/configuracion/cuentas-acciones";
+import { agregarCuentaBancaria, mostrarCuentaEnPdf, retirarCuentaBancaria } from "@/app/(app)/configuracion/cuentas-acciones";
 import {
   MONEDAS_CUENTA,
   TIPOS_CUENTA,
@@ -16,6 +16,7 @@ import {
   type TipoCuenta,
 } from "@/lib/cuentas-bancarias";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Campo } from "@/components/ui/campo";
 import { Input } from "@/components/ui/input";
@@ -60,7 +61,7 @@ export function CuentasBancarias({ cuentas }: { cuentas: CuentaBancaria[] }) {
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-medium">Cuentas para depósito</h2>
           <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">
-            Salen al pie del PDF de cada cotización. Por seguridad, una cuenta no se edita: si hay un error, agrega la
+            Salen al pie del PDF de cada cotización las que tengan marcada la casilla «Mostrar en el PDF». Por seguridad, una cuenta no se edita: si hay un error, agrega la
             correcta y retira la otra. Una cuenta nueva aparece en las cotizaciones 24 horas después de agregada, y
             solo en las que se emitan desde entonces.
           </p>
@@ -120,14 +121,27 @@ export function CuentasBancarias({ cuentas }: { cuentas: CuentaBancaria[] }) {
 }
 
 function FilaCuenta({ cuenta: c, alRetirar }: { cuenta: CuentaBancaria; alRetirar?: () => void }) {
+  const router = useRouter();
+  const [cambiando, iniciar] = useTransition();
   const estado = estadoCuenta(c);
+
+  const mostrar = (mostrar: boolean) =>
+    iniciar(async () => {
+      const r = await mostrarCuentaEnPdf({ id: c.id, mostrar });
+      if (!r.ok) {
+        toast.error("No se cambió la cuenta", { description: r.error });
+        return;
+      }
+      router.refresh();
+    });
+
   return (
     <li className="flex flex-wrap items-start gap-3 px-4 py-3">
       <Landmark className="text-muted-foreground mt-0.5 size-4 shrink-0" />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium">{tituloCuenta(c)}</span>
-          {estado === "vigente" && <Badge variant="secondary">En las cotizaciones</Badge>}
+          {estado === "vigente" && (c.enPdf ? <Badge variant="secondary">En las cotizaciones</Badge> : <Badge variant="outline">Oculta en el PDF</Badge>)}
           {estado === "pendiente" && (
             <Badge className="bg-amber-500/15 text-amber-900 dark:text-amber-200">Desde {cuando(c.vigenteDesde)}</Badge>
           )}
@@ -144,6 +158,12 @@ function FilaCuenta({ cuenta: c, alRetirar }: { cuenta: CuentaBancaria; alRetira
           {c.retiradaEn && ` · Retirada por ${c.retiradaPor} el ${cuando(c.retiradaEn)}`}
         </p>
       </div>
+      {alRetirar && (
+        <label className="flex items-center gap-2 text-xs">
+          <Checkbox checked={c.enPdf} disabled={cambiando} onCheckedChange={(v) => mostrar(v === true)} />
+          Mostrar en el PDF
+        </label>
+      )}
       {alRetirar && (
         <Button variant="outline" size="sm" onClick={alRetirar}>
           {estado === "pendiente" ? "Cancelar" : "Retirar"}

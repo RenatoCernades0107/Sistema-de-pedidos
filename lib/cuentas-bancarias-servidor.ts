@@ -11,7 +11,7 @@ export async function cargarCuentasBancarias(): Promise<CuentaBancaria[]> {
   const { data, error } = await supabase
     .from("cuentas_bancarias")
     .select(
-      `id, banco, tipo, moneda, numero, cci, creada_en, vigente_desde, retirada_en,
+      `id, banco, tipo, moneda, numero, cci, en_pdf, creada_en, vigente_desde, retirada_en,
        creador:usuarios!cuentas_bancarias_creada_por_fkey ( nombre ),
        retirador:usuarios!cuentas_bancarias_retirada_por_fkey ( nombre )`,
     )
@@ -25,6 +25,7 @@ export async function cargarCuentasBancarias(): Promise<CuentaBancaria[]> {
     moneda: f.moneda as MonedaCuenta,
     numero: f.numero,
     cci: f.cci,
+    enPdf: f.en_pdf,
     creadaEn: f.creada_en,
     creadaPor: f.creador?.nombre ?? "—",
     vigenteDesde: f.vigente_desde,

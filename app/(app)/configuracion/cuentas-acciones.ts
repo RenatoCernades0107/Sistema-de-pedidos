@@ -129,3 +129,23 @@ export async function retirarCuentaBancaria(entrada: unknown): Promise<Resultado
   refresh();
   return { ok: true };
 }
+
+const esquemaMostrar = z.object({ id: z.uuid(), mostrar: z.boolean() });
+
+/**
+ * Elige si una cuenta sale en el PDF. No pide contraseña: ocultar o volver a
+ * mostrar una cuenta ya vigente no cambia a dónde pueden pagar los clientes más
+ * allá de lo ya aprobado (la base sigue exigiendo vigencia y que no esté retirada).
+ */
+export async function mostrarCuentaEnPdf(entrada: unknown): Promise<Resultado> {
+  await exigirAdmin();
+  const datos = esquemaMostrar.safeParse(entrada);
+  if (!datos.success) return fallo("Los datos no son válidos.");
+
+  const supabase = await clienteServidor();
+  const { error } = await supabase.rpc("mostrar_cuenta_en_pdf", { p_id: datos.data.id, p_mostrar: datos.data.mostrar });
+  if (error) return fallo(mensajeDeError(error));
+
+  refresh();
+  return { ok: true };
+}
