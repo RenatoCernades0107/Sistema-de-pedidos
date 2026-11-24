@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { guardarConfigCortes } from "@/app/(app)/configuracion/acciones";
-import { FRACCIONES_ESTANDAR, type ConfigCortes } from "@/lib/cortes/config";
+import { FRACCIONES_ESTANDAR, type ConfigCortes, type PoliticaSugerencia } from "@/lib/cortes/config";
 import { Button } from "@/components/ui/button";
 import { Campo } from "@/components/ui/campo";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -30,7 +30,19 @@ interface Borrador {
   descuentoMaxPct: string;
   corte: { kerfLaser: string; kerfManual: string; margen: string; retazoMin: string };
   servicios: { laser: string; manual: string };
+  politica: PoliticaSugerencia;
 }
+
+const POLITICAS: { valor: PoliticaSugerencia; titulo: string; ayuda: string }[] = [
+  { valor: "precio", titulo: "Precio mínimo", ayuda: "El formato que cuesta menos." },
+  { valor: "merma", titulo: "Merma mínima", ayuda: "El formato que menos plancha desperdicia." },
+  {
+    valor: "promedio",
+    titulo: "Promedio de precio y merma",
+    ayuda: "El que mejor queda al promediar su puesto en precio y en merma.",
+  },
+  { valor: "tamano", titulo: "El de menor tamaño", ayuda: "La plancha más chica que sirva, para guardar las grandes." },
+];
 
 const t = (n: number) => String(n);
 
@@ -78,6 +90,7 @@ function aBorrador(c: ConfigCortes): Borrador {
       retazoMin: t(c.corte.retazoMin),
     },
     servicios: { ...c.servicios },
+    politica: c.sugerencia.politica,
   };
 }
 
@@ -98,6 +111,7 @@ function aConfig(b: Borrador, original: ConfigCortes) {
     },
     corte: b.corte,
     servicios: b.servicios,
+    sugerencia: { politica: b.politica },
   };
 }
 
@@ -290,6 +304,30 @@ export function FormConfigCortes({ config }: { config: ConfigCortes }) {
             valor={b.corte.retazoMin}
             alCambiar={(v) => cambiar((p) => ({ ...p, corte: { ...p.corte, retazoMin: v } }))}
           />
+        </div>
+      </Seccion>
+
+      <Seccion
+        titulo="Sugerencia de plancha"
+        descripcion="Con qué criterio el sistema sugiere el formato de plancha en el corte a medida, el producto terminado y los diseños. Siempre se puede elegir otro a mano."
+      >
+        <div role="radiogroup" aria-label="Política de sugerencia" className="grid gap-3 sm:grid-cols-2">
+          {POLITICAS.map((o) => (
+            <label key={o.valor} className="flex cursor-pointer items-start gap-2.5 text-sm">
+              <input
+                type="radio"
+                name="politica-sugerencia"
+                value={o.valor}
+                checked={b.politica === o.valor}
+                onChange={() => cambiar((p) => ({ ...p, politica: o.valor }))}
+                className="mt-1"
+              />
+              <span>
+                <span className="font-medium">{o.titulo}</span>
+                <span className="text-muted-foreground block text-xs">{o.ayuda}</span>
+              </span>
+            </label>
+          ))}
         </div>
       </Seccion>
 

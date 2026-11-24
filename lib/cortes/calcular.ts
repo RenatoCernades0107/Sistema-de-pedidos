@@ -8,7 +8,7 @@
  * algo que deba llegar del navegador).
  */
 
-import type { ConfigCortes } from "./config";
+import type { ConfigCortes, PoliticaSugerencia } from "./config";
 import { cobrarPlancha, opcionesDeCobro, type PlanchaCobrada } from "./cobro";
 import { tiempoLaser, type PiezaPedida } from "./laser";
 import { mensajeSinPrecioManual, tarifaManual } from "./manual";
@@ -269,16 +269,20 @@ export function calcularCorte(
   };
 }
 
-/** Cómo se ordenan los formatos: por lo que cuesta el corte, o por lo chico de la plancha. */
-export type CriterioFormato = "precio" | "tamano";
+/** Cómo se ordenan los formatos: ver `PoliticaSugerencia` en `config.ts`. */
+export type CriterioFormato = PoliticaSugerencia;
 
 const areaDe = (c: CalculoCorte) => c.formato.ancho * c.formato.alto;
 
 /**
  * El mismo corte sobre cada formato disponible, del más conveniente al menos.
- * Siempre van primero los que sirven. Entre ellos:
- *  - "precio" (por defecto): el más barato; a igual precio, el que menos
+ * Siempre van primero los que sirven. Entre ellos, según el criterio (por
+ * defecto, la política de sugerencia de Configuración):
+ *  - "precio": el más barato; a igual precio, el que menos
  *    desperdicia y, a igual desperdicio, la plancha más chica.
+ *  - "merma": el que menos desperdicia; a igual merma, el más barato.
+ *  - "promedio": el de mejor promedio entre su puesto por precio y su puesto por
+ *    merma; a igualdad, el más barato.
  *  - "tamano": la plancha más chica, aunque desperdicie más o cueste más —los
  *    formatos grandes se guardan para los pedidos de medidas grandes—; a igual
  *    tamaño, el más barato.
@@ -288,28 +292,46 @@ export function compararFormatos(
   formatos: FormatoCorte[],
   config: ConfigCortes,
   sobrantes: Contenedor[] = [],
-  criterio: CriterioFormato = "precio",
+  criterio: CriterioFormato = config.sugerencia.politica,
 ): CalculoCorte[] {
-  return formatos
-    .map((f) => calcularCorte(entrada, f, config, sobrantes))
-    .sort((a, b) => {
-      const sirve = Number(!!a.problema) - Number(!!b.problema);
-      if (criterio === "tamano") {
+  const calculos = formatos.map((f) => calcularCorte(entrada, f, config, sobrantes));
+  return ordenarCalculos(calculos, criterio);
+}
+
+/** El puesto (0 = mejor) de cada cálculo según un valor; los empatados comparten puesto. */
+function puestos(cs: CalculoCorte[], valor: (c: CalculoCorte) => number): Map<CalculoCorte, number> {
+  const orden = [...new Set(cs.map(valor))].sort((a, b) => a - b);
+  return new Map(cs.map((c) => [c, orden.indexOf(valor(c))]));
+}
+
+/** Ordena cálculos ya hechos con el criterio de sugerencia. */
+export function ordenarCalculos(calculos: CalculoCorte[], criterio: CriterioFormato = "precio"): CalculoCorte[] {
+  const sirven = calculos.filter((c) => !c.problema);
+  const porPrecio = puestos(sirven, (c) => c.total);
+  const porMerma = puestos(sirven, (c) => c.desperdicioPct);
+  const promedio = (c: CalculoCorte) => ((porPrecio.get(c) ?? 0) + (porMerma.get(c) ?? 0)) / 2;
+  const codigo = (a: CalculoCorte, b: CalculoCorte) => a.formato.codigo.localeCompare(b.formato.codigo);
+
+  return [...calculos].sort((a, b) => {
+    const sirve = Number(!!a.problema) - Number(!!b.problema);
+    if (sirve) return sirve;
+    switch (criterio) {
+      case "tamano":
+        return areaDe(a) - areaDe(b) || a.total - b.total || codigo(a, b);
+      case "merma":
+        return a.desperdicioPct - b.desperdicioPct || a.total - b.total || areaDe(a) - areaDe(b) || codigo(a, b);
+      case "promedio":
         return (
-          sirve ||
-          areaDe(a) - areaDe(b) ||
+          promedio(a) - promedio(b) ||
           a.total - b.total ||
-          a.formato.codigo.localeCompare(b.formato.codigo)
+          a.desperdicioPct - b.desperdicioPct ||
+          areaDe(a) - areaDe(b) ||
+          codigo(a, b)
         );
-      }
-      return (
-        sirve ||
-        a.total - b.total ||
-        a.desperdicioPct - b.desperdicioPct ||
-        areaDe(a) - areaDe(b) ||
-        a.formato.codigo.localeCompare(b.formato.codigo)
-      );
-    });
+      default:
+        return a.total - b.total || a.desperdicioPct - b.desperdicioPct || areaDe(a) - areaDe(b) || codigo(a, b);
+    }
+  });
 }
 
 /**
@@ -372,7 +394,7 @@ export function calcularEleccion(
   config: ConfigCortes,
   sobrantes: Contenedor[],
   eleccion: EleccionPlancha,
-  criterio: CriterioFormato = "precio",
+  criterio: CriterioFormato = config.sugerencia.politica,
 ): CalculoCorte | null {
   if (eleccion.tipo === "formato") {
     const f = formatos.find((x) => x.codigo === eleccion.codigo);
