@@ -252,13 +252,36 @@ export function olvidarCampos(modelo: string) {
 
 const modelosExistentes = new Map<string, Promise<boolean>>();
 
+const sinPermiso = (e: unknown) => e instanceof ErrorOdoo && !!e.tipo?.includes("AccessError");
+
+/**
+ * Lo normal es preguntarle a `ir.model`. Pero esa lista es solo de administradores
+ * y el usuario de la integración no lo es: en ese caso se le pregunta al propio
+ * modelo. Si no existe, Odoo responde con un error suyo; si existe, contesta o dice
+ * que ese usuario no tiene permiso (que existe, al fin y al cabo). Un fallo de red
+ * u otro que no sea de Odoo se deja pasar: no es una respuesta.
+ */
+async function sondearModelo(modelo: string): Promise<boolean> {
+  try {
+    return (await ejecutar<number>("ir.model", "search_count", [[["model", "=", modelo]]])) > 0;
+  } catch (e) {
+    if (!sinPermiso(e)) throw e;
+  }
+  try {
+    await ejecutar(modelo, "fields_get", [], { attributes: ["type"] });
+    return true;
+  } catch (e) {
+    if (sinPermiso(e)) return true;
+    if (e instanceof ErrorOdoo && e.tipo) return false;
+    throw e;
+  }
+}
+
 /** Si un módulo opcional está instalado: la localización peruana, por ejemplo. */
 export async function modeloExiste(modelo: string): Promise<boolean> {
   let existe = modelosExistentes.get(modelo);
   if (!existe) {
-    existe = ejecutar<number>("ir.model", "search_count", [[["model", "=", modelo]]]).then(
-      (n) => n > 0,
-    );
+    existe = sondearModelo(modelo);
     modelosExistentes.set(modelo, existe);
     existe.catch(() => modelosExistentes.delete(modelo));
   }
