@@ -114,6 +114,63 @@ describe("material y espesor por copia", () => {
     ]);
   });
 
+  describe("espesor que el catálogo no tiene", () => {
+    // Acrílico ECO Cristal en 9.8 y 12 mm, como el catálogo real (no hay 10 mm).
+    const ECO = [
+      grupo("eco-3", "Acrílico ECO", "Cristal", 3),
+      grupo("eco-98", "Acrílico ECO", "Cristal", 9.8),
+      grupo("eco-12", "Acrílico ECO", "Cristal", 12),
+      grupo("eco-10-rojo", "Acrílico ECO", "Rojo", 10),
+    ];
+    const ELEGIDO_98 = { grupoPlanchaId: "eco-98", color: null };
+    const discos = [pieza("disco", 2, 10)];
+
+    it("la plancha elegida de espesor más cercano sirve (10 mm → 9.8 mm), con aviso", () => {
+      const r = planchasDelDiseno({ catalogo: ECO, porDefecto: ELEGIDO_98, porCopia: {}, parametros: {}, piezas: discos, corte: CORTE });
+      expect(r.problemas).toEqual([]);
+      expect(r.copias.map((c) => [c.grupo?.id, c.espesorAjustado])).toEqual([
+        ["eco-98", true],
+        ["eco-98", true],
+      ]);
+      expect(r.grupos.map((g) => g.etiqueta)).toEqual(["Acrílico ECO · Cristal · 9.8 mm"]);
+      expect(r.avisos).toEqual([
+        "Las piezas de 10 mm se cortan en plancha de 9.8 mm. El contorno es el mismo; si el diseño tiene ranuras o encastres que dependen del espesor, pide en el chat que lo ajuste.",
+      ]);
+    });
+
+    it("una plancha elegida que no es la más cercana sigue siendo un problema", () => {
+      for (const id of ["eco-12", "eco-3"]) {
+        const r = planchasDelDiseno({
+          catalogo: ECO,
+          porDefecto: { grupoPlanchaId: id, color: null },
+          porCopia: {},
+          parametros: {},
+          piezas: discos,
+          corte: CORTE,
+        });
+        expect(r.problemas[0]).toMatch(/El catálogo no tiene Acrílico ECO · Cristal de 10 mm/);
+        expect(r.avisos).toEqual([]);
+      }
+    });
+
+    it("demasiado lejos no se ajusta aunque sea la más cercana", () => {
+      const soloTres = [grupo("eco-3", "Acrílico ECO", "Cristal", 3)];
+      const copias = resolverCopias(discos, { grupoPlanchaId: "eco-3", color: null }, {}, soloTres);
+      expect(copias.every((c) => c.grupo === null && !c.espesorAjustado)).toBe(true);
+    });
+
+    it("el espesor exacto gana y las copias con material propio no se ajustan", () => {
+      const rojo = materialDeGrupo(ECO[3]);
+      const copias = resolverCopias([pieza("disco", 2, 10)], ELEGIDO_98, { disco_2: rojo }, ECO);
+      expect(copias.map((c) => [c.nodo, c.grupo?.id ?? null, c.espesorAjustado])).toEqual([
+        ["disco_1", "eco-98", true],
+        ["disco_2", "eco-10-rojo", false],
+      ]);
+      const propioSinPlancha = resolverCopias([pieza("disco", 1, 9.8)], ELEGIDO_98, { disco: rojo }, ECO);
+      expect(propioSinPlancha[0].grupo).toBeNull();
+    });
+  });
+
   it("sin material no hay grupos ni problemas", () => {
     const r = planchasDelDiseno({ catalogo: CATALOGO, porDefecto: null, porCopia: {}, parametros: {}, piezas: PIEZAS, corte: CORTE });
     expect(r.grupos).toEqual([]);

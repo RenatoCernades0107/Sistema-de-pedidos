@@ -69,7 +69,7 @@ def test_generar(sin_clave):
     assert [p["id"] for p in d["piezas"]] == ["base", "frente", "lateral", "tapa"]
     for p in d["piezas"]:
         assert set(p) == {
-            "id", "nombre", "cantidad", "espesor_mm", "ancho_mm", "alto_mm", "area_mm2", "perimetro_mm", "nodos", "origen",
+            "id", "nombre", "cantidad", "espesor_mm", "ancho_mm", "alto_mm", "area_mm2", "perimetro_mm", "nodos", "origen", "contorno",
         }
     glb = base64.b64decode(d["glb_base64"])
     assert glb[:4] == b"glTF"
@@ -92,6 +92,7 @@ def test_generar_sin_parametros_usa_los_valores_por_defecto(sin_clave):
         "perimetro_mm": 700,
         "nodos": ["base"],
         "origen": "base",
+        "contorno": "M0 150 200 150 200 0 0 0Z",
     }
 
 

@@ -64,7 +64,8 @@ Salida:
       "area_mm2": 30000,
       "perimetro_mm": 700,
       "nodos": ["base"],
-      "origen": "base"
+      "origen": "base",
+      "contorno": "M0 0 200 0 200 150 0 150Z"
     }
   ],
   "validaciones": [
@@ -81,8 +82,14 @@ Salida:
 - `piezas`: despiece plano. `ancho_mm` × `alto_mm` es la caja envolvente de la
   pieza acostada; `cantidad` agrupa las idénticas. `nodos`: el nombre en el GLB
   de cada copia (en el orden de `indice`); `origen`: la pieza de la plantilla.
+  `contorno`: el contorno de corte acostado como `d` de un path SVG (borde y
+  agujeros, curvas en tramos de ~5 mm), en mm, con el origen en la esquina de
+  la caja envolvente y la Y hacia abajo; se pinta con `fill-rule: evenodd`. Es
+  solo para dibujar: el DXF usa la geometría exacta.
 - `validaciones`: `nivel` es `"error"` o `"aviso"`. Con algún `error` el diseño
-  no se debe exportar a producción.
+  no se debe exportar a producción. El motor no comprueba si una pieza entra en
+  la plancha: depende de los formatos del material elegido, y eso lo hace la app
+  con el catálogo.
 
 ### Espesor por copia
 Cualquier plantilla acepta, además de sus parámetros, `"espesor@<nodo>": mm`

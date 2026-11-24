@@ -33,7 +33,7 @@ uv run pytest tests/test_api.py -q
 | Variable | Para qué | Por defecto |
 | --- | --- | --- |
 | `CAD_API_KEY` | Clave que se exige en la cabecera `X-API-Key`. Sin definir, no se exige (solo local). | sin definir |
-| `CAD_PLANCHA_MAX_MM` | Plancha más grande, `ANCHOxALTO`. Una pieza mayor da el error `excede_plancha`; también es el ancho máximo de una fila del DXF. | `2440x1220` |
+| `CAD_PLANCHA_MAX_MM` | Ancho máximo de una fila del DXF simple, `ANCHOxALTO` (se usa el lado mayor). Ya no valida el tamaño de las piezas: eso lo hace la app con los formatos del catálogo. | `2440x1220` |
 | `CAD_LOG_NIVEL` | `DEBUG`, `INFO`, `WARNING` o `ERROR`. | `INFO` |
 | `CAD_LOG_FORMATO` | `json` o `consola`. | consola en una terminal, JSON si no |
 

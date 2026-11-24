@@ -62,6 +62,12 @@ export type PiezaCad = {
   nodos?: string[];
   /** El id de la pieza de la plantilla de la que salió (el mismo `id` si no se separó). */
   origen?: string;
+  /**
+   * El contorno de corte acostado, como `d` de un path SVG: en mm, con el
+   * origen en la esquina de su caja envolvente y la Y hacia abajo. Incluye los
+   * agujeros (se pinta con `fill-rule: evenodd`). Motores viejos no lo mandan.
+   */
+  contorno?: string;
 };
 
 export type ValidacionCad = {

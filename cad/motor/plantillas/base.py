@@ -27,7 +27,7 @@ from dataclasses import dataclass, field, replace
 from functools import cached_property
 from typing import Any, Callable, ClassVar, Iterable, Sequence
 
-from build123d import Edge, Face, Location, Plane, Solid, Vector, Wire
+from build123d import Edge, Face, GeomType, Location, Plane, Solid, Vector, Wire
 from pydantic import BaseModel, ConfigDict
 
 FAMILIAS = (
@@ -55,6 +55,52 @@ _CLAVE_ESPESOR = re.compile(r"^espesor@[a-z0-9_]{1,56}$")
 def redondear(valor: float) -> float:
     r = round(float(valor), DECIMALES)
     return 0.0 if r == 0 else r
+
+
+#: Largo de cada tramo con que se aproxima una curva en el contorno SVG (mm).
+TRAMO_CONTORNO_MM = 5.0
+#: Tramos máximos por arista curva en el contorno SVG.
+MAX_TRAMOS_ARISTA = 180
+
+
+def _puntos_arista(arista: Edge) -> list[Vector]:
+    """Los puntos de una arista: sus extremos si es recta; si es curva, tramos de ~5 mm."""
+    if arista.geom_type == GeomType.LINE:
+        return [arista @ 0, arista @ 1]
+    n = max(8, min(MAX_TRAMOS_ARISTA, math.ceil(arista.length / TRAMO_CONTORNO_MM)))
+    return [arista @ (i / n) for i in range(n + 1)]
+
+
+def contorno_svg(cara: Face) -> str:
+    """
+    El contorno de corte de una cara plana como `d` de un path SVG: borde
+    exterior y agujeros, en mm, con el origen en la esquina de la caja
+    envolvente y la Y hacia abajo (`y' = ymax − y`). Se pinta con evenodd.
+    """
+    bb = cara.bounding_box()
+    x0, y1 = bb.min.X, bb.max.Y
+    trazos = []
+    for alambre in [cara.outer_wire(), *cara.inner_wires()]:
+        puntos: list[Vector] = []
+        for arista in alambre.order_edges():
+            tramo = _puntos_arista(arista)
+            # `order_edges` ordena las aristas pero no siempre las orienta.
+            if puntos and (tramo[-1] - puntos[-1]).length < (tramo[0] - puntos[-1]).length:
+                tramo.reverse()
+            puntos.extend(tramo[1:] if puntos else tramo)
+        if len(puntos) > 1 and (puntos[0] - puntos[-1]).length < 1e-6:
+            puntos.pop()
+        if len(puntos) < 2:
+            continue
+        coords = " ".join(f"{redondear_svg(p.X - x0)} {redondear_svg(y1 - p.Y)}" for p in puntos)
+        trazos.append(f"M{coords}Z")
+    return "".join(trazos)
+
+
+def redondear_svg(valor: float) -> str:
+    """Una coordenada del contorno SVG: décima de mm, sin ceros de sobra."""
+    r = round(float(valor), 1)
+    return f"{0.0 if r == 0 else r:g}"
 
 
 # --------------------------------------------------------------------------
@@ -443,6 +489,7 @@ class Diseno:
                 "perimetro_mm": redondear(p.perimetro_mm),
                 "nodos": p.nombres_nodo(),
                 "origen": p.origen or p.id,
+                "contorno": contorno_svg(p.contorno),
             }
             for p in self.piezas
         ]

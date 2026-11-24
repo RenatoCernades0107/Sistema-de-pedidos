@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Download, Loader2, TriangleAlert } from "lucide-react";
+import { Download, Info, Loader2, TriangleAlert } from "lucide-react";
 import type { PlanchaUsada } from "@/lib/cad/acomodo";
 import { PARAMETRO_ESPESOR } from "@/lib/cad/acomodo";
 import type { PlanchasDeGrupo } from "@/lib/cad/materiales";
@@ -18,19 +18,26 @@ const n = (x: number, d = 0) => x.toLocaleString("es-PE", { maximumFractionDigit
 const unicos = (xs: string[]) => [...new Set(xs)];
 
 /**
- * Una plancha con sus piezas, a escala y apaisada. Cada pieza es su caja
- * envolvente con el nombre (si cabe); el resto de la plancha es merma o retazo.
+ * Una plancha con sus piezas, a escala y apaisada. Cada pieza es su contorno
+ * real si el motor lo manda (`PiezaCad.contorno`) o, si no, su caja
+ * envolvente; el resto de la plancha es merma o retazo.
+ *
+ * Todo se dibuja en coordenadas de la plancha (Y hacia abajo, como el acomodo).
+ * Una plancha más alta que ancha se gira 90° para verla apaisada: es un giro,
+ * no un cambio de ejes, para que las piezas no se vean espejadas.
  */
 function DibujoPlancha({
   plancha: p,
   titulo,
   nombres,
+  contornos,
   piezaActiva,
   alCambiarPieza,
 }: {
   plancha: PlanchaUsada;
   titulo: string;
   nombres: Map<string, string>;
+  contornos: Map<string, string>;
   piezaActiva: string | null;
   alCambiarPieza: (id: string | null) => void;
 }) {
@@ -39,6 +46,8 @@ function DibujoPlancha({
   const H = girar ? p.anchoMm : p.altoMm;
   const letra = Math.max(W, H) / 40;
   const trazo = Math.max(W, H) / 500;
+  // De la plancha a la vista: (x, y) → (y, ancho − x) si se gira.
+  const aVista = (x: number, y: number) => (girar ? { x: y, y: p.anchoMm - x } : { x, y });
 
   return (
     <svg
@@ -49,44 +58,70 @@ function DibujoPlancha({
     >
       <title>{titulo}</title>
       <rect x={0} y={0} width={W} height={H} className="fill-muted stroke-border" strokeWidth={trazo} />
+      <g transform={girar ? `matrix(0 -1 1 0 0 ${p.anchoMm})` : undefined}>
+        {p.piezas.map((c) => {
+          const activa = piezaActiva === c.id;
+          const nombre = nombres.get(c.id) ?? c.id;
+          const contorno = contornos.get(c.id);
+          // Girada, la pieza va 90° antihoraria como en el DXF; su ancho original es el alto colocado.
+          const forma = `translate(${c.xMm} ${c.yMm})${c.rotada ? ` matrix(0 -1 1 0 0 ${c.altoMm})` : ""}`;
+          return (
+            <g
+              key={`${c.id}-${c.indice}`}
+              className="cursor-pointer"
+              onClick={() => alCambiarPieza(activa ? null : c.id)}
+            >
+              <title>{`${nombre}${c.rotada ? " (girada)" : ""} · ${n(c.anchoMm)} × ${n(c.altoMm)} mm`}</title>
+              <rect
+                x={c.xMm}
+                y={c.yMm}
+                width={c.anchoMm}
+                height={c.altoMm}
+                strokeWidth={trazo}
+                strokeDasharray={contorno ? `${trazo * 4} ${trazo * 4}` : undefined}
+                className={cn(
+                  contorno
+                    ? activa
+                      ? "fill-amber-300/10 stroke-amber-700/40"
+                      : "fill-transparent stroke-primary/25"
+                    : activa
+                      ? "fill-amber-300/70 stroke-amber-700"
+                      : "fill-primary/15 stroke-primary/70",
+                )}
+              />
+              {contorno && (
+                <path
+                  d={contorno}
+                  transform={forma}
+                  fillRule="evenodd"
+                  strokeWidth={trazo}
+                  strokeLinejoin="round"
+                  className={activa ? "fill-amber-300/70 stroke-amber-700" : "fill-primary/15 stroke-primary/70"}
+                />
+              )}
+            </g>
+          );
+        })}
+      </g>
       {p.piezas.map((c) => {
-        const x = girar ? c.yMm : c.xMm;
-        const y = girar ? c.xMm : c.yMm;
+        const nombre = nombres.get(c.id) ?? c.id;
+        const centro = aVista(c.xMm + c.anchoMm / 2, c.yMm + c.altoMm / 2);
         const w = girar ? c.altoMm : c.anchoMm;
         const h = girar ? c.anchoMm : c.altoMm;
-        const activa = piezaActiva === c.id;
-        const nombre = nombres.get(c.id) ?? c.id;
         const cabe = w > letra * Math.min(nombre.length, 14) * 0.6 && h > letra * 1.4;
+        if (!cabe) return null;
         return (
-          <g
-            key={`${c.id}-${c.indice}`}
-            className="cursor-pointer"
-            onClick={() => alCambiarPieza(activa ? null : c.id)}
+          <text
+            key={`${c.id}-${c.indice}-nombre`}
+            x={centro.x}
+            y={centro.y}
+            fontSize={letra}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            className="fill-foreground pointer-events-none"
           >
-            <title>{`${nombre}${c.rotada ? " (girada)" : ""} · ${n(c.anchoMm)} × ${n(c.altoMm)} mm`}</title>
-            <rect
-              x={x}
-              y={y}
-              width={w}
-              height={h}
-              strokeWidth={trazo}
-              className={cn(
-                activa ? "fill-amber-300/70 stroke-amber-700" : "fill-primary/15 stroke-primary/70",
-              )}
-            />
-            {cabe && (
-              <text
-                x={x + w / 2}
-                y={y + h / 2}
-                fontSize={letra}
-                textAnchor="middle"
-                dominantBaseline="middle"
-                className="fill-foreground pointer-events-none"
-              >
-                {nombre.length > 14 ? `${nombre.slice(0, 13)}…` : nombre}
-              </text>
-            )}
-          </g>
+            {nombre.length > 14 ? `${nombre.slice(0, 13)}…` : nombre}
+          </text>
         );
       })}
     </svg>
@@ -102,6 +137,7 @@ export function PanelPlanchas() {
     elegirMaterial,
     gruposPlanchas,
     problemasMaterial,
+    avisosMaterial,
     parametros,
     resultado,
     cargando,
@@ -123,6 +159,13 @@ export function PanelPlanchas() {
   );
   const nombres = useMemo(
     () => new Map((resultado?.piezas ?? []).map((p) => [p.id, p.nombre])),
+    [resultado],
+  );
+  const contornos = useMemo(
+    () =>
+      new Map(
+        (resultado?.piezas ?? []).flatMap((p) => (p.contorno ? [[p.id, p.contorno] as const] : [])),
+      ),
     [resultado],
   );
 
@@ -220,6 +263,20 @@ export function PanelPlanchas() {
         </ul>
       )}
 
+      {avisosMaterial.length > 0 && (
+        <ul
+          className="flex flex-col gap-1 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
+          data-testid="avisos-material"
+        >
+          {avisosMaterial.map((a) => (
+            <li key={a} className="flex items-start gap-2">
+              <Info className="mt-0.5 size-4 shrink-0" aria-hidden />
+              {a}
+            </li>
+          ))}
+        </ul>
+      )}
+
       {unidades > 1 && gruposPlanchas.length > 0 && (
         <p className="bg-primary/5 border-primary/20 rounded-lg border px-3 py-2 text-sm" data-testid="lote-planchas">
           Acomodo para <strong className="tabular-nums">{unidades} unidades</strong> (
@@ -238,6 +295,7 @@ export function PanelPlanchas() {
           grupo={g}
           varios={gruposPlanchas.length > 1}
           nombres={nombres}
+          contornos={contornos}
           piezaActiva={piezaActiva}
           alCambiarPieza={setPiezaActiva}
         />
@@ -251,12 +309,14 @@ function SeccionGrupo({
   grupo: g,
   varios,
   nombres,
+  contornos,
   piezaActiva,
   alCambiarPieza,
 }: {
   grupo: PlanchasDeGrupo;
   varios: boolean;
   nombres: Map<string, string>;
+  contornos: Map<string, string>;
   piezaActiva: string | null;
   alCambiarPieza: (id: string | null) => void;
 }) {
@@ -345,6 +405,7 @@ function SeccionGrupo({
               plancha={p}
               titulo={`${varios ? `${g.etiqueta} · ` : ""}Plancha ${i + 1} de ${acomodo.planchas.length}`}
               nombres={nombres}
+              contornos={contornos}
               piezaActiva={piezaActiva}
               alCambiarPieza={alCambiarPieza}
             />

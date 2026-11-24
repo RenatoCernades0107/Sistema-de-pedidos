@@ -6,7 +6,7 @@ llama el servidor de Next.js, nunca el navegador (por eso no hay CORS).
 
 Variables de entorno:
   CAD_API_KEY          si está definida, se exige en la cabecera `X-API-Key`.
-  CAD_PLANCHA_MAX_MM   plancha más grande, p. ej. "2440x1220" (por defecto).
+  CAD_PLANCHA_MAX_MM   ancho de fila del DXF simple, p. ej. "2440x1220" (por defecto).
 """
 
 from __future__ import annotations
