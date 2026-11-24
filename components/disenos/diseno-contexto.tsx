@@ -172,6 +172,8 @@ export interface EstadoDiseno {
   gruposPlanchas: PlanchasDeGrupo[];
   /** Lo que impide cortar el diseño en los materiales elegidos. Vacío: todo bien. */
   problemasMaterial: string[];
+  /** Lo que conviene saber de los materiales pero no impide cortar (un espesor ajustado). */
+  avisosMaterial: string[];
   /**
    * Cuántas unidades del diseño se cortan juntas (la cantidad del pedido o la
    * cotización). Planchas, DXF y costo son del lote; lo guardado, de una unidad.
@@ -738,6 +740,7 @@ export function DisenoProvider({
       mostrarMaterial,
       gruposPlanchas: planchas.grupos,
       problemasMaterial: planchas.problemas,
+      avisosMaterial: planchas.avisos,
       unidades,
       setUnidades,
       tinte,

@@ -136,12 +136,42 @@ export interface CopiaResuelta {
   /** El material es propio de la copia, no el del diseño. */
   propio: boolean;
   grupo: GrupoPlancha | null;
+  /**
+   * El catálogo no tiene el espesor exacto de la copia y se corta en la plancha
+   * elegida para el diseño, que es la de espesor más cercano (10 mm → 9.8 mm).
+   */
+  espesorAjustado: boolean;
+}
+
+/** Cuánto puede diferir el espesor de una pieza del de la plancha elegida para cortarla en ella. */
+export const toleranciaEspesor = (mm: number) => Math.max(0.3, 0.1 * mm);
+
+/**
+ * La plancha elegida para el diseño, si sirve para una pieza de `espesorMm` que
+ * no tiene plancha exacta: es la del espesor más cercano que el catálogo tiene
+ * de ese material y la diferencia es chica (`toleranciaEspesor`).
+ */
+function grupoAjustado(
+  elegido: GrupoPlancha,
+  espesorMm: number,
+  catalogo: readonly GrupoPlancha[],
+): GrupoPlancha | null {
+  const dif = Math.abs(elegido.espesorMm - espesorMm);
+  if (dif > toleranciaEspesor(espesorMm) + 1e-9) return null;
+  const masCercano = espesoresDeMaterial(materialDeGrupo(elegido), catalogo).every(
+    (e) => Math.abs(e - espesorMm) >= dif - 1e-9,
+  );
+  return masCercano ? elegido : null;
 }
 
 /**
  * El material y la plancha de cada copia. `porDefecto` es el material del
  * diseño (un grupo y, si lo pide, el color): de él se toma solo el material,
- * y cada copia busca la plancha de su espesor.
+ * y cada copia busca la plancha de su espesor. Si el catálogo no tiene ese
+ * espesor exacto, una copia con el material del diseño se corta en la plancha
+ * elegida cuando es la de espesor más cercano (`grupoAjustado`): en un diseño
+ * personalizado el espesor lo fija el código, y elegir 9.8 mm para un diseño
+ * de 10 mm tiene que servir.
  */
 export function resolverCopias(
   piezas: readonly PiezaCad[],
@@ -155,6 +185,9 @@ export function resolverCopias(
     nodosDe(pieza).map((nodo, i) => {
       const propio = porCopia[nodo] ?? null;
       const material = propio ?? refDefecto;
+      const exacto = material ? grupoPara(material, pieza.espesor_mm, catalogo) : null;
+      const ajustado =
+        !exacto && !propio && grupoDefecto ? grupoAjustado(grupoDefecto, pieza.espesor_mm, catalogo) : null;
       return {
         pieza,
         nodo,
@@ -162,7 +195,8 @@ export function resolverCopias(
         espesorMm: pieza.espesor_mm,
         material,
         propio: propio !== null,
-        grupo: material ? grupoPara(material, pieza.espesor_mm, catalogo) : null,
+        grupo: exacto ?? ajustado,
+        espesorAjustado: ajustado !== null,
       };
     }),
   );
@@ -235,6 +269,8 @@ export interface PlanchasDelDiseno {
   copias: CopiaResuelta[];
   /** Todo lo que impide cortar el diseño, ya en frases. Vacío: todo bien. */
   problemas: string[];
+  /** Lo que conviene saber pero no impide cortar (piezas que se cortan en un espesor parecido). */
+  avisos: string[];
 }
 
 /** El parámetro `espesor` de las plantillas. */
@@ -308,6 +344,18 @@ export function planchasDelDiseno(entrada: {
     problemas.push(`El catálogo no tiene ${material}: ${piezas.join(", ")}. Elige otro material o espesor.`);
   }
 
+  // Copias que se cortan en la plancha elegida aunque no sean de su espesor exacto.
+  const avisos: string[] = [];
+  const ajustadas = new Map<string, { de: number; a: number }>();
+  for (const c of copias) {
+    if (c.espesorAjustado && c.grupo) ajustadas.set(`${c.espesorMm}|${c.grupo.espesorMm}`, { de: c.espesorMm, a: c.grupo.espesorMm });
+  }
+  for (const { de, a } of ajustadas.values()) {
+    avisos.push(
+      `Las piezas de ${espesorTexto(de)} se cortan en plancha de ${espesorTexto(a)}. El contorno es el mismo; si el diseño tiene ranuras o encastres que dependen del espesor, pide en el chat que lo ajuste.`,
+    );
+  }
+
   const varios = new Set(copias.filter((c) => c.grupo).map((c) => `${c.grupo!.id}|${c.material?.color ?? ""}`)).size > 1;
   const grupos = agruparCopias(copias).map((g0): PlanchasDeGrupo => {
     const g = grupoParaLote(g0, unidades);
@@ -327,7 +375,7 @@ export function planchasDelDiseno(entrada: {
     return { ...g, acomodo: acomodar(g.piezas, formatos, opciones), problemas: propios };
   });
   for (const g of grupos) problemas.push(...g.problemas);
-  return { grupos, copias, problemas };
+  return { grupos, copias, problemas, avisos };
 }
 
 /** Las planchas de todos los grupos para `POST /dxf/planchas`, cada una con su rótulo. */

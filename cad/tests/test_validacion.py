@@ -42,18 +42,16 @@ def test_piezas_que_solo_se_tocan_no_interfieren():
     assert validar(_plantilla(construir).disenar({})) == []
 
 
-def test_detecta_pieza_mayor_que_la_plancha(monkeypatch):
+def test_el_tamano_de_plancha_no_es_un_error_del_motor(monkeypatch):
+    # Si entra o no depende de los formatos del material elegido: lo decide la app con el catálogo.
     def construir(p):
-        return [Pieza("a", "A", cara_rectangulo(p.lado, 500), 3)]
+        return [Pieza("a", "A", cara_rectangulo(p.lado, 1500), 3)]
 
     plantilla = _plantilla(construir)
-    assert "excede_plancha" in _codigos(validar(plantilla.disenar({"lado": 2500})), "error")
-    assert "excede_plancha" not in _codigos(validar(plantilla.disenar({"lado": 2400})))
-    # girada también entra: 1300 × 500 cabe en 2440 × 1220
-    assert "excede_plancha" not in _codigos(validar(plantilla.disenar({"lado": 1300})))
+    assert "excede_plancha" not in _codigos(validar(plantilla.disenar({"lado": 3000})))
     monkeypatch.setenv("CAD_PLANCHA_MAX_MM", "1200x600")
     assert plancha_maxima() == (1200, 600)
-    assert "excede_plancha" in _codigos(validar(plantilla.disenar({"lado": 1300})), "error")
+    assert "excede_plancha" not in _codigos(validar(plantilla.disenar({"lado": 1300})))
 
 
 def test_avisa_de_pieza_angosta():

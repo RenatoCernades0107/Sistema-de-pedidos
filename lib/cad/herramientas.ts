@@ -739,6 +739,8 @@ function resumenDeAcomodo(planchas: PlanchasDelDiseno, piezas: PiezaCad[]) {
     ...(grupos.length === 1 ? grupos[0] : { planchas_por_material: grupos }),
     piezas_que_no_entran: fuera,
     problemas: planchas.problemas,
+    // Piezas que se cortan en la plancha elegida aunque su espesor no sea exacto (10 mm → 9.8 mm).
+    ...(planchas.avisos.length > 0 ? { avisos_espesor: planchas.avisos } : {}),
   };
   const partes = grupos.map((g) =>
     g.formato
@@ -892,7 +894,8 @@ async function elegirMaterialLibre(
       // El código no cambió: la versión nueva conserva la aprobación que tuviera.
       estado,
       ...(datos.piezas_que_no_entran.length > 0 ? { aviso: AVISO_PIEZAS_FUERA } : {}),
-      nota: "En un diseño personalizado el espesor lo fija el código: si no coincide con la plancha, corrige el código.",
+      nota:
+        "En un diseño personalizado el espesor lo fija el código. Si no hay plancha de ese espesor exacto, se corta en la elegida si es la de espesor más cercano (avisos_espesor); si el diseño tiene ranuras o encastres que dependen del espesor, corrige el código.",
     },
     `${resumen} · versión ${version}${estado === "borrador" ? " · borrador" : ""}`,
     { diseno: { plantilla: PLANTILLA_LIBRE, parametros: {}, material } },

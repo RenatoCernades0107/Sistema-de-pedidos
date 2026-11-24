@@ -4,12 +4,16 @@ Comprobaciones sobre un diseño. Devuelven las `validaciones` del contrato:
 
   solido_invalido           error  el sólido de una pieza no es válido
   interferencia             error  dos piezas armadas ocupan el mismo volumen
-  excede_plancha            error  la pieza no entra en la plancha más grande
   dimensiones_no_coinciden  error  el conjunto armado no mide lo que se pidió
                                    (aviso si alguna copia tiene espesor propio)
   espesor_cambiado          aviso  una copia con espesor propio: las uniones no se reajustan
   pared_delgada             aviso  pieza más angosta que dos veces su espesor
   (más los avisos propios de cada plantilla)
+
+Si una pieza entra o no en la plancha no se mira aquí: depende del material
+elegido y de los formatos del catálogo, que conoce la app (`planchasDelDiseno`
+en `lib/cad/materiales.ts`). Antes había un `excede_plancha` contra un tamaño
+fijo (2440 × 1220) que daba errores falsos con planchas más grandes.
 """
 
 from __future__ import annotations
@@ -20,7 +24,7 @@ from typing import Any
 
 from .plantillas.base import Diseno, Instancia
 
-#: Plancha más grande que se trabaja, en mm. Se cambia con CAD_PLANCHA_MAX_MM="2440x1220".
+#: Ancho máximo de una fila del DXF simple (`exportar.acomodar`), en mm. Se cambia con CAD_PLANCHA_MAX_MM="2440x1220".
 PLANCHA_MAX_MM = (2440.0, 1220.0)
 #: Volumen compartido (mm³) por debajo del cual dos piezas solo se tocan.
 TOLERANCIA_VOLUMEN = 1e-3
@@ -63,10 +67,8 @@ def interferencias(diseno: Diseno) -> list[tuple[str, str, float]]:
     return salida
 
 
-def validar(diseno: Diseno, plancha: tuple[float, float] | None = None) -> list[dict[str, Any]]:
+def validar(diseno: Diseno) -> list[dict[str, Any]]:
     salida: list[dict[str, Any]] = []
-    plancha = plancha or plancha_maxima()
-    lado_mayor, lado_menor = max(plancha), min(plancha)
 
     for inst in diseno.instancias:
         if not inst.solido.is_valid or inst.solido.volume <= 0:
@@ -90,19 +92,7 @@ def validar(diseno: Diseno, plancha: tuple[float, float] | None = None) -> list[
         )
 
     for pieza in diseno.piezas:
-        mayor, menor = max(pieza.ancho_mm, pieza.alto_mm), min(pieza.ancho_mm, pieza.alto_mm)
-        if mayor > lado_mayor + TOLERANCIA_MEDIDA or menor > lado_menor + TOLERANCIA_MEDIDA:
-            salida.append(
-                {
-                    "nivel": "error",
-                    "codigo": "excede_plancha",
-                    "mensaje": (
-                        f"«{pieza.nombre}» mide {pieza.ancho_mm:.1f} × {pieza.alto_mm:.1f} mm y no entra en la "
-                        f"plancha de {lado_mayor:g} × {lado_menor:g} mm."
-                    ),
-                    "pieza": pieza.id,
-                }
-            )
+        menor = min(pieza.ancho_mm, pieza.alto_mm)
         if menor < 2 * pieza.espesor_mm - 1e-9:
             salida.append(
                 {
