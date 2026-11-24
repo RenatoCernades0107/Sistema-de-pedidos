@@ -710,6 +710,12 @@ export const esquemaNuevoClienteOdoo = z.object({
     )
     .refine((d) => tipoDeDocumento(d) !== "RUC" || rucValido(d), "Ese RUC no es válido: revisa los dígitos")
     .transform((d) => d || null),
+  direccion: z
+    .string()
+    .trim()
+    .max(200, "La dirección es demasiado larga")
+    .optional()
+    .transform((d) => d || null),
   telefono: z
     .string()
     .trim()

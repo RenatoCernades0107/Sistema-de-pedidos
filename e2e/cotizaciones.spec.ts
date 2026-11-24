@@ -198,6 +198,21 @@ test("el código de barras con Enter inmediato agrega el producto", async ({ pag
 
 test("un cliente que no está se crea en Odoo desde el buscador, sin duplicar", async ({ page }) => {
   await entrar(page, "administracion");
+  // La consulta a SUNAT (openruc) se simula: el test no depende de la red.
+  await page.route("**/api/clientes/ruc/*", (ruta) =>
+    ruta.fulfill({
+      json: {
+        ruc: "20512345671",
+        razon_social: "E2E EMPRESA SUNAT SAC",
+        estado: "ACTIVO",
+        condicion: "HABIDO",
+        direccion: "AV. PRUEBA 123",
+        ubigeo: "150101",
+        source: "SUNAT",
+        as_of: "2026-05-30",
+      },
+    }),
+  );
   await page.goto("/cotizaciones/nueva");
 
   // Un RUC que no existe: la única opción es crearlo, y el RUC va prellenado.
@@ -209,6 +224,9 @@ test("un cliente que no está se crea en Odoo desde el buscador, sin duplicar", 
 
   const dialogo = page.getByRole("dialog", { name: "Nuevo cliente" });
   await expect(dialogo.getByLabel("RUC o DNI")).toHaveValue("20512345671");
+  // El RUC va primero y, al estar completo, trae la razón social y la dirección.
+  await expect(dialogo.getByLabel("Nombre o razón social")).toHaveValue("E2E EMPRESA SUNAT SAC");
+  await expect(dialogo.getByLabel("Dirección")).toHaveValue("AV. PRUEBA 123");
   await dialogo.getByLabel("Nombre o razón social").fill("E2E Nueva Empresa SAC");
   await dialogo.getByRole("button", { name: "Crear cliente" }).click();
 
