@@ -992,6 +992,7 @@ export type Database = {
           cci: string | null
           creada_en: string
           creada_por: string
+          en_pdf: boolean
           id: string
           moneda: string
           numero: string
@@ -1005,6 +1006,7 @@ export type Database = {
           cci?: string | null
           creada_en?: string
           creada_por: string
+          en_pdf?: boolean
           id?: string
           moneda: string
           numero: string
@@ -1018,6 +1020,7 @@ export type Database = {
           cci?: string | null
           creada_en?: string
           creada_por?: string
+          en_pdf?: boolean
           id?: string
           moneda?: string
           numero?: string
@@ -3526,6 +3529,10 @@ export type Database = {
       }
       retirar_cuenta_bancaria: {
         Args: { clave: string; p_id: string }
+        Returns: undefined
+      }
+      mostrar_cuenta_en_pdf: {
+        Args: { p_id: string; p_mostrar: boolean }
         Returns: undefined
       }
       resumen_conversaciones: {

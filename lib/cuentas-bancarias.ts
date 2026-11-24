@@ -40,6 +40,8 @@ export interface CuentaBancaria extends CuentaParaPdf {
   vigenteDesde: string;
   retiradaEn: string | null;
   retiradaPor: string | null;
+  /** Si sale en el PDF de la cotización (una cuenta vigente, no retirada, y marcada). */
+  enPdf: boolean;
 }
 
 /** Sin espacios ni puntos: "191 1234567 0 12" y "191.1234567.0.12" se guardan con guiones. */
