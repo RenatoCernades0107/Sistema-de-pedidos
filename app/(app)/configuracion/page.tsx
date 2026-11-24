@@ -13,8 +13,10 @@ import { cargarConfigListaPrecios } from "@/lib/lista-precios-servidor";
 import { cargarCategorias } from "@/lib/stock-servidor";
 import { cargarCuentasBancarias } from "@/lib/cuentas-bancarias-servidor";
 import { CuentasBancarias } from "@/components/configuracion/cuentas-bancarias";
+import { PruebasCalculo } from "@/components/configuracion/pruebas-calculo";
+import { cargarPruebasGuardadas } from "@/lib/pruebas-calculo/ejecutar-servidor";
 
-const PESTANAS = ["cortes", "planchas", "terminados", "cotizaciones", "lista-precios", "cuentas"] as const;
+const PESTANAS = ["cortes", "planchas", "terminados", "cotizaciones", "lista-precios", "cuentas", "pruebas"] as const;
 
 /**
  * Lo que Administración ajusta sin tocar código: cómo se calcula y se cobra un
@@ -29,7 +31,8 @@ export default async function Page({ searchParams }: PageProps<"/configuracion">
   // `?tab=cuentas` es a donde lleva el aviso de una cuenta bancaria nueva.
   const { tab } = await searchParams;
   const inicial = PESTANAS.find((p) => p === tab) ?? "cortes";
-  const [config, grupos, terminados, configCotizaciones, configLista, categorias, cuentas] = await Promise.all([
+  const [config, grupos, terminados, configCotizaciones, configLista, categorias, cuentas, planchasActivas, pruebas] =
+    await Promise.all([
     cargarConfigCortes(),
     cargarCatalogoPlanchas(),
     cargarCatalogoTerminados(),
@@ -37,6 +40,8 @@ export default async function Page({ searchParams }: PageProps<"/configuracion">
     cargarConfigListaPrecios(),
     cargarCategorias(),
     cargarCuentasBancarias(),
+    cargarCatalogoPlanchas(true),
+    cargarPruebasGuardadas(),
   ]);
   const formatos = grupos.reduce((n, g) => n + g.formatos.length, 0);
 
@@ -72,6 +77,9 @@ export default async function Page({ searchParams }: PageProps<"/configuracion">
           <TabsTrigger value="cuentas" className="px-3">
             Cuentas bancarias
           </TabsTrigger>
+          <TabsTrigger value="pruebas" className="px-3">
+            Pruebas de cálculo
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="cortes">
           <FormConfigCortes config={config} />
@@ -91,6 +99,9 @@ export default async function Page({ searchParams }: PageProps<"/configuracion">
         </TabsContent>
         <TabsContent value="cuentas">
           <CuentasBancarias cuentas={cuentas} />
+        </TabsContent>
+        <TabsContent value="pruebas">
+          <PruebasCalculo catalogo={terminados} grupos={planchasActivas} guardadas={pruebas} />
         </TabsContent>
         <TabsContent value="planchas">
           <CatalogoPlanchas grupos={grupos} odooConectado={odooConfigurado()} />
