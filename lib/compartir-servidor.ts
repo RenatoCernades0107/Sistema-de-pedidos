@@ -10,7 +10,7 @@ import { deFila, type Fila } from "./cotizaciones-servidor";
 import { leerSeguimiento, type Seguimiento } from "./seguimiento";
 import type { Cotizacion } from "./cotizaciones";
 import { leerConfigCotizaciones } from "./cotizaciones-config";
-import { leerCuentasPublicas, type CuentaParaPdf } from "./cuentas-bancarias";
+import { leerCuentasPublicas, type CuentaPublica } from "./cuentas-bancarias";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -20,7 +20,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  */
 export async function cotizacionPorToken(
   token: string,
-): Promise<{ cotizacion: Cotizacion; validezDias: number; cuentas: CuentaParaPdf[] } | null> {
+): Promise<{ cotizacion: Cotizacion; validezDias: number; cuentas: CuentaPublica[] } | null> {
   // Un token mal formado haría fallar el cast a uuid de Postgres: es un 404.
   if (!UUID.test(token)) return null;
   const supabase = await clienteServidor();

@@ -3,6 +3,7 @@ import { PDFDocument } from "pdf-lib";
 import {
   esquemaCuentaBancaria,
   estadoCuenta,
+  elegirCuentas,
   leerCuentasPublicas,
   tituloCuenta,
   type CuentaParaPdf,
@@ -10,7 +11,7 @@ import {
 import { generarPdfCotizacion } from "./pdf-cotizacion";
 import type { Cotizacion } from "./cotizaciones";
 
-const bcp = { banco: "BCP", tipo: "corriente", moneda: "PEN", numero: "191-1234567-0-12", cci: "00219100123456701252" };
+const bcp = { id: "c1", enPdf: true, banco: "BCP", tipo: "corriente", moneda: "PEN", numero: "191-1234567-0-12", cci: "00219100123456701252" };
 
 describe("esquemaCuentaBancaria", () => {
   it("acepta una cuenta completa y limpia lo copiado del banco", () => {
@@ -54,15 +55,28 @@ describe("leerCuentasPublicas", () => {
         { ...bcp, moneda: 3 },
         { banco: "BBVA" },
         null,
-        { ...bcp, banco: "Banco de la Nación", tipo: "detracciones", cci: null },
+        { ...bcp, id: "c2", banco: "Banco de la Nación", tipo: "detracciones", cci: null },
       ]),
-    ).toEqual([bcp, { ...bcp, banco: "Banco de la Nación", tipo: "detracciones", cci: null }]);
+    ).toEqual([bcp, { ...bcp, id: "c2", banco: "Banco de la Nación", tipo: "detracciones", cci: null }]);
     expect(leerCuentasPublicas(null)).toEqual([]);
     expect(leerCuentasPublicas({})).toEqual([]);
   });
 
   it("el título dice banco, tipo y moneda", () => {
     expect(tituloCuenta(bcp as CuentaParaPdf)).toBe("BCP · Cuenta corriente · Soles");
+  });
+});
+
+describe("elegirCuentas", () => {
+  const a = { ...bcp, id: "a", enPdf: true } as never;
+  const b = { ...bcp, id: "b", enPdf: false } as never;
+  const todas = [a, b] as Parameters<typeof elegirCuentas>[0];
+  it("sin elección salen las marcadas en Configuración", () => {
+    expect(elegirCuentas(todas, null).map((c) => c.id)).toEqual(["a"]);
+  });
+  it("con elección salen solo esas, y un id inventado no agrega nada", () => {
+    expect(elegirCuentas(todas, "b,zzz").map((c) => c.id)).toEqual(["b"]);
+    expect(elegirCuentas(todas, "").map((c) => c.id)).toEqual([]);
   });
 });
 

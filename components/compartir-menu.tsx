@@ -10,12 +10,13 @@
  * producción sin una variable de entorno más.
  */
 
-import { useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { ChevronDown, Copy, FileDown, FileText, Mail, MessageCircle, Share, Share2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
@@ -23,6 +24,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { tituloCuenta, type CuentaPublica } from "@/lib/cuentas-bancarias";
 import { enlaceGmail, enlaceWhatsApp } from "@/lib/compartir";
 
 interface Props {
@@ -36,6 +38,8 @@ interface Props {
   telefono?: string | null;
   /** Si se ofrece "Descargar PDF": la ruta pública sirve el PDF. */
   esPdf?: boolean;
+  /** Las cuentas que se pueden elegir para el PDF; salen marcadas las de Configuración. */
+  cuentasPdf?: CuentaPublica[];
   /** Si se ofrece "Descargar texto": el contenido y el nombre del archivo. */
   texto?: { contenido: string; nombre: string };
   variant?: "default" | "outline";
@@ -58,11 +62,26 @@ export function CompartirMenu({
   asunto,
   telefono,
   esPdf,
+  cuentasPdf = [],
   texto,
   variant = "outline",
   className,
 }: Props) {
   const puedeCompartir = usePuedeCompartir();
+  // `null`: sin tocar, o sea lo marcado en Configuración. Lo que se elige aquí vale solo para estas descargas.
+  const [elegidas, setElegidas] = useState<ReadonlySet<string> | null>(null);
+  const marcada = (c: CuentaPublica) => (elegidas ? elegidas.has(c.id) : c.enPdf);
+  const alternar = (c: CuentaPublica, v: boolean) => {
+    const ids = new Set(cuentasPdf.filter((x) => (x.id === c.id ? v : marcada(x))).map((x) => x.id));
+    setElegidas(ids);
+  };
+  /** El PDF con las cuentas elegidas; sin tocar nada, la ruta tal cual (manda Configuración). */
+  const rutaPdf = (extra = "") => {
+    const q = new URLSearchParams(extra);
+    if (elegidas) q.set("cuentas", [...elegidas].join(","));
+    const qs = q.toString();
+    return qs ? `${ruta}?${qs}` : ruta;
+  };
   const url = () => new URL(ruta, window.location.origin).toString();
 
   const abrir = (destino: string) => window.open(destino, "_blank", "noopener,noreferrer");
@@ -133,16 +152,31 @@ export function CompartirMenu({
             <DropdownMenuGroup>
               <DropdownMenuLabel>Archivo</DropdownMenuLabel>
               {esPdf && (
-                <DropdownMenuItem render={<a href={ruta} target="_blank" rel="noreferrer" />} className="gap-2">
+                <DropdownMenuItem render={<a href={rutaPdf()} target="_blank" rel="noreferrer" />} className="gap-2">
                   <FileText />
                   Ver PDF
                 </DropdownMenuItem>
               )}
               {esPdf && (
-                <DropdownMenuItem render={<a href={`${ruta}?descargar=1`} download />} className="gap-2">
+                <DropdownMenuItem render={<a href={rutaPdf("descargar=1")} download />} className="gap-2">
                   <FileDown />
                   PDF
                 </DropdownMenuItem>
+              )}
+              {esPdf && cuentasPdf.length > 0 && (
+                <>
+                  <DropdownMenuLabel>Cuentas en el PDF</DropdownMenuLabel>
+                  {cuentasPdf.map((c) => (
+                    <DropdownMenuCheckboxItem
+                      key={c.id}
+                      checked={marcada(c)}
+                      onCheckedChange={(v) => alternar(c, v)}
+                      closeOnClick={false}
+                    >
+                      <span className="truncate">{tituloCuenta(c)}</span>
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </>
               )}
               {texto && (
                 <DropdownMenuItem onClick={descargarTexto} className="gap-2">
