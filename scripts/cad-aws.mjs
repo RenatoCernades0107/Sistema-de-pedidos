@@ -5,6 +5,7 @@
 // Variables (en .env.local o en el entorno):
 //   CAD_AWS_STAGE             stage (por defecto "prod")
 //   CAD_AWS_REGION            región (por defecto "us-east-1")
+//   CAD_AWS_PROFILE           perfil de AWS CLI (opcional; si no, el de AWS_PROFILE o el default)
 //   CAD_SANDBOX_SUBNET_A/B    subredes PRIVADAS sin ruta a NAT/IGW (solo deploy/remove)
 //   CAD_SANDBOX_SG            security group sin reglas de salida (solo deploy/remove)
 // Detalles en cad/README.md, sección «Despliegue en AWS».
@@ -15,6 +16,7 @@ import { fileURLToPath } from "node:url";
 const cwd = fileURLToPath(new URL("../cad", import.meta.url));
 const stage = process.env.CAD_AWS_STAGE || "prod";
 const region = process.env.CAD_AWS_REGION || "us-east-1";
+if (process.env.CAD_AWS_PROFILE) process.env.AWS_PROFILE = process.env.CAD_AWS_PROFILE;
 const [comando, destino = "todo"] = process.argv.slice(2);
 
 const FUNCIONES = ["motor", "sandbox"];
