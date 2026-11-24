@@ -235,6 +235,15 @@ está en [`docs/flujo-app.svg`](docs/flujo-app.svg); se edita en [`docs/flujo-ap
   vincula la cotización en la misma transacción (`cotizaciones.pedido_id`, una sola vez) y después
   la `sale.order` se confirma en Odoo; si Odoo falla, el pedido queda igual y la cotización ofrece
   *Confirmar en Odoo*.
+  **Borrador → enviada → reemplazada** (`cotizaciones.estado`): una cotización se **edita** mientras es
+  borrador (`/cotizaciones/<id>/editar`: cliente, productos, notas; un corte o un producto terminado se
+  conserva tal cual o se quita y se vuelve a agregar) y los cambios se llevan a la misma `sale.order`;
+  si Odoo falla queda `error_edicion` y no se puede enviar ni sacar un pedido hasta reintentar.
+  **Marcar como enviada** (o compartirla por WhatsApp, Gmail, enlace o PDF) la bloquea: lo cotizado ya
+  no cambia, lo impide la base (`cotizacion_guardar_estado`), y una con pedido tampoco se edita. Para
+  cambiarla, **Nueva versión** copia todo a un borrador v2 con su propia `sale.order`
+  (`reemplaza_a`); al enviar la v2, la v1 queda *reemplazada* y se cancela en Odoo. «Aprobada» no es un
+  estado: es tener pedido.
 - `lib/odoo/` — el cliente de Odoo. `rpc.ts` es la única costura (JSON-RPC clásica, de la 14 a la
   19; para JSON-2 solo cambia ese archivo). `indice.ts` guarda clientes y productos en la memoria
   del servidor y los mantiene al día por `write_date`, para buscar al ritmo del teclado.

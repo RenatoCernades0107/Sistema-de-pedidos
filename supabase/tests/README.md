@@ -56,6 +56,12 @@ Dos scripts, los dos pensados para correr contra el proyecto de Supabase en la n
   sin cambiar el catálogo ni los precios; Administración fija y devuelve al calculado el precio de un
   sobrante. Entra como el primer usuario activo de cada rol, así que no necesita las cuentas del seed.
   Termina en `ROLLBACK`.
+- **`versiones_cotizacion.sql`** — verifica la migración `20261215000100`: una cotización nace borrador y
+  se edita (cliente y líneas, conservando un corte), queda marcada si Odoo no tiene lo último y así no
+  se envía; enviada, la base rechaza cualquier cambio a lo cotizado y el paso atrás a borrador; la
+  versión nueva copia las líneas sin heredar la orden de Odoo, es una sola a la vez y solo de una
+  enviada; enviar la v2 deja la v1 como reemplazada. Entra como el primer usuario activo de
+  Administración y termina en `ROLLBACK`.
 - **`transferencias.sql`** — verifica la migración `20261205000300`: RLS en las tablas nuevas; que
   Logística envía (el sobrante queda en tránsito y no sale dos veces), no transfiere a sí mismo y
   anula solo lo que no salió en Odoo; que el taller recibe (el sobrante queda disponible en su

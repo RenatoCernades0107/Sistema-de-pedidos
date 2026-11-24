@@ -44,6 +44,11 @@ interface Props {
   texto?: { contenido: string; nombre: string };
   variant?: "default" | "outline";
   className?: string;
+  /**
+   * Se llama cuando algo salió hacia el cliente: WhatsApp, Gmail, otras apps,
+   * copiar el enlace o descargar el PDF. Ver el PDF no cuenta: es mirarlo.
+   */
+  alCompartir?: () => void;
 }
 
 const sinSuscripcion = () => () => {};
@@ -66,6 +71,7 @@ export function CompartirMenu({
   texto,
   variant = "outline",
   className,
+  alCompartir,
 }: Props) {
   const puedeCompartir = usePuedeCompartir();
   // `null`: sin tocar, o sea lo marcado en Configuración. Lo que se elige aquí vale solo para estas descargas.
@@ -84,12 +90,16 @@ export function CompartirMenu({
   };
   const url = () => new URL(ruta, window.location.origin).toString();
 
-  const abrir = (destino: string) => window.open(destino, "_blank", "noopener,noreferrer");
+  const abrir = (destino: string) => {
+    window.open(destino, "_blank", "noopener,noreferrer");
+    alCompartir?.();
+  };
 
   const copiar = async () => {
     try {
       await navigator.clipboard.writeText(url());
       toast.success("Enlace copiado");
+      alCompartir?.();
     } catch {
       toast.error("No se pudo copiar el enlace");
     }
@@ -98,6 +108,7 @@ export function CompartirMenu({
   const compartirNativo = async () => {
     try {
       await navigator.share({ title: asunto, text: mensaje(url()) });
+      alCompartir?.();
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") return;
       toast.error("No se pudo compartir");
@@ -158,7 +169,11 @@ export function CompartirMenu({
                 </DropdownMenuItem>
               )}
               {esPdf && (
-                <DropdownMenuItem render={<a href={rutaPdf("descargar=1")} download />} className="gap-2">
+                <DropdownMenuItem
+                  render={<a href={rutaPdf("descargar=1")} download />}
+                  onClick={() => alCompartir?.()}
+                  className="gap-2"
+                >
                   <FileDown />
                   PDF
                 </DropdownMenuItem>

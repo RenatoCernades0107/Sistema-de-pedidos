@@ -44,6 +44,8 @@ export default async function Page({ searchParams }: PageProps<"/pedidos/nuevo">
     if (c.pedido) redirect(`/pedidos/${c.pedido.codigo}`);
     // Sin orden en Odoo no hay nada que confirmar: primero hay que reintentar.
     if (c.sincronizacion !== "sincronizada") redirect(`/cotizaciones/${c.id}`);
+    // Reemplazada, o con cambios que Odoo no tiene: el pedido saldría de lo equivocado.
+    if (c.estado === "reemplazada" || c.errorEdicion) redirect(`/cotizaciones/${c.id}`);
 
     desde = {
       id: c.id,

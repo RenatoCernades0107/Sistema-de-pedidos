@@ -696,6 +696,26 @@ export const esquemaNuevaCotizacion = z.object({
 });
 
 /**
+ * Una línea de la cotización que se queda tal cual está guardada (un corte o un
+ * producto terminado, que no se rehacen desde la edición): solo su posición.
+ */
+const esquemaLineaConservada = z.object({
+  tipo: z.literal("conservar"),
+  posicion: z.number().int().positive(),
+});
+
+/**
+ * Los cambios a un borrador: lo mismo que una cotización nueva, y cada línea
+ * puede ser una nueva o `conservar` una de las que ya había.
+ */
+export const esquemaEdicionCotizacion = esquemaNuevaCotizacion.extend({
+  lineas: z
+    .array(z.union([esquemaLineaConservada, lineaDeCotizacion]))
+    .min(1, "Agrega al menos un producto")
+    .max(100, "Son demasiados productos para una cotización"),
+});
+
+/**
  * Un cliente nuevo, creado desde el buscador. El documento es opcional —hay quien
  * cotiza sin dar RUC—, pero si viene tiene que ser un DNI de 8 dígitos o un RUC
  * que pase el dígito verificador: un número mal tecleado en Odoo es un cliente
@@ -859,6 +879,7 @@ export const esquemaRegistroPedido = z
   });
 
 export type NuevaCotizacion = z.output<typeof esquemaNuevaCotizacion>;
+export type EdicionCotizacion = z.output<typeof esquemaEdicionCotizacion>;
 export type NuevaLineaCorte = z.output<typeof esquemaLineaCorte>;
 export type NuevaLineaTerminado = z.output<typeof esquemaLineaTerminado>;
 export type NuevoClienteOdoo = z.output<typeof esquemaNuevoClienteOdoo>;

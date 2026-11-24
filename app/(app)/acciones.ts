@@ -170,6 +170,8 @@ export async function registrarPedido(entrada: unknown): Promise<Resultado> {
   const c = await leerCotizacion(cotizacionId);
   if (!c) return fallo("Esa cotización ya no existe.");
   if (c.pedido) return fallo(`Esa cotización ya tiene el pedido ${c.pedido.codigo}.`);
+  if (c.estado === "reemplazada") return fallo("Esa cotización ya fue reemplazada por una versión nueva.");
+  if (c.errorEdicion) return fallo("Los últimos cambios de la cotización todavía no están en Odoo. Reintenta primero.");
 
   /* Las indicaciones de cada línea. Quien las escribe las ve por su posición; se
      ligan a las líneas de la cotización antes de armar el detalle, y viajan a

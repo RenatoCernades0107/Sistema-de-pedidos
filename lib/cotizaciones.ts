@@ -17,6 +17,17 @@ import { descripcionDeTerminado, tituloTerminado, type TerminadoGuardado } from 
 
 export type Canal = "tienda" | "whatsapp";
 export type Sincronizacion = "pendiente" | "sincronizada" | "error";
+/**
+ * Borrador: se edita. Enviada: bloqueada, es lo que se le ofreció al cliente.
+ * Reemplazada: una enviada cuya versión siguiente ya se envió (historial).
+ */
+export type EstadoCotizacion = "borrador" | "enviada" | "reemplazada";
+
+export const ESTADOS_COTIZACION: Record<EstadoCotizacion, string> = {
+  borrador: "Borrador",
+  enviada: "Enviada",
+  reemplazada: "Reemplazada",
+};
 
 export const CANALES: Record<Canal, string> = {
   tienda: "Tienda",
@@ -47,6 +58,12 @@ export interface LineaGuardada {
    * de Odoo con que se vende y la cantidad, cuántas unidades.
    */
   terminado: TerminadoGuardado | null;
+  /**
+   * Qué clase de línea es tal como se guardó. Aparte de `corte` y `terminado`
+   * porque, si su JSON no se pudiera leer, esos quedarían en `null` y la línea
+   * pasaría por un producto.
+   */
+  tipo?: "producto" | "corte" | "terminado";
   /** La orden de fabricación de la línea en Odoo, si ya tiene una. */
   produccionId?: number | null;
   /** Lo que el taller tiene que saber de esta línea. Solo del pedido: no viaja a Odoo. */
@@ -90,11 +107,51 @@ export interface Cotizacion {
   tokenPublico: string | null;
   /** El almacén del que sale la venta. `null`: el que diga la regla (`tipoDeDespacho`). */
   almacenDespachoId: string | null;
+  estado: EstadoCotizacion;
+  /** Cuándo se marcó como enviada. `null` mientras es borrador. */
+  enviadaEn: string | null;
+  /** 1 para la original; 2, 3… para las versiones nuevas de una enviada. */
+  version: number;
+  /** La cotización de la que esta es versión nueva. */
+  reemplazaA: string | null;
+  /** Lo editado que todavía no llegó a la cotización de Odoo, y por qué. `null`: Odoo está al día. */
+  errorEdicion: string | null;
+}
+
+/**
+ * Si todavía se puede editar: es borrador y no salió de ella ningún pedido. Una
+ * enviada, una reemplazada o una con pedido no se tocan; se hace otra versión.
+ * La base lo exige también (trigger `cotizacion_guardar_estado`).
+ */
+export const esEditable = (c: Pick<Cotizacion, "estado" | "pedido">) => c.estado === "borrador" && !c.pedido;
+
+/**
+ * Si se le puede hacer una versión nueva: está enviada y no tiene pedido. Que
+ * ya haya otra en curso lo dice la pantalla (`siguiente`), que la busca aparte.
+ */
+export const admiteVersionNueva = (c: Pick<Cotizacion, "estado" | "pedido">) =>
+  c.estado === "enviada" && !c.pedido;
+
+/**
+ * Por qué todavía no se puede marcar como enviada. `null`: se puede.
+ * Hace falta que esté en Odoo y que Odoo tenga lo último que se editó.
+ */
+export function motivoNoEnviable(
+  c: Pick<Cotizacion, "estado" | "sincronizacion" | "odooOrderId" | "errorEdicion" | "pedido">,
+): string | null {
+  if (c.estado !== "borrador") return "Ya no es un borrador.";
+  if (c.pedido) return "Ya tiene pedido.";
+  if (c.sincronizacion !== "sincronizada" || !c.odooOrderId) return "Primero tiene que estar creada en Odoo.";
+  if (c.errorEdicion) return "Los últimos cambios todavía no están en Odoo.";
+  return null;
 }
 
 /** El nombre con que se muestra: la referencia de Odoo o, mientras no la hay, una provisional. */
 export const referenciaDe = (c: Pick<Cotizacion, "odooOrderName" | "id">) =>
   c.odooOrderName ?? `Borrador ${c.id.slice(0, 8)}`;
+
+/** "v2", "v3"… Solo de la segunda versión en adelante: la original no lleva marca. */
+export const etiquetaVersion = (c: Pick<Cotizacion, "version">) => (c.version > 1 ? `v${c.version}` : null);
 
 /** La suma de las líneas, para cuando Odoo todavía no puso su total. */
 export const sumaLineas = (lineas: Pick<LineaGuardada, "importe">[]) =>
