@@ -1,8 +1,8 @@
 // Despliegue del motor CAD y del sandbox en AWS Lambda (Serverless Framework).
-// Uso: node --env-file-if-exists=.env.local scripts/cad-aws.mjs <comando> [motor|sandbox]
+// Uso: node --env-file-if-exists=.env.prod scripts/cad-aws.mjs <comando> [motor|sandbox]
 //
 // Comandos: deploy | info | logs | remove | claves
-// Variables (en .env.local o en el entorno):
+// Variables (en .env.prod o en el entorno):
 //   CAD_AWS_STAGE             stage (por defecto "prod")
 //   CAD_AWS_REGION            región (por defecto "us-east-1")
 //   CAD_AWS_PROFILE           perfil de AWS CLI (opcional; si no, el de AWS_PROFILE o el default)
