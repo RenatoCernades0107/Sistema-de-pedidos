@@ -30,13 +30,27 @@ if (iLimite >= 0 && !(limite > 0)) {
   process.exit(1);
 }
 
+const URL_RPC = `${ODOO_URL.trim().replace(/\/+$/, "")}/jsonrpc`;
+
 async function rpc(service, method, params) {
-  const r = await fetch(`${ODOO_URL.replace(/\/+$/, "")}/jsonrpc`, {
+  const r = await fetch(URL_RPC, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", method: "call", id: 1, params: { service, method, args: params } }),
   });
-  const j = await r.json();
+  const texto = await r.text();
+  let j;
+  try {
+    j = JSON.parse(texto);
+  } catch {
+    // Una página HTML en vez de JSON: casi siempre es la URL equivocada.
+    console.error(
+      `Odoo no contestó JSON en ${URL_RPC} (HTTP ${r.status}${r.redirected ? `, redirigido a ${r.url}` : ""}).\n` +
+        `Empieza con: ${texto.slice(0, 80).replace(/\s+/g, " ")}\n` +
+        "Revisa ODOO_URL en .env.local: debe ser solo el origen (https://empresa.odoo.com), sin /odoo ni /web.",
+    );
+    process.exit(1);
+  }
   if (j.error) throw new Error(j.error.data?.message ?? j.error.message);
   return j.result;
 }
