@@ -10,6 +10,7 @@ import type { NextRequest } from "next/server";
 import { cotizacionPorToken } from "@/lib/compartir-servidor";
 import { generarPdfCotizacion } from "@/lib/pdf-cotizacion";
 import { nombreArchivoCotizacion } from "@/lib/compartir";
+import { elegirCuentas } from "@/lib/cuentas-bancarias";
 import { leerLogo } from "@/lib/logo-servidor";
 
 export async function GET(request: NextRequest, ctx: RouteContext<"/c/[token]/pdf">) {
@@ -22,7 +23,9 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/c/[token]/pd
   if (leida === undefined) return new Response("No se pudo generar la cotización.", { status: 500 });
   if (!leida) return new Response("Este enlace no corresponde a ninguna cotización.", { status: 404 });
 
-  const { cotizacion, validezDias, cuentas } = leida;
+  const { cotizacion, validezDias } = leida;
+  // `?cuentas=id,id` (al descargar) elige cuáles; sin él, las marcadas en Configuración.
+  const cuentas = elegirCuentas(leida.cuentas, request.nextUrl.searchParams.get("cuentas"));
   const pdf = await generarPdfCotizacion(cotizacion, await leerLogo(), { validezDias, cuentas });
   const nombre = nombreArchivoCotizacion(cotizacion, "pdf");
   const disposicion = request.nextUrl.searchParams.has("descargar") ? "attachment" : "inline";

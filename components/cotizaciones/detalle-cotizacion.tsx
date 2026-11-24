@@ -29,6 +29,7 @@ import { fechaHora, money, numero } from "@/lib/formato";
 import { Button } from "@/components/ui/button";
 import { TerminadoGuardadoVista } from "@/components/terminados/terminado-guardado";
 import { CorteGuardadoVista } from "@/components/cortes/corte-guardado";
+import type { CuentaPublica } from "@/lib/cuentas-bancarias";
 import { CompartirMenu } from "@/components/compartir-menu";
 import { asuntoCotizacion, mensajeCotizacion, nombreArchivoCotizacion, textoCotizacion } from "@/lib/compartir";
 import { CodigoProducto } from "./buscador-producto";
@@ -40,6 +41,7 @@ export function DetalleCotizacion({
   puedeAsistente,
   puedeCrearPedido,
   validezDias,
+  cuentasPdf = [],
   almacenes = [],
   despachoId = null,
   faltantes = null,
@@ -51,6 +53,8 @@ export function DetalleCotizacion({
   puedeCrearPedido: boolean;
   /** La validez que va en el PDF y en el texto (de /configuracion). */
   validezDias: number;
+  /** Las cuentas que se pueden elegir al ver o descargar el PDF. */
+  cuentasPdf?: CuentaPublica[];
   /** Los almacenes, y del que sale la venta (el elegido o el de la regla). */
   almacenes?: Almacen[];
   despachoId?: string | null;
@@ -124,6 +128,7 @@ export function DetalleCotizacion({
               asunto={asuntoCotizacion(c)}
               telefono={c.cliente.telefono}
               esPdf
+              cuentasPdf={cuentasPdf}
               texto={{ contenido: textoCotizacion(c, validezDias), nombre: nombreArchivoCotizacion(c, "txt") }}
             />
           )}

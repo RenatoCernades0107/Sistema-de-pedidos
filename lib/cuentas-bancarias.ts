@@ -32,6 +32,23 @@ export interface CuentaParaPdf {
   cci: string | null;
 }
 
+/** Una cuenta vigente de `cotizacion_publica()`, con lo necesario para elegir cuáles salen. */
+export interface CuentaPublica extends CuentaParaPdf {
+  id: string;
+  /** Lo marcado en Configuración: lo que sale si nadie elige otra cosa. */
+  enPdf: boolean;
+}
+
+/**
+ * Las cuentas que se imprimen: las de `ids` (el `?cuentas=` del enlace, separado
+ * por comas; vacío = ninguna) o, si no hay `ids`, las marcadas en Configuración.
+ */
+export function elegirCuentas(cuentas: CuentaPublica[], ids: string | null): CuentaPublica[] {
+  if (ids === null) return cuentas.filter((c) => c.enPdf);
+  const elegidas = new Set(ids.split(",").filter(Boolean));
+  return cuentas.filter((c) => elegidas.has(c.id));
+}
+
 /** Lo que ve Administración en `/configuracion`. */
 export interface CuentaBancaria extends CuentaParaPdf {
   id: string;
@@ -90,16 +107,18 @@ export const tituloCuenta = (c: Pick<CuentaParaPdf, "banco" | "tipo" | "moneda">
   `${c.banco} · ${TIPOS_CUENTA[c.tipo]} · ${MONEDAS_CUENTA[c.moneda]}`;
 
 /** Lo que manda `cotizacion_publica()`, filtrando lo que no se entienda: al PDF solo llega una cuenta completa. */
-export function leerCuentasPublicas(json: unknown): CuentaParaPdf[] {
+export function leerCuentasPublicas(json: unknown): CuentaPublica[] {
   if (!Array.isArray(json)) return [];
-  return json.flatMap((x): CuentaParaPdf[] => {
+  return json.flatMap((x): CuentaPublica[] => {
     if (!x || typeof x !== "object") return [];
     const c = x as Record<string, unknown>;
-    if (typeof c.banco !== "string" || typeof c.numero !== "string") return [];
+    if (typeof c.id !== "string" || typeof c.banco !== "string" || typeof c.numero !== "string") return [];
     if (!(typeof c.tipo === "string" && c.tipo in TIPOS_CUENTA)) return [];
     if (!(typeof c.moneda === "string" && c.moneda in MONEDAS_CUENTA)) return [];
     return [
       {
+        id: c.id,
+        enPdf: c.en_pdf !== false,
         banco: c.banco,
         tipo: c.tipo as TipoCuenta,
         moneda: c.moneda as MonedaCuenta,

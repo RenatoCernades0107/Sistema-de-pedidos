@@ -4,6 +4,7 @@ import { ROLES } from "@/lib/dominio";
 import { almacenDeDespacho, cargarConfigCotizaciones, cargarCotizacion } from "@/lib/cotizaciones-servidor";
 import { cargarAlmacenes } from "@/lib/almacenes-servidor";
 import { faltantesPrevistos } from "@/lib/faltantes-servidor";
+import { cotizacionPorToken } from "@/lib/compartir-servidor";
 import { enlaceOdoo } from "@/lib/odoo/rpc";
 import { DetalleCotizacion } from "@/components/cotizaciones/detalle-cotizacion";
 
@@ -22,6 +23,11 @@ export default async function Page({ params }: PageProps<"/cotizaciones/[id]">) 
   const previstos =
     despacho && !cotizacion.pedido ? await faltantesPrevistos(cotizacion.lineas, despacho.id) : null;
 
+  // Las cuentas que se pueden poner en el PDF (las mismas que verá el cliente).
+  const cuentasPdf = cotizacion.tokenPublico
+    ? await cotizacionPorToken(cotizacion.tokenPublico).then((r) => r?.cuentas ?? [], () => [])
+    : [];
+
   return (
     <DetalleCotizacion
       cotizacion={cotizacion}
@@ -29,6 +35,7 @@ export default async function Page({ params }: PageProps<"/cotizaciones/[id]">) 
       puedeAsistente={ROLES[perfil.rol].usarAgenteCotizacion}
       puedeCrearPedido={ROLES[perfil.rol].crearPedido}
       validezDias={config.validezDias}
+      cuentasPdf={cuentasPdf}
       almacenes={almacenes}
       despachoId={despacho?.id ?? null}
       faltantes={previstos?.ok ? previstos.faltantes : null}
