@@ -14,8 +14,10 @@ import { clienteServidor } from "./supabase-servidor";
 import { mensajeDeError } from "./errores";
 import {
   importeDeProducto,
+  motivoNoEnviable,
   type Canal,
   type Cotizacion,
+  type EstadoCotizacion,
   type LineaGuardada,
   type Sincronizacion,
 } from "./cotizaciones";
@@ -28,7 +30,9 @@ import {
   totalPiezas,
 } from "./cortes/guardado";
 import { leerCliente } from "./odoo/clientes";
+import { cancelarPedidoDeVenta } from "./odoo/entregas";
 import {
+  actualizarPedidoDeVenta,
   cambiarAlmacenDeVenta,
   confirmarPedidoDeVenta,
   crearPedidoDeVenta,
@@ -55,6 +59,7 @@ const COLUMNAS = `
   odoo_order_id, odoo_order_name, sincronizacion, error_sincronizacion,
   monto_sin_impuestos, monto_impuestos, monto_total, notas, chat_agente_id, creado_en,
   confirmada_en_odoo, error_confirmacion, token_publico, almacen_despacho_id,
+  estado, enviada_en, version, reemplaza_a, error_edicion,
   creador:usuarios!cotizaciones_creado_por_fkey ( nombre ),
   pedido:pedidos!cotizaciones_pedido_id_fkey ( codigo ),
   cotizacion_productos ( posicion, odoo_product_id, producto_nombre, producto_codigo,
@@ -85,6 +90,12 @@ export interface Fila {
   error_confirmacion: string | null;
   token_publico?: string | null;
   almacen_despacho_id?: string | null;
+  /** La foto pública (`cotizacion_publica`) no los trae: se asume enviada. */
+  estado?: EstadoCotizacion;
+  enviada_en?: string | null;
+  version?: number;
+  reemplaza_a?: string | null;
+  error_edicion?: string | null;
   creador: { nombre: string } | { nombre: string }[] | null;
   pedido: { codigo: string } | { codigo: string }[] | null;
   cotizacion_productos: {
@@ -138,6 +149,11 @@ export function deFila(f: Fila): Cotizacion {
     errorConfirmacion: f.error_confirmacion,
     tokenPublico: f.token_publico ?? null,
     almacenDespachoId: f.almacen_despacho_id ?? null,
+    estado: f.estado ?? "enviada",
+    enviadaEn: f.enviada_en ?? null,
+    version: f.version ?? 1,
+    reemplazaA: f.reemplaza_a ?? null,
+    errorEdicion: f.error_edicion ?? null,
     lineas: [...(f.cotizacion_productos ?? [])]
       .sort((a, b) => a.posicion - b.posicion)
       .map((l) => ({
@@ -148,6 +164,7 @@ export function deFila(f: Fila): Cotizacion {
         descripcion: l.descripcion,
         cantidad: Number(l.cantidad),
         precioUnitario: Number(l.precio_unitario),
+        tipo: l.tipo,
         corte: l.tipo === "corte" ? leerCorte(l.corte) : null,
         terminado: l.tipo === "terminado" ? leerTerminado(l.terminado) : null,
         produccionId: l.odoo_produccion_id,
@@ -453,6 +470,176 @@ export async function sincronizarConOdoo(id: string): Promise<ResultadoSincroniz
       .eq("id", id);
     return { ok: false, error: mensaje };
   }
+}
+
+/**
+ * Lleva a la cotización de Odoo lo que se editó en la app: el cliente y todas las
+ * líneas. Es lo que cierra una edición: mientras no pase, la fila lleva
+ * `error_edicion` y no se puede enviar ni sacar un pedido de ella.
+ *
+ * Si todavía no está en Odoo (nunca llegó, o falló al crearla), lo que hace es
+ * crearla, con lo último que quedó guardado. Repetirla no duplica nada.
+ */
+export async function sincronizarCambiosConOdoo(id: string): Promise<ResultadoSincronizacion> {
+  const c = await leerCotizacion(id);
+  if (!c) return { ok: false, error: "La cotización ya no existe." };
+  if (c.estado !== "borrador" || c.pedido) {
+    return { ok: false, error: "Ya se envió o tiene pedido: lo cotizado no se cambia. Haz una versión nueva." };
+  }
+  if (!c.odooOrderId || c.sincronizacion !== "sincronizada") return sincronizarConOdoo(id);
+
+  const supabase = await clienteServidor();
+  try {
+    const despacho = await almacenDeDespacho(c, { porStock: true });
+    const warehouseId = (await odooDeAlmacen(despacho)).warehouseId;
+    const orderId = c.odooOrderId;
+    const venta = await alDia(async () => {
+      const corteAMedida = await productosDeCorte(c.lineas);
+      return actualizarPedidoDeVenta(orderId, {
+        clienteId: c.cliente.id,
+        lineas: c.lineas.flatMap((l) => lineasParaOdoo(l, corteAMedida.get(l.posicion))),
+        warehouseId,
+      });
+    });
+
+    const { data, error } = await supabase
+      .from("cotizaciones")
+      .update({
+        almacen_despacho_id: despacho.id,
+        odoo_order_name: venta.orderName,
+        monto_sin_impuestos: venta.montoSinImpuestos,
+        monto_impuestos: venta.montoImpuestos,
+        monto_total: venta.montoTotal,
+        error_edicion: null,
+      })
+      .eq("id", id)
+      .select("id");
+    if (error) {
+      return {
+        ok: false,
+        error: `Se actualizó ${venta.orderName} en Odoo, pero no se pudo anotar aquí: ${mensajeDeError(error)}`,
+      };
+    }
+    if (!data?.length) return { ok: false, error: "Tu rol no puede actualizar esta cotización." };
+    return { ok: true, orderName: venta.orderName };
+  } catch (e) {
+    const mensaje = e instanceof ErrorOdoo ? e.message : "Algo falló al actualizar la cotización en Odoo.";
+    if (!(e instanceof ErrorOdoo)) console.error("[cotizaciones] actualizar en Odoo", e);
+    await supabase.from("cotizaciones").update({ error_edicion: mensaje }).eq("id", id);
+    return { ok: false, error: mensaje };
+  }
+}
+
+export type ResultadoEnvio =
+  | {
+      ok: true;
+      /**
+       * Si esta era la versión nueva de otra: qué pasó con la anterior en Odoo.
+       * `null`: no era versión nueva, o la anterior no estaba en Odoo.
+       */
+      anterior: { orderName: string | null; canceladaEnOdoo: boolean; error: string | null } | null;
+    }
+  | { ok: false; error: string };
+
+/**
+ * Marca un borrador como enviada: desde ahí no se edita. Si era la versión nueva
+ * de otra, la base deja la anterior como `reemplazada`, y aquí se cancela su
+ * cotización en Odoo para que no queden dos vigentes (si Odoo no la cancela, la
+ * versión nueva queda enviada igual y se avisa).
+ */
+export async function marcarEnviada(id: string): Promise<ResultadoEnvio> {
+  const c = await leerCotizacion(id);
+  if (!c) return { ok: false, error: "La cotización ya no existe." };
+  const motivo = motivoNoEnviable(c);
+  if (motivo) return { ok: false, error: motivo };
+
+  const supabase = await clienteServidor();
+  const { data, error } = await supabase
+    .from("cotizaciones")
+    .update({ estado: "enviada" })
+    .eq("id", id)
+    .eq("estado", "borrador")
+    .select("id");
+  if (error) return { ok: false, error: mensajeDeError(error) };
+  if (!data?.length) return { ok: false, error: "Ya no es un borrador, o tu rol no puede cambiarla." };
+
+  if (!c.reemplazaA) return { ok: true, anterior: null };
+
+  // La anterior ya quedó `reemplazada` (lo hace la base). Falta la de Odoo.
+  const { data: previa } = await supabase
+    .from("cotizaciones")
+    .select("odoo_order_id, odoo_order_name, pedido_id")
+    .eq("id", c.reemplazaA)
+    .maybeSingle();
+  if (!previa?.odoo_order_id || previa.pedido_id) return { ok: true, anterior: null };
+
+  try {
+    await cancelarPedidoDeVenta(previa.odoo_order_id);
+    return { ok: true, anterior: { orderName: previa.odoo_order_name, canceladaEnOdoo: true, error: null } };
+  } catch (e) {
+    if (!(e instanceof ErrorOdoo)) console.error("[cotizaciones] cancelar la anterior en Odoo", e);
+    return {
+      ok: true,
+      anterior: {
+        orderName: previa.odoo_order_name,
+        canceladaEnOdoo: false,
+        error: e instanceof ErrorOdoo ? e.message : "Algo falló al cancelarla en Odoo.",
+      },
+    };
+  }
+}
+
+export type ResultadoVersionNueva =
+  | { ok: true; id: string; enOdoo: boolean; errorOdoo: string | null }
+  | { ok: false; error: string };
+
+/**
+ * Hace de una cotización enviada un borrador nuevo (v2, v3…) con lo mismo, y lo
+ * crea en Odoo como una cotización más. La original no se toca hasta que la
+ * nueva se envíe: así, si la versión nueva no prospera, lo que se le ofreció al
+ * cliente sigue vigente.
+ */
+export async function crearVersionNueva(id: string): Promise<ResultadoVersionNueva> {
+  const supabase = await clienteServidor();
+  const { data: nuevoId, error } = await supabase.rpc("nueva_version_cotizacion", { p_id: id });
+  if (error || !nuevoId) return { ok: false, error: mensajeDeError(error) };
+
+  if (!odooConfigurado()) return { ok: true, id: nuevoId, enOdoo: false, errorOdoo: null };
+  const r = await sincronizarConOdoo(nuevoId);
+  olvidarPopularidad();
+  return r.ok
+    ? { ok: true, id: nuevoId, enOdoo: true, errorOdoo: null }
+    : { ok: true, id: nuevoId, enOdoo: false, errorOdoo: r.error };
+}
+
+/** La versión siguiente de una cotización (la que la reemplaza o la reemplazará), si la hay. */
+export async function versionSiguiente(
+  id: string,
+): Promise<{ id: string; version: number; estado: "borrador" | "enviada" | "reemplazada"; odooOrderName: string | null } | null> {
+  if (!UUID.test(id)) return null;
+  const supabase = await clienteServidor();
+  const { data } = await supabase
+    .from("cotizaciones")
+    .select("id, version, estado, odoo_order_name")
+    .eq("reemplaza_a", id)
+    .maybeSingle();
+  return data
+    ? { id: data.id, version: data.version, estado: data.estado, odooOrderName: data.odoo_order_name }
+    : null;
+}
+
+/** La versión anterior (a la que esta reemplaza), con lo mínimo para enlazarla. */
+export async function versionAnterior(
+  id: string | null,
+): Promise<{ id: string; version: number; odooOrderName: string | null } | null> {
+  if (!id || !UUID.test(id)) return null;
+  const supabase = await clienteServidor();
+  const { data } = await supabase
+    .from("cotizaciones")
+    .select("id, version, odoo_order_name")
+    .eq("id", id)
+    .maybeSingle();
+  return data ? { id: data.id, version: data.version, odooOrderName: data.odoo_order_name } : null;
 }
 
 /**

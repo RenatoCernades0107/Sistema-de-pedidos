@@ -10,7 +10,7 @@
 import { prepararCorte } from "./cortes-servidor";
 import { prepararTerminado } from "./terminados-servidor";
 import { mensajeDeError } from "./errores";
-import type { NuevaCotizacion } from "./esquemas";
+import type { EdicionCotizacion, NuevaCotizacion } from "./esquemas";
 import { productosPorId } from "./odoo/catalogos";
 import { contactosDeEmpresa, leerCliente } from "./odoo/clientes";
 import { ErrorOdoo } from "./odoo/rpc";
@@ -26,14 +26,34 @@ export type CotizacionRegistrada =
   | { ok: false; error: string };
 
 /**
+ * Lo que va a la base: el cliente y el contacto como los tiene Odoo ahora, y las
+ * líneas ya armadas (las nuevas, completas; las que se conservan, solo su posición).
+ */
+export type CotizacionPreparada =
+  | {
+      ok: true;
+      cliente: ClienteOdoo;
+      contacto: ContactoOdoo | null;
+      lineas: object[];
+    }
+  | { ok: false; error: string };
+
+/**
  * Del navegador llegan referencias: ids de Odoo, cantidades, precios y, de un
  * corte, el material y las piezas. El nombre del cliente y de cada producto, y
  * todo el cálculo de cada corte, se vuelven a leer o a hacer aquí.
+ *
+ * Lo comparten el alta y la edición de un borrador; solo la edición trae líneas
+ * `conservar`, que no se tocan.
  */
-export async function registrarCotizacion(v: NuevaCotizacion): Promise<CotizacionRegistrada> {
+export async function prepararCotizacion(
+  v: NuevaCotizacion | EdicionCotizacion,
+): Promise<CotizacionPreparada> {
   const fallo = (error: string) => ({ ok: false as const, error });
 
-  const deProducto = v.lineas.filter((l) => l.tipo !== "corte" && l.tipo !== "terminado");
+  const deProducto = v.lineas.filter(
+    (l) => l.tipo !== "corte" && l.tipo !== "terminado" && l.tipo !== "conservar",
+  ) as Extract<(typeof v.lineas)[number], { productoId: number }>[];
   let cliente: ClienteOdoo | null;
   let productos: Awaited<ReturnType<typeof productosPorId>>;
   let contactos: ContactoOdoo[] = [];
@@ -54,8 +74,12 @@ export async function registrarCotizacion(v: NuevaCotizacion): Promise<Cotizacio
     return fallo("Ese contacto ya no es de la empresa en Odoo. Elige el contacto de nuevo.");
   }
 
-  const lineas = [];
+  const lineas: object[] = [];
   for (const l of v.lineas) {
+    if (l.tipo === "conservar") {
+      lineas.push({ conservar: l.posicion });
+      continue;
+    }
     if (l.tipo === "corte") {
       // El corte se calcula aquí otra vez: su precio no llega del navegador.
       let corte: Awaited<ReturnType<typeof prepararCorte>>;
@@ -93,20 +117,55 @@ export async function registrarCotizacion(v: NuevaCotizacion): Promise<Cotizacio
     });
   }
 
+  return { ok: true, cliente, contacto, lineas };
+}
+
+/** Los datos del cliente que se guardan con la cotización (una foto de Odoo). */
+const datosDeCliente = (cliente: ClienteOdoo, contacto: ContactoOdoo | null) => ({
+  p_odoo_partner_id: cliente.id,
+  p_cliente_nombre: cliente.nombre,
+  p_cliente_documento: cliente.documento ?? undefined,
+  // Se llama a quien atiende; si no tiene teléfono, al de la empresa.
+  p_cliente_telefono: contacto?.telefono ?? cliente.telefono ?? undefined,
+  p_odoo_contacto_id: contacto?.id,
+  p_contacto_nombre: contacto?.nombre,
+});
+
+export async function registrarCotizacion(v: NuevaCotizacion): Promise<CotizacionRegistrada> {
+  const p = await prepararCotizacion(v);
+  if (!p.ok) return p;
+
   const supabase = await clienteServidor();
   const { data: id, error } = await supabase.rpc("crear_cotizacion", {
     p_canal: v.canal,
-    p_odoo_partner_id: cliente.id,
-    p_cliente_nombre: cliente.nombre,
-    p_cliente_documento: cliente.documento ?? undefined,
-    // Se llama a quien atiende; si no tiene teléfono, al de la empresa.
-    p_cliente_telefono: contacto?.telefono ?? cliente.telefono ?? undefined,
-    p_odoo_contacto_id: contacto?.id,
-    p_contacto_nombre: contacto?.nombre,
-    p_lineas: lineas as unknown as Json,
+    ...datosDeCliente(p.cliente, p.contacto),
+    p_lineas: p.lineas as unknown as Json,
     p_notas: v.notas ?? undefined,
   });
-  if (error || !id) return fallo(mensajeDeError(error));
+  if (error || !id) return { ok: false, error: mensajeDeError(error) };
 
-  return { ok: true, id, cliente };
+  return { ok: true, id, cliente: p.cliente };
+}
+
+/**
+ * Guarda los cambios de un borrador: cliente, líneas y notas, en una sola
+ * transacción. La base rechaza la edición si ya no es borrador o tiene pedido.
+ */
+export async function guardarEdicionCotizacion(
+  id: string,
+  v: EdicionCotizacion,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const p = await prepararCotizacion(v);
+  if (!p.ok) return p;
+
+  const supabase = await clienteServidor();
+  const { error } = await supabase.rpc("actualizar_cotizacion", {
+    p_id: id,
+    p_canal: v.canal,
+    ...datosDeCliente(p.cliente, p.contacto),
+    p_lineas: p.lineas as unknown as Json,
+    p_notas: v.notas ?? undefined,
+  });
+  if (error) return { ok: false, error: mensajeDeError(error) };
+  return { ok: true };
 }

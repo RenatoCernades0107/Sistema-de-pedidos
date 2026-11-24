@@ -744,6 +744,53 @@ export async function crearOdooFalso(
           }
           return true;
         }
+        if (modelo === "sale.order") {
+          for (const orden of tabla(modelo).filter((x) => ids.includes(x.id))) {
+            if (modo === "caido") throw new ErrorRpc("odoo.exceptions.UserError", "Odoo falso: caído a propósito.");
+            const { order_line: comandos, partner_id: clienteId, warehouse_id: almacenId, ...resto } = vals;
+            if (clienteId !== undefined) {
+              const cliente = tabla("res.partner").find((p) => p.id === clienteId);
+              if (!cliente) throw new ErrorRpc("odoo.exceptions.MissingError", "El cliente no existe.");
+              orden.partner_id = [cliente.id, cliente.name];
+            }
+            if (typeof almacenId === "number") orden.warehouse_id = [almacenId, ""];
+            Object.assign(orden, resto);
+            if (comandos) {
+              // Comando 5: desvincular (y borrar) todas las líneas; 0: crear una.
+              const lineas = tabla("sale.order.line");
+              for (const comando of comandos as unknown[][]) {
+                const [codigo, , v] = comando as [number, number, Record<string, unknown>];
+                if (codigo === 5) {
+                  for (let i = lineas.length - 1; i >= 0; i--) {
+                    if ((orden.order_line as number[]).includes(lineas[i].id)) lineas.splice(i, 1);
+                  }
+                  orden.order_line = [];
+                } else if (codigo === 0) {
+                  const producto = tabla("product.product").find((p) => p.id === v.product_id);
+                  if (!producto) throw new ErrorRpc("odoo.exceptions.MissingError", "El producto no existe.");
+                  const idLinea = siguienteId(lineas);
+                  lineas.push({
+                    id: idLinea, order_id: [orden.id, ""], product_id: [producto.id, producto.display_name],
+                    name: v.name ?? producto.display_name, product_uom_qty: Number(v.product_uom_qty ?? 1),
+                    price_unit: Number(v.price_unit ?? producto.lst_price), display_type: false,
+                    sequence: 10 + (orden.order_line as number[]).length,
+                  });
+                  (orden.order_line as number[]).push(idLinea);
+                } else {
+                  throw new ErrorRpc("ValueError", "El Odoo falso solo entiende los comandos 0 y 5 al escribir.");
+                }
+              }
+              const r2 = (n: number) => Math.round(n * 100) / 100;
+              const base = lineas
+                .filter((l) => (orden.order_line as number[]).includes(l.id))
+                .reduce((suma, l) => suma + Number(l.product_uom_qty) * Number(l.price_unit), 0);
+              orden.amount_untaxed = r2(base);
+              orden.amount_tax = r2(base * 0.18);
+              orden.amount_total = r2(base * 1.18);
+            }
+          }
+          return true;
+        }
         if (modelo !== "product.template") {
           // Lo demás (los movimientos de una entrega) se escribe tal cual, campo por campo.
           for (const r of tabla(modelo).filter((x) => ids.includes(x.id))) {

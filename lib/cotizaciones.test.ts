@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { detalleDesdeLineas, type LineaGuardada } from "./cotizaciones";
+import {
+  admiteVersionNueva,
+  detalleDesdeLineas,
+  esEditable,
+  etiquetaVersion,
+  motivoNoEnviable,
+  type Cotizacion,
+  type LineaGuardada,
+} from "./cotizaciones";
 
 const linea = (l: Partial<LineaGuardada>): LineaGuardada => ({
   posicion: 1,
@@ -36,5 +44,45 @@ describe("detalleDesdeLineas", () => {
 
   it("no arrastra decimales de más", () => {
     expect(detalleDesdeLineas([linea({ cantidad: 2.5 })])).toBe("2.5 × [AC-003] ACRILICO F8 CRISTAL 3MM");
+  });
+});
+
+describe("edición de cotizaciones", () => {
+  const c = (x: Partial<Cotizacion> = {}) => ({
+    estado: "borrador" as const,
+    pedido: null,
+    sincronizacion: "sincronizada" as const,
+    odooOrderId: 4254,
+    errorEdicion: null,
+    version: 1,
+    ...x,
+  });
+
+  it("solo un borrador sin pedido se edita", () => {
+    expect(esEditable(c())).toBe(true);
+    expect(esEditable(c({ estado: "enviada" }))).toBe(false);
+    expect(esEditable(c({ estado: "reemplazada" }))).toBe(false);
+    expect(esEditable(c({ pedido: { codigo: "PED-1" } }))).toBe(false);
+  });
+
+  it("solo una enviada sin pedido admite versión nueva", () => {
+    expect(admiteVersionNueva(c({ estado: "enviada" }))).toBe(true);
+    expect(admiteVersionNueva(c({ estado: "borrador" }))).toBe(false);
+    expect(admiteVersionNueva(c({ estado: "reemplazada" }))).toBe(false);
+    expect(admiteVersionNueva(c({ estado: "enviada", pedido: { codigo: "PED-1" } }))).toBe(false);
+  });
+
+  it("no se envía sin Odoo ni con cambios que Odoo no tiene", () => {
+    expect(motivoNoEnviable(c())).toBeNull();
+    expect(motivoNoEnviable(c({ sincronizacion: "error", odooOrderId: null }))).toMatch(/Odoo/);
+    expect(motivoNoEnviable(c({ sincronizacion: "pendiente", odooOrderId: null }))).toMatch(/Odoo/);
+    expect(motivoNoEnviable(c({ errorEdicion: "Los cambios todavía no están en Odoo." }))).toMatch(/cambios/);
+    expect(motivoNoEnviable(c({ estado: "enviada" }))).toMatch(/borrador/);
+    expect(motivoNoEnviable(c({ pedido: { codigo: "PED-1" } }))).toMatch(/pedido/);
+  });
+
+  it("la versión se marca desde la segunda", () => {
+    expect(etiquetaVersion({ version: 1 })).toBeNull();
+    expect(etiquetaVersion({ version: 2 })).toBe("v2");
   });
 });

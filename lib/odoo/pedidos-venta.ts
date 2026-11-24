@@ -116,6 +116,40 @@ export async function crearPedidoDeVenta(datos: {
 }
 
 /**
+ * Pone en la cotización de Odoo lo que quedó en la app tras editarla: el cliente
+ * y TODAS las líneas (se borran las que había y se crean las nuevas: el comando
+ * `[5, 0, 0]` es "desvincular todo").
+ *
+ * Solo mientras en Odoo siga siendo cotización (`draft`/`sent`): una orden ya
+ * confirmada tiene entregas y facturas colgando y no se reescribe desde aquí.
+ */
+export async function actualizarPedidoDeVenta(
+  orderId: number,
+  datos: { clienteId: number; lineas: LineaParaOdoo[]; warehouseId?: number | null },
+): Promise<ResumenVenta> {
+  const filas = await ejecutar<Fila[]>(MODELO, "read", [[orderId]], { fields: ["state"] });
+  if (!filas[0]) throw new ErrorOdoo("La cotización ya no existe en Odoo.");
+  const estado = texto(filas[0].state);
+  if (estado !== "draft" && estado !== "sent") {
+    throw new ErrorOdoo("En Odoo ya no es una cotización (se confirmó o se canceló): no se puede actualizar desde aquí.");
+  }
+
+  const conAlmacen = !!datos.warehouseId && (await camposExistentes(MODELO, ["warehouse_id"])).length > 0;
+  await ejecutar(MODELO, "write", [
+    [orderId],
+    {
+      partner_id: datos.clienteId,
+      order_line: [[5, 0, 0], ...lineasDeVenta(datos.lineas)],
+      ...(conAlmacen ? { warehouse_id: datos.warehouseId } : {}),
+    },
+  ]);
+
+  const resumen = await leerResumen(orderId);
+  if (!resumen) throw new ErrorOdoo("Odoo actualizó la cotización pero no la devolvió.");
+  return resumen;
+}
+
+/**
  * Confirma la cotización: en Odoo pasa de borrador a pedido de venta (`sale`).
  *
  * Se puede repetir. Odoo rechaza confirmar una orden que ya no está en borrador,
