@@ -314,8 +314,9 @@ está en [`docs/flujo-app.svg`](docs/flujo-app.svg); se edita en [`docs/flujo-ap
   `stock.warehouse` de Odoo que la app crea por su código corto (AND, CAT, ESM) la primera vez que
   hace falta (`lib/odoo/almacenes.ts`, `lib/almacenes-servidor.ts`); el stock de cada uno se lee de
   Odoo con `qty_available` en el contexto de su ubicación. Administración y Logística (`gestiona_stock()`
-  en la base) **ingresan stock** —una compra es una recepción del almacén con proveedor, guía o
-  factura y costo; un ajuste es un inventario con lo contado— (`ingresos_stock`, guardados antes de ir
+  en la base) **ingresan stock** —una compra es una orden de compra de Odoo (módulo Compras) con proveedor, guía o
+  factura y costo, confirmada y recibida en el almacén (las anteriores a esto se vinculan con
+  `npm run odoo:vincular-compras`); un ajuste es un inventario con lo contado— (`ingresos_stock`, guardados antes de ir
   a Odoo para reintentar si falla), **crean productos** —una plancha nueva sigue la serie `PL0001`; un
   accesorio, el prefijo de su categoría (`ACC055`, `PEG020`)— y administran los almacenes. Solo
   Administración **cambia precios** (el `list_price` de Odoo, y el de un sobrante en la app). El taller
