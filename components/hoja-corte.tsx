@@ -327,6 +327,7 @@ function Corte({
             <PlanoCorte
               plancha={p}
               cortes={cortes}
+              cotas
               titulo={`Plancha ${i + 1} de ${c.planchas.length}: ${p.piezas} piezas en ${n(p.ancho)}×${n(p.alto)} cm`}
             />
           </figure>
