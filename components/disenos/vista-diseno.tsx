@@ -1,7 +1,18 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Box, Calculator, History, Layers, LayoutGrid, MessageSquare, Puzzle, SlidersHorizontal } from "lucide-react";
+import {
+  Box,
+  Calculator,
+  History,
+  Layers,
+  LayoutGrid,
+  MessageSquare,
+  PanelRightClose,
+  PanelRightOpen,
+  Puzzle,
+  SlidersHorizontal,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useDiseno } from "./diseno-contexto";
@@ -125,6 +136,8 @@ export function VistaDiseno({
   }, []);
 
   const en3d = pestana === "3d";
+  // Ocultar el 3D (solo en pantallas anchas) deja todo el ancho al chat; el visor sigue montado.
+  const [ver3d, setVer3d] = useState(true);
   const panel = "min-h-0 flex-1 overflow-y-auto px-4 py-4 data-[hidden]:hidden";
   // La pestaña activa, en el azul de la marca (texto y subrayado).
   const tab = "px-2.5 data-active:text-primary after:bg-primary dark:data-active:text-primary";
@@ -161,17 +174,21 @@ export function VistaDiseno({
       <Tabs
         value={pestana}
         onValueChange={(v) => setPestana(v as PestanaDiseno)}
-        className="flex min-h-0 flex-1 flex-col gap-0 md:grid md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] md:grid-rows-[minmax(0,1fr)_auto]"
+        className={cn(
+          "flex min-h-0 flex-1 flex-col gap-0 md:grid md:grid-rows-[minmax(0,1fr)_auto]",
+          ver3d ? "md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]" : "md:grid-cols-[minmax(0,1fr)]",
+        )}
       >
         {/* Izquierda: el menú y lo de cada pestaña. */}
         <section
           aria-label="Diseño"
           className={cn(
-            "bg-card flex min-h-0 flex-col md:col-start-1 md:row-start-1 md:flex-1 md:border-r",
+            "bg-card flex min-h-0 flex-col md:col-start-1 md:row-start-1 md:flex-1",
+            ver3d && "md:border-r",
             en3d ? "flex-none" : "flex-1",
           )}
         >
-          <div className="shrink-0 overflow-x-auto border-b px-2">
+          <div className="flex shrink-0 items-center overflow-x-auto border-b px-2">
             <TabsList variant="line" className="h-11 gap-1">
               <TabsTrigger value="chat" className={tab}>
                 <MessageSquare aria-hidden className="size-3.5 max-sm:hidden" />
@@ -216,6 +233,21 @@ export function VistaDiseno({
                 </TabsTrigger>
               )}
             </TabsList>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="text-muted-foreground ml-auto hidden shrink-0 md:inline-flex"
+              aria-pressed={!ver3d}
+              aria-label={ver3d ? "Ocultar el modelo 3D" : "Mostrar el modelo 3D"}
+              title={ver3d ? "Ocultar el modelo 3D" : "Mostrar el modelo 3D"}
+              onClick={() => {
+                // Una pantalla completa abierta no tiene sentido sin el visor.
+                if (ver3d && document.fullscreenElement) void document.exitFullscreen();
+                setVer3d((v) => !v);
+              }}
+            >
+              {ver3d ? <PanelRightClose /> : <PanelRightOpen />}
+            </Button>
           </div>
 
           <BarraVistaPrevia />
@@ -277,7 +309,8 @@ export function VistaDiseno({
         <section
           aria-label="Modelo 3D"
           className={cn(
-            "min-h-0 flex-1 md:col-start-2 md:row-span-2 md:row-start-1 md:block",
+            "min-h-0 flex-1 md:col-start-2 md:row-span-2 md:row-start-1",
+            ver3d ? "md:block" : "md:hidden",
             en3d ? "block" : "hidden",
           )}
         >

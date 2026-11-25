@@ -21,7 +21,7 @@ import { useDiseno } from "./diseno-contexto";
 import { SelectorMaterial } from "./selector-material";
 
 /**
- * La copia de pieza tocada en el visor, con su espesor y su material, que se
+ * La copia de pieza a la que se le hizo clic derecho en el visor, con su espesor y su material, que se
  * cambian por separado: lo normal es que todas las piezas compartan los del
  * diseño, pero cada copia puede llevar otro espesor, otro material, o los dos.
  *
