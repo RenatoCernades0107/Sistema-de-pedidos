@@ -17,6 +17,7 @@
 import { clienteServidor } from "@/lib/supabase-servidor";
 import { pdfComoArchivo, type ParteLlm } from "@/lib/llm/inferhub";
 import { BUCKET_CAD_ADJUNTOS, esImagenAdjunto, type AdjuntoCad } from "@/lib/cad/adjuntos";
+import { paginasDePdf } from "@/lib/pdf-texto";
 
 /** Cuánto texto de un PDF se le pasa al modelo, como mucho. */
 const MAX_CARACTERES_PDF = 30_000;
@@ -41,36 +42,13 @@ async function descargar(adjunto: AdjuntoCad): Promise<Buffer> {
 /** El texto de un PDF y cuántas páginas tiene. Si no se puede leer, sin texto. */
 async function textoDePdf(bytes: Buffer): Promise<{ texto: string; paginas: number | null }> {
   try {
-    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    const doc = await pdfjs.getDocument({
-      data: new Uint8Array(bytes),
-      isEvalSupported: false,
-      useSystemFonts: false,
-      verbosity: 0,
-    }).promise;
-    try {
-      const trozos: string[] = [];
-      let largo = 0;
-      for (let n = 1; n <= Math.min(doc.numPages, MAX_PAGINAS_PDF) && largo < MAX_CARACTERES_PDF; n++) {
-        const pagina = await doc.getPage(n);
-        const contenido = await pagina.getTextContent();
-        const texto = contenido.items
-          .map((i) => ("str" in i ? i.str + (i.hasEOL ? "\n" : "") : ""))
-          .join("")
-          .replace(/[ \t]+/g, " ")
-          .trim();
-        if (texto) {
-          const linea = `— Página ${n} —\n${texto}`;
-          trozos.push(linea);
-          largo += linea.length;
-        }
-      }
-      let texto = trozos.join("\n\n");
-      if (texto.length > MAX_CARACTERES_PDF) texto = `${texto.slice(0, MAX_CARACTERES_PDF)}\n[…texto recortado]`;
-      return { texto, paginas: doc.numPages };
-    } finally {
-      await doc.destroy();
-    }
+    const { paginas, total } = await paginasDePdf(bytes, {
+      maxPaginas: MAX_PAGINAS_PDF,
+      maxCaracteres: MAX_CARACTERES_PDF,
+    });
+    let texto = paginas.map((p) => `— Página ${p.numero} —\n${p.texto}`).join("\n\n");
+    if (texto.length > MAX_CARACTERES_PDF) texto = `${texto.slice(0, MAX_CARACTERES_PDF)}\n[…texto recortado]`;
+    return { texto, paginas: total };
   } catch (e) {
     console.error("[cad] adjuntos: leer el PDF", e);
     return { texto: "", paginas: null };

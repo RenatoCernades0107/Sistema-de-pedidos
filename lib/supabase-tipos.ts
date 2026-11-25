@@ -39,6 +39,182 @@ export type Database = {
   }
   public: {
     Tables: {
+      agente_documentos: {
+        Row: {
+          actualizado_en: string
+          creado_en: string
+          creado_por: string
+          descripcion: string
+          enviable: boolean
+          error: string | null
+          estado: string
+          id: string
+          mime: string
+          nombre: string
+          paginas: number | null
+          ruta: string
+          tamano: number
+          tipo: string
+        }
+        Insert: {
+          actualizado_en?: string
+          creado_en?: string
+          creado_por?: string
+          descripcion?: string
+          enviable?: boolean
+          error?: string | null
+          estado?: string
+          id?: string
+          mime: string
+          nombre: string
+          paginas?: number | null
+          ruta: string
+          tamano: number
+          tipo: string
+        }
+        Update: {
+          actualizado_en?: string
+          creado_en?: string
+          creado_por?: string
+          descripcion?: string
+          enviable?: boolean
+          error?: string | null
+          estado?: string
+          id?: string
+          mime?: string
+          nombre?: string
+          paginas?: number | null
+          ruta?: string
+          tamano?: number
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agente_documentos_creado_por_fkey"
+            columns: ["creado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agente_fragmentos: {
+        Row: {
+          contenido: string
+          documento_id: string
+          embedding: string | null
+          id: string
+          modelo_embedding: string | null
+          orden: number
+          pagina: number | null
+          tsv: unknown | null
+        }
+        Insert: {
+          contenido: string
+          documento_id: string
+          embedding?: string | null
+          id?: string
+          modelo_embedding?: string | null
+          orden: number
+          pagina?: number | null
+          tsv?: unknown | null
+        }
+        Update: {
+          contenido?: string
+          documento_id?: string
+          embedding?: string | null
+          id?: string
+          modelo_embedding?: string | null
+          orden?: number
+          pagina?: number | null
+          tsv?: unknown | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agente_fragmentos_documento_id_fkey"
+            columns: ["documento_id"]
+            isOneToOne: false
+            referencedRelation: "agente_documentos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agente_pruebas: {
+        Row: {
+          actualizado_en: string
+          anuncio: Json | null
+          creado_en: string
+          creado_por: string
+          id: string
+          titulo: string
+        }
+        Insert: {
+          actualizado_en?: string
+          anuncio?: Json | null
+          creado_en?: string
+          creado_por?: string
+          id?: string
+          titulo?: string
+        }
+        Update: {
+          actualizado_en?: string
+          anuncio?: Json | null
+          creado_en?: string
+          creado_por?: string
+          id?: string
+          titulo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agente_pruebas_creado_por_fkey"
+            columns: ["creado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agente_pruebas_mensajes: {
+        Row: {
+          adjuntos: Json | null
+          contenido: string
+          creado_en: string
+          derivado: boolean
+          id: string
+          prueba_id: string
+          rol: string
+          traza: Json | null
+        }
+        Insert: {
+          adjuntos?: Json | null
+          contenido?: string
+          creado_en?: string
+          derivado?: boolean
+          id?: string
+          prueba_id: string
+          rol: string
+          traza?: Json | null
+        }
+        Update: {
+          adjuntos?: Json | null
+          contenido?: string
+          creado_en?: string
+          derivado?: boolean
+          id?: string
+          prueba_id?: string
+          rol?: string
+          traza?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agente_pruebas_mensajes_prueba_id_fkey"
+            columns: ["prueba_id"]
+            isOneToOne: false
+            referencedRelation: "agente_pruebas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       accesorios: {
         Row: {
           activo: boolean
@@ -3185,6 +3361,24 @@ export type Database = {
       }
     }
     Functions: {
+      buscar_fragmentos_agente: {
+        Args: {
+          p_embedding?: string | null
+          p_limite?: number
+          p_modelo?: string | null
+          p_texto: string
+        }
+        Returns: {
+          contenido: string
+          documento_id: string
+          documento_nombre: string
+          documento_enviable: boolean
+          documento_tipo: string
+          fragmento_id: string
+          pagina: number | null
+          puntaje: number
+        }[]
+      }
       abrir_directo: {
         Args: { p_usuario_id: string }
         Returns: string
