@@ -6,7 +6,7 @@ import { useTheme } from "next-themes";
 import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Edges, Grid, OrbitControls } from "@react-three/drei";
 import { Slider } from "@base-ui/react/slider";
-import { MousePointerClick, TriangleAlert } from "lucide-react";
+import { Maximize2, Minimize2, MousePointerClick, RotateCcw, TriangleAlert } from "lucide-react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { describirCara, segmentarCaras, type CaraMalla, type ReferenciaCara } from "@/lib/cad/caras";
@@ -277,7 +277,14 @@ function encuadrar(
  * que se está mirando: al mover un parámetro la pieza crece o encoge en su
  * sitio, sin que la cámara salte a la vista inicial.
  */
-function Encuadre({ modelo }: { modelo: Modelo }) {
+function Encuadre({
+  modelo,
+  recentrarRef,
+}: {
+  modelo: Modelo;
+  /** Aquí se deja la función que vuelve a la vista base, para el botón de fuera del Canvas. */
+  recentrarRef: React.RefObject<(() => void) | null>;
+}) {
   const camara = useThree((s) => s.camera);
   const controles = useThree((s) => s.controls) as unknown as Controles | null;
   const invalidar = useThree((s) => s.invalidate);
@@ -291,6 +298,18 @@ function Encuadre({ modelo }: { modelo: Modelo }) {
     yaEncuadrado.current = true;
     invalidar();
   }, [camara, controles, invalidar, alto, radio]);
+
+  // "Recentrar": la vista inicial (ángulo, distancia y centro), no la que se conserva al editar.
+  useEffect(() => {
+    if (!controles) return;
+    recentrarRef.current = () => {
+      encuadrar(camara, controles, alto, radio, false);
+      invalidar();
+    };
+    return () => {
+      recentrarRef.current = null;
+    };
+  }, [camara, controles, invalidar, alto, radio, recentrarRef]);
 
   return null;
 }
@@ -358,6 +377,7 @@ function Pieza({
   alEntrar,
   alSalir,
   alPulsar,
+  alMenuContextual,
   modoCaras,
   clavesCaras,
   carasSeleccionadas,
@@ -376,6 +396,8 @@ function Pieza({
   alEntrar: () => void;
   alSalir: () => void;
   alPulsar: () => void;
+  /** Clic derecho sobre la pieza; sin él, el clic derecho no hace nada. */
+  alMenuContextual?: () => void;
   modoCaras: boolean;
   /** La clave de cada cara, por geometría (las mismas que las de `ReferenciaCara`). */
   clavesCaras: string[][];
@@ -411,6 +433,17 @@ function Pieza({
               const cara = caraDe(g, e);
               if (cara !== null) alPulsarCara(g, cara);
             })
+          }
+          onContextMenu={
+            alMenuContextual && !modoCaras
+              ? (e) =>
+                  parar(e, () => {
+                    // Sin menú del navegador; y un paneo con el botón derecho no cuenta como clic.
+                    e.nativeEvent.preventDefault();
+                    if (e.delta > ARRASTRE_MAX) return;
+                    alMenuContextual();
+                  })
+              : undefined
           }
           // Fuera del modo caras, un doble clic señala la cara para el chat sin
           // tener que activar el modo (en el modo, cada clic ya la alterna).
@@ -490,8 +523,12 @@ function Escena({
   carasSeleccionadas,
   alAlternarCara,
   alApuntarInstancia,
+  elegirConClicDerecho,
+  recentrarRef,
 }: {
   modelo: Modelo;
+  elegirConClicDerecho: boolean;
+  recentrarRef: React.RefObject<(() => void) | null>;
   explosion: number;
   piezaActiva: string | null;
   alCambiarPieza?: (id: string | null) => void;
@@ -540,6 +577,19 @@ function Escena({
 
   const sombra = radio * 2.5;
 
+  /** Elige la copia para cambiarle espesor o material (abre su tarjeta). */
+  const elegirCopia = (instancia: Instancia) => {
+    if (!instancia.pieza || !alElegirCopia) return;
+    alElegirCopia({
+      nodo: instancia.nodo,
+      pieza: instancia.pieza,
+      origen: instancia.origen ?? instancia.pieza,
+      copia: instancia.copia,
+      de: instancia.de,
+      espesorMm: instancia.espesorMm,
+    });
+  };
+
   return (
     <>
       <hemisphereLight args={["#ffffff", "#8a8f98", tema.ambiente]} />
@@ -580,17 +630,17 @@ function Escena({
             alPulsar={() => {
               alCambiarPieza?.(instancia.pieza);
               alApuntarInstancia?.(instancia);
-              if (instancia.pieza && alElegirCopia) {
-                alElegirCopia({
-                  nodo: instancia.nodo,
-                  pieza: instancia.pieza,
-                  origen: instancia.origen ?? instancia.pieza,
-                  copia: instancia.copia,
-                  de: instancia.de,
-                  espesorMm: instancia.espesorMm,
-                });
-              }
+              if (!elegirConClicDerecho) elegirCopia(instancia);
             }}
+            alMenuContextual={
+              elegirConClicDerecho
+                ? () => {
+                    alCambiarPieza?.(instancia.pieza);
+                    alApuntarInstancia?.(instancia);
+                    elegirCopia(instancia);
+                  }
+                : undefined
+            }
             modoCaras={modoCaras}
             clavesCaras={claves[n]}
             carasSeleccionadas={carasSeleccionadas}
@@ -629,7 +679,7 @@ function Escena({
         maxDistance={radio * 12}
         maxPolarAngle={Math.PI * 0.495}
       />
-      <Encuadre modelo={modelo} />
+      <Encuadre modelo={modelo} recentrarRef={recentrarRef} />
     </>
   );
 }
@@ -671,8 +721,20 @@ export interface PropsVisor3D {
   alAlternarCara?: (cara: ReferenciaCara) => void;
   /** Sin la etiqueta de medidas de arriba (cuando quien lo usa ya las muestra). */
   sinMedidas?: boolean;
+  /**
+   * La copia se elige con clic derecho (y abre su tarjeta de espesor y material);
+   * el clic izquierdo solo resalta la pieza. Por defecto, el clic izquierdo elige.
+   */
+  elegirConClicDerecho?: boolean;
+  /** Pantalla completa: sin `alAlternarPantallaCompleta` no se ofrece el botón. */
+  pantallaCompleta?: boolean;
+  alAlternarPantallaCompleta?: () => void;
   className?: string;
 }
+
+/** Los botones cuadrados de la vista (recentrar, pantalla completa). */
+const BOTON_VISTA =
+  "bg-background/80 text-foreground/80 hover:text-foreground focus-visible:ring-ring/50 grid size-8 place-items-center rounded-md border backdrop-blur transition-colors outline-none focus-visible:ring-3";
 
 const SIN_NOMBRES: Readonly<Record<string, string>> = {};
 const SIN_CARAS: readonly string[] = [];
@@ -694,8 +756,12 @@ export default function Visor3D({
   carasSeleccionadas = SIN_CARAS,
   alAlternarCara,
   sinMedidas = false,
+  elegirConClicDerecho = false,
+  pantallaCompleta = false,
+  alAlternarPantallaCompleta,
   className,
 }: PropsVisor3D) {
+  const recentrarRef = useRef<(() => void) | null>(null);
   const seleccionadas = useMemo(() => new Set(carasSeleccionadas), [carasSeleccionadas]);
   const { resolvedTheme } = useTheme();
   const base: Tema = resolvedTheme === "dark" ? TEMAS.dark : TEMAS.light;
@@ -757,6 +823,8 @@ export default function Visor3D({
     <div
       ref={contenedor}
       className={cn("relative h-full min-h-0 w-full overflow-hidden", className)}
+      // Con el clic derecho reservado para la tarjeta (y el paneo), no sale el menú del navegador.
+      onContextMenu={elegirConClicDerecho ? (e) => e.preventDefault() : undefined}
       onPointerDown={(e) => setTactil(e.pointerType !== "mouse")}
       onPointerMove={(e) => {
         if (e.pointerType === "mouse" && tactil) setTactil(false);
@@ -796,6 +864,8 @@ export default function Visor3D({
             modoCaras={modoCaras}
             carasSeleccionadas={seleccionadas}
             alAlternarCara={alAlternarCara}
+            elegirConClicDerecho={elegirConClicDerecho}
+            recentrarRef={recentrarRef}
             // En táctil la ficha se queda con lo último que se tocó: el
             // "salir" que llega al levantar el dedo no la borra.
             alApuntarInstancia={(i) => {
@@ -868,27 +938,56 @@ export default function Visor3D({
         </div>
       )}
 
-      {modelo && modelo.instancias.length > 1 && (
-        <div className="bg-background/80 absolute right-2 bottom-2 flex items-center gap-2 rounded-md border px-2 py-1.5 backdrop-blur">
-          <span className="text-muted-foreground text-xs" id="visor-explosion">
-            Separar piezas
-          </span>
-          <Slider.Root
-            value={explosion}
-            onValueChange={(v) => setExplosion(v)}
-            min={0}
-            max={1.5}
-            step={0.05}
-            aria-labelledby="visor-explosion"
-            className="w-28"
+      {modelo && (
+        <div className="absolute right-2 bottom-2 flex items-center gap-2">
+          {modelo.instancias.length > 1 && (
+            <div className="bg-background/80 flex items-center gap-2 rounded-md border px-2 py-1.5 backdrop-blur">
+              <span className="text-muted-foreground text-xs" id="visor-explosion">
+                Separar piezas
+              </span>
+              <Slider.Root
+                value={explosion}
+                onValueChange={(v) => setExplosion(v)}
+                min={0}
+                max={1.5}
+                step={0.05}
+                aria-labelledby="visor-explosion"
+                className="w-28"
+              >
+                <Slider.Control className="flex h-4 w-full touch-none items-center select-none">
+                  <Slider.Track className="bg-muted relative h-1 w-full rounded-full">
+                    <Slider.Indicator className="bg-primary rounded-full" />
+                    <Slider.Thumb className="bg-background border-primary focus-visible:ring-ring/50 size-3.5 rounded-full border-2 shadow-sm outline-none focus-visible:ring-3" />
+                  </Slider.Track>
+                </Slider.Control>
+              </Slider.Root>
+            </div>
+          )}
+          <button
+            type="button"
+            title="Recentrar vista"
+            aria-label="Recentrar vista"
+            onClick={() => recentrarRef.current?.()}
+            className={BOTON_VISTA}
           >
-            <Slider.Control className="flex h-4 w-full touch-none items-center select-none">
-              <Slider.Track className="bg-muted relative h-1 w-full rounded-full">
-                <Slider.Indicator className="bg-primary rounded-full" />
-                <Slider.Thumb className="bg-background border-primary focus-visible:ring-ring/50 size-3.5 rounded-full border-2 shadow-sm outline-none focus-visible:ring-3" />
-              </Slider.Track>
-            </Slider.Control>
-          </Slider.Root>
+            <RotateCcw className="size-4" aria-hidden />
+          </button>
+          {alAlternarPantallaCompleta && (
+            <button
+              type="button"
+              title={pantallaCompleta ? "Salir de pantalla completa" : "Pantalla completa"}
+              aria-label={pantallaCompleta ? "Salir de pantalla completa" : "Pantalla completa"}
+              aria-pressed={pantallaCompleta}
+              onClick={alAlternarPantallaCompleta}
+              className={BOTON_VISTA}
+            >
+              {pantallaCompleta ? (
+                <Minimize2 className="size-4" aria-hidden />
+              ) : (
+                <Maximize2 className="size-4" aria-hidden />
+              )}
+            </button>
+          )}
         </div>
       )}
     </div>
