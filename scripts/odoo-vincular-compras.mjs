@@ -18,13 +18,15 @@
  * El stock y la valoración no cambian: solo se agrega el enlace. Se puede repetir:
  * una recepción ya enlazada se salta, y una orden a medias se retoma.
  *
- * Lee ODOO_URL, ODOO_DB, ODOO_USERNAME y ODOO_PASSWORD de .env.local. Ojo: eso es
- * el Odoo de producción. Corre primero sin --aplicar, luego con --limite 1, y mira
+ * Lee ODOO_URL, ODOO_DB, ODOO_USERNAME y ODOO_PASSWORD de .env.prod (no de
+ * .env.local, que es el Odoo de desarrollo): crea ese archivo con los datos del
+ * Odoo de producción; git lo ignora. Si no existe, el comando falla sin tocar nada.
+ * Corre primero sin --aplicar, luego con --limite 1, y mira
  * esa compra en Odoo (Compras → Pedidos) antes de seguir con las demás.
  */
 const { ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_PASSWORD } = process.env;
 if (!ODOO_URL || !ODOO_DB || !ODOO_USERNAME || !ODOO_PASSWORD) {
-  console.error("Faltan ODOO_URL, ODOO_DB, ODOO_USERNAME u ODOO_PASSWORD (.env.local).");
+  console.error("Faltan ODOO_URL, ODOO_DB, ODOO_USERNAME u ODOO_PASSWORD (.env.prod).");
   process.exit(1);
 }
 
@@ -53,7 +55,7 @@ async function rpc(service, method, params) {
     console.error(
       `Odoo no contestó JSON en ${URL_RPC} (HTTP ${r.status}).\n` +
         `Empieza con: ${texto.slice(0, 80).replace(/\s+/g, " ")}\n` +
-        "Revisa ODOO_URL en .env.local: debe ser solo el origen (https://empresa.odoo.com), sin /odoo ni /web.",
+        "Revisa ODOO_URL en .env.prod: debe ser solo el origen (https://empresa.odoo.com), sin /odoo ni /web.",
     );
     process.exit(1);
   }
@@ -63,7 +65,7 @@ async function rpc(service, method, params) {
 
 const uid = await rpc("common", "authenticate", [ODOO_DB, ODOO_USERNAME, ODOO_PASSWORD, {}]);
 if (!uid) {
-  console.error("Odoo no aceptó el usuario o la contraseña de .env.local.");
+  console.error("Odoo no aceptó el usuario o la contraseña de .env.prod.");
   process.exit(1);
 }
 
