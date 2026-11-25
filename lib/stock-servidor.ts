@@ -339,8 +339,8 @@ export async function registrarIngreso(v: NuevoIngreso): Promise<Resultado> {
 }
 
 /**
- * Lleva a Odoo un ingreso que todavía no está: la compra como recepción del
- * almacén, el ajuste como inventario. Reintentar no duplica: la recepción se
+ * Lleva a Odoo un ingreso que todavía no está: la compra como orden de compra
+ * recibida en el almacén, el ajuste como inventario. Reintentar no duplica: la orden se
  * busca por su origen, y un ajuste deja lo contado (repetirlo da lo mismo).
  */
 export async function llevarIngresoAOdoo(id: string): Promise<{ ok: true } | { ok: false; error: string }> {

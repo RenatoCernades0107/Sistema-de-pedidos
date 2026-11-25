@@ -20,7 +20,7 @@ import {
 } from "./almacenes";
 import { crearLoteSobrante } from "./sobrantes";
 import { almacenDeVenta, cambiarAlmacenDeVenta, confirmarPedidoDeVenta, crearPedidoDeVenta } from "./pedidos-venta";
-import { reiniciarCacheOdoo } from "./rpc";
+import { ejecutar, reiniciarCacheOdoo } from "./rpc";
 
 let odoo: Awaited<ReturnType<typeof crearOdooFalso>>;
 
@@ -54,8 +54,22 @@ describe("asegurarAlmacen", () => {
   });
 });
 
+/** Una compra como se hacía antes: la recepción sola, ya validada, sin orden de compra. */
+async function crearRecepcionSuelta(almacen: Awaited<ReturnType<typeof asegurarAlmacen>>, origen: string): Promise<number> {
+  const picking = await ejecutar<number>("stock.picking", "create", [
+    { picking_type_id: almacen.recepcionId, partner_id: 2, origin: origen, location_id: 11, location_dest_id: almacen.ubicacionId },
+  ]);
+  const mov = await ejecutar<number>("stock.move", "create", [
+    { picking_id: picking, product_id: 20, product_uom_qty: 4, product_uom: 1, location_id: 11, location_dest_id: almacen.ubicacionId, price_unit: 150, name: "Compra" },
+  ]);
+  await ejecutar("stock.picking", "action_confirm", [[picking]]);
+  await ejecutar("stock.move", "write", [[mov], { quantity: 4, picked: true }]);
+  await ejecutar("stock.picking", "button_validate", [[picking]], { context: { skip_backorder: true } });
+  return picking;
+}
+
 describe("compra, ajuste y stock por almacén", () => {
-  it("una compra entra al almacén con su proveedor y su costo, y no se duplica al reintentar", async () => {
+  it("una compra es una orden de compra de Odoo, recibida por completo, y no se duplica al reintentar", async () => {
     const taller = await asegurarAlmacen({ nombre: "Católica", codigo: "CAT" });
     const compra = {
       almacen: taller,
@@ -67,12 +81,58 @@ describe("compra, ajuste y stock por almacén", () => {
     const id = await ingresarCompra(compra);
     expect(await ingresarCompra(compra)).toBe(id);
 
-    const [p] = odoo.estado().pickings;
-    expect(p).toMatchObject({ state: "done", picking_type_code: "incoming", partner_id: [2, ""], partner_ref: "F001-123" });
+    const { compras, pickings } = odoo.estado();
+    expect(compras).toHaveLength(1);
+    expect(compras[0]).toMatchObject({
+      state: "purchase",
+      origin: "App Plexiacril ING-00001",
+      partner_id: [2, expect.anything()],
+      partner_ref: "F001-123",
+      picking_type_id: [taller.recepcionId, expect.anything()],
+    });
+    expect(compras[0].lineas).toEqual([expect.objectContaining({ product_qty: 4, price_unit: 150, qty_received: 4 })]);
+
+    expect(pickings).toHaveLength(1);
+    const [p] = pickings;
+    expect(p).toMatchObject({ id, state: "done", picking_type_code: "incoming", purchase_id: [compras[0].id, compras[0].name] });
     expect(p.movimientos).toEqual([expect.objectContaining({ product_uom_qty: 4, price_unit: 150, quantity: 4, picked: true })]);
 
     const stock = await stockPorAlmacen([20], [{ almacenId: "cat", ubicacionId: taller.ubicacionId }]);
     expect(stock.get(20)).toEqual({ porAlmacen: { cat: 4 }, total: 14, fuera: 10 });
+  });
+
+  it("si Odoo falla al confirmar, reintentar retoma la misma orden sin duplicarla", async () => {
+    const taller = await asegurarAlmacen({ nombre: "Católica", codigo: "CAT" });
+    const compra = { almacen: taller, proveedorId: 2, origen: "App Plexiacril ING-00002", documento: null, lineas: [{ productoId: 21, cantidad: 3, costo: 80 }] };
+    odoo.fijarModo("compra-por-aprobar");
+    await expect(ingresarCompra(compra)).rejects.toThrow(/espera aprobación/);
+    expect(odoo.estado().pickings).toHaveLength(0);
+
+    odoo.fijarModo(null);
+    // La orden quedó "to approve": se aprueba en Odoo y se reintenta.
+    await ejecutar("purchase.order", "button_approve", [[odoo.estado().compras[0].id]]);
+    const id = await ingresarCompra(compra);
+    expect(odoo.estado().compras).toHaveLength(1);
+    expect(odoo.estado().pickings).toEqual([expect.objectContaining({ id, state: "done" })]);
+  });
+
+  it("una compra sin la app Compras instalada avisa qué hacer, y no mete stock", async () => {
+    const taller = await asegurarAlmacen({ nombre: "Católica", codigo: "CAT" });
+    const modelos = odoo.estado().modelos;
+    modelos.splice(modelos.findIndex((m) => m.model === "purchase.order"), 1);
+    await expect(
+      ingresarCompra({ almacen: taller, proveedorId: 2, origen: "App Plexiacril ING-00003", documento: null, lineas: [{ productoId: 20, cantidad: 1 }] }),
+    ).rejects.toThrow(/app Compras/);
+    expect(odoo.estado().pickings).toHaveLength(0);
+  });
+
+  it("una compra de antes (recepción sin orden) se deja como está: no duplica el stock", async () => {
+    const taller = await asegurarAlmacen({ nombre: "Católica", codigo: "CAT" });
+    const vieja = await crearRecepcionSuelta(taller, "App Plexiacril ING-00004");
+    const compra = { almacen: taller, proveedorId: 2, origen: "App Plexiacril ING-00004", documento: null, lineas: [{ productoId: 20, cantidad: 4, costo: 150 }] };
+    expect(await ingresarCompra(compra)).toBe(vieja);
+    expect(odoo.estado().compras).toHaveLength(0);
+    expect(odoo.estado().pickings).toHaveLength(1);
   });
 
   it("un ajuste deja lo contado y devuelve lo que había", async () => {
