@@ -100,6 +100,15 @@ describe("odoo:vincular-compras", () => {
     expect(r.stderr).toMatch(/no tiene instalada la app Compras/);
   });
 
+  it("funciona en un Odoo donde la recepción no tiene partner_ref", async () => {
+    const taller = await asegurarAlmacen({ nombre: "Católica", codigo: "CAT" });
+    await recepcionSuelta(taller, "App Plexiacril ING-00001", 20, 4);
+    odoo.fijarModo("sin-partner-ref");
+    const { stdout } = (await vincular("--aplicar")) as { stdout: string };
+    expect(stdout).toMatch(/✔ App Plexiacril ING-00001/);
+    expect(odoo.estado().compras[0].partner_ref).toBe(false);
+  });
+
   it("con --limite 1 vincula una sola", async () => {
     const taller = await asegurarAlmacen({ nombre: "Católica", codigo: "CAT" });
     await recepcionSuelta(taller, "App Plexiacril ING-00001", 20, 4);

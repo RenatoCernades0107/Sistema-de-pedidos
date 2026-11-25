@@ -101,26 +101,31 @@ if (!conEnlace) {
   process.exit(1);
 }
 
+// Lo que cambia entre versiones de Odoo: la recepción puede no tener `partner_ref`, y la
+// cantidad hecha de un movimiento es `quantity` (desde la 17) o `quantity_done` (antes).
+const conRef = await tiene("stock.picking", "partner_ref");
+const campoCantidad = (await tiene("stock.move", "picked")) ? "quantity" : "quantity_done";
+
 const recepciones = await ejecutar(
   "stock.picking",
   "search_read",
   [[["picking_type_code", "=", "incoming"], ["state", "=", "done"], ["origin", "=like", "App Plexiacril ING-%"]]],
-  { fields: ["name", "origin", "partner_id", "partner_ref", "picking_type_id", "date_done"], order: "id" },
+  { fields: ["name", "origin", "partner_id", "picking_type_id", "date_done", ...(conRef ? ["partner_ref"] : [])], order: "id" },
 );
 
 const pendientes = [];
 for (const p of recepciones) {
   const movs = await ejecutar("stock.move", "search_read", [[["picking_id", "=", p.id], ["state", "=", "done"]]], {
-    fields: ["product_id", "quantity", "price_unit", "purchase_line_id"],
+    fields: ["product_id", campoCantidad, "price_unit", "purchase_line_id"],
     order: "id",
   });
-  const hechos = movs.filter((m) => Number(m.quantity) > 0);
+  const hechos = movs.filter((m) => Number(m[campoCantidad]) > 0).map((m) => ({ ...m, cantidad: Number(m[campoCantidad]) }));
   if (hechos.length && hechos.some((m) => !id(m.purchase_line_id))) pendientes.push({ p, movs: hechos });
 }
 
 console.log(`Recepciones de compras de la app: ${recepciones.length}. Sin orden de compra: ${pendientes.length}.`);
 for (const { p, movs } of pendientes) {
-  const total = movs.reduce((t, m) => t + Number(m.quantity) * Number(m.price_unit || 0), 0);
+  const total = movs.reduce((t, m) => t + m.cantidad * Number(m.price_unit || 0), 0);
   console.log(
     `  ${p.origin}  ${p.name}  ${p.partner_id?.[1] ?? "(sin proveedor)"}  ${movs.length} línea(s)  costo total ${total.toFixed(2)}`,
   );
@@ -155,7 +160,7 @@ async function vincular({ p, movs }) {
       return [0, 0, {
         product_id: id(m.product_id),
         name: prod?.display_name || "Producto",
-        product_qty: Number(m.quantity),
+        product_qty: m.cantidad,
         price_unit: Number(m.price_unit || 0),
         ...(campoUom && prod?.uom_id ? { [campoUom]: id(prod.uom_id) } : {}),
       }];

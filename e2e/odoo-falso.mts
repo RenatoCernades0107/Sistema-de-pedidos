@@ -43,10 +43,11 @@ type Registro = Record<string, unknown> & { id: number };
  * obliga a que reintentar no duplique.
  * `sin-admin`: el usuario no puede crear campos (`ir.model.fields`).
  * `sin-ir-model`: el usuario no puede leer `ir.model` (solo un administrador lo ve).
+ * `sin-partner-ref`: `stock.picking` no tiene `partner_ref` (hay Odoo que no lo trae).
  * `compra-por-aprobar`: confirmar una orden de compra la deja "to approve", sin
  * recepción (Odoo con doble validación de compras).
  */
-export type Modo = "caido" | "perder-respuesta" | "sin-admin" | "sin-ir-model" | "compra-por-aprobar" | null;
+export type Modo = "caido" | "perder-respuesta" | "sin-admin" | "sin-ir-model" | "sin-partner-ref" | "compra-por-aprobar" | null;
 
 interface Llamada {
   modelo: string;
@@ -337,7 +338,10 @@ export async function crearOdooFalso(
   let contextoActual: Record<string, unknown> | null = null;
   /** Los campos creados por `ir.model.fields`, por modelo. Se olvidan al reiniciar. */
   let extras: Record<string, string[]> = {};
-  const camposDe = (modelo: string) => [...(CAMPOS[modelo] ?? []), ...(extras[modelo] ?? [])];
+  const camposDe = (modelo: string) =>
+    [...(CAMPOS[modelo] ?? []), ...(extras[modelo] ?? [])].filter(
+      (c) => !(modo === "sin-partner-ref" && modelo === "stock.picking" && c === "partner_ref"),
+    );
 
   const tabla = (modelo: string) => {
     // Aquí plantilla y variante son el mismo registro (lo usa scripts/seed-odoo.mjs).
