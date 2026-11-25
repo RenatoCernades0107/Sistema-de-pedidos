@@ -255,13 +255,6 @@ async function validarPicking(pickingId: number, cantidades: Map<number, number>
   }
 }
 
-/** La ubicación de los proveedores (de donde llega una compra). */
-async function ubicacionProveedores(): Promise<number> {
-  const [id] = await ejecutar<number[]>("stock.location", "search", [[["usage", "=", "supplier"]]], { limit: 1 });
-  if (!id) throw new ErrorOdoo("Odoo no tiene la ubicación de proveedores.");
-  return id;
-}
-
 /** El picking que ya tiene ese origen (un reintento), si lo hay. */
 async function pickingPorOrigen(origen: string): Promise<{ id: number; estado: string | null } | null> {
   const [p] = await ejecutar<Fila[]>("stock.picking", "search_read", [[["origin", "=", origen]]], {
@@ -283,43 +276,112 @@ export interface Compra {
 }
 
 /**
- * Una compra: la recepción del almacén, con el proveedor, el costo de cada
- * producto y todo recibido. Devuelve el id del picking.
+ * Si la app Compras está instalada en este Odoo. Se mira pidiendo los campos de
+ * `purchase.order` y no leyendo `ir.model`: ese modelo solo lo ve un administrador,
+ * y el usuario de la app no tiene por qué serlo. Si falla por permisos, ese error
+ * se muestra tal cual.
+ */
+async function hayCompras(): Promise<boolean> {
+  try {
+    await ejecutar("purchase.order", "fields_get", [], { attributes: ["type"] });
+    return true;
+  } catch (e) {
+    if (e instanceof ErrorOdoo && /doesn't exist|does not exist|KeyError/i.test(e.message)) return false;
+    throw e;
+  }
+}
+
+/** Las líneas de la orden de compra: producto, cantidad y costo, con la unidad que pide esta versión. */
+async function lineasDeCompra(lineas: LineaDeIngreso[]): Promise<unknown[]> {
+  const [campoUom] = await camposExistentes("purchase.order.line", ["product_uom", "product_uom_id"]);
+  const productos = await ejecutar<Fila[]>("product.product", "read", [[...new Set(lineas.map((l) => l.productoId))]], {
+    fields: ["display_name"],
+  });
+  const nombres = new Map(productos.map((p) => [p.id as number, texto(p.display_name) ?? ""]));
+  const comandos: unknown[] = [];
+  for (const l of lineas) {
+    comandos.push([
+      0,
+      0,
+      {
+        product_id: l.productoId,
+        name: nombres.get(l.productoId) || "Producto",
+        product_qty: l.cantidad,
+        ...(campoUom ? { [campoUom]: await uomDe(l.productoId) } : {}),
+        ...(l.costo !== undefined && l.costo !== null ? { price_unit: l.costo } : {}),
+      },
+    ]);
+  }
+  return comandos;
+}
+
+/**
+ * Una compra: la orden de compra de Odoo (módulo Compras), con el proveedor, el
+ * costo de cada producto y la guía o factura como referencia. Se confirma, y la
+ * recepción que Odoo arma se recibe por completo, así el stock entra y la compra
+ * queda "recibida". Devuelve el id de esa recepción (picking).
+ *
+ * Reintentar no duplica: la orden se busca por su origen. Una compra hecha antes
+ * de que existiera esto (una recepción sin orden) se deja como está; para darle su
+ * orden de compra está `npm run odoo:vincular-compras`.
  */
 export async function ingresarCompra(c: Compra): Promise<number> {
   if (!c.almacen.recepcionId) throw new ErrorOdoo("El almacén no tiene operación de recepción en Odoo.");
-  const previo = await pickingPorOrigen(c.origen);
-  if (previo?.estado === "done") return previo.id;
-  if (previo && previo.estado === "cancel") throw new ErrorOdoo("La recepción de este ingreso está cancelada en Odoo.");
+  if (!(await hayCompras())) {
+    throw new ErrorOdoo("Odoo no tiene instalada la app Compras. Instálala (Aplicaciones → Compras) y reintenta el ingreso.");
+  }
 
-  let pickingId = previo?.id ?? null;
-  const cantidades = new Map<number, number>();
-  if (pickingId) {
-    const movs = await ejecutar<Fila[]>("stock.move", "search_read", [[["picking_id", "=", pickingId]]], {
-      fields: ["product_uom_qty"],
-    });
-    for (const m of movs) cantidades.set(m.id as number, Number(m.product_uom_qty) || 0);
-  } else {
-    const desde = await ubicacionProveedores();
-    const conRef = (await camposExistentes("stock.picking", ["partner_ref"])).length > 0;
-    pickingId = await ejecutar<number>("stock.picking", "create", [
+  // Una recepción suelta con este origen es de una compra de antes: ya entró el stock.
+  const suelto = await pickingPorOrigen(c.origen);
+  if (suelto?.estado === "done") return suelto.id;
+  if (suelto && suelto.estado !== "cancel") {
+    throw new ErrorOdoo("Hay una recepción a medias de este ingreso en Odoo. Valídala o cancélala desde Odoo y reintenta.");
+  }
+
+  const [previa] = await ejecutar<Fila[]>("purchase.order", "search_read", [[["origin", "=", c.origen]]], {
+    fields: ["state"],
+    limit: 1,
+  });
+  if (previa && texto(previa.state) === "cancel") throw new ErrorOdoo("La orden de compra de este ingreso está cancelada en Odoo.");
+
+  let ordenId = previa?.id as number | undefined;
+  if (!ordenId) {
+    const lineas = c.lineas.filter((l) => l.cantidad > 0);
+    if (lineas.length === 0) throw new ErrorOdoo("La compra no tiene nada que recibir.");
+    ordenId = await ejecutar<number>("purchase.order", "create", [
       {
-        picking_type_id: c.almacen.recepcionId,
         partner_id: c.proveedorId,
         origin: c.origen,
-        location_id: desde,
-        location_dest_id: c.almacen.ubicacionId,
-        ...(c.documento && conRef ? { partner_ref: c.documento } : {}),
+        picking_type_id: c.almacen.recepcionId,
+        ...(c.documento ? { partner_ref: c.documento } : {}),
+        order_line: await lineasDeCompra(lineas),
       },
     ]);
-    for (const l of c.lineas.filter((x) => x.cantidad > 0)) {
-      const id = await moverDentro(pickingId, desde, c.almacen.ubicacionId, l, "Compra");
-      cantidades.set(id, l.cantidad);
-    }
   }
+
+  if (!previa || ["draft", "sent"].includes(texto(previa.state) ?? "")) {
+    await ejecutar("purchase.order", "button_confirm", [[ordenId]]);
+  }
+  const [orden] = await ejecutar<Fila[]>("purchase.order", "read", [[ordenId]], { fields: ["state", "picking_ids"] });
+  if (!["purchase", "done"].includes(texto(orden?.state) ?? "")) {
+    throw new ErrorOdoo("La orden de compra espera aprobación en Odoo. Apruébala desde Compras y reintenta el ingreso.");
+  }
+
+  const recepciones = await ejecutar<Fila[]>("stock.picking", "read", [(orden.picking_ids as number[]) ?? []], { fields: ["state"] });
+  const hecha = recepciones.find((r) => texto(r.state) === "done");
+  const pendiente = recepciones.find((r) => !["done", "cancel"].includes(texto(r.state) ?? ""));
+  if (!pendiente) {
+    if (hecha) return hecha.id as number;
+    throw new ErrorOdoo("Odoo no armó la recepción de esta compra. Revisa la orden en Compras.");
+  }
+
+  const movs = await ejecutar<Fila[]>("stock.move", "search_read", [[["picking_id", "=", pendiente.id]]], {
+    fields: ["product_uom_qty"],
+  });
+  const cantidades = new Map<number, number>(movs.map((m) => [m.id as number, Number(m.product_uom_qty) || 0]));
   if (cantidades.size === 0) throw new ErrorOdoo("La compra no tiene nada que recibir.");
-  await validarPicking(pickingId, cantidades);
-  return pickingId;
+  await validarPicking(pendiente.id as number, cantidades);
+  return pendiente.id as number;
 }
 
 export interface Ajuste {

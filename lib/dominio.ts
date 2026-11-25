@@ -344,6 +344,11 @@ export interface PermisosRol {
   usarChat: boolean;
   /** Diseñar piezas con el motor CAD (chat, render 3D y exportación DXF/STEP) en `/disenos`. */
   usarCad: boolean;
+  /**
+   * Probar y alimentar el agente de ventas de WhatsApp en `/agente-whatsapp`:
+   * su base de conocimiento (catálogos, fichas, fotos) y sus ajustes.
+   */
+  usarAgenteWhatsapp: boolean;
 }
 
 export const ROLES: Record<Rol, PermisosRol> = {
@@ -375,6 +380,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     cerrarCasos: true,
     usarChat: true,
     usarCad: true,
+    usarAgenteWhatsapp: true,
   },
   logistica: {
     nombre: "Logística",
@@ -405,6 +411,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     cerrarCasos: false,
     usarChat: true,
     usarCad: true,
+    usarAgenteWhatsapp: false,
   },
   operaciones: {
     nombre: "Operaciones",
@@ -435,6 +442,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     cerrarCasos: false,
     usarChat: true,
     usarCad: true,
+    usarAgenteWhatsapp: false,
   },
   ventas: {
     nombre: "Ventas",
@@ -466,6 +474,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     cerrarCasos: false,
     usarChat: true,
     usarCad: true,
+    usarAgenteWhatsapp: false,
   },
 };
 
@@ -694,6 +703,12 @@ export const HERRAMIENTAS: ConfigHerramienta[] = [
     titulo: "Métricas",
     href: "/metricas",
     permiso: "verMetricas",
+    grupo: "gestion",
+  },
+  {
+    titulo: "Agente de WhatsApp",
+    href: "/agente-whatsapp",
+    permiso: "usarAgenteWhatsapp",
     grupo: "gestion",
   },
   {

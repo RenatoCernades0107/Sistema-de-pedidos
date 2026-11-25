@@ -5,7 +5,8 @@
  * `common` y `object`) y entiende lo justo de los modelos que la app usa:
  * `res.partner`, `product.product`, `sale.order`, `sale.order.line`,
  * `stock.picking`, `stock.move`, `stock.lot`, `stock.quant`, `stock.warehouse`,
- * `stock.location`, `stock.move.line`, `mrp.production`, `uom.uom`, `ir.model`,
+ * `stock.location`, `stock.move.line`, `mrp.production`, `purchase.order`,
+ * `purchase.order.line`, `uom.uom`, `ir.model`,
  * `ir.model.fields`, `res.country`, `stock.picking.type` y
  * `l10n_latam.identification.type`. El stock de cada producto se lleva por
  * ubicación (`__stock`), y `qty_available` responde a `context.location` como en
@@ -41,8 +42,12 @@ type Registro = Record<string, unknown> & { id: number };
  * error — lo que pasa cuando se corta la red justo después. Es el caso que
  * obliga a que reintentar no duplique.
  * `sin-admin`: el usuario no puede crear campos (`ir.model.fields`).
+ * `sin-ir-model`: el usuario no puede leer `ir.model` (solo un administrador lo ve).
+ * `sin-partner-ref`: `stock.picking` no tiene `partner_ref` (hay Odoo que no lo trae).
+ * `compra-por-aprobar`: confirmar una orden de compra la deja "to approve", sin
+ * recepción (Odoo con doble validación de compras).
  */
-export type Modo = "caido" | "perder-respuesta" | "sin-admin" | null;
+export type Modo = "caido" | "perder-respuesta" | "sin-admin" | "sin-ir-model" | "sin-partner-ref" | "compra-por-aprobar" | null;
 
 interface Llamada {
   modelo: string;
@@ -129,6 +134,8 @@ function sembrar() {
     "sale.order.line": [] as Registro[],
     "stock.picking": [] as Registro[],
     "stock.move": [] as Registro[],
+    "purchase.order": [] as Registro[],
+    "purchase.order.line": [] as Registro[],
     "res.country": [{ id: 173, code: "PE", name: "Perú" }] as Registro[],
     "l10n_latam.identification.type": [
       { id: 4, name: "RUC", l10n_pe_vat_code: "6" },
@@ -141,6 +148,7 @@ function sembrar() {
       { id: 3, model: "sale.order" },
       { id: 4, model: "l10n_latam.identification.type" },
       { id: 5, model: "stock.lot" },
+      { id: 6, model: "purchase.order" },
     ] as Registro[],
     "ir.model.fields": [] as Registro[],
     "stock.lot": [] as Registro[],
@@ -195,8 +203,10 @@ const CAMPOS: Record<string, string[]> = {
   "sale.order.line": ["order_id", "product_id", "name", "product_uom_qty", "price_unit", "display_type", "sequence"],
   "stock.picking": [
     "name", "sale_id", "picking_type_code", "state", "move_ids", "picking_type_id", "partner_id", "origin",
-    "location_id", "location_dest_id", "partner_ref",
+    "location_id", "location_dest_id", "partner_ref", "purchase_id", "date_done",
   ],
+  "purchase.order": ["name", "partner_id", "origin", "partner_ref", "picking_type_id", "order_line", "state", "picking_ids", "date_order"],
+  "purchase.order.line": ["order_id", "product_id", "name", "product_qty", "price_unit", "product_uom", "qty_received"],
   "stock.picking.type": ["name", "code", "warehouse_id"],
   "stock.lot": ["name", "product_id", "note", "ref"],
   "stock.quant": ["product_id", "location_id", "lot_id", "quantity", "inventory_quantity"],
@@ -205,7 +215,7 @@ const CAMPOS: Record<string, string[]> = {
   "stock.move": [
     "picking_id", "product_id", "product_uom_qty", "quantity", "picked", "state", "sale_line_id",
     "name", "product_uom", "location_id", "location_dest_id", "raw_material_production_id", "production_id",
-    "cost_share", "price_unit", "origin", "scrapped", "is_inventory", "reference", "date",
+    "cost_share", "price_unit", "origin", "scrapped", "is_inventory", "reference", "date", "purchase_line_id",
   ],
   "stock.move.line": [
     "move_id", "product_id", "lot_id", "location_id", "location_dest_id", "quantity", "picked", "state", "date", "reference",
@@ -328,7 +338,10 @@ export async function crearOdooFalso(
   let contextoActual: Record<string, unknown> | null = null;
   /** Los campos creados por `ir.model.fields`, por modelo. Se olvidan al reiniciar. */
   let extras: Record<string, string[]> = {};
-  const camposDe = (modelo: string) => [...(CAMPOS[modelo] ?? []), ...(extras[modelo] ?? [])];
+  const camposDe = (modelo: string) =>
+    [...(CAMPOS[modelo] ?? []), ...(extras[modelo] ?? [])].filter(
+      (c) => !(modo === "sin-partner-ref" && modelo === "stock.picking" && c === "partner_ref"),
+    );
 
   const tabla = (modelo: string) => {
     // Aquí plantilla y variante son el mismo registro (lo usa scripts/seed-odoo.mjs).
@@ -574,6 +587,43 @@ export async function crearOdooFalso(
       return id;
     }
 
+    if (modelo === "purchase.order") {
+      if (modo === "caido") throw new ErrorRpc("odoo.exceptions.UserError", "Odoo falso: caído a propósito.");
+      for (const k of Object.keys(vals)) {
+        if (!camposDe(modelo).includes(k)) throw new ErrorRpc("ValueError", `Invalid field '${k}' on model 'purchase.order'`);
+      }
+      const proveedor = tabla("res.partner").find((x) => x.id === vals.partner_id);
+      if (!proveedor) throw new ErrorRpc("odoo.exceptions.MissingError", "El proveedor no existe.");
+      const tipo = tabla("stock.picking.type").find((x) => x.id === vals.picking_type_id);
+      const lineas = tabla("purchase.order.line");
+      const idsLineas: number[] = [];
+      for (const comando of (vals.order_line as unknown[][] | undefined) ?? []) {
+        const [c, , v] = comando as [number, number, Record<string, unknown>];
+        if (c !== 0) throw new ErrorRpc("ValueError", "El Odoo falso solo entiende el comando 0.");
+        for (const k of Object.keys(v)) {
+          if (!camposDe("purchase.order.line").includes(k)) {
+            throw new ErrorRpc("ValueError", `Invalid field '${k}' on model 'purchase.order.line'`);
+          }
+        }
+        const producto = tabla("product.product").find((x) => x.id === v.product_id);
+        if (!producto) throw new ErrorRpc("odoo.exceptions.MissingError", "El producto no existe.");
+        if (!v.name) throw new ErrorRpc("odoo.exceptions.ValidationError", "Field 'name' is mandatory (purchase.order.line).");
+        const idLinea = siguienteId(lineas);
+        lineas.push({
+          id: idLinea, order_id: [id, ""], product_id: [producto.id, producto.display_name], name: v.name,
+          product_qty: Number(v.product_qty ?? 1), price_unit: Number(v.price_unit ?? producto.standard_price ?? 0),
+          product_uom: [v.product_uom ?? 1, ""],
+        });
+        idsLineas.push(idLinea);
+      }
+      t.push({
+        id, name: `P${String(id).padStart(5, "0")}`, partner_id: [proveedor.id, proveedor.name], origin: vals.origin ?? false,
+        partner_ref: vals.partner_ref ?? false, picking_type_id: tipo ? [tipo.id, tipo.name] : [1, ""],
+        order_line: idsLineas, state: "draft", picking_ids: [], date_order: ahora(),
+      });
+      return id;
+    }
+
     if (modelo === "stock.picking") {
       if (modo === "caido") throw new ErrorRpc("odoo.exceptions.UserError", "Odoo falso: caído a propósito.");
       const tipo = tabla("stock.picking.type").find((x) => x.id === vals.picking_type_id);
@@ -680,10 +730,50 @@ export async function crearOdooFalso(
     });
   }
 
+  /** Una orden de compra confirmada: queda en "purchase" y Odoo le arma su recepción. */
+  function recibirOrden(po: Registro) {
+    const pickings = tabla("stock.picking");
+    const movs = tabla("stock.move");
+    po.state = "purchase";
+    const tipo = tabla("stock.picking.type").find((x) => x.id === valorDe(po, "picking_type_id")) ?? tabla("stock.picking.type")[0];
+    const almacen = tabla("stock.warehouse").find((w) => valorDe(w, "in_type_id") === tipo.id);
+    const destino = almacen ? valorDe(almacen, "lot_stock_id") : 8;
+    const idPicking = siguienteId(pickings);
+    const idsMov: number[] = [];
+    pickings.push({
+      id: idPicking, name: `IN/${String(idPicking).padStart(5, "0")}`, sale_id: false, picking_type_id: [tipo.id, tipo.name],
+      picking_type_code: "incoming", state: "assigned", move_ids: idsMov, partner_id: po.partner_id, origin: po.name,
+      location_id: [11, ""], location_dest_id: [destino, ""], partner_ref: false, purchase_id: [po.id, po.name],
+    });
+    for (const l of tabla("purchase.order.line").filter((x) => (po.order_line as number[]).includes(x.id))) {
+      const idMov = siguienteId(movs);
+      movs.push({
+        id: idMov, picking_id: [idPicking, ""], product_id: l.product_id, product_uom_qty: l.product_qty, quantity: 0,
+        picked: false, state: "assigned", purchase_line_id: [l.id, ""], location_id: [11, ""], location_dest_id: [destino, ""],
+        price_unit: l.price_unit, product_uom: l.product_uom, name: l.name,
+      });
+      idsMov.push(idMov);
+    }
+    po.picking_ids = [idPicking];
+  }
+
   function ejecutar(modelo: string, metodo: string, args: unknown[], kwargs: Record<string, unknown>) {
     llamadas.push({ modelo, metodo, args, kwargs });
+    if (modelo === "ir.model" && modo === "sin-ir-model") {
+      throw new ErrorRpc("odoo.exceptions.AccessError", "You are not allowed to access 'Models' (ir.model) records.");
+    }
     contextoActual = (kwargs.context as Record<string, unknown>) ?? null;
-    const deModelo = () => tabla(modelo).map((r) => ({ ...r, __modelo: modelo }));
+    const deModelo = () =>
+      tabla(modelo).map((r) => ({
+        ...r,
+        __modelo: modelo,
+        // Como en Odoo, lo recibido de una línea de compra son sus movimientos hechos.
+        ...(modelo === "purchase.order.line"
+          ? {
+              qty_received: recibidoDe(r),
+            }
+          : {}),
+      }));
     const ubicacionContexto = Number((contextoActual ?? {}).location ?? 0) || null;
     const limpiar = (r: Registro) => {
       const resto: Record<string, unknown> = { ...r };
@@ -700,6 +790,10 @@ export async function crearOdooFalso(
 
     switch (metodo) {
       case "fields_get":
+        // Como Odoo: un modelo de una app que no está instalada no existe.
+        if (modelo.startsWith("purchase.") && !datos["ir.model"].some((m) => m.model === "purchase.order")) {
+          throw new ErrorRpc("builtins.KeyError", `Object ${modelo} doesn't exist`);
+        }
         return Object.fromEntries(camposDe(modelo).map((c) => [c, { type: "char" }]));
       case "search_read": {
         const dominio = (args[0] as unknown[]) ?? [];
@@ -936,7 +1030,34 @@ export async function crearOdooFalso(
         }
         return true;
       }
+      case "button_confirm": {
+        if (modelo !== "purchase.order") break;
+        if (modo === "caido") throw new ErrorRpc("odoo.exceptions.UserError", "Odoo falso: caído a propósito.");
+        for (const po of tabla(modelo).filter((r) => (args[0] as number[]).includes(r.id))) {
+          if (po.state !== "draft" && po.state !== "sent") {
+            throw new ErrorRpc("odoo.exceptions.UserError", "Only draft orders can be confirmed.");
+          }
+          if (modo === "compra-por-aprobar") po.state = "to approve";
+          else recibirOrden(po);
+        }
+        return true;
+      }
+      case "button_approve": {
+        if (modelo !== "purchase.order") break;
+        for (const po of tabla(modelo).filter((r) => (args[0] as number[]).includes(r.id))) {
+          if (po.state === "to approve") recibirOrden(po);
+        }
+        return true;
+      }
       case "action_cancel": {
+        if (modelo === "stock.picking") {
+          for (const p of tabla(modelo).filter((r) => (args[0] as number[]).includes(r.id))) {
+            if (p.state === "done") throw new ErrorRpc("odoo.exceptions.UserError", "You cannot cancel a transfer that is done.");
+            p.state = "cancel";
+            for (const m of tabla("stock.move").filter((x) => valorDe(x, "picking_id") === p.id)) m.state = "cancel";
+          }
+          return true;
+        }
         if (modelo === "mrp.production") {
           for (const mo of tabla(modelo).filter((r) => (args[0] as number[]).includes(r.id))) {
             if (mo.state === "done") throw new ErrorRpc("odoo.exceptions.UserError", "No se puede cancelar una orden hecha.");
@@ -1053,6 +1174,7 @@ export async function crearOdooFalso(
             if (p.picking_type_code !== "outgoing") moverStock(producto, valorDe(m, "location_dest_id"), q);
           }
           p.state = "done";
+          p.date_done = ahora();
         }
         return true;
       }
@@ -1078,6 +1200,12 @@ export async function crearOdooFalso(
     }
     throw new ErrorRpc("builtins.Exception", `Servicio desconocido: ${service}.${method}`);
   }
+
+  /** Lo recibido de una línea de compra: la suma de sus movimientos hechos. */
+  const recibidoDe = (linea: Registro) =>
+    datos["stock.move"]
+      .filter((m) => valorDe(m, "purchase_line_id") === linea.id && m.state === "done")
+      .reduce((t, m) => t + Number(m.quantity ?? 0), 0);
 
   const estado = () => ({
     modo,
@@ -1108,6 +1236,13 @@ export async function crearOdooFalso(
       };
     }),
     quants: datos["stock.quant"],
+    modelos: datos["ir.model"],
+    compras: datos["purchase.order"].map((o): Registro & { lineas: Registro[] } => ({
+      ...o,
+      lineas: datos["purchase.order.line"]
+        .filter((l) => (o.order_line as number[]).includes(l.id))
+        .map((l) => ({ ...l, qty_received: recibidoDe(l) })),
+    })),
     almacenes: datos["stock.warehouse"],
     pickings: datos["stock.picking"].map((p): Registro & { movimientos: Registro[] } => ({
       ...p,

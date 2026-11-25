@@ -51,7 +51,7 @@ describe("gruposDe", () => {
     expect(resumen("administracion")).toEqual([
       ["principal", ["Cotizaciones", "Chat"]],
       ["taller", ["Diseños", "Almacén"]],
-      ["gestion", ["Métricas", "Configuración"]],
+      ["gestion", ["Métricas", "Agente de WhatsApp", "Configuración"]],
     ]);
   });
 

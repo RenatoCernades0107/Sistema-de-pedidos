@@ -112,6 +112,20 @@ export type PeticionChat = {
   razonamiento?: boolean;
   /** Para cortar la respuesta a medias: quien escucha se fue o pulsó "detener". */
   senal?: AbortSignal;
+  /**
+   * Otra clave y otros modelos para esta petición, en lugar de los de
+   * `INFERHUB_*`. Lo usa el agente de WhatsApp, que tiene su propia clave
+   * (y su propia cuenta de consumo) y sus propios modelos.
+   */
+  perfil?: PerfilLlm;
+};
+
+/** Con qué clave y con qué modelos se habla, cuando no son los de la app. */
+export type PerfilLlm = {
+  clave: string;
+  modelo: string;
+  /** A los que pasar, en orden, si el principal está saturado. */
+  respaldo: string[];
 };
 
 export type CodigoErrorLlm = "no_configurado" | "http" | "red" | "respuesta";
@@ -385,12 +399,14 @@ function cerrarLlamada(l: LlamadaEnCurso, indice: number): EventoLlm {
  * del propio `fetch` (`AbortError`), sin envolver.
  */
 export async function* transmitirChat(peticion: PeticionChat): AsyncGenerator<EventoLlm> {
-  const clave = process.env.INFERHUB_API_KEY?.trim();
+  const { perfil } = peticion;
+  const clave = perfil ? perfil.clave.trim() : process.env.INFERHUB_API_KEY?.trim();
   if (!clave) throw new ErrorLlm("no_configurado", LLM_NO_CONFIGURADO);
 
-  const base = (process.env.INFERHUB_BASE_URL?.trim() || BASE_POR_DEFECTO).replace(/\/+$/, "");
-  const principal = process.env.INFERHUB_MODELO?.trim() || MODELO_POR_DEFECTO;
-  const modelos = [...new Set([principal, ...modelosDeRespaldo()])];
+  const base = baseDeInferhub();
+  const principal = perfil?.modelo.trim() || process.env.INFERHUB_MODELO?.trim() || MODELO_POR_DEFECTO;
+  const respaldo = perfil ? perfil.respaldo.map((m) => m.trim()).filter(Boolean) : modelosDeRespaldo();
+  const modelos = [...new Set([principal, ...respaldo])];
   const reintentos = reintentosPorModelo();
 
   let ultimo: ErrorLlm | null = null;
@@ -612,4 +628,98 @@ async function* unIntento(
   // Hay proveedores que piden herramientas y aun así cierran con "stop": si
   // pidió alguna, eso es lo que cuenta.
   yield { tipo: "fin", motivo: pedidas.length > 0 ? "herramientas" : (motivo ?? "otro") };
+}
+
+/** `INFERHUB_BASE_URL`, sin la barra final. */
+function baseDeInferhub(): string {
+  return (process.env.INFERHUB_BASE_URL?.trim() || BASE_POR_DEFECTO).replace(/\/+$/, "");
+}
+
+/* ── Embeddings ────────────────────────────────────────────────────────────── */
+
+/** Cuántos textos van en cada `POST /embeddings`. */
+const LOTE_EMBEDDINGS = 64;
+
+export type PeticionEmbeddings = {
+  clave: string;
+  modelo: string;
+  /** El tamaño de cada vector. Se pide con `dimensions` y se comprueba al volver. */
+  dimensiones: number;
+  senal?: AbortSignal;
+};
+
+/**
+ * Los vectores de `textos`, en el mismo orden, con `POST {base}/embeddings`
+ * (formato compatible con OpenAI, como el resto de Inferhub).
+ *
+ * No pasa a otro modelo si este falla: los vectores de dos modelos no se pueden
+ * comparar entre sí, así que el respaldo lo decide quien llama, que sabe con qué
+ * modelo está indexado cada texto.
+ *
+ * Lanza `ErrorLlm` si el proveedor contesta con error, si no devuelve un vector
+ * por texto o si el tamaño no es `dimensiones`.
+ */
+export async function crearEmbeddings(textos: string[], peticion: PeticionEmbeddings): Promise<number[][]> {
+  const clave = peticion.clave.trim();
+  if (!clave) throw new ErrorLlm("no_configurado", LLM_NO_CONFIGURADO);
+  const salida: number[][] = [];
+  for (let i = 0; i < textos.length; i += LOTE_EMBEDDINGS) {
+    salida.push(...(await loteDeEmbeddings(textos.slice(i, i + LOTE_EMBEDDINGS), peticion, clave)));
+  }
+  return salida;
+}
+
+async function loteDeEmbeddings(textos: string[], peticion: PeticionEmbeddings, clave: string): Promise<number[][]> {
+  let respuesta: Response;
+  try {
+    respuesta = await fetch(`${baseDeInferhub()}/embeddings`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${clave}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: peticion.modelo,
+        input: textos,
+        dimensions: peticion.dimensiones,
+        encoding_format: "float",
+      }),
+      signal: peticion.senal,
+      cache: "no-store",
+    });
+  } catch (e) {
+    if (peticion.senal?.aborted) throw e;
+    throw new ErrorLlm("red", "No se pudo conectar con el modelo de embeddings.", undefined, true);
+  }
+  if (!respuesta.ok) {
+    const detalle = await detalleDeError(respuesta);
+    throw new ErrorLlm(
+      "http",
+      mensajeHttp(respuesta.status, detalle),
+      respuesta.status,
+      ESTADOS_PASAJEROS.has(respuesta.status),
+    );
+  }
+  return leerEmbeddings(await respuesta.json().catch(() => null), textos.length, peticion.dimensiones);
+}
+
+/** Los vectores de una respuesta de `/embeddings`, ordenados por `index`. Exportado para poder probarlo. */
+export function leerEmbeddings(json: unknown, esperados: number, dimensiones: number): number[][] {
+  const datos = (json as { data?: unknown } | null)?.data;
+  if (!Array.isArray(datos) || datos.length !== esperados) {
+    throw new ErrorLlm("respuesta", "El modelo de embeddings no devolvió un vector por cada texto.");
+  }
+  const ordenados = [...datos].sort(
+    (a, b) => Number((a as { index?: number }).index ?? 0) - Number((b as { index?: number }).index ?? 0),
+  );
+  return ordenados.map((d) => {
+    const v = (d as { embedding?: unknown }).embedding;
+    if (!Array.isArray(v) || !v.every((x) => typeof x === "number")) {
+      throw new ErrorLlm("respuesta", "El modelo de embeddings devolvió algo que no es un vector.");
+    }
+    if (v.length !== dimensiones) {
+      throw new ErrorLlm(
+        "respuesta",
+        `El modelo de embeddings devolvió vectores de ${v.length} dimensiones y la base espera ${dimensiones}.`,
+      );
+    }
+    return v as number[];
+  });
 }

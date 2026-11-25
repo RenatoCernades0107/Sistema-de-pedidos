@@ -22,12 +22,14 @@
     "tipos": "supabase gen types typescript --linked > lib/supabase-tipos.ts",
     "iconos": "node scripts/gen-iconos.cjs",
     "odoo:tipos-doc": "node --env-file-if-exists=.env.local scripts/odoo-tipos-documento.mjs",
+    "odoo:vincular-compras": "node --env-file=.env.prod scripts/odoo-vincular-compras.mjs",
     "odoo:telefonos-a-contactos": "node --env-file-if-exists=.env.local scripts/odoo-telefonos-a-contactos.mjs",
     "seed:odoo": "node --env-file-if-exists=.env.local scripts/seed-odoo.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
     "@hookform/resolvers": "^5.9.1",
+    "@kapso/whatsapp-cloud-api": "^0.4.0",
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.2",
     "@supabase/ssr": "^0.12.5",
