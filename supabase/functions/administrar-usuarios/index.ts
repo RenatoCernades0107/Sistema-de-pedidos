@@ -137,14 +137,20 @@ async function crear(c: Cuerpo) {
     return fallo("No se pudo crear la cuenta.");
   }
 
-  // El perfil lo creó el trigger de auth.users; si trae un correo real, es también el
-  // de recuperación (el trigger de sincronización solo corre al *cambiar* el correo).
-  if (correo) {
-    const { error: e } = await admin
-      .from("usuarios")
-      .update({ email_recuperacion: correo })
-      .eq("id", data.user.id);
-    if (e) console.error("[administrar-usuarios] correo del perfil:", e.message);
+  // El perfil lo creó el trigger de auth.users. Auth aplica `app_metadata` en un segundo
+  // paso, DESPUÉS del insert que dispara el trigger, así que el trigger no ve el rol y
+  // deja el perfil como `operaciones` desactivado. Se fija aquí, con la clave de servicio.
+  // Si trae un correo real, es también el de recuperación (el trigger de sincronización
+  // solo corre al *cambiar* el correo).
+  const { error: e } = await admin
+    .from("usuarios")
+    .update({ rol: c.rol, activo: true, ...(correo ? { email_recuperacion: correo } : {}) })
+    .eq("id", data.user.id);
+  if (e) {
+    console.error("[administrar-usuarios] perfil:", e.message);
+    // Sin el rol correcto la cuenta quedaría mal: se deshace el alta entera.
+    await admin.auth.admin.deleteUser(data.user.id);
+    return fallo("No se pudo crear la cuenta.");
   }
 
   return json({ ok: true, id: data.user.id, password });

@@ -46,6 +46,7 @@ const ETIQUETAS: ReadonlyArray<readonly [RegExp, string]> = [
   [/^corte\.kerfManual$/, "El grosor del corte manual"],
   [/^corte\.margen$/, "El borde que se descarta"],
   [/^corte\.retazoMin$/, "El sobrante mínimo"],
+  [/^sugerencia\.politica$/, "La política de sugerencia de plancha"],
   [/^servicios\.laser$/, "El código del servicio de corte láser"],
   [/^servicios\.manual$/, "El código del servicio de corte manual"],
 ];

@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Loader2, RotateCw, TriangleAlert } from "lucide-react";
 import { valoresPorDefecto } from "@/lib/cad/esquema";
 import { nombreDeGrupo } from "@/lib/cortes/catalogo";
@@ -239,8 +239,24 @@ export function VisorDiseno({ nombre, avisoMotor }: { nombre?: string | null; av
   const d = resultado?.dimensiones;
   const mm = (x: number) => Math.round(x);
 
+  // Pantalla completa de todo el visor (modelo, ficha, descargas y tarjeta de la copia).
+  const raiz = useRef<HTMLDivElement>(null);
+  const [pantallaCompleta, setPantallaCompleta] = useState(false);
+  useEffect(() => {
+    const sincronizar = () => setPantallaCompleta(document.fullscreenElement === raiz.current);
+    document.addEventListener("fullscreenchange", sincronizar);
+    return () => document.removeEventListener("fullscreenchange", sincronizar);
+  }, []);
+  const alternarPantallaCompleta = useCallback(() => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void raiz.current?.requestFullscreen?.().catch(() => {});
+  }, []);
+
   return (
-    <div className="relative h-full min-h-0 w-full bg-muted/40 overflow-hidden">
+    <div
+      ref={raiz}
+      className={cn("relative h-full min-h-0 w-full overflow-hidden", pantallaCompleta ? "bg-background" : "bg-muted/40")}
+    >
       {resultado ? (
         <Visor3D
           glbBase64={resultado.glb_base64}
@@ -258,6 +274,9 @@ export function VisorDiseno({ nombre, avisoMotor }: { nombre?: string | null; av
           carasSeleccionadas={clavesCaras}
           alAlternarCara={alternarCara}
           sinMedidas
+          elegirConClicDerecho
+          pantallaCompleta={pantallaCompleta}
+          alAlternarPantallaCompleta={alternarPantallaCompleta}
         />
       ) : cargando ? (
         <Skeleton className="h-full w-full rounded-none" />

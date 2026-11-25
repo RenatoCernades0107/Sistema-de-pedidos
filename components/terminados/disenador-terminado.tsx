@@ -31,7 +31,7 @@ import {
 import type { Medidas } from "@/lib/terminados/geometria";
 import { MEDIDAS_DE_PLANTILLA, medidasAParametrosCad, parametrosCadDe } from "@/lib/terminados/plantilla-cad";
 import { cn } from "@/lib/utils";
-import { DisenoProvider, useDiseno, type CostosDiseno } from "@/components/disenos/diseno-contexto";
+import { DisenoProvider, useDiseno, type CorteDiseno, type CostosDiseno } from "@/components/disenos/diseno-contexto";
 import { useBloqueoDiseno, useCostoDiseno } from "@/components/disenos/panel-costo";
 import { BOTON_CABECERA } from "@/components/disenos/estilos";
 import { VistaDiseno } from "@/components/disenos/vista-diseno";
@@ -55,7 +55,7 @@ export type TerminadoDeDiseno = Omit<LineaTerminado, "tipo" | "clave"> & { clave
 export interface DatosDiseno {
   plantillas: PlantillaCad[];
   avisoMotor: string | null;
-  corte: { kerfMm: number; margenMm: number };
+  corte: CorteDiseno;
   costos: CostosDiseno | null;
 }
 

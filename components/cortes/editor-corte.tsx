@@ -173,17 +173,16 @@ export function EditorCorte({
     [grupo, sobrantes, lugar],
   );
 
-  /** La sugerencia: la plancha más chica que sirva, con los sobrantes primero. */
+  /** La sugerencia según la política de Configuración, con los sobrantes primero. */
   const calculos = useMemo(() => {
     if (!entrada || piezas.length === 0) return [];
-    // La plancha más chica que sirva: las grandes se guardan para las medidas grandes.
-    return compararFormatos(entrada, formatos, config, contenedoresDe(delAlmacen), "tamano");
+    return compararFormatos(entrada, formatos, config, contenedoresDe(delAlmacen));
   }, [entrada, piezas, formatos, config, delAlmacen]);
 
   /** Cada formato, solo con planchas nuevas: lo que pasa si se elige ese. */
   const porFormato = useMemo(() => {
     if (!entrada || piezas.length === 0) return [];
-    return compararFormatos(entrada, formatos, config, [], "tamano");
+    return compararFormatos(entrada, formatos, config, []);
   }, [entrada, piezas, formatos, config]);
 
   /** Cada sobrante, primero él y lo demás de la plancha más chica que sirva. */

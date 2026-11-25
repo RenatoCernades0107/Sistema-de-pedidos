@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useDiseno } from "./diseno-contexto";
 import { bajarDxfPlanchas, sufijoDeGrupo } from "./dxf-planchas";
+import { OpcionesFormato } from "./opciones-formato";
 
 const n = (x: number, d = 0) => x.toLocaleString("es-PE", { maximumFractionDigits: d });
 const unicos = (xs: string[]) => [...new Set(xs)];
@@ -381,6 +382,7 @@ function SeccionGrupo({
           <dd className="font-medium tabular-nums">{n(acomodo.mermaPct, 1)} %</dd>
         </div>
       </dl>
+      <OpcionesFormato grupo={g} />
       {acomodo.noCaben.length > 0 && (
         <p className="text-destructive text-sm">
           {acomodo.noCaben.length === 1 ? "1 pieza no entra" : `${acomodo.noCaben.length} piezas no entran`} en la
