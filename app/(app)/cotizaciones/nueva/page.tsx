@@ -68,7 +68,7 @@ export default async function Page({ searchParams }: PageProps<"/cotizaciones/nu
         diseno={{
           plantillas,
           avisoMotor: aviso,
-          corte: { kerfMm: planchas.kerfMm, margenMm: planchas.margenMm },
+          corte: { kerfMm: planchas.kerfMm, margenMm: planchas.margenMm, politica: planchas.politica },
           costos: planchas.costos,
         }}
         key={borrador?.id ?? "nueva"}

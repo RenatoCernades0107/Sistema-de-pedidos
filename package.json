@@ -22,6 +22,7 @@
     "tipos": "supabase gen types typescript --linked > lib/supabase-tipos.ts",
     "iconos": "node scripts/gen-iconos.cjs",
     "odoo:tipos-doc": "node --env-file-if-exists=.env.local scripts/odoo-tipos-documento.mjs",
+    "odoo:vincular-compras": "node --env-file=.env.prod scripts/odoo-vincular-compras.mjs",
     "odoo:telefonos-a-contactos": "node --env-file-if-exists=.env.local scripts/odoo-telefonos-a-contactos.mjs",
     "seed:odoo": "node --env-file-if-exists=.env.local scripts/seed-odoo.mjs"
   },

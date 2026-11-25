@@ -251,6 +251,30 @@ describe("elección de formato", () => {
     expect(r.slice(1).every((c) => c.problema)).toBe(true);
   });
 
+  it("con la merma mínima, va primero el que menos desperdicia", () => {
+    const entrada = corte([[100, 110, 2]]);
+    const r = compararFormatos(entrada, formatos, config, [], "merma");
+    for (let i = 1; i < r.length; i++) expect(r[i].desperdicioPct).toBeGreaterThanOrEqual(r[i - 1].desperdicioPct);
+  });
+
+  it("con el promedio, el primero no es peor que el resto en precio y merma a la vez", () => {
+    const entrada = corte([[100, 110, 2]]);
+    const r = compararFormatos(entrada, formatos, config, [], "promedio");
+    expect(r).toHaveLength(3);
+    const [a, ...otros] = r;
+    for (const o of otros) {
+      expect(o.total < a.total && o.desperdicioPct < a.desperdicioPct).toBe(false);
+    }
+  });
+
+  it("sin criterio usa la política guardada en la configuración", () => {
+    const entrada = corte([[100, 110, 2]]);
+    const porConfig = compararFormatos(entrada, formatos, { ...config, sugerencia: { politica: "tamano" } });
+    expect(porConfig.map((c) => c.formato.codigo)).toEqual(
+      compararFormatos(entrada, formatos, config, [], "tamano").map((c) => c.formato.codigo),
+    );
+  });
+
   it("el formato donde una pieza no cabe va al final, con su motivo", () => {
     const r = compararFormatos(corte([[200, 150, 1]]), formatos, config);
     expect(r[0].formato.codigo).toBe("F20E030");

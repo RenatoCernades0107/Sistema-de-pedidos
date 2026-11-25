@@ -33,7 +33,8 @@ import {
   type PlanchasDeGrupo,
 } from "@/lib/cad/materiales";
 import { colorDe, type GrupoPlancha } from "@/lib/cortes/catalogo";
-import type { ConfigCortes } from "@/lib/cortes/config";
+import type { ConfigCortes, PoliticaSugerencia } from "@/lib/cortes/config";
+import { costoDiseno } from "@/lib/cad/costo";
 import type {
   MaterialDiseno,
   ParametrosCad,
@@ -149,7 +150,7 @@ export interface EstadoDiseno {
   /** Los grupos del catálogo con algún formato activo. Vacío si no se pudo leer. */
   catalogo: GrupoPlancha[];
   /** El kerf del láser y el borde que no se aprovecha, en mm (de la configuración de cortes). */
-  corte: { kerfMm: number; margenMm: number };
+  corte: CorteDiseno;
   material: MaterialDiseno | null;
   /** El grupo del material elegido, si sigue en el catálogo. */
   grupo: GrupoPlancha | null;
@@ -170,6 +171,10 @@ export interface EstadoDiseno {
    * en su mejor formato. Lo normal es uno; vacío sin material o sin diseño.
    */
   gruposPlanchas: PlanchasDeGrupo[];
+  /** El formato elegido a mano en cada grupo, por su `clave`. Sin entrada: manda la sugerencia. */
+  formatosElegidos: Readonly<Record<string, string>>;
+  /** Elige el formato de plancha de un grupo; `null` vuelve a la sugerencia. */
+  elegirFormato: (clave: string, formatoId: string | null) => void;
   /** Lo que impide cortar el diseño en los materiales elegidos. Vacío: todo bien. */
   problemasMaterial: string[];
   /** Lo que conviene saber de los materiales pero no impide cortar (un espesor ajustado). */
@@ -207,6 +212,13 @@ export interface CostosDiseno {
   precios: Record<string, number>;
 }
 
+/** El kerf y el borde del láser (mm) y, si se conoce, la política de sugerencia de plancha. */
+export interface CorteDiseno {
+  kerfMm: number;
+  margenMm: number;
+  politica?: PoliticaSugerencia;
+}
+
 /** Los grupos de plancha y sus problemas: lo usan la pantalla y el guardado. */
 function calcularPlanchas(
   catalogo: GrupoPlancha[],
@@ -214,10 +226,29 @@ function calcularPlanchas(
   porCopia: MaterialesPorCopia,
   parametros: ParametrosCad,
   piezas: PiezaCad[] | undefined,
-  corte: { kerfMm: number; margenMm: number },
+  corte: CorteDiseno,
   unidades = 1,
+  elegidos?: { formatos: Readonly<Record<string, string>>; costos: CostosDiseno | null },
 ) {
-  return planchasDelDiseno({ catalogo, porDefecto: material, porCopia, parametros, piezas, corte, unidades });
+  const costos = elegidos?.costos ?? null;
+  const politica = corte.politica ?? costos?.config.sugerencia.politica ?? "merma";
+  return planchasDelDiseno({
+    catalogo,
+    porDefecto: material,
+    porCopia,
+    parametros,
+    piezas,
+    corte,
+    unidades,
+    formatosElegidos: elegidos?.formatos,
+    // El costo de cada formato solo se sabe con los precios de Odoo (Administración).
+    sugerencia: {
+      politica,
+      costoDe: costos
+        ? (g, r) => costoDiseno({ piezas: g.piezas, grupo: g.grupo, acomodo: r, precios: costos.precios, config: costos.config })?.total ?? null
+        : undefined,
+    },
+  });
 }
 
 /** Solo los materiales de copias que siguen existiendo en el despiece. */
@@ -230,7 +261,7 @@ function podar(porCopia: MaterialesPorCopia, piezas: PiezaCad[] | undefined): Ma
 const Contexto = createContext<EstadoDiseno | null>(null);
 
 const SIN_CATALOGO: GrupoPlancha[] = [];
-const SIN_KERF = { kerfMm: 0, margenMm: 0 };
+const SIN_KERF: CorteDiseno = { kerfMm: 0, margenMm: 0 };
 
 export function useDiseno(): EstadoDiseno {
   const valor = useContext(Contexto);
@@ -264,7 +295,7 @@ export function DisenoProvider({
     materiales?: MaterialesPorCopia;
   };
   catalogo?: GrupoPlancha[];
-  corte?: { kerfMm: number; margenMm: number };
+  corte?: CorteDiseno;
   costos?: CostosDiseno | null;
   /** Las unidades del lote al abrir (la cantidad de la línea). */
   unidades?: number;
@@ -304,6 +335,15 @@ export function DisenoProvider({
   const [material, setMaterial] = useState<MaterialDiseno | null>(inicial.material ?? null);
   // `aplicar` guarda con el material vigente sin depender de él (no se recrea).
   const materialRef = useRef(material);
+  const [formatosElegidos, setFormatosElegidos] = useState<Record<string, string>>({});
+  const formatosRef = useRef(formatosElegidos);
+  const elegirFormato = useCallback((clave: string, formatoId: string | null) => {
+    const siguiente = { ...formatosRef.current };
+    if (formatoId) siguiente[clave] = formatoId;
+    else delete siguiente[clave];
+    formatosRef.current = siguiente;
+    setFormatosElegidos(siguiente);
+  }, []);
   const [porCopia, setPorCopia] = useState<MaterialesPorCopia>(inicial.materiales ?? {});
   const porCopiaRef = useRef(porCopia);
   const [copiaActiva, setCopiaActiva] = useState<string | null>(null);
@@ -514,7 +554,10 @@ export function DisenoProvider({
 
       if (plantilla === PLANTILLA_LIBRE) {
         const materiales = porCopiaRef.current;
-        const { grupos } = calcularPlanchas(catalogo, nuevo, materiales, parametros, resultado?.piezas, corte);
+        const { grupos } = calcularPlanchas(catalogo, nuevo, materiales, parametros, resultado?.piezas, corte, 1, {
+          formatos: formatosRef.current,
+          costos,
+        });
         try {
           const libre = await registrar(
             guardarMaterialDisenoLibre(
@@ -547,7 +590,7 @@ export function DisenoProvider({
         conEspesor ? { ...parametros, [PARAMETRO_ESPESOR]: grupo.espesorMm } : parametros,
       );
     },
-    [anotarGuardado, aplicar, catalogo, corte, disenoId, parametros, plantilla, plantillas, registrar, resultado],
+    [anotarGuardado, aplicar, catalogo, corte, costos, disenoId, parametros, plantilla, plantillas, registrar, resultado],
   );
 
   const mostrarMaterial = useCallback<EstadoDiseno["mostrarMaterial"]>((nuevo, materiales) => {
@@ -590,7 +633,10 @@ export function DisenoProvider({
       porCopiaRef.current = materiales;
       setPorCopia(materiales);
 
-      const { grupos } = calcularPlanchas(catalogo, materialRef.current, materiales, parametros, resultado?.piezas, corte);
+      const { grupos } = calcularPlanchas(catalogo, materialRef.current, materiales, parametros, resultado?.piezas, corte, 1, {
+        formatos: formatosRef.current,
+        costos,
+      });
       const acomodo = acomodoParaGuardar(grupos, corte.kerfMm) as unknown as Record<string, unknown> | null;
       try {
         if (plantilla === PLANTILLA_LIBRE) {
@@ -614,7 +660,7 @@ export function DisenoProvider({
         toast.error(e instanceof Error ? e.message : "No se pudo guardar el material.");
       }
     },
-    [anotarGuardado, catalogo, corte, disenoId, parametros, plantilla, registrar, resultado],
+    [anotarGuardado, catalogo, corte, costos, disenoId, parametros, plantilla, registrar, resultado],
   );
 
   /** Pone tal cual el material de una versión (también ninguno) y genera su geometría sin guardar. */
@@ -690,8 +736,12 @@ export function DisenoProvider({
     [catalogo, material],
   );
   const planchas = useMemo(
-    () => calcularPlanchas(catalogo, material, porCopia, parametros, resultado?.piezas, corte, unidades),
-    [catalogo, material, porCopia, parametros, resultado, corte, unidades],
+    () =>
+      calcularPlanchas(catalogo, material, porCopia, parametros, resultado?.piezas, corte, unidades, {
+        formatos: formatosElegidos,
+        costos,
+      }),
+    [catalogo, material, porCopia, parametros, resultado, corte, unidades, formatosElegidos, costos],
   );
   const tinte = useMemo(
     () => (grupo ? tinteDeColor(material?.color ?? colorDe(grupo)) : null),
@@ -739,6 +789,8 @@ export function DisenoProvider({
       elegirMaterial,
       mostrarMaterial,
       gruposPlanchas: planchas.grupos,
+      formatosElegidos,
+      elegirFormato,
       problemasMaterial: planchas.problemas,
       avisosMaterial: planchas.avisos,
       unidades,
@@ -783,6 +835,8 @@ export function DisenoProvider({
       elegirMaterial,
       mostrarMaterial,
       planchas,
+      formatosElegidos,
+      elegirFormato,
       unidades,
       setUnidades,
       tinte,

@@ -12,6 +12,7 @@
 
 import { empaquetar, entraSola, type Pieza } from "@/lib/cortes/optimizador";
 import type { GrupoPlancha } from "@/lib/cortes/catalogo";
+import type { PoliticaSugerencia } from "@/lib/cortes/config";
 import type { ParametrosCad, PiezaCad, PlanchaAcomodadaCad } from "./tipos";
 
 /** Un formato de plancha, en mm: `ancho` en X, `alto` (el largo del catálogo) en Y. */
@@ -170,29 +171,83 @@ export function acomodarEnFormato(
   };
 }
 
+/** Cómo se escoge el formato: la política de Configuración y, si la hay, la elección a mano. */
+export interface OrdenAcomodo {
+  politica: PoliticaSugerencia;
+  /**
+   * Lo que cuesta cortar con ese acomodo. Sin ella (o sin precio), "precio" y
+   * "promedio" se quedan con la merma.
+   */
+  costoDe?: (r: ResultadoAcomodo) => number | null;
+  /** El formato que eligió quien arma el diseño. Si ya no sirve, manda la política. */
+  formatoId?: string | null;
+}
+
+/** El puesto (0 = mejor) de cada acomodo según un valor; los empatados comparten puesto. */
+function puestos(rs: ResultadoAcomodo[], valor: (r: ResultadoAcomodo) => number): Map<ResultadoAcomodo, number> {
+  const orden = [...new Set(rs.map(valor))].sort((a, b) => a - b);
+  return new Map(rs.map((r) => [r, orden.indexOf(valor(r))]));
+}
+
 /**
- * El mejor formato para el diseño: el que deja menos copias fuera, gasta menos
- * área de plancha y, a igualdad, abre menos planchas. `null` sin formatos.
+ * Cada formato con el diseño acomodado, del más conveniente al menos. Siempre
+ * van primero los que dejan menos copias fuera. Entre ellos manda la política:
+ *  - "merma" (y, sin precios, "precio" y "promedio"): el que gasta menos área de
+ *    plancha y, a igualdad, abre menos planchas.
+ *  - "precio": el que menos cuesta.
+ *  - "promedio": el mejor promedio entre su puesto en precio y en merma.
+ *  - "tamano": la plancha más chica.
+ */
+export function compararAcomodos(
+  piezas: PiezaAcomodo[],
+  formatos: FormatoAcomodo[],
+  opciones: OpcionesAcomodo,
+  orden: Pick<OrdenAcomodo, "politica" | "costoDe"> = { politica: "merma" },
+): ResultadoAcomodo[] {
+  const todos = formatos.map((f) => acomodarEnFormato(piezas, f, opciones));
+  const costos = new Map(todos.map((r) => [r, orden.costoDe?.(r) ?? null]));
+  const conPrecio = todos.length > 0 && todos.every((r) => costos.get(r) !== null);
+  const costo = (r: ResultadoAcomodo) => costos.get(r) ?? 0;
+  const porPrecio = puestos(todos, costo);
+  const porMerma = puestos(todos, (r) => r.areaPlanchasMm2);
+  const promedio = (r: ResultadoAcomodo) => ((porPrecio.get(r) ?? 0) + (porMerma.get(r) ?? 0)) / 2;
+  const merma = (a: ResultadoAcomodo, b: ResultadoAcomodo) =>
+    a.areaPlanchasMm2 - b.areaPlanchasMm2 || a.planchas.length - b.planchas.length;
+  const area = (r: ResultadoAcomodo) => r.anchoMm * r.altoMm;
+  const politica = conPrecio ? orden.politica : orden.politica === "tamano" ? "tamano" : "merma";
+
+  return todos.sort((a, b) => {
+    const fuera = a.noCaben.length - b.noCaben.length;
+    if (fuera) return fuera;
+    switch (politica) {
+      case "precio":
+        return costo(a) - costo(b) || merma(a, b);
+      case "promedio":
+        return promedio(a) - promedio(b) || costo(a) - costo(b) || merma(a, b);
+      case "tamano":
+        return area(a) - area(b) || merma(a, b);
+      default:
+        return merma(a, b);
+    }
+  });
+}
+
+/**
+ * El mejor formato para el diseño según la política (por defecto, el que menos
+ * plancha gasta). Con `formatoId`, ese formato si deja tantas copias fuera como
+ * el mejor. `null` sin formatos.
  */
 export function acomodar(
   piezas: PiezaAcomodo[],
   formatos: FormatoAcomodo[],
   opciones: OpcionesAcomodo,
+  orden?: OrdenAcomodo,
 ): ResultadoAcomodo | null {
-  let mejor: ResultadoAcomodo | null = null;
-  for (const f of formatos) {
-    const r = acomodarEnFormato(piezas, f, opciones);
-    if (
-      !mejor ||
-      r.noCaben.length < mejor.noCaben.length ||
-      (r.noCaben.length === mejor.noCaben.length &&
-        (r.areaPlanchasMm2 < mejor.areaPlanchasMm2 ||
-          (r.areaPlanchasMm2 === mejor.areaPlanchasMm2 && r.planchas.length < mejor.planchas.length)))
-    ) {
-      mejor = r;
-    }
-  }
-  return mejor;
+  const ordenados = compararAcomodos(piezas, formatos, opciones, orden);
+  const mejor = ordenados[0] ?? null;
+  if (!mejor || !orden?.formatoId) return mejor;
+  const elegido = ordenados.find((r) => r.formatoId === orden.formatoId);
+  return elegido && elegido.noCaben.length <= mejor.noCaben.length ? elegido : mejor;
 }
 
 /**

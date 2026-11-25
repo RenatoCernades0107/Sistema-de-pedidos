@@ -17,7 +17,13 @@
 
 import { z } from "zod";
 import { colorDe, espesorTexto, type GrupoPlancha } from "@/lib/cortes/catalogo";
-import { acomodar, formatosDeGrupo, piezasQueNoEntran, type ResultadoAcomodo } from "./acomodo";
+import {
+  compararAcomodos,
+  formatosDeGrupo,
+  piezasQueNoEntran,
+  type OrdenAcomodo,
+  type ResultadoAcomodo,
+} from "./acomodo";
 import type { CostoDiseno, EntradaCostoDiseno } from "./costo";
 import type { MaterialDiseno, ParametrosCad, PiezaCad, PlanchaAcomodadaCad } from "./tipos";
 
@@ -260,6 +266,10 @@ export function agruparCopias(copias: readonly CopiaResuelta[]): GrupoDelDiseno[
 /** Un grupo de plancha con su acomodo. */
 export interface PlanchasDeGrupo extends GrupoDelDiseno {
   acomodo: ResultadoAcomodo | null;
+  /** El diseño en cada formato del grupo, del más conveniente al menos (el elegido o sugerido es `acomodo`). */
+  alternativas: ResultadoAcomodo[];
+  /** `acomodo` es el formato que se eligió a mano, no el sugerido. */
+  formatoElegido: boolean;
   /** Lo que impide cortar este grupo (sin formatos, piezas que no entran). */
   problemas: string[];
 }
@@ -319,6 +329,13 @@ export function planchasDelDiseno(entrada: {
   corte: { kerfMm: number; margenMm: number };
   /** Cuántas unidades del diseño se cortan juntas (la cantidad del pedido). Por defecto, 1. */
   unidades?: number;
+  /** La política de sugerencia de Configuración y, si se puede, lo que cuesta cada acomodo. */
+  sugerencia?: {
+    politica: OrdenAcomodo["politica"];
+    costoDe?: (g: GrupoDelDiseno, r: ResultadoAcomodo) => number | null;
+  };
+  /** El formato elegido a mano en cada grupo, por su `clave`. */
+  formatosElegidos?: Readonly<Record<string, string>>;
 }): PlanchasDelDiseno {
   const { catalogo, porDefecto, porCopia, parametros, corte } = entrada;
   const unidades = Math.max(1, Math.floor(entrada.unidades ?? 1));
@@ -365,14 +382,29 @@ export function planchasDelDiseno(entrada: {
     const prefijo = varios ? `En ${g.etiqueta}: ` : "";
     if (formatos.length === 0) {
       propios.push(`${prefijo}el material no tiene formatos de plancha activos.`);
-      return { ...g, acomodo: null, problemas: propios };
+      return { ...g, acomodo: null, alternativas: [], formatoElegido: false, problemas: propios };
     }
     for (const p of piezasQueNoEntran(g.piezas, formatos, opciones)) {
       propios.push(
         `${prefijo}«${p.nombre}» (${Math.round(p.ancho_mm)} × ${Math.round(p.alto_mm)} mm) no entra en ninguna plancha de este material${g.grupo.rotable ? "" : " (no se puede girar)"}.`,
       );
     }
-    return { ...g, acomodo: acomodar(g.piezas, formatos, opciones), problemas: propios };
+    const alternativas = compararAcomodos(g.piezas, formatos, opciones, {
+      politica: entrada.sugerencia?.politica ?? "merma",
+      costoDe: entrada.sugerencia?.costoDe ? (r) => entrada.sugerencia!.costoDe!(g, r) : undefined,
+    });
+    const sugerido = alternativas[0] ?? null;
+    const pedido = entrada.formatosElegidos?.[g.clave];
+    const elegido = pedido ? alternativas.find((r) => r.formatoId === pedido) : undefined;
+    // Lo elegido a mano vale mientras no deje más copias fuera que la sugerencia.
+    const aMano = !!elegido && !!sugerido && elegido.noCaben.length <= sugerido.noCaben.length && elegido !== sugerido;
+    return {
+      ...g,
+      acomodo: aMano ? elegido! : sugerido,
+      alternativas,
+      formatoElegido: aMano,
+      problemas: propios,
+    };
   });
   for (const g of grupos) problemas.push(...g.problemas);
   return { grupos, copias, problemas, avisos };
