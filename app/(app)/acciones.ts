@@ -370,14 +370,18 @@ export async function cambiarEstado(entrada: unknown): Promise<Resultado> {
 
 async function anotarPlanchas(
   codigo: string,
-  planchas: { posicion: number; planchas: number }[],
+  planchas: { posicion: number; planchas: number; porFormato?: Record<string, number> | null }[],
 ): Promise<Resultado> {
   const supabase = await clienteServidor();
   for (const p of planchas) {
+    // Con varios formatos, el total es la suma de lo anotado en cada uno.
+    const porFormato = p.porFormato && Object.keys(p.porFormato).length > 0 ? p.porFormato : null;
+    const total = porFormato ? Object.values(porFormato).reduce((s, n) => s + n, 0) : p.planchas;
     const { error } = await supabase.rpc("anotar_planchas_usadas", {
       p_codigo: codigo,
       p_posicion: p.posicion,
-      p_planchas: p.planchas,
+      p_planchas: Math.round(total * 100) / 100,
+      p_por_formato: porFormato,
     });
     if (error) return fallo(mensajeDeError(error));
   }

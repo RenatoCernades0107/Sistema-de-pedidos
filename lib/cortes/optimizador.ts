@@ -43,8 +43,12 @@ export interface Panel {
   sobrante?: boolean;
 }
 
-/** De dónde sale el material de una plancha del resultado. */
-export type Origen = { tipo: "plancha" } | { tipo: "sobrante"; id: string };
+/**
+ * De dónde sale el material de una plancha del resultado. `formato` es el código
+ * del formato cuando un corte mezcla varios; sin él, la plancha es del formato
+ * del corte.
+ */
+export type Origen = { tipo: "plancha"; formato?: string } | { tipo: "sobrante"; id: string };
 
 export interface PlanchaCortada {
   ancho: number;
@@ -530,7 +534,136 @@ export function empaquetar(
   const areaPrevios = previos.reduce((s, c) => s + c.ancho * c.alto, 0);
   const cota = Math.ceil(Math.max(0, areaPiezas - areaPrevios) / (ancho * alto) - 1e-9);
   if (planchasNuevas(mejor!.r) > cota) probar(true);
+  if (previos.length > 0 || planchasNuevas(mejor!.r) <= cota) return mejor!.r;
+
+  // Sobra al menos una plancha respecto de la cota del área: se intenta vaciar
+  // la menos usada. Primero repartiendo sus piezas en los huecos de las demás;
+  // si no, empaquetando todo otra vez con esas piezas por delante, que es lo que
+  // le faltó al orden goloso: llegaron tarde, cuando los huecos ya estaban rotos.
+  const porId = new Map(validas.map((p) => [p.id, p]));
+  for (let vuelta = 0; vuelta < 4 && planchasNuevas(mejor!.r) > cota; vuelta++) {
+    const actual: ResultadoCorte = mejor!.r;
+    const absorbido = absorberMenosUsada(actual, porId, { rotar, kerf, margen });
+    if (absorbido) {
+      mejor = { r: absorbido, clave: clave(absorbido) };
+      continue;
+    }
+    const victima = menosUsada(actual);
+    if (victima < 0) break;
+    const primero = new Set(piezasDe(actual.planchas[victima], porId).map((p) => p.id));
+    const antes = validas.filter((p) => primero.has(p.id));
+    const despues = validas.filter((p) => !primero.has(p.id));
+    const previa = planchasNuevas(actual);
+    for (const orden of ORDENES.slice(0, 4)) {
+      const ordenadas = [...[...antes].sort(orden), ...[...despues].sort(orden)];
+      for (const regla of REGLAS) {
+        for (const preferencia of PREFERENCIAS) {
+          for (const alineado of [false, true]) {
+            const r = unaPasada(ancho, alto, ordenadas, rotar, kerf, margen, [], preferencia, { regla, alineado });
+            const k = clave(r);
+            if (gana(k, mejor!.clave)) mejor = { r, clave: k };
+          }
+        }
+      }
+    }
+    if (planchasNuevas(mejor!.r) >= previa) break;
+  }
   return mejor!.r;
+}
+
+/** La plancha nueva menos usada, o -1 si no hay ninguna. */
+function menosUsada(r: ResultadoCorte): number {
+  let i = -1;
+  r.planchas.forEach((p, j) => {
+    if (p.origen.tipo === "plancha" && (i < 0 || p.usoPct < r.planchas[i].usoPct)) i = j;
+  });
+  return i;
+}
+
+/**
+ * Los huecos libres de una plancha ya cortada, como contenedores donde se puede
+ * seguir empaquetando. Un hueco que linda con otra pieza (no con el borde de la
+ * plancha) pierde un kerf en ese lado: si no, la pieza nueva quedaría pegada.
+ */
+export function huecosDe(p: PlanchaCortada, kerf: number, margen: number) {
+  const salida: { panel: number; ancho: number; alto: number; recorteW: number; recorteH: number }[] = [];
+  p.paneles.forEach((panel, i) => {
+    if (!panel.libre || panel.sobrante) return;
+    const recorteW = panel.x2 < p.ancho - margen - EPS ? kerf : 0;
+    const recorteH = panel.y2 < p.alto - margen - EPS ? kerf : 0;
+    const ancho = panel.x2 - panel.x1 - recorteW;
+    const alto = panel.y2 - panel.y1 - recorteH;
+    if (ancho > EPS && alto > EPS) salida.push({ panel: i, ancho, alto, recorteW, recorteH });
+  });
+  return salida;
+}
+
+/**
+ * Mete el acomodo `dentro` (empaquetado en un hueco, con origen en su esquina)
+ * en el panel libre `indice` de `p`. Lo que se recortó por el kerf vuelve como
+ * panel libre, para que los paneles sigan cubriendo la plancha.
+ */
+export function injertar(
+  p: PlanchaCortada,
+  indice: number,
+  dentro: PlanchaCortada,
+  recorteW: number,
+  recorteH: number,
+): PlanchaCortada {
+  const hueco = p.paneles[indice];
+  const ox = hueco.x1;
+  const oy = hueco.y1;
+  const nuevos: Panel[] = dentro.paneles.map((x) => ({ ...x, x1: x.x1 + ox, x2: x.x2 + ox, y1: x.y1 + oy, y2: x.y2 + oy }));
+  // `cerrar` recorta lo libre al borde de `dentro`: el resto del hueco, si quedó algo, también es libre.
+  if (recorteW > EPS) nuevos.push({ x1: hueco.x2 - recorteW, y1: hueco.y1, x2: hueco.x2, y2: hueco.y2, libre: true });
+  if (recorteH > EPS) nuevos.push({ x1: hueco.x1, y1: hueco.y2 - recorteH, x2: hueco.x2 - recorteW, y2: hueco.y2, libre: true });
+  const paneles = [...p.paneles.slice(0, indice), ...nuevos, ...p.paneles.slice(indice + 1)];
+  const areaUsada = p.areaUsada + dentro.areaUsada;
+  return { ...p, paneles, piezas: p.piezas + dentro.piezas, areaUsada, usoPct: (areaUsada / (p.ancho * p.alto)) * 100 };
+}
+
+/**
+ * Las piezas de `piezas` acomodadas en los huecos de `planchas`, sin abrir
+ * ninguna nueva; `null` si alguna no entra. Devuelve las planchas con los
+ * injertos hechos, en el mismo orden.
+ */
+export function enHuecos(
+  planchas: PlanchaCortada[],
+  piezas: Pieza[],
+  o: { rotar: boolean; kerf: number },
+  margen: number,
+): PlanchaCortada[] | null {
+  if (piezas.length === 0) return planchas;
+  const huecos = planchas.flatMap((p, i) => huecosDe(p, o.kerf, margen).map((h) => ({ ...h, plancha: i })));
+  if (huecos.length === 0) return null;
+  // Los más chicos primero: el primero donde entre es el que más ajusta.
+  huecos.sort((a, b) => a.ancho * a.alto - b.ancho * b.alto);
+  const contenedores = huecos.map((h, i) => ({ id: String(i), ancho: h.ancho, alto: h.alto }));
+  const mayor = huecos.reduce((m, h) => (h.ancho * h.alto > m.ancho * m.alto ? h : m));
+  const r = empaquetar(mayor.ancho, mayor.alto, piezas, { rotar: o.rotar, kerf: o.kerf, previos: contenedores });
+  if (r.noCaben.length > 0 || planchasNuevas(r) > 0) return null;
+
+  // De atrás para adelante dentro de cada plancha: los índices de los paneles no se corren.
+  const usados = r.planchas
+    .map((p) => ({ p, h: huecos[Number((p.origen as { id: string }).id)] }))
+    .sort((a, b) => a.h.plancha - b.h.plancha || b.h.panel - a.h.panel);
+  const salida = [...planchas];
+  for (const { p, h } of usados) salida[h.plancha] = injertar(salida[h.plancha], h.panel, p, h.recorteW, h.recorteH);
+  return salida;
+}
+
+/** Vacía la plancha nueva menos usada repartiendo sus piezas en los huecos de las demás. */
+function absorberMenosUsada(
+  r: ResultadoCorte,
+  porId: Map<string, Pieza>,
+  o: { rotar: boolean; kerf: number; margen: number },
+): ResultadoCorte | null {
+  const victima = menosUsada(r);
+  if (victima < 0) return null;
+  const otras = r.planchas.filter((_, i) => i !== victima);
+  const piezas = piezasDe(r.planchas[victima], porId);
+  const hecho = enHuecos(otras, piezas, o, o.margen);
+  return hecho ? { planchas: hecho, noCaben: r.noCaben } : null;
 }
 
 /** Si la pieza entra sola en `ancho × alto`, en alguna orientación permitida. */

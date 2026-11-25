@@ -470,6 +470,7 @@ export function lineaParaEnviar(l: Linea) {
       lugar: l.lugar,
       piezas: l.piezas,
       formatoCodigo: l.calculo.formato.codigo,
+      mezclaDesde: l.calculo.mezclaDesde ?? null,
       eleccion: l.eleccion ?? null,
       totalMostrado: l.calculo.total,
       precioFinal: l.precioFinal ?? null,

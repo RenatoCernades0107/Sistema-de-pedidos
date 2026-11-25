@@ -31,6 +31,7 @@ import {
   hastaDosDecimales,
   planchasCalculadas,
   planchasDe,
+  planchasPorFormatoDe,
   type LineaDePedido,
   type MaterialesAnotados,
   type OdooDePedido,
@@ -310,8 +311,11 @@ interface MaterialEnEdicion {
 }
 
 interface Borrador {
-  /** Planchas usadas de cada corte, por posición. */
-  planchas: Record<number, string>;
+  /**
+   * Planchas usadas de cada corte, por posición (`"3"`); si el corte mezcla
+   * formatos, una por formato (`"3|F9.5085"`).
+   */
+  planchas: Record<string, string>;
   /** Materiales de cada terminado, por posición. */
   materiales: Record<number, MaterialEnEdicion[]>;
 }
@@ -321,7 +325,11 @@ function borradorDe(lineas: LineaDePedido[]): Borrador {
   const planchas: Borrador["planchas"] = {};
   const materiales: Borrador["materiales"] = {};
   for (const l of lineas) {
-    if (l.corte) planchas[l.posicion] = n(planchasDe(l));
+    if (l.corte) {
+      const porFormato = planchasPorFormatoDe(l);
+      if (porFormato) for (const f of porFormato) planchas[`${l.posicion}|${f.codigo}`] = n(f.usadas);
+      else planchas[l.posicion] = n(planchasDe(l));
+    }
     else if (l.terminado) {
       const t = l.terminado;
       const usados = l.materialesUsados;
@@ -414,9 +422,9 @@ export function MaterialesPedido({
   const cambiado = !mismoBorrador(borrador, original);
   const ocupado = guardando || moviendo;
 
-  const cambiarPlanchas = (posicion: number, texto: string) => {
+  const cambiarPlanchas = (clave: string | number, texto: string) => {
     setError(null);
-    setBorrador((b) => ({ ...b, planchas: { ...b.planchas, [posicion]: texto } }));
+    setBorrador((b) => ({ ...b, planchas: { ...b.planchas, [clave]: texto } }));
   };
   const cambiarMaterial = (posicion: number, productoId: number, cambio: Partial<MaterialEnEdicion>) => {
     setError(null);
@@ -476,6 +484,19 @@ export function MaterialesPedido({
     | { ok: false; error: string } => {
     const planchas: PlanchasAnotadas = [];
     for (const l of cortes) {
+      const porFormato = planchasPorFormatoDe(l);
+      if (porFormato) {
+        // Cada formato por su lado; el total es la suma.
+        const anotado: Record<string, number> = {};
+        for (const f of porFormato) {
+          const v = leerPlanchas(borrador.planchas[`${l.posicion}|${f.codigo}`] ?? "");
+          if (typeof v === "string") return { ok: false, error: `Ítem ${l.posicion} (${f.codigo}): ${v}.` };
+          anotado[f.codigo] = v;
+        }
+        const total = Math.round(Object.values(anotado).reduce((s, x) => s + x, 0) * 100) / 100;
+        planchas.push({ posicion: l.posicion, planchas: total, porFormato: anotado });
+        continue;
+      }
       const v = leerPlanchas(borrador.planchas[l.posicion] ?? "");
       if (typeof v === "string") return { ok: false, error: `Ítem ${l.posicion} (${nombreDeLinea(l)}): ${v}.` };
       planchas.push({ posicion: l.posicion, planchas: v });
@@ -496,7 +517,7 @@ export function MaterialesPedido({
 
   /** Guarda lo que cambió (solo eso): planchas, materiales o ambos. */
   const anotar = async (leido: { planchas: PlanchasAnotadas; materiales: MaterialesAnotados }) => {
-    const planchasCambiadas = cortes.some((l) => borrador.planchas[l.posicion] !== original.planchas[l.posicion]);
+    const planchasCambiadas = JSON.stringify(borrador.planchas) !== JSON.stringify(original.planchas);
     const materialesCambiados = !mismoBorrador(
       { planchas: {}, materiales: borrador.materiales },
       { planchas: {}, materiales: original.materiales },
@@ -621,36 +642,50 @@ export function MaterialesPedido({
           <tbody>
             {lineas.map((l) => {
               if (l.corte) {
-                const valor = borrador.planchas[l.posicion] ?? "";
+                // Un corte que mezcla formatos va en una fila por formato.
+                const filas = planchasPorFormatoDe(l)?.map((f) => ({
+                  clave: `${l.posicion}|${f.codigo}`,
+                  codigo: f.codigo,
+                  calculadas: f.calculadas,
+                })) ?? [{ clave: String(l.posicion), codigo: l.corte.formato.codigo, calculadas: planchasCalculadas(l) }];
                 return (
-                  <tr key={l.posicion} className="border-b">
-                    <td className="tnum text-muted-foreground py-2 pr-3 pl-4 align-middle">{l.posicion}</td>
-                    <td className="py-2 pr-3 align-middle">
-                      <span className="text-muted-foreground mr-1.5 font-mono text-xs">{l.corte.formato.codigo}</span>
-                      {materialDeCorte(l.corte)}
-                    </td>
-                    <td className="tnum py-2 pr-3 text-right align-middle whitespace-nowrap">
-                      {n(planchasCalculadas(l))} {planchasCalculadas(l) === 1 ? "plancha" : "planchas"}
-                    </td>
-                    <td className="py-1.5 pr-4 text-right align-middle whitespace-nowrap">
-                      {editable ? (
-                        <span className="inline-flex items-center gap-1.5">
-                          <Input
-                            inputMode="decimal"
-                            aria-label={`Planchas usadas (${l.corte.formato.codigo})`}
-                            className="tnum h-8 w-20 text-right"
-                            value={valor}
-                            onChange={(e) => cambiarPlanchas(l.posicion, e.target.value)}
-                          />
-                          <span className="text-muted-foreground w-14 text-left text-xs">{unidadPlancha(valor)}</span>
-                        </span>
-                      ) : (
-                        <span className="tnum">
-                          {valor} {unidadPlancha(valor)}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
+                  <Fragment key={l.posicion}>
+                    {filas.map((f, k) => {
+                      const valor = borrador.planchas[f.clave] ?? "";
+                      return (
+                        <tr key={f.clave} className="border-b">
+                          <td className="tnum text-muted-foreground py-2 pr-3 pl-4 align-middle">
+                            {k === 0 ? l.posicion : ""}
+                          </td>
+                          <td className="py-2 pr-3 align-middle">
+                            <span className="text-muted-foreground mr-1.5 font-mono text-xs">{f.codigo}</span>
+                            {materialDeCorte(l.corte!)}
+                          </td>
+                          <td className="tnum py-2 pr-3 text-right align-middle whitespace-nowrap">
+                            {n(f.calculadas)} {f.calculadas === 1 ? "plancha" : "planchas"}
+                          </td>
+                          <td className="py-1.5 pr-4 text-right align-middle whitespace-nowrap">
+                            {editable ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                <Input
+                                  inputMode="decimal"
+                                  aria-label={`Planchas usadas (${f.codigo})`}
+                                  className="tnum h-8 w-20 text-right"
+                                  value={valor}
+                                  onChange={(e) => cambiarPlanchas(f.clave, e.target.value)}
+                                />
+                                <span className="text-muted-foreground w-14 text-left text-xs">{unidadPlancha(valor)}</span>
+                              </span>
+                            ) : (
+                              <span className="tnum">
+                                {valor} {unidadPlancha(valor)}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </Fragment>
                 );
               }
               if (l.terminado) {
