@@ -222,7 +222,11 @@ web3 = 30
 
 [auth.email]
 # Allow/disallow new user signups via email to your project.
-enable_signup = false
+# En true a propósito: el CLI de Supabase traduce este valor a "proveedor de correo
+# activo" (GOTRUE_EXTERNAL_EMAIL_ENABLED). En false apaga también el INICIO DE SESIÓN
+# ("Email logins are disabled") y nadie puede entrar. El registro público sigue
+# cerrado por `enable_signup = false` de [auth], arriba.
+enable_signup = true
 # If enabled, a user will be required to confirm any email change on both the old, and new email
 # addresses. If disabled, only the new email is required to confirm.
 # Aquí va en false a propósito: el correo viejo de las cuentas es interno
