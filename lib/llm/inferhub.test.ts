@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ErrorLlm,
+  crearEmbeddings,
   cuerpoDePeticion,
+  leerEmbeddings,
   leerSse,
   llmConfigurado,
   transmitirChat,
@@ -639,5 +641,78 @@ describe("modelo de respaldo", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+/* ── Perfil propio (agente de WhatsApp) ────────────────────────────────────── */
+
+describe("perfil", () => {
+  it("usa la clave y los modelos del perfil en vez de los de INFERHUB_*", async () => {
+    fetchFalso.mockResolvedValue(respuestaSse([sse(delta({ content: "ok" }, "stop"), "[DONE]")]));
+    await todos({ ...PETICION, perfil: { clave: "clave-agente", modelo: "ag/gemini-3.8-flash-high", respaldo: [] } });
+    const [, init] = fetchFalso.mock.calls[0];
+    expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer clave-agente");
+    expect(JSON.parse(String(init?.body)).model).toBe("ag/gemini-3.8-flash-high");
+  });
+
+  it("pasa al respaldo del perfil si el principal está saturado", async () => {
+    fetchFalso
+      .mockResolvedValueOnce(new Response("saturado", { status: 503 }))
+      .mockResolvedValueOnce(respuestaSse([sse(delta({ content: "ok" }, "stop"), "[DONE]")]));
+    await todos({ ...PETICION, perfil: { clave: "k", modelo: "uno", respaldo: ["cc/claude-haiku-5-5"] } });
+    expect(JSON.parse(String(fetchFalso.mock.calls[1][1]?.body)).model).toBe("cc/claude-haiku-5-5");
+  });
+
+  it("sin clave en el perfil no llama a nadie, aunque haya INFERHUB_API_KEY", async () => {
+    await expect(todos({ ...PETICION, perfil: { clave: " ", modelo: "x", respaldo: [] } })).rejects.toMatchObject({
+      codigo: "no_configurado",
+    });
+    expect(fetchFalso).not.toHaveBeenCalled();
+  });
+});
+
+/* ── Embeddings ────────────────────────────────────────────────────────────── */
+
+describe("crearEmbeddings", () => {
+  const vector = (n: number, x = 0.1) => Array.from({ length: n }, () => x);
+
+  it("pide POST /embeddings con modelo, dimensiones y la clave dada, y ordena por index", async () => {
+    fetchFalso.mockResolvedValue(
+      Response.json({
+        data: [
+          { index: 1, embedding: vector(3, 2) },
+          { index: 0, embedding: vector(3, 1) },
+        ],
+      }),
+    );
+    const r = await crearEmbeddings(["a", "b"], { clave: "k", modelo: "oai/gpt-6-luna", dimensiones: 3 });
+    expect(r).toEqual([vector(3, 1), vector(3, 2)]);
+    const [url, init] = fetchFalso.mock.calls[0];
+    expect(url).toBe("https://inferhub.dev/v1/embeddings");
+    expect(JSON.parse(String(init?.body))).toMatchObject({ model: "oai/gpt-6-luna", input: ["a", "b"], dimensions: 3 });
+    expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer k");
+  });
+
+  it("parte en lotes de 64", async () => {
+    fetchFalso.mockImplementation(async (_u, init) => {
+      const { input } = JSON.parse(String(init?.body)) as { input: string[] };
+      return Response.json({ data: input.map((_, index) => ({ index, embedding: vector(2) })) });
+    });
+    const r = await crearEmbeddings(Array.from({ length: 70 }, (_, i) => `t${i}`), { clave: "k", modelo: "m", dimensiones: 2 });
+    expect(r).toHaveLength(70);
+    expect(fetchFalso).toHaveBeenCalledTimes(2);
+  });
+
+  it("falla con un error legible si el proveedor rechaza", async () => {
+    fetchFalso.mockResolvedValue(Response.json({ error: { message: "model not found" } }, { status: 404 }));
+    await expect(crearEmbeddings(["a"], { clave: "k", modelo: "m", dimensiones: 2 })).rejects.toBeInstanceOf(ErrorLlm);
+  });
+});
+
+describe("leerEmbeddings", () => {
+  it("rechaza vectores del tamaño equivocado o de menos", () => {
+    expect(() => leerEmbeddings({ data: [{ index: 0, embedding: [1, 2] }] }, 1, 3)).toThrow(/2 dimensiones/);
+    expect(() => leerEmbeddings({ data: [] }, 1, 3)).toThrow(/un vector por cada texto/);
+    expect(() => leerEmbeddings(null, 1, 3)).toThrow();
   });
 });
