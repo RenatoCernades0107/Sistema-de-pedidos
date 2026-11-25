@@ -109,6 +109,52 @@ describe("odoo:vincular-compras", () => {
     expect(odoo.estado().compras[0].partner_ref).toBe(false);
   });
 
+  it("--juntar mete varias recepciones en UNA sola orden de compra", async () => {
+    const taller = await asegurarAlmacen({ nombre: "Católica", codigo: "CAT" });
+    const a = await recepcionSuelta(taller, "App Plexiacril ING-00002", 20, 4);
+    const b = await recepcionSuelta(taller, "App Plexiacril ING-00003", 20, 3);
+    await recepcionSuelta(taller, "App Plexiacril ING-00004", 21, 2);
+    const ubicaciones = [{ almacenId: "cat", ubicacionId: taller.ubicacionId }];
+    const antes = await stockPorAlmacen([20, 21], ubicaciones);
+
+    const seco = (await vincular("--juntar", "ING-00002,ING-00003")) as { stdout: string };
+    expect(seco.stdout).toMatch(/Se juntarían en una sola orden/);
+    expect(odoo.estado().compras).toHaveLength(0);
+
+    const { stdout } = (await vincular("--juntar", "ING-00002,ING-00003", "--aplicar")) as { stdout: string };
+    expect(stdout).toMatch(/✔ App Plexiacril ING-00002 \+ ING-00003 → orden de compra/);
+
+    const { compras, pickings } = odoo.estado();
+    expect(compras).toHaveLength(1);
+    expect(compras[0]).toMatchObject({ origin: "App Plexiacril ING-00002 + ING-00003", state: "purchase" });
+    expect(compras[0].lineas.map((l) => [l.product_qty, l.qty_received])).toEqual([[4, 4], [3, 3]]);
+    // Las dos recepciones viejas son las de la orden; la nueva de Odoo, cancelada; la tercera sigue sin orden.
+    for (const id of [a, b]) {
+      expect(pickings.find((p) => p.id === id)!.movimientos[0].purchase_line_id).toBeTruthy();
+    }
+    expect(pickings.filter((p) => ![a, b].includes(p.id) && p.state === "cancel")).toHaveLength(1);
+    expect(await stockPorAlmacen([20, 21], ubicaciones)).toEqual(antes);
+
+    const otra = (await vincular()) as { stdout: string };
+    expect(otra.stdout).toMatch(/Sin orden de compra: 1/);
+  });
+
+  it("--juntar no junta recepciones de almacenes distintos, ni códigos que no están pendientes", async () => {
+    const taller = await asegurarAlmacen({ nombre: "Católica", codigo: "CAT" });
+    const tienda = await asegurarAlmacen({ nombre: "Andahuaylas", codigo: "AND" });
+    await recepcionSuelta(taller, "App Plexiacril ING-00002", 20, 4);
+    await recepcionSuelta(tienda, "App Plexiacril ING-00003", 20, 3);
+
+    const distintos = (await vincular("--juntar", "ING-00002,ING-00003", "--aplicar")) as { stderr: string };
+    expect(distintos.stderr).toMatch(/almacenes distintos/);
+    expect(odoo.estado().compras).toHaveLength(0);
+
+    const faltante = (await vincular("--juntar", "ING-00002,ING-00099")) as { stderr: string };
+    expect(faltante.stderr).toMatch(/ING-00099/);
+    const suelto = (await vincular("--juntar", "ING-00002")) as { stderr: string };
+    expect(suelto.stderr).toMatch(/al menos dos/);
+  });
+
   it("con --limite 1 vincula una sola", async () => {
     const taller = await asegurarAlmacen({ nombre: "Católica", codigo: "CAT" });
     await recepcionSuelta(taller, "App Plexiacril ING-00001", 20, 4);

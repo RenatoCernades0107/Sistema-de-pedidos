@@ -7,6 +7,8 @@
  *   npm run odoo:vincular-compras                      # solo lista: no toca nada
  *   npm run odoo:vincular-compras -- --aplicar --limite 1   # prueba con UNA
  *   npm run odoo:vincular-compras -- --aplicar         # todas
+ *   npm run odoo:vincular-compras -- --juntar ING-00002,ING-00003 --aplicar
+ *       # esas recepciones, en UNA sola orden de compra (mismo proveedor y almacén)
  *
  * Qué hace con cada recepción (origen "App Plexiacril ING-00001", ya validada):
  *   1. Crea la orden de compra con el mismo proveedor, productos, cantidades,
@@ -36,6 +38,13 @@ const iLimite = args.indexOf("--limite");
 const limite = iLimite >= 0 ? Number(args[iLimite + 1]) : Infinity;
 if (iLimite >= 0 && !(limite > 0)) {
   console.error("--limite necesita un número mayor que cero.");
+  process.exit(1);
+}
+
+const iJuntar = args.indexOf("--juntar");
+const juntar = iJuntar >= 0 ? (args[iJuntar + 1] ?? "").split(",").map((x) => x.trim()).filter(Boolean) : null;
+if (juntar && (juntar.length < 2 || new Set(juntar).size !== juntar.length)) {
+  console.error("--juntar necesita al menos dos códigos distintos, separados por coma: --juntar ING-00002,ING-00003");
   process.exit(1);
 }
 
@@ -78,6 +87,7 @@ async function tiene(modelo, campo) {
   return camposDe.get(modelo).has(campo);
 }
 
+const PREFIJO_ORIGEN = "App Plexiacril";
 const id = (v) => (Array.isArray(v) ? v[0] : v || null);
 
 /* ── Qué hay que vincular ───────────────────────────────────────────────── */
@@ -120,15 +130,33 @@ for (const p of recepciones) {
     order: "id",
   });
   const hechos = movs.filter((m) => Number(m[campoCantidad]) > 0).map((m) => ({ ...m, cantidad: Number(m[campoCantidad]) }));
-  if (hechos.length && hechos.some((m) => !id(m.purchase_line_id))) pendientes.push({ p, movs: hechos });
+  if (hechos.length && hechos.some((m) => !id(m.purchase_line_id))) pendientes.push({ origen: p.origin, ps: [p], movs: hechos });
 }
 
 console.log(`Recepciones de compras de la app: ${recepciones.length}. Sin orden de compra: ${pendientes.length}.`);
-for (const { p, movs } of pendientes) {
+const resumen = ({ ps, movs }) => {
   const total = movs.reduce((t, m) => t + m.cantidad * Number(m.price_unit || 0), 0);
-  console.log(
-    `  ${p.origin}  ${p.name}  ${p.partner_id?.[1] ?? "(sin proveedor)"}  ${movs.length} línea(s)  costo total ${total.toFixed(2)}`,
-  );
+  return `${ps.map((p) => `${p.origin}  ${p.name}`).join(" + ")}  ${ps[0].partner_id?.[1] ?? "(sin proveedor)"}  ${movs.length} línea(s)  costo total ${total.toFixed(2)}`;
+};
+for (const g of pendientes) console.log(`  ${resumen(g)}`);
+
+// Con --juntar, solo esas recepciones, todas en una orden.
+let porVincular = pendientes;
+if (juntar) {
+  const elegidas = juntar.map((codigo) => ({ codigo, g: pendientes.find((x) => x.origen === `${PREFIJO_ORIGEN} ${codigo}`) }));
+  const faltan = elegidas.filter((e) => !e.g).map((e) => e.codigo);
+  if (faltan.length) {
+    console.error(`\nNo hay compra pendiente de vincular para: ${faltan.join(", ")} (no existe, o ya tiene orden de compra).`);
+    process.exit(1);
+  }
+  const ps = elegidas.flatMap((e) => e.g.ps);
+  const grupo = {
+    origen: `${PREFIJO_ORIGEN} ${juntar.join(" + ")}`,
+    ps,
+    movs: elegidas.flatMap((e) => e.g.movs),
+  };
+  console.log(`\nSe juntarían en una sola orden:\n  ${resumen(grupo)}`);
+  porVincular = [grupo];
 }
 if (!pendientes.length) process.exit(0);
 if (!aplicar) {
@@ -145,16 +173,23 @@ const campoUom = (await tiene("purchase.order.line", "product_uom"))
     ? "product_uom_id"
     : null;
 
-async function vincular({ p, movs }) {
+async function vincular({ origen, ps, movs }) {
+  const [p] = ps;
   if (!id(p.partner_id)) throw new Error("la recepción no tiene proveedor");
+  if (ps.some((x) => id(x.partner_id) !== id(p.partner_id))) throw new Error("las recepciones son de proveedores distintos");
+  if (ps.some((x) => id(x.picking_type_id) !== id(p.picking_type_id))) {
+    throw new Error("las recepciones son de almacenes distintos: una orden de compra recibe en un solo almacén");
+  }
 
   // Una orden que ya existe con este origen (una corrida anterior que se cortó) se retoma.
-  let [orden] = await ejecutar("purchase.order", "search_read", [[["origin", "=", p.origin]]], { fields: ["state", "order_line", "picking_ids"], limit: 1 });
+  let [orden] = await ejecutar("purchase.order", "search_read", [[["origin", "=", origen]]], { fields: ["state", "order_line", "picking_ids"], limit: 1 });
   if (orden?.state === "cancel") throw new Error(`su orden de compra está cancelada en Odoo (id ${orden.id})`);
 
   if (!orden) {
     const productos = await ejecutar("product.product", "read", [[...new Set(movs.map((m) => id(m.product_id)))]], { fields: ["display_name", "uom_id"] });
     const datos = new Map(productos.map((x) => [x.id, x]));
+    const refs = [...new Set(ps.map((x) => x.partner_ref).filter(Boolean))];
+    const fecha = ps.map((x) => x.date_done).filter(Boolean).sort().at(-1);
     const lineas = movs.map((m) => {
       const prod = datos.get(id(m.product_id));
       return [0, 0, {
@@ -167,10 +202,10 @@ async function vincular({ p, movs }) {
     });
     const ordenId = await ejecutar("purchase.order", "create", [{
       partner_id: id(p.partner_id),
-      origin: p.origin,
+      origin: origen,
       picking_type_id: id(p.picking_type_id),
-      ...(p.partner_ref ? { partner_ref: p.partner_ref } : {}),
-      ...(p.date_done ? { date_order: p.date_done } : {}),
+      ...(refs.length ? { partner_ref: refs.join(", ") } : {}),
+      ...(fecha ? { date_order: fecha } : {}),
       order_line: lineas,
     }]);
     [orden] = await ejecutar("purchase.order", "read", [[ordenId]], { fields: ["state", "order_line", "picking_ids"] });
@@ -197,7 +232,7 @@ async function vincular({ p, movs }) {
 
   // La recepción nueva que armó Odoo ya no hace falta: lo recibido es lo de la vieja.
   const nuevas = await ejecutar("stock.picking", "read", [orden.picking_ids ?? []], { fields: ["state"] });
-  for (const n of nuevas.filter((x) => x.id !== p.id && !["done", "cancel"].includes(x.state))) {
+  for (const n of nuevas.filter((x) => !ps.some((r) => r.id === x.id) && !["done", "cancel"].includes(x.state))) {
     await ejecutar("stock.picking", "action_cancel", [[n.id]]);
   }
 
@@ -210,15 +245,15 @@ async function vincular({ p, movs }) {
 
 let hechas = 0;
 let fallidas = 0;
-for (const c of pendientes.slice(0, limite)) {
+for (const c of porVincular.slice(0, limite)) {
   try {
     const orden = await vincular(c);
     hechas++;
-    console.log(`  ✔ ${c.p.origin} → orden de compra ${orden}`);
+    console.log(`  ✔ ${c.origen} → orden de compra ${orden}`);
   } catch (e) {
     fallidas++;
-    console.error(`  ✘ ${c.p.origin}: ${e.message}`);
+    console.error(`  ✘ ${c.origen}: ${e.message}`);
   }
 }
-console.log(`\nVinculadas: ${hechas}. Con error: ${fallidas}. Sin intentar: ${Math.max(0, pendientes.length - limite)}.`);
+console.log(`\nVinculadas: ${hechas}. Con error: ${fallidas}. Sin intentar: ${Math.max(0, porVincular.length - limite)}.`);
 process.exit(fallidas ? 1 : 0);
