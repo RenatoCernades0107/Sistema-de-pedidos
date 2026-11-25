@@ -89,7 +89,17 @@ export async function POST(request: Request) {
   const { data: guardados, error } = await supabase
     .from("agente_pruebas_mensajes")
     .insert([
-      { prueba_id: pruebaId, rol: "cliente", contenido: texto, creado_en: new Date(ahora).toISOString() },
+      // Las dos filas con las mismas columnas: en un insert de varias filas, PostgREST
+      // pone NULL (no el default) en lo que le falte a una, y `derivado` es NOT NULL.
+      {
+        prueba_id: pruebaId,
+        rol: "cliente",
+        contenido: texto,
+        adjuntos: null,
+        traza: null,
+        derivado: false,
+        creado_en: new Date(ahora).toISOString(),
+      },
       {
         prueba_id: pruebaId,
         rol: "agente",
