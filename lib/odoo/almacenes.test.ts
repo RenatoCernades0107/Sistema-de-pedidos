@@ -116,6 +116,13 @@ describe("compra, ajuste y stock por almacén", () => {
     expect(odoo.estado().pickings).toEqual([expect.objectContaining({ id, state: "done" })]);
   });
 
+  it("una compra funciona con un usuario que no es administrador (no puede leer ir.model)", async () => {
+    const taller = await asegurarAlmacen({ nombre: "Católica", codigo: "CAT" });
+    odoo.fijarModo("sin-ir-model");
+    await ingresarCompra({ almacen: taller, proveedorId: 2, origen: "App Plexiacril ING-00005", documento: null, lineas: [{ productoId: 20, cantidad: 1, costo: 10 }] });
+    expect(odoo.estado().compras).toHaveLength(1);
+  });
+
   it("una compra sin la app Compras instalada avisa qué hacer, y no mete stock", async () => {
     const taller = await asegurarAlmacen({ nombre: "Católica", codigo: "CAT" });
     const modelos = odoo.estado().modelos;

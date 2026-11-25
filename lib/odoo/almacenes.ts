@@ -275,10 +275,20 @@ export interface Compra {
   lineas: LineaDeIngreso[];
 }
 
-/** Si la app Compras está instalada en este Odoo. */
+/**
+ * Si la app Compras está instalada en este Odoo. Se mira pidiendo los campos de
+ * `purchase.order` y no leyendo `ir.model`: ese modelo solo lo ve un administrador,
+ * y el usuario de la app no tiene por qué serlo. Si falla por permisos, ese error
+ * se muestra tal cual.
+ */
 async function hayCompras(): Promise<boolean> {
-  const ids = await ejecutar<number[]>("ir.model", "search", [[["model", "=", "purchase.order"]]], { limit: 1 });
-  return ids.length > 0;
+  try {
+    await ejecutar("purchase.order", "fields_get", [], { attributes: ["type"] });
+    return true;
+  } catch (e) {
+    if (e instanceof ErrorOdoo && /doesn't exist|does not exist|KeyError/i.test(e.message)) return false;
+    throw e;
+  }
 }
 
 /** Las líneas de la orden de compra: producto, cantidad y costo, con la unidad que pide esta versión. */

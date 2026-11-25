@@ -42,10 +42,11 @@ type Registro = Record<string, unknown> & { id: number };
  * error — lo que pasa cuando se corta la red justo después. Es el caso que
  * obliga a que reintentar no duplique.
  * `sin-admin`: el usuario no puede crear campos (`ir.model.fields`).
+ * `sin-ir-model`: el usuario no puede leer `ir.model` (solo un administrador lo ve).
  * `compra-por-aprobar`: confirmar una orden de compra la deja "to approve", sin
  * recepción (Odoo con doble validación de compras).
  */
-export type Modo = "caido" | "perder-respuesta" | "sin-admin" | "compra-por-aprobar" | null;
+export type Modo = "caido" | "perder-respuesta" | "sin-admin" | "sin-ir-model" | "compra-por-aprobar" | null;
 
 interface Llamada {
   modelo: string;
@@ -754,6 +755,9 @@ export async function crearOdooFalso(
 
   function ejecutar(modelo: string, metodo: string, args: unknown[], kwargs: Record<string, unknown>) {
     llamadas.push({ modelo, metodo, args, kwargs });
+    if (modelo === "ir.model" && modo === "sin-ir-model") {
+      throw new ErrorRpc("odoo.exceptions.AccessError", "You are not allowed to access 'Models' (ir.model) records.");
+    }
     contextoActual = (kwargs.context as Record<string, unknown>) ?? null;
     const deModelo = () =>
       tabla(modelo).map((r) => ({
@@ -782,6 +786,10 @@ export async function crearOdooFalso(
 
     switch (metodo) {
       case "fields_get":
+        // Como Odoo: un modelo de una app que no está instalada no existe.
+        if (modelo.startsWith("purchase.") && !datos["ir.model"].some((m) => m.model === "purchase.order")) {
+          throw new ErrorRpc("builtins.KeyError", `Object ${modelo} doesn't exist`);
+        }
         return Object.fromEntries(camposDe(modelo).map((c) => [c, { type: "char" }]));
       case "search_read": {
         const dominio = (args[0] as unknown[]) ?? [];

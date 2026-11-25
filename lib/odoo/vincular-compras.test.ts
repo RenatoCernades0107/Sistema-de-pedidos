@@ -85,6 +85,21 @@ describe("odoo:vincular-compras", () => {
     expect(odoo.estado().compras).toHaveLength(1);
   });
 
+  it("funciona con un usuario que no es administrador (no puede leer ir.model)", async () => {
+    const taller = await asegurarAlmacen({ nombre: "Católica", codigo: "CAT" });
+    await recepcionSuelta(taller, "App Plexiacril ING-00001", 20, 4);
+    odoo.fijarModo("sin-ir-model");
+    const { stdout } = (await vincular("--aplicar")) as { stdout: string };
+    expect(stdout).toMatch(/✔ App Plexiacril ING-00001/);
+  });
+
+  it("avisa si la app Compras no está instalada", async () => {
+    const modelos = odoo.estado().modelos;
+    modelos.splice(modelos.findIndex((m) => m.model === "purchase.order"), 1);
+    const r = (await vincular()) as { stderr: string };
+    expect(r.stderr).toMatch(/no tiene instalada la app Compras/);
+  });
+
   it("con --limite 1 vincula una sola", async () => {
     const taller = await asegurarAlmacen({ nombre: "Católica", codigo: "CAT" });
     await recepcionSuelta(taller, "App Plexiacril ING-00001", 20, 4);

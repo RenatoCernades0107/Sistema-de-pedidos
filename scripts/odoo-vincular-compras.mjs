@@ -82,7 +82,15 @@ const id = (v) => (Array.isArray(v) ? v[0] : v || null);
 
 /* ── Qué hay que vincular ───────────────────────────────────────────────── */
 
-if (!(await ejecutar("ir.model", "search", [[["model", "=", "purchase.order"]]], { limit: 1 })).length) {
+// Se pregunta por los campos de purchase.order y no por ir.model: ese modelo solo lo ve un administrador.
+const hayCompras = await ejecutar("purchase.order", "fields_get", [], { attributes: ["type"] }).then(
+  () => true,
+  (e) => {
+    if (/doesn't exist|does not exist|KeyError/i.test(e.message)) return false;
+    throw e;
+  },
+);
+if (!hayCompras) {
   console.error("Odoo no tiene instalada la app Compras (Aplicaciones → Compras). Instálala y vuelve a correr esto.");
   process.exit(1);
 }
