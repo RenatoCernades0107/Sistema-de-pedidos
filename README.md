@@ -201,6 +201,8 @@ E2E_URL=https://<dominio>.vercel.app npm run e2e
 El recorrido de punta a punta (cotización → pedido → estados → almacén, con quién hace cada paso)
 está en [`docs/flujo-app.svg`](docs/flujo-app.svg); se edita en [`docs/flujo-app.excalidraw`](docs/flujo-app.excalidraw)
 (excalidraw.com → *Abrir*, o la extensión de VS Code).
+El proceso de compras (nacional e importación, con sus costos) está en
+[`docs/proceso-compras.svg`](docs/proceso-compras.svg); se edita en [`docs/proceso-compras.excalidraw`](docs/proceso-compras.excalidraw).
 
 - `app/(app)/` — las vistas por rol. El layout carga los pedidos una vez y las cuatro páginas
   filtran sobre el mismo conjunto; `acciones.ts` son las Server Actions, el único camino de
