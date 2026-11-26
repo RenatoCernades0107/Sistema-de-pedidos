@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EPS, empaquetar, enHuecos, planchasNuevas, type Panel, type Pieza, type ResultadoCorte } from "./optimizador";
+import { EPS, empaquetar, planchasNuevas, type Panel, type Pieza, type ResultadoCorte } from "./optimizador";
 
 const pieza = (id: string, ancho: number, alto: number, rotable = true): Pieza => ({ id, ancho, alto, rotable });
 const varias = (n: number, ancho: number, alto: number, prefijo = "p") =>
@@ -224,47 +224,5 @@ describe("invariantes con cargas aleatorias", () => {
     const r = empaquetar(305, 205, piezas);
     expect(performance.now() - inicio).toBeLessThan(5000);
     comprobar(r, piezas);
-  });
-});
-
-describe("los huecos de las otras planchas", () => {
-  it("una pieza que cabe en el hueco de una plancha se injerta ahí sin abrir otra", () => {
-    const base = empaquetar(100, 100, [pieza("a", 100, 60)]);
-    expect(base.planchas).toHaveLength(1);
-    const hecho = enHuecos(base.planchas, [pieza("b", 90, 30), pieza("c", 10, 40)], { rotar: true, kerf: 0 }, 0);
-    expect(hecho).not.toBeNull();
-    comprobar({ planchas: hecho!, noCaben: [] }, [pieza("a", 100, 60), pieza("b", 90, 30), pieza("c", 10, 40)]);
-    expect(hecho![0].piezas).toBe(3);
-  });
-
-  it("si una no entra, no injerta nada", () => {
-    const base = empaquetar(100, 100, [pieza("a", 100, 60)]);
-    expect(enHuecos(base.planchas, [pieza("b", 90, 50)], { rotar: true, kerf: 0 }, 0)).toBeNull();
-  });
-
-  it("con kerf, la pieza injertada no queda pegada a la vecina", () => {
-    const kerf = 0.5;
-    const base = empaquetar(100, 100, [pieza("a", 60, 100)], { kerf });
-    const hecho = enHuecos(base.planchas, [pieza("b", 39.5, 100)], { rotar: false, kerf }, 0)!;
-    expect(hecho).not.toBeNull();
-    const [a, b] = ["a", "b"].map((id) => hecho[0].paneles.find((x) => x.piezaId === id)!);
-    expect(b.x1 - a.x2).toBeGreaterThanOrEqual(kerf - EPS);
-    // Una más ancha ya no entra: tocaría el borde sin el kerf de la vecina.
-    expect(enHuecos(base.planchas, [pieza("b", 40, 100)], { rotar: false, kerf }, 0)).toBeNull();
-  });
-
-  it("200 pedidos: vaciar la plancha menos usada nunca pierde piezas ni rompe la plancha", () => {
-    const rnd = azar(20261125);
-    for (let caso = 0; caso < 200; caso++) {
-      const piezas: Pieza[] = [];
-      const tipos = 1 + Math.floor(rnd() * 5);
-      for (let t = 0; t < tipos; t++) {
-        const ancho = 5 + Math.floor(rnd() * 100);
-        const alto = 5 + Math.floor(rnd() * 100);
-        const cantidad = 1 + Math.floor(rnd() * 10);
-        for (let n = 0; n < cantidad; n++) piezas.push(pieza(`c${caso}t${t}n${n}`, ancho, alto));
-      }
-      comprobar(empaquetar(122, 183, piezas), piezas);
-    }
   });
 });

@@ -13,7 +13,7 @@ import { cobrarPlancha, opcionesDeCobro, type PlanchaCobrada } from "./cobro";
 import { tiempoLaser, type PiezaPedida } from "./laser";
 import { mensajeSinPrecioManual, tarifaManual } from "./manual";
 import { cortesManuales, largoTotal } from "./metros";
-import { empaquetar, enHuecos, piezasDe, type Contenedor, type Origen, type Pieza, type PlanchaCortada, type ResultadoCorte } from "./optimizador";
+import { empaquetar, piezasDe, type Contenedor, type Origen, type Pieza, type PlanchaCortada, type ResultadoCorte } from "./optimizador";
 
 export type { PiezaPedida } from "./laser";
 
@@ -379,8 +379,8 @@ function mejora(a: Puntaje, b: Puntaje, politica: PoliticaSugerencia): boolean {
 
 /**
  * El corte sobre `base` mejorado con otros formatos del mismo material: las
- * planchas menos usadas se rehacen en el formato que más convenga (o sus piezas
- * se reparten en los huecos de las demás), mientras mejore según la política.
+ * planchas menos usadas se rehacen en el formato que más convenga, mientras
+ * mejore según la política.
  * Por ejemplo, 4 planchas de 122×244 donde la última lleva poco quedan en 3 de
  * 122×244 y 1 de 122×183.
  *
@@ -455,11 +455,7 @@ export function calcularMezcla(
       const resto = actual.planchas.filter((_, i) => !victimas.has(i));
       const sueltas = actual.planchas.filter((_, i) => victimas.has(i)).flatMap((p) => piezasDe(p, originales));
 
-      // En los huecos de las que quedan, sin abrir ninguna.
-      const enResto = enHuecos(resto, sueltas, { rotar: entrada.rotable, kerf }, margen);
-      if (enResto) considerar({ planchas: enResto, noCaben: [] });
-
-      // O en planchas nuevas de cada formato.
+      // En planchas nuevas de cada formato, cobradas con sus fracciones.
       for (const f of formatos) {
         const r = empaquetarEn(f, sueltas);
         considerar({ planchas: [...resto, ...r.planchas], noCaben: r.noCaben });
