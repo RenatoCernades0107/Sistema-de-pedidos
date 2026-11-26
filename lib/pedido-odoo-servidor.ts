@@ -26,6 +26,14 @@ import { clienteServidor } from "./supabase-servidor";
 
 const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
 
+/** Lo anotado por formato (jsonb `{codigo: planchas}`), o `null`. */
+const porFormatoDe = (v: unknown): Record<string, number> | null => {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  const salida: Record<string, number> = {};
+  for (const [codigo, n] of Object.entries(v)) if (Number.isFinite(Number(n))) salida[codigo] = Number(n);
+  return Object.keys(salida).length ? salida : null;
+};
+
 export async function leerLineasDePedido(codigo: string): Promise<LineaDePedido[]> {
   const supabase = await clienteServidor();
   const { data, error } = await supabase.rpc("lineas_de_pedido", { p_codigo: codigo });
@@ -40,6 +48,7 @@ export async function leerLineasDePedido(codigo: string): Promise<LineaDePedido[
     cantidad: Number(f.cantidad),
     corte: f.tipo === "corte" ? leerCorte(f.corte) : null,
     planchasUsadas: num(f.planchas_usadas),
+    planchasUsadasPorFormato: porFormatoDe(f.planchas_usadas_formato),
     terminado: f.tipo === "terminado" ? leerTerminado(f.terminado) : null,
     materialesUsados: f.tipo === "terminado" ? leerMaterialesUsados(f.materiales_usados) : null,
     diseno:

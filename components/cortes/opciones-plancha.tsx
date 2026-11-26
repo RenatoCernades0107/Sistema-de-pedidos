@@ -18,7 +18,7 @@ import {
   type CalculoCorte,
   type EleccionPlancha,
 } from "@/lib/cortes/calcular";
-import { planchasNuevas } from "@/lib/cortes/guardado";
+import { planchasNuevas, planchasPorFormato } from "@/lib/cortes/guardado";
 import { money } from "@/lib/formato";
 import { cn } from "@/lib/utils";
 
@@ -117,7 +117,9 @@ export function OpcionesPlancha({
   // del formato: se muestra una vez, la primera y marcada como sugerida. Con
   // sobrantes de por medio la sugerencia es otro corte y va aparte.
   const fusionado =
-    sugerido && sugerido.planchas.every((p) => p.origen.tipo === "plancha") ? sugerido.formato.codigo : null;
+    sugerido && sugerido.formatos.length === 1 && sugerido.planchas.every((p) => p.origen.tipo === "plancha")
+      ? sugerido.formato.codigo
+      : null;
   const hayFusion = fusionado !== null && formatos.some((c) => c.formato.codigo === fusionado);
   const lista = hayFusion
     ? [...formatos.filter((c) => c.formato.codigo === fusionado), ...formatos.filter((c) => c.formato.codigo !== fusionado)]
@@ -143,7 +145,7 @@ export function OpcionesPlancha({
               calculo={sugerido}
               elegido={eleccion === null}
               validando={validando}
-              hay={sugerido ? hayDe(sugerido.formato.codigo) : null}
+              hayDe={hayDe}
               importe={importe}
               alElegir={() => alElegir(null)}
             />
@@ -215,18 +217,22 @@ function TarjetaSugerida({
   calculo: c,
   elegido,
   validando,
-  hay,
+  hayDe,
   importe,
   alElegir,
 }: {
   calculo: CalculoCorte | null;
   elegido: boolean;
   validando: boolean;
-  hay: number | null | undefined;
+  /** Lo que hay de cada formato: `undefined` mientras Odoo no contesta, `null` si no lleva su stock. */
+  hayDe: (codigo: string) => number | null | undefined;
   importe: Importe;
   alElegir: () => void;
 }) {
   const conSobrante = !!c?.planchas.some((p) => p.origen.tipo === "sobrante");
+  // Con varios formatos, cada uno con su cantidad y su stock.
+  const porFormato = c && c.formatos.length > 1 ? planchasPorFormato(c) : [];
+  const medida = (f: { ancho: number; alto: number }) => `${f.ancho}×${f.alto}`;
   return (
     <button
       type="button"
@@ -237,16 +243,31 @@ function TarjetaSugerida({
     >
       <span className="flex items-center gap-1.5 text-sm font-medium">
         <Sparkles className="text-primary size-3.5" />
-        Sugerida
+        {porFormato.length > 1 ? "Sugerida · combina formatos" : "Sugerida"}
       </span>
       {c ? (
         <>
           <span className="tnum text-base font-semibold">{money(importeDe(c, importe))}</span>
           <span className="text-muted-foreground tnum text-xs">
-            {c.formato.ancho}×{c.formato.alto}
+            {porFormato.length > 1
+              ? porFormato.map(({ formato, cantidad }) => `${cantidad} × ${medida(formato)}`).join(" + ")
+              : medida(c.formato)}
             {conSobrante ? " + sobrantes" : ""} · {desperdicioTexto(desperdicioFisicoPct(c))}
           </span>
-          <LineaStock hay={hay} necesita={planchasNuevas(c)} />
+          {porFormato.length > 1 ? (
+            <span className="mt-auto flex flex-col">
+              {porFormato.map(({ formato, cantidad }) => (
+                <LineaStock
+                  key={formato.codigo}
+                  hay={hayDe(formato.codigo)}
+                  necesita={cantidad}
+                  etiqueta={medida(formato)}
+                />
+              ))}
+            </span>
+          ) : (
+            <LineaStock hay={hayDe(c.formato.codigo)} necesita={planchasNuevas(c)} />
+          )}
         </>
       ) : (
         <span className="text-muted-foreground text-xs">
@@ -378,7 +399,17 @@ function TarjetaSobrante({
   );
 }
 
-export function LineaStock({ hay, necesita }: { hay: number | null | undefined; necesita: number }) {
+export function LineaStock({
+  hay,
+  necesita,
+  etiqueta,
+}: {
+  hay: number | null | undefined;
+  necesita: number;
+  /** Delante del estado: de qué formato es, cuando la tarjeta lleva varios. */
+  etiqueta?: string;
+}) {
+  const de = etiqueta ? <span className="text-muted-foreground tnum">{etiqueta}:</span> : null;
   if (necesita === 0) {
     return (
       <span className="mt-auto flex items-center gap-1.5 pt-1 text-xs">
@@ -390,6 +421,7 @@ export function LineaStock({ hay, necesita }: { hay: number | null | undefined; 
   const alcanza = typeof hay === "number" && hay >= necesita;
   return (
     <span className="mt-auto flex items-center gap-1.5 pt-1 text-xs">
+      {de}
       {hay === undefined ? (
         <>
           <Loader2 className="text-muted-foreground size-3.5 animate-spin" />

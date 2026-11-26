@@ -3,7 +3,7 @@
 import { useState, type KeyboardEvent, type ReactNode } from "react";
 import { Hammer, Minus, NotebookPen, Package, Pencil, Plus, Scissors, Trash2 } from "lucide-react";
 import { MODALIDADES } from "@/lib/cortes/calcular";
-import { materialDeCorte, resumenPiezas } from "@/lib/cortes/guardado";
+import { materialDeCorte, planchasTexto, resumenPiezas } from "@/lib/cortes/guardado";
 import { precioMinimoCorte } from "@/lib/cortes/precio";
 import { money } from "@/lib/formato";
 import {
@@ -161,7 +161,6 @@ function LineaDeCorte({
 }) {
   const c = l.calculo;
   const nombre = `${MODALIDADES[l.modalidad]} en ${materialDeCorte(l)}`;
-  const planchas = c.planchas.length;
   const minimo = precioMinimoCorte(c.total, descuentoMaxPct);
   const precio = l.precioFinal ?? c.total;
   const cambiado = Math.abs(precio - c.total) > 0.004;
@@ -208,8 +207,7 @@ function LineaDeCorte({
         <div className="min-w-0 flex-1 text-sm">
           <p className="tnum">{resumenPiezas(l.piezas)}</p>
           <p className="text-muted-foreground tnum mt-0.5 text-xs">
-            {planchas} {planchas === 1 ? "plancha" : "planchas"} de {c.formato.ancho}×{c.formato.alto}{" "}
-            <span className="font-mono">{c.formato.codigo}</span> · material {money(c.material)} + corte{" "}
+            {planchasTexto(c)} <span className="font-mono">{c.formatos.map((f) => f.codigo).join(" + ")}</span> · material {money(c.material)} + corte{" "}
             {money(c.servicio)}
           </p>
           {c.problema && <p className="text-destructive mt-1 text-xs">{c.problema}</p>}

@@ -13,7 +13,7 @@ import { cobrarPlancha, opcionesDeCobro, type PlanchaCobrada } from "./cobro";
 import { tiempoLaser, type PiezaPedida } from "./laser";
 import { mensajeSinPrecioManual, tarifaManual } from "./manual";
 import { cortesManuales, largoTotal } from "./metros";
-import { empaquetar, type Contenedor, type Pieza, type ResultadoCorte } from "./optimizador";
+import { empaquetar, piezasDe, type Contenedor, type Origen, type Pieza, type PlanchaCortada, type ResultadoCorte } from "./optimizador";
 
 export type { PiezaPedida } from "./laser";
 
@@ -51,7 +51,19 @@ export interface LineaDesglose {
 }
 
 export interface CalculoCorte {
+  /** El formato principal: el de más planchas. */
   formato: FormatoCorte;
+  /**
+   * Los formatos que corta, el principal primero. Uno solo, salvo cuando el
+   * corte mezcla formatos (`calcularMezcla`): entonces cada plancha nueva dice
+   * el suyo en `origen.formato`.
+   */
+  formatos: FormatoCorte[];
+  /**
+   * Solo en una mezcla: el formato del que partió (`calcularMezcla`). El
+   * servidor la rehace desde ahí para llegar al mismo acomodo.
+   */
+  mezclaDesde?: string;
   planchas: PlanchaCobrada[];
   /** Las piezas que no entran en este formato, agrupadas como se pidieron. */
   noCaben: PiezaPedida[];
@@ -131,45 +143,24 @@ export function calcularCorte(
   sobrantes: Contenedor[] = [],
 ): CalculoCorte {
   const total = contarPiezas(entrada.piezas);
-  const vacio = (problema: string): CalculoCorte => ({
-    formato,
-    planchas: [],
-    noCaben: [],
-    piezas: total,
-    material: 0,
-    servicio: 0,
-    total: 0,
-    desperdicioPct: 0,
-    minutosLaser: null,
-    metrosManual: null,
-    desglose: [],
-    problema,
-  });
-
-  if (total === 0) return vacio("Agrega al menos una pieza con sus medidas.");
-  if (total > MAX_PIEZAS) return vacio(`Son demasiadas piezas para un solo corte (máximo ${MAX_PIEZAS}).`);
+  const invalida = entradaInvalida(total);
+  if (invalida) return calculoVacio(formato, total, invalida);
 
   const piezas = expandir(entrada.piezas, entrada.rotable);
   const originales = new Map(piezas.map((p) => [p.id, p]));
   const kerf = kerfDe(config, entrada.modalidad);
-  const cobro = opcionesDeCobro(config, formato.precio, entrada.rotable, kerf);
-
-  const cobrar = (r: ResultadoCorte) => r.planchas.map((p) => cobrarPlancha(p, originales, cobro));
-  const memoria = new Map<ResultadoCorte, PlanchaCobrada[]>();
-  const cobradas = (r: ResultadoCorte) => {
-    let c = memoria.get(r);
-    if (!c) memoria.set(r, (c = cobrar(r)));
-    return c;
-  };
+  const cobradas = cobrador(entrada, config, [formato], originales);
 
   // Entre acomodos con las mismas planchas, el que menos cobra: eso concentra
   // las piezas y libera la última plancha.
-  const corte = empaquetar(formato.ancho, formato.alto, piezas, {
-    rotar: entrada.rotable,
-    kerf,
-    margen: config.corte.margen,
-    costo: (r) => cobradas(r).reduce((s, p) => s + p.cobro.monto, 0),
-  });
+  const corte = empaquetadoDe(entrada, formato, config, () =>
+    empaquetar(formato.ancho, formato.alto, piezas, {
+      rotar: entrada.rotable,
+      kerf,
+      margen: config.corte.margen,
+      costo: (r) => cobradas(r).reduce((s, p) => s + p.cobro.monto, 0),
+    }),
+  );
   const precio = cobradas(corte);
   let planchas = precio;
   if (sobrantes.length) {
@@ -187,23 +178,121 @@ export function calcularCorte(
     }
   }
 
+  return armarCalculo(entrada, config, [formato], precio, planchas, corte.noCaben);
+}
+
+/**
+ * El empaquetado en planchas nuevas de un formato, guardado por entrada y
+ * configuración: la pantalla calcula cada formato solo, con sobrantes y con
+ * mezclas sobre la misma entrada, y es la parte cara. Las piezas salen siempre
+ * igual de la entrada, así que el resultado vale mientras ella no cambie (y un
+ * objeto de entrada nuevo es otra entrada).
+ */
+const empaquetados = new WeakMap<EntradaCorte, WeakMap<ConfigCortes, Map<string, ResultadoCorte>>>();
+function empaquetadoDe(
+  entrada: EntradaCorte,
+  formato: FormatoCorte,
+  config: ConfigCortes,
+  hacer: () => ResultadoCorte,
+): ResultadoCorte {
+  let porConfig = empaquetados.get(entrada);
+  if (!porConfig) empaquetados.set(entrada, (porConfig = new WeakMap()));
+  let porFormato = porConfig.get(config);
+  if (!porFormato) porConfig.set(config, (porFormato = new Map()));
+  const clave = `${formato.codigo}|${formato.ancho}|${formato.alto}|${formato.precio}`;
+  let r = porFormato.get(clave);
+  if (!r) porFormato.set(clave, (r = hacer()));
+  return r;
+}
+
+/** Por qué no se puede calcular, o `null` si se puede. */
+function entradaInvalida(total: number): string | null {
+  if (total === 0) return "Agrega al menos una pieza con sus medidas.";
+  if (total > MAX_PIEZAS) return `Son demasiadas piezas para un solo corte (máximo ${MAX_PIEZAS}).`;
+  return null;
+}
+
+function calculoVacio(formato: FormatoCorte, piezas: number, problema: string): CalculoCorte {
+  return {
+    formato,
+    formatos: [formato],
+    planchas: [],
+    noCaben: [],
+    piezas,
+    material: 0,
+    servicio: 0,
+    total: 0,
+    desperdicioPct: 0,
+    minutosLaser: null,
+    metrosManual: null,
+    desglose: [],
+    problema,
+  };
+}
+
+/** El formato de una plancha de un cálculo: el suyo si lo dice, si no, el primero. */
+export function formatoDe<F extends { codigo: string }>(formatos: F[], p: { origen: Origen }): F {
+  const codigo = p.origen.tipo === "plancha" ? p.origen.formato : undefined;
+  return (codigo && formatos.find((f) => f.codigo === codigo)) || formatos[0];
+}
+
+/**
+ * Cobra las planchas de un resultado, cada una al precio de su formato, con
+ * memoria: el empaquetado pregunta por el mismo resultado varias veces.
+ */
+function cobrador(entrada: EntradaCorte, config: ConfigCortes, formatos: FormatoCorte[], originales: Map<string, Pieza>) {
+  const kerf = kerfDe(config, entrada.modalidad);
+  const opciones = new Map(formatos.map((f) => [f.codigo, opcionesDeCobro(config, f.precio, entrada.rotable, kerf)]));
+  // Por plancha y no por resultado: una mezcla prueba muchos acomodos que
+  // comparten casi todas sus planchas, y cobrar una puede reacomodarla entera.
+  const memoria = new WeakMap<PlanchaCortada, PlanchaCobrada>();
+  const cobrar = (p: PlanchaCortada) => {
+    let c = memoria.get(p);
+    if (!c) memoria.set(p, (c = cobrarPlancha(p, originales, opciones.get(formatoDe(formatos, p).codigo)!)));
+    return c;
+  };
+  return (r: ResultadoCorte) => r.planchas.map(cobrar);
+}
+
+/**
+ * Del acomodo al cálculo: material, desglose, servicio y total. `precio` son las
+ * planchas con que se cobra (siempre nuevas) y `planchas`, las que de verdad se
+ * cortan (con los sobrantes del almacén, si se usan). `formatos[0]` es el principal.
+ */
+function armarCalculo(
+  entrada: EntradaCorte,
+  config: ConfigCortes,
+  formatos: FormatoCorte[],
+  precio: PlanchaCobrada[],
+  fisicas: PlanchaCobrada[],
+  fuera: Pieza[],
+): CalculoCorte {
+  const formato = formatos[0];
+  const total = contarPiezas(entrada.piezas);
+  const kerf = kerfDe(config, entrada.modalidad);
+  const mezcla = formatos.length > 1;
+  let planchas = fisicas;
+
   const material = redondear2(precio.reduce((s, p) => s + p.cobro.monto, 0));
-  const areaPlanchas = precio.length * formato.ancho * formato.alto;
+  const areaPlanchas = precio.reduce((s, p) => s + p.ancho * p.alto, 0);
   const areaUsada = precio.reduce((s, p) => s + p.areaUsada, 0);
 
   const desglose: LineaDesglose[] = precio.map((p, i) => {
-    const medida = `${numero(formato.ancho)}×${numero(formato.alto)}`;
+    const f = formatoDe(formatos, p);
+    const medida = `${numero(p.ancho)}×${numero(p.alto)}`;
+    // Con varios formatos, cada plancha dice de cuál es.
+    const de = mezcla ? ` de ${medida} (${f.codigo})` : "";
     if (p.cobro.factor < 1) {
       return {
         etiqueta:
-          `Plancha ${i + 1}: las piezas caben en ${p.cobro.nombre} ` +
-          `(${numero(p.cobro.ancho)}×${numero(p.cobro.alto)}) → ${soles(formato.precio)} × ${p.cobro.nombre}` +
+          `Plancha ${i + 1}${de}: las piezas caben en ${p.cobro.nombre} ` +
+          `(${numero(p.cobro.ancho)}×${numero(p.cobro.alto)}) → ${soles(f.precio)} × ${p.cobro.nombre}` +
           (p.cobro.recargoPct ? ` + ${numero(p.cobro.recargoPct)} %` : ""),
         monto: p.cobro.monto,
       };
     }
     return {
-      etiqueta: `Plancha ${i + 1}: ${p.cobro.nota ?? `completa (${medida})`}`,
+      etiqueta: `Plancha ${i + 1}${de}: ${p.cobro.nota ?? (mezcla ? "completa" : `completa (${medida})`)}`,
       monto: p.cobro.monto,
     };
   });
@@ -245,7 +334,7 @@ export function calcularCorte(
   });
   desglose.push({ etiqueta: "Total", monto: redondear2(totalFinal), esTotal: true });
 
-  const noCaben = agrupar(corte.noCaben);
+  const noCaben = agrupar(fuera);
   if (noCaben.length > 0) {
     const cuantas = noCaben.reduce((s, p) => s + p.cantidad, 0);
     problema =
@@ -255,6 +344,7 @@ export function calcularCorte(
 
   return {
     formato,
+    formatos,
     planchas,
     noCaben,
     piezas: total,
@@ -269,10 +359,137 @@ export function calcularCorte(
   };
 }
 
+/* ── Varios formatos en un corte ───────────────────────────────────────────── */
+
+/** Lo que se compara entre dos acomodos al decidir si una mezcla conviene. */
+interface Puntaje {
+  monto: number;
+  merma: number;
+}
+
+/** Si `a` es mejor que `b` según la política de sugerencia. */
+function mejora(a: Puntaje, b: Puntaje, politica: PoliticaSugerencia): boolean {
+  const menor = (x: number, y: number) => x < y - 1e-6;
+  const igual = (x: number, y: number) => Math.abs(x - y) <= 1e-6;
+  if (politica === "precio") return menor(a.monto, b.monto) || (igual(a.monto, b.monto) && menor(a.merma, b.merma));
+  if (politica === "merma") return menor(a.merma, b.merma) || (igual(a.merma, b.merma) && menor(a.monto, b.monto));
+  // "promedio" y "tamano": solo si no empeora ninguna de las dos.
+  return !menor(b.monto, a.monto) && !menor(b.merma, a.merma) && (menor(a.monto, b.monto) || menor(a.merma, b.merma));
+}
+
+/**
+ * El corte sobre `base` mejorado con otros formatos del mismo material: las
+ * planchas menos usadas se rehacen en el formato que más convenga, mientras
+ * mejore según la política.
+ * Por ejemplo, 4 planchas de 122×244 donde la última lleva poco quedan en 3 de
+ * 122×244 y 1 de 122×183.
+ *
+ * Determinista: el servidor la repite con las mismas entradas y llega a lo mismo.
+ * Devuelve `null` si no hay mezcla que ofrecer (no mejora, o acaba en un solo
+ * formato, que ya se ofrece solo).
+ */
+export function calcularMezcla(
+  entrada: EntradaCorte,
+  base: FormatoCorte,
+  alternativas: FormatoCorte[],
+  config: ConfigCortes,
+  politica: PoliticaSugerencia = config.sugerencia.politica,
+): CalculoCorte | null {
+  const formatos = [base, ...alternativas.filter((f) => f.codigo !== base.codigo)];
+  if (formatos.length < 2) return null;
+  const total = contarPiezas(entrada.piezas);
+  if (entradaInvalida(total)) return null;
+
+  const piezas = expandir(entrada.piezas, entrada.rotable);
+  const originales = new Map(piezas.map((p) => [p.id, p]));
+  const kerf = kerfDe(config, entrada.modalidad);
+  const margen = config.corte.margen;
+  const cobradas = cobrador(entrada, config, formatos, originales);
+  const montoDe = (r: ResultadoCorte) => cobradas(r).reduce((s, p) => s + p.cobro.monto, 0);
+  const deFormato = (r: ResultadoCorte, f: FormatoCorte): ResultadoCorte => ({
+    ...r,
+    planchas: r.planchas.map((p) => ({ ...p, origen: { tipo: "plancha", formato: f.codigo } })),
+  });
+  // Sin desempate por costo (que reacomoda cada plancha contra las
+  // fracciones): dentro del bucle se prueban muchos acomodos.
+  const empaquetarEn = (f: FormatoCorte, ps: Pieza[]) =>
+    deFormato(empaquetar(f.ancho, f.alto, ps, { rotar: entrada.rotable, kerf, margen }), f);
+  const puntaje = (r: ResultadoCorte): Puntaje => {
+    const c = cobradas(r);
+    const area = c.reduce((s, p) => s + p.ancho * p.alto, 0);
+    const usada = c.reduce((s, p) => s + p.areaUsada, 0);
+    return { monto: c.reduce((s, p) => s + p.cobro.monto, 0), merma: area > 0 ? 1 - usada / area : 0 };
+  };
+
+  // El mismo empaquetado de partida que `calcularCorte` (y el mismo guardado).
+  const inicial = deFormato(
+    empaquetadoDe(entrada, base, config, () =>
+      empaquetar(base.ancho, base.alto, piezas, {
+        rotar: entrada.rotable,
+        kerf,
+        margen,
+        costo: (r) => montoDe(r),
+      }),
+    ),
+    base,
+  );
+  if (inicial.noCaben.length > 0) return null;
+  let actual = inicial;
+  let puntos = puntaje(actual);
+
+  for (let vuelta = 0; vuelta < 8; vuelta++) {
+    // Las menos usadas primero; a igual uso, la última abierta.
+    const orden = actual.planchas
+      .map((p, i) => ({ p, i }))
+      .sort((a, b) => a.p.usoPct - b.p.usoPct || b.i - a.i);
+    let mejor: { r: ResultadoCorte; puntos: Puntaje } | null = null;
+    const considerar = (r: ResultadoCorte) => {
+      if (r.noCaben.length > 0) return;
+      const pt = puntaje(r);
+      if (mejora(pt, mejor ? mejor.puntos : puntos, politica)) mejor = { r, puntos: pt };
+    };
+
+    for (const k of [1, 2]) {
+      if (orden.length < k) break;
+      const victimas = new Set(orden.slice(0, k).map((x) => x.i));
+      const resto = actual.planchas.filter((_, i) => !victimas.has(i));
+      const sueltas = actual.planchas.filter((_, i) => victimas.has(i)).flatMap((p) => piezasDe(p, originales));
+
+      // En planchas nuevas de cada formato, cobradas con sus fracciones.
+      for (const f of formatos) {
+        const r = empaquetarEn(f, sueltas);
+        considerar({ planchas: [...resto, ...r.planchas], noCaben: r.noCaben });
+      }
+    }
+
+    if (!mejor) break;
+    ({ r: actual, puntos } = mejor);
+  }
+
+  if (actual === inicial) return null;
+  const cuenta = new Map<string, number>();
+  for (const p of actual.planchas) {
+    const f = formatoDe(formatos, p);
+    cuenta.set(f.codigo, (cuenta.get(f.codigo) ?? 0) + 1);
+  }
+  if (cuenta.size < 2) return null;
+
+  // El principal es el de más planchas; a igualdad, el de la base.
+  const usados = formatos
+    .filter((f) => cuenta.has(f.codigo))
+    .sort((a, b) => cuenta.get(b.codigo)! - cuenta.get(a.codigo)!);
+  const precio = cobradas(actual);
+  return { ...armarCalculo(entrada, config, usados, precio, precio, []), mezclaDesde: base.codigo };
+}
+
+/** Si un cálculo corta planchas de más de un formato. */
+export const esMezcla = (c: Pick<CalculoCorte, "formatos">) => c.formatos.length > 1;
+
 /** Cómo se ordenan los formatos: ver `PoliticaSugerencia` en `config.ts`. */
 export type CriterioFormato = PoliticaSugerencia;
 
-const areaDe = (c: CalculoCorte) => c.formato.ancho * c.formato.alto;
+/** El área de la plancha del cálculo; en una mezcla, la del formato más grande que abre. */
+const areaDe = (c: CalculoCorte) => Math.max(...c.formatos.map((f) => f.ancho * f.alto));
 
 /**
  * El mismo corte sobre cada formato disponible, del más conveniente al menos.
@@ -293,8 +510,23 @@ export function compararFormatos(
   config: ConfigCortes,
   sobrantes: Contenedor[] = [],
   criterio: CriterioFormato = config.sugerencia.politica,
+  /** Ofrecer también cortes que mezclan formatos (no con el piloto de sobrantes). */
+  mezclar = false,
 ): CalculoCorte[] {
   const calculos = formatos.map((f) => calcularCorte(entrada, f, config, sobrantes));
+  if (mezclar && sobrantes.length === 0) {
+    const vistas = new Set<string>();
+    for (const c of calculos) {
+      if (c.problema) continue;
+      const m = calcularMezcla(entrada, c.formato, formatos, config, criterio);
+      // Dos bases pueden llegar a la misma mezcla: se ofrece una vez.
+      const firma = m && `${m.planchas.map((p) => formatoDe(m.formatos, p).codigo).sort().join(",")}|${m.total}`;
+      if (m && !m.problema && !vistas.has(firma!)) {
+        vistas.add(firma!);
+        calculos.push(m);
+      }
+    }
+  }
   return ordenarCalculos(calculos, criterio);
 }
 
@@ -310,7 +542,8 @@ export function ordenarCalculos(calculos: CalculoCorte[], criterio: CriterioForm
   const porPrecio = puestos(sirven, (c) => c.total);
   const porMerma = puestos(sirven, (c) => c.desperdicioPct);
   const promedio = (c: CalculoCorte) => ((porPrecio.get(c) ?? 0) + (porMerma.get(c) ?? 0)) / 2;
-  const codigo = (a: CalculoCorte, b: CalculoCorte) => a.formato.codigo.localeCompare(b.formato.codigo);
+  const firma = (c: CalculoCorte) => c.formatos.map((f) => f.codigo).join("+");
+  const codigo = (a: CalculoCorte, b: CalculoCorte) => firma(a).localeCompare(firma(b));
 
   return [...calculos].sort((a, b) => {
     const sirve = Number(!!a.problema) - Number(!!b.problema);
