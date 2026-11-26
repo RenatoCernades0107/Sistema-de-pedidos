@@ -2,6 +2,7 @@ import { ROLES, type Pedido, type Rol } from "./dominio";
 import { diaEnLima, momentoEnLima } from "./fecha";
 import { itemDeLinea } from "./pedido-lineas";
 import { clienteServidor } from "./supabase-servidor";
+import { medir } from "./tiempos";
 
 /**
  * Lee los pedidos de Supabase y los devuelve con la forma que espera la UI.
@@ -40,10 +41,9 @@ export async function cargarPedidos(rol: Rol, usuarioId: string): Promise<Pedido
   const supabase = await clienteServidor();
   const permisos = ROLES[rol];
 
-  const { data: filas, error } = await supabase
-    .from(VISTA_POR_ROL[rol])
-    .select("*")
-    .order("fecha_prometida", { ascending: true });
+  const { data: filas, error } = await medir("pedidos.vista", () =>
+    supabase.from(VISTA_POR_ROL[rol]).select("*").order("fecha_prometida", { ascending: true }),
+  );
 
   if (error) throw new Error(`No se pudieron leer los pedidos: ${error.message}`);
   if (!filas?.length) return [];
@@ -52,7 +52,7 @@ export async function cargarPedidos(rol: Rol, usuarioId: string): Promise<Pedido
 
   // Las colecciones se piden de una vez para todos los pedidos, no una consulta
   // por tarjeta. La RLS ya recorta lo que cada rol puede ver de cada tabla.
-  const [adjuntos, historial, abonos, auditoria, lineas] = await Promise.all([
+  const [adjuntos, historial, abonos, auditoria, lineas] = await medir("pedidos.colecciones", () => Promise.all([
     supabase
       .from("adjuntos")
       .select("id, pedido_id, tipo, nombre_archivo, tamano_bytes, linea_posicion")
@@ -80,7 +80,7 @@ export async function cargarPedidos(rol: Rol, usuarioId: string): Promise<Pedido
     // Lo que lleva cada pedido. La función ya quita los precios a quien no es
     // Administración; aquí solo se usan el nombre y la cantidad.
     supabase.rpc("lineas_de_pedidos", { p_ids: ids }),
-  ]);
+  ]));
 
   if (lineas.error) throw new Error(`No se pudieron leer las líneas de los pedidos: ${lineas.error.message}`);
 
