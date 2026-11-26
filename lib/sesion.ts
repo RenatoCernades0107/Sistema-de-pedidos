@@ -178,6 +178,25 @@ export async function exigirAlmacen(): Promise<Perfil> {
   return perfil;
 }
 
+/**
+ * El área de pruebas del agente de ventas de WhatsApp (`/agente-whatsapp`). Va por
+ * su permiso, como `/metricas`, para que la puerta y el enlace del menú coincidan.
+ */
+export async function exigirAgenteWhatsapp(): Promise<Perfil> {
+  const perfil = await exigirSesion();
+  if (!ROLES[perfil.rol].usarAgenteWhatsapp) {
+    redirect(RUTA_PEDIDOS);
+  }
+  return perfil;
+}
+
+/** Lo mismo para los route handlers de `/api/agente-whatsapp`. `null` si no puede. */
+export async function perfilConAgenteWhatsapp(): Promise<Perfil | null> {
+  const perfil = await perfilActual();
+  if (!perfil || bienvenidaPendiente(perfil)) return null;
+  return ROLES[perfil.rol].usarAgenteWhatsapp ? perfil : null;
+}
+
 /** Las compras (`/compras`): pre-compras, órdenes de compra, gastos y liquidación. */
 export async function exigirCompras(): Promise<Perfil> {
   const perfil = await exigirSesion();

@@ -1,4 +1,4 @@
--- Verificación de la migración 20261216000100 (compras y costos).
+-- Verificación de la migración 20261218000100 (compras y costos).
 --
 --   npx supabase db query --linked -f supabase/tests/compras_costos.sql
 --

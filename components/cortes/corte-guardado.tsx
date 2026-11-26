@@ -3,6 +3,7 @@ import { MODALIDADES } from "@/lib/cortes/calcular";
 import {
   fraccionEnPalabras,
   materialDeCorte,
+  formatosDe,
   planchasTexto,
   totalPiezas,
   type CorteGuardado,
@@ -45,7 +46,7 @@ export function CorteGuardadoVista({
         <span className="text-sm font-medium">{materialDeCorte(c)}</span>
         <span className="text-muted-foreground text-xs">
           {piezas} {piezas === 1 ? "pieza" : "piezas"} · {planchasTexto(c)}{" "}
-          <span className="font-mono">{c.formato.codigo}</span>
+          <span className="font-mono">{formatosDe(c).map((f) => f.codigo).join(" + ")}</span>
         </span>
       </div>
 

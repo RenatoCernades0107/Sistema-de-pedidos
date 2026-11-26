@@ -43,8 +43,12 @@ export interface Panel {
   sobrante?: boolean;
 }
 
-/** De dónde sale el material de una plancha del resultado. */
-export type Origen = { tipo: "plancha" } | { tipo: "sobrante"; id: string };
+/**
+ * De dónde sale el material de una plancha del resultado. `formato` es el código
+ * del formato cuando un corte mezcla varios; sin él, la plancha es del formato
+ * del corte.
+ */
+export type Origen = { tipo: "plancha"; formato?: string } | { tipo: "sobrante"; id: string };
 
 export interface PlanchaCortada {
   ancho: number;

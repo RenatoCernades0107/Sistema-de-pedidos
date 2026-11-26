@@ -7,7 +7,7 @@
 
 import { detalleDesdeLineas } from "./cotizaciones";
 import { filaDe } from "./cortes/calcular";
-import type { CorteGuardado, PlanchaGuardada } from "./cortes/guardado";
+import { formatoDePlancha, type CorteGuardado, type PlanchaGuardada } from "./cortes/guardado";
 import type { LineaDePedido } from "./pedido-lineas";
 
 /**
@@ -50,11 +50,11 @@ const n = (x: number) => String(+x.toFixed(2));
  */
 export function origenDePlancha(
   p: Pick<PlanchaGuardada, "origen" | "ancho" | "alto">,
-  formato: CorteGuardado["formato"],
+  corte: Pick<CorteGuardado, "formato" | "formatos">,
 ): string {
   return p.origen.tipo === "sobrante"
     ? `Sobrante ${p.origen.id} del almacén (${n(p.ancho)}×${n(p.alto)})`
-    : `Plancha nueva ${formato.codigo} (${n(p.ancho)}×${n(p.alto)})`;
+    : `Plancha nueva ${formatoDePlancha(corte, p).codigo} (${n(p.ancho)}×${n(p.alto)})`;
 }
 
 /** Cuántas piezas de cada medida lleva una plancha: "4 × #1, 2 × #3". */

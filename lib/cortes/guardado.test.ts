@@ -11,7 +11,7 @@ import {
   type Linea,
   type LineaCorte,
 } from "../lineas-cotizacion";
-import { calcularCorte, type FormatoCorte, type PiezaPedida } from "./calcular";
+import { calcularCorte, calcularMezcla, type FormatoCorte, type PiezaPedida } from "./calcular";
 import { CONFIG_CORTES_DEFECTO } from "./config";
 import {
   fraccionEnPalabras,
@@ -20,6 +20,7 @@ import {
   lugarDeCorte,
   materialDeCorte,
   planchasPorCobro,
+  planchasPorFormato,
   planchasTexto,
   resumenPiezas,
   tituloCorte,
@@ -86,8 +87,8 @@ describe("el corte que se guarda", () => {
 
   it("agrupa las planchas por lo que se cobra de cada una, las completas primero", () => {
     expect(planchasPorCobro(corte)).toEqual([
-      { nombre: "1", monto: 200, cantidad: 2 },
-      { nombre: "1/2", monto: 110, cantidad: 1 },
+      { nombre: "1", monto: 200, cantidad: 2, formato: F7 },
+      { nombre: "1/2", monto: 110, cantidad: 1, formato: F7 },
     ]);
   });
 });
@@ -197,5 +198,55 @@ describe("lugarDeCorte", () => {
     const corte = JSON.parse(JSON.stringify(guardarCorte(datos, calculo)));
     expect(leerCorte({ ...corte, lugar: "tienda" })?.lugar).toBe("taller");
     expect(leerCorte({ ...corte, modalidad: "manual", lugar: "tienda" })?.lugar).toBe("tienda");
+  });
+});
+
+describe("un corte que mezcla formatos", () => {
+  // El pedido P2611-002: piezas largas en 122×244, y la última plancha casi vacía.
+  const F9: FormatoCorte = { codigo: "F9", ancho: 122, alto: 244, precio: 300 };
+  const F7b: FormatoCorte = { ...F7, precio: 230 };
+  const medidas: [number, number, number][] = [
+    [138.5, 62.5, 1], [137, 14, 1], [137.2, 60.2, 1], [137.5, 14, 2], [178, 25, 1], [186.5, 61, 1],
+    [176.5, 25, 1], [176.5, 32.5, 1], [187, 61, 1], [137.5, 14, 2], [137.5, 65, 1],
+  ];
+  const entrada = {
+    piezas: medidas.map(([ancho, alto, cantidad]) => ({ ancho, alto, cantidad })),
+    espesorMm: 4,
+    modalidad: "laser" as const,
+    rotable: true,
+  };
+  const mezcla = calcularMezcla(entrada, F9, [F9, F7b], CONFIG_CORTES_DEFECTO)!;
+  const guardado = guardarCorte({ ...datos, piezas: entrada.piezas }, mezcla);
+  // Lo que pone el servidor: el producto de Odoo de cada formato.
+  guardado.formatos = guardado.formatos!.map((f) => ({ ...f, productoId: f.codigo === "F9" ? 90 : 70, nombre: `PLANCHA ${f.codigo}` }));
+
+  it("guarda sus formatos y cada plancha dice el suyo", () => {
+    expect(guardado.formatos!.map((f) => f.codigo).sort()).toEqual(["F7E024", "F9"]);
+    expect(guardado.planchas.every((p) => p.origen.tipo === "plancha" && p.origen.formato)).toBe(true);
+    expect(leerCorte(JSON.parse(JSON.stringify(guardado)))).toEqual(guardado);
+  });
+
+  it("un corte de un solo formato no guarda `formatos`, como antes", () => {
+    expect(corte.formatos).toBeUndefined();
+    expect(planchasPorFormato(corte)).toEqual([{ formato: F7, cantidad: 3 }]);
+  });
+
+  it("se dice en palabras con cada formato", () => {
+    const porFormato = planchasPorFormato(guardado);
+    expect(porFormato.reduce((s, f) => s + f.cantidad, 0)).toBe(guardado.planchas.length);
+    const [a, b] = porFormato;
+    expect(planchasTexto(guardado)).toBe(
+      `${a.cantidad} ${a.cantidad === 1 ? "plancha" : "planchas"} de ${a.formato.ancho}×${a.formato.alto} + ` +
+        `${b.cantidad} de ${b.formato.ancho}×${b.formato.alto}`,
+    );
+  });
+
+  it("a Odoo va cada formato con su producto, y suma lo cotizado", () => {
+    const lineas = lineasParaOdoo({ ...guardada, productoId: 90, codigo: "F9", corte: guardado, importe: guardado.total });
+    const deFormato = (id: number) => lineas.filter((l) => l.productoId === id).reduce((s, l) => s + l.cantidad, 0);
+    const cuenta = Object.fromEntries(planchasPorFormato(guardado).map((f) => [f.formato.codigo, f.cantidad]));
+    expect(deFormato(90)).toBe(cuenta.F9);
+    expect(deFormato(70)).toBe(cuenta.F7E024);
+    expect(lineas.reduce((s, l) => s + l.cantidad * l.precioUnitario, 0)).toBeCloseTo(guardado.total, 2);
   });
 });

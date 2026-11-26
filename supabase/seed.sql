@@ -27,6 +27,10 @@ alter table public.pedidos          disable trigger pedidos_auditoria;
 alter table public.pedidos          disable trigger pedidos_historial;
 alter table public.envios_provincia disable trigger envios_provincia_auditoria;
 alter table public.adjuntos         disable trigger adjuntos_auditoria;
+-- Cada pedido del seed nace ya con su cotización aprobada (`pedido_id`) y sus
+-- líneas se insertan después: `cotizacion_productos_guardar` lo tomaría por
+-- editar una cotización con pedido (COTIZACION_BLOQUEADA). Se apaga solo durante la carga.
+alter table public.cotizacion_productos disable trigger cotizacion_productos_guardar;
 
 -- ── Usuarios ────────────────────────────────────────────────────────────────
 
@@ -913,6 +917,7 @@ alter table public.pedidos          enable trigger pedidos_auditoria;
 alter table public.pedidos          enable trigger pedidos_historial;
 alter table public.envios_provincia enable trigger envios_provincia_auditoria;
 alter table public.adjuntos         enable trigger adjuntos_auditoria;
+alter table public.cotizacion_productos enable trigger cotizacion_productos_guardar;
 
 -- Lo que el seed promete: cada pedido con su cotización y sus líneas, y el monto
 -- pagado igual a la suma de los abonos (lo mantiene el trigger de `pagos`).

@@ -209,7 +209,7 @@ El proceso de compras (nacional e importación, con sus costos) está en
   liquidación. El reparto está en `lib/costeo.ts` (puro, con pruebas): la mercadería va directa por
   ítem y cada gasto se reparte por valor o por kilos según lo que lo genera; el IGV, el IPM y la
   percepción son crédito fiscal y no suben el costo. La liquidación deja el costo de cada plancha en
-  `costos_historial` (migración `20261216000100`, prueba en `supabase/tests/compras_costos.sql`).
+  `costos_historial` (migración `20261218000100`, prueba en `supabase/tests/compras_costos.sql`).
 - **Costos y precios** (`/costos-precios`, Administración): último costo, promedio, precio de Odoo,
   margen actual y precio sugerido por margen objetivo (general, por material o por plancha); los
   precios elegidos se aplican en Odoo y quedan en `cambios_precio`.

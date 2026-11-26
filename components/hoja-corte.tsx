@@ -7,7 +7,7 @@ import { LUGARES, UBICACIONES } from "@/lib/dominio";
 import { fechaCompleta } from "@/lib/formato";
 import { hoy } from "@/lib/fecha";
 import { MODALIDADES } from "@/lib/cortes/calcular";
-import { fraccionEnPalabras, materialDeCorte, totalPiezas } from "@/lib/cortes/guardado";
+import { fraccionEnPalabras, materialDeCorte, planchasPorFormato, totalPiezas } from "@/lib/cortes/guardado";
 import { materialDeTerminado, tituloTerminado } from "@/lib/terminados/guardado";
 import { indicacionesDe, origenDePlancha, piezasDePlancha } from "@/lib/hoja-corte";
 import { planchasCalculadas, type LineaDePedido } from "@/lib/pedido-lineas";
@@ -189,6 +189,7 @@ function vistaDe(l: LineaDePedido) {
       unidades: null as string | null,
       piezas: c.piezas.map((p) => ({ ...p, nombre: null as string | null })),
       formato: c.formato,
+      formatos: c.formatos,
       planchas: c.planchas,
       rotable: c.rotable,
       esCorte: true,
@@ -205,6 +206,7 @@ function vistaDe(l: LineaDePedido) {
     unidades: `${n(l.cantidad)} ${l.cantidad === 1 ? "unidad" : "unidades"}`,
     piezas: c.piezas.map((p) => ({ ...p, nombre: p.nombre as string | null })),
     formato: c.formato,
+    formatos: undefined,
     planchas: c.planchas,
     rotable: c.rotable,
     esCorte: false,
@@ -232,6 +234,7 @@ function Corte({
   const piezas = totalPiezas(c.piezas);
   const hayFraccion = c.planchas.some((p) => p.cobro.factor < 1);
   const conNombre = c.piezas.some((p) => p.nombre);
+  const porFormato = planchasPorFormato(c);
 
   return (
     <section className="mt-6 flex flex-col gap-4" aria-labelledby={`hoja-corte-${l.posicion}`}>
@@ -253,9 +256,21 @@ function Corte({
         </div>
         <p className="text-muted-foreground mt-0.5 text-sm">
           {c.unidades && `${c.unidades}: `}
-          {piezas} {piezas === 1 ? "pieza" : "piezas"} en {c.planchas.length}{" "}
-          {c.planchas.length === 1 ? "plancha" : "planchas"} de {n(c.formato.ancho)}×{n(c.formato.alto)} cm{" "}
-          <span className="font-mono">{c.formato.codigo}</span>
+          {piezas} {piezas === 1 ? "pieza" : "piezas"} en{" "}
+          {porFormato.length > 1 ? (
+            porFormato.map(({ formato: f, cantidad }, i) => (
+              <span key={f.codigo}>
+                {i > 0 && " + "}
+                {cantidad} {i === 0 && (cantidad === 1 ? "plancha " : "planchas ")}de {n(f.ancho)}×{n(f.alto)} cm{" "}
+                <span className="font-mono">{f.codigo}</span>
+              </span>
+            ))
+          ) : (
+            <>
+              {c.planchas.length} {c.planchas.length === 1 ? "plancha" : "planchas"} de {n(c.formato.ancho)}×
+              {n(c.formato.alto)} cm <span className="font-mono">{c.formato.codigo}</span>
+            </>
+          )}
           {!c.rotable && " · no girar las piezas: el material tiene veta o dibujo"}
         </p>
         {l.indicaciones && (
@@ -313,7 +328,7 @@ function Corte({
                 <span className="font-medium">
                   Plancha {i + 1} de {c.planchas.length}
                 </span>{" "}
-                <span className="text-muted-foreground">· {origenDePlancha(p, c.formato)}</span>
+                <span className="text-muted-foreground">· {origenDePlancha(p, c)}</span>
                 <span className="text-muted-foreground block text-xs">
                   {piezasDePlancha(p)
                     .map((x) => `${x.cantidad} × N.º ${x.fila}`)
@@ -327,6 +342,7 @@ function Corte({
             <PlanoCorte
               plancha={p}
               cortes={cortes}
+              cotas
               titulo={`Plancha ${i + 1} de ${c.planchas.length}: ${p.piezas} piezas en ${n(p.ancho)}×${n(p.alto)} cm`}
             />
           </figure>

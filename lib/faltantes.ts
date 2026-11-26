@@ -20,7 +20,7 @@
 
 import { almacenDeLugar, tipoDeDespacho, type Almacen } from "./almacenes";
 import { lugarDeCorte, type CorteGuardado } from "./cortes/guardado";
-import { planchasCalculadas } from "./pedido-lineas";
+import { planchasCalculadas, planchasPorFormatoDe } from "./pedido-lineas";
 import type { TerminadoGuardado } from "./terminados/guardado";
 
 export type MotivoFaltante = "corte" | "terminado" | "despacho";
@@ -87,6 +87,15 @@ export function necesidadesDeLineas(
     if (l.corte) {
       const donde = almacenDeLugar(activos, lugarDeCorte(l.corte));
       if (!donde) continue;
+      // Un corte que mezcla formatos necesita planchas de cada uno.
+      const porFormato = planchasPorFormatoDe({ ...l, planchasUsadasPorFormato: null });
+      if (porFormato) {
+        for (const f of porFormato) {
+          const nombre = l.corte.formatos?.find((x) => x.codigo === f.codigo)?.nombre ?? f.codigo;
+          sumar({ productoId: f.productoId, codigo: f.codigo, nombre, cantidad: f.calculadas, almacenId: donde.id, motivo: "corte" });
+        }
+        continue;
+      }
       sumar({
         productoId: l.productoId,
         codigo: l.codigo,
@@ -223,7 +232,11 @@ export function productosDeLineas(lineas: LineaConMaterial[]): number[] {
   const ids = new Set<number>();
   for (const l of lineas) {
     if (l.terminado) for (const m of l.terminado.materiales) ids.add(m.productoId);
-    else ids.add(l.productoId);
+    else {
+      ids.add(l.productoId);
+      // Un corte que mezcla formatos lleva también las planchas de los demás.
+      for (const f of l.corte?.formatos ?? []) if (f.productoId) ids.add(f.productoId);
+    }
   }
   return [...ids].filter((id) => id > 0);
 }

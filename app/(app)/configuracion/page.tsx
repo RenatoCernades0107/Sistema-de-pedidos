@@ -15,8 +15,10 @@ import { cargarCuentasBancarias } from "@/lib/cuentas-bancarias-servidor";
 import { CuentasBancarias } from "@/components/configuracion/cuentas-bancarias";
 import { PruebasCalculo } from "@/components/configuracion/pruebas-calculo";
 import { cargarPruebasGuardadas } from "@/lib/pruebas-calculo/ejecutar-servidor";
+import { cargarConfigEmpresa } from "@/lib/empresa-servidor";
+import { FormDatosEmpresa } from "@/components/configuracion/datos-empresa";
 
-const PESTANAS = ["cortes", "planchas", "terminados", "cotizaciones", "lista-precios", "cuentas", "pruebas"] as const;
+const PESTANAS = ["cortes", "planchas", "terminados", "cotizaciones", "lista-precios", "cuentas", "empresa", "pruebas"] as const;
 
 /**
  * Lo que Administración ajusta sin tocar código: cómo se calcula y se cobra un
@@ -31,7 +33,7 @@ export default async function Page({ searchParams }: PageProps<"/configuracion">
   // `?tab=cuentas` es a donde lleva el aviso de una cuenta bancaria nueva.
   const { tab } = await searchParams;
   const inicial = PESTANAS.find((p) => p === tab) ?? "cortes";
-  const [config, grupos, terminados, configCotizaciones, configLista, categorias, cuentas, planchasActivas, pruebas] =
+  const [config, grupos, terminados, configCotizaciones, configLista, categorias, cuentas, planchasActivas, pruebas, empresa] =
     await Promise.all([
     cargarConfigCortes(),
     cargarCatalogoPlanchas(),
@@ -42,6 +44,7 @@ export default async function Page({ searchParams }: PageProps<"/configuracion">
     cargarCuentasBancarias(),
     cargarCatalogoPlanchas(true),
     cargarPruebasGuardadas(),
+    cargarConfigEmpresa(),
   ]);
   const formatos = grupos.reduce((n, g) => n + g.formatos.length, 0);
 
@@ -77,6 +80,9 @@ export default async function Page({ searchParams }: PageProps<"/configuracion">
           <TabsTrigger value="cuentas" className="px-3">
             Cuentas bancarias
           </TabsTrigger>
+          <TabsTrigger value="empresa" className="px-3">
+            Empresa
+          </TabsTrigger>
           <TabsTrigger value="pruebas" className="px-3">
             Pruebas de cálculo
           </TabsTrigger>
@@ -99,6 +105,9 @@ export default async function Page({ searchParams }: PageProps<"/configuracion">
         </TabsContent>
         <TabsContent value="cuentas">
           <CuentasBancarias cuentas={cuentas} />
+        </TabsContent>
+        <TabsContent value="empresa">
+          <FormDatosEmpresa config={empresa} />
         </TabsContent>
         <TabsContent value="pruebas">
           <PruebasCalculo catalogo={terminados} grupos={planchasActivas} guardadas={pruebas} />

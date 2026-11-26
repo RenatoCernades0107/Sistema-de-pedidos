@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CorteGuardado } from "./cortes/guardado";
 import { elegirDespacho, faltantesDe, necesidadesDeLineas, productosDeLineas, type LineaConMaterial, type StockLibre } from "./faltantes";
+import { cantidadesParaDescontar, type LineaDePedido } from "./pedido-lineas";
 
 const almacenes = [
   { id: "and", nombre: "Andahuaylas", tipo: "tienda" as const, activo: true, orden: 1 },
@@ -68,6 +69,30 @@ describe("lo que necesita un pedido", () => {
     ]);
   });
 
+  it("un corte que mezcla formatos pide las planchas de cada uno", () => {
+    const mezcla = {
+      modalidad: "laser",
+      lugar: "taller",
+      sobrantes: false,
+      formato: { codigo: "P20", ancho: 122, alto: 244, precio: 0 },
+      formatos: [
+        { codigo: "P20", ancho: 122, alto: 244, precio: 0, productoId: 20, nombre: "Producto 20" },
+        { codigo: "P21", ancho: 122, alto: 183, precio: 0, productoId: 21, nombre: "Producto 21" },
+      ],
+      planchas: [
+        { origen: { tipo: "plancha", formato: "P20" } },
+        { origen: { tipo: "plancha", formato: "P20" } },
+        { origen: { tipo: "plancha", formato: "P21" } },
+      ],
+    } as unknown as CorteGuardado;
+    const lineas = [linea(20, 3, { corte: mezcla })];
+    expect(necesidadesDeLineas(lineas, "and", almacenes, almacenables)).toEqual([
+      expect.objectContaining({ productoId: 20, cantidad: 2, almacenId: "cat", motivo: "corte" }),
+      expect.objectContaining({ productoId: 21, cantidad: 1, almacenId: "cat", motivo: "corte" }),
+    ]);
+    expect(productosDeLineas(lineas).sort()).toEqual([20, 21]);
+  });
+
   it("los productos a mirar: los de las líneas y los materiales de los terminados", () => {
     const lineas = [linea(20, 1), linea(99, 1, { terminado: { materiales: [material(21, 1)] } })];
     expect(productosDeLineas(lineas).sort()).toEqual([20, 21]);
@@ -126,5 +151,54 @@ describe("de qué almacén sale la venta", () => {
     expect(elegirDespacho(lineas, stock({ 20: { and: 1, cat: 3, esm: 99 }, 30: { esm: 99 } }), almacenes, almacenables)?.id).toBe("cat");
     expect(elegirDespacho(lineas, stock({ 20: { and: 2, cat: 2 }, 30: {} }), almacenes, almacenables)?.id).toBe("and");
     expect(elegirDespacho([linea(500, 1)], stock({}), almacenes, almacenables)?.id).toBe("and");
+  });
+});
+
+describe("lo que se descuenta de un corte que mezcla formatos", () => {
+  const mezcla = {
+    modalidad: "laser",
+    lugar: "taller",
+    sobrantes: false,
+    formato: { codigo: "P20", ancho: 122, alto: 244, precio: 0 },
+    formatos: [
+      { codigo: "P20", ancho: 122, alto: 244, precio: 0, productoId: 20 },
+      { codigo: "P21", ancho: 122, alto: 183, precio: 0, productoId: 21 },
+    ],
+    planchas: [
+      { origen: { tipo: "plancha", formato: "P20" } },
+      { origen: { tipo: "plancha", formato: "P21" } },
+      { origen: { tipo: "plancha", formato: "P21" } },
+    ],
+  } as unknown as CorteGuardado;
+  const base = {
+    posicion: 1,
+    productoId: 20,
+    nombre: "P20",
+    codigo: "P20",
+    descripcion: null,
+    cantidad: 3,
+    corte: mezcla,
+    planchasUsadas: null,
+    terminado: null,
+    materialesUsados: null,
+    importe: null,
+    produccionId: null,
+    produccionNombre: null,
+    produccionCerrada: false,
+  } satisfies LineaDePedido;
+
+  it("sin anotar, lo calculado de cada formato", () => {
+    expect([...cantidadesParaDescontar([base])]).toEqual([
+      [20, 1],
+      [21, 2],
+    ]);
+  });
+
+  it("anotado, lo de cada formato", () => {
+    const anotada = { ...base, planchasUsadas: 4, planchasUsadasPorFormato: { P20: 1, P21: 3 } };
+    expect([...cantidadesParaDescontar([anotada])]).toEqual([
+      [20, 1],
+      [21, 3],
+    ]);
   });
 });

@@ -12,6 +12,7 @@
 import { z } from "zod";
 import {
   MODALIDADES,
+  formatoDe,
   type CalculoCorte,
   type EleccionPlancha,
   type LineaDesglose,
@@ -52,6 +53,16 @@ export const LUGARES_CORTE: Record<LugarCorte, string> = {
 export const lugarDeCorte = (c: { modalidad: Modalidad; lugar?: LugarCorte | null }): LugarCorte =>
   c.modalidad === "laser" ? "taller" : (c.lugar ?? "taller");
 
+export interface FormatoGuardado {
+  codigo: string;
+  ancho: number;
+  alto: number;
+  precio: number;
+  /** El producto de Odoo de la plancha y su nombre (solo en `formatos`, los pone el servidor). */
+  productoId?: number;
+  nombre?: string;
+}
+
 export interface CorteGuardado {
   version: 1;
   /** El grupo del catálogo (`grupos_plancha.id`) del que se cortó. */
@@ -66,8 +77,14 @@ export interface CorteGuardado {
   lugar: LugarCorte;
   rotable: boolean;
   piezas: PiezaPedida[];
-  /** La plancha elegida, con su precio de Odoo en ese momento. */
-  formato: { codigo: string; ancho: number; alto: number; precio: number };
+  /** La plancha elegida (la principal, si mezcla formatos), con su precio de Odoo en ese momento. */
+  formato: FormatoGuardado;
+  /**
+   * Solo si el corte mezcla formatos: todos los que usa, el principal primero,
+   * cada uno con su producto de Odoo. Cada plancha nueva dice el suyo en
+   * `origen.formato`. Los cortes de un solo formato no lo guardan.
+   */
+  formatos?: FormatoGuardado[];
   planchas: PlanchaGuardada[];
   montoMaterial: number;
   montoServicio: number;
@@ -133,6 +150,7 @@ export function guardarCorte(datos: DatosCorte, calculo: CalculoCorte): CorteGua
     lugar: lugarDeCorte(datos),
     piezas: datos.piezas.map((p) => ({ ancho: p.ancho, alto: p.alto, cantidad: Math.floor(p.cantidad) })),
     formato: calculo.formato,
+    ...(calculo.formatos.length > 1 && { formatos: calculo.formatos.map((f) => ({ ...f })) }),
     planchas: guardarPlanchas(calculo.planchas),
     montoMaterial: calculo.material,
     montoServicio: calculo.servicio,
@@ -162,7 +180,7 @@ const panel = z.object({
 });
 
 const origen = z.union([
-  z.object({ tipo: z.literal("plancha") }),
+  z.object({ tipo: z.literal("plancha"), formato: z.string().optional() }),
   z.object({ tipo: z.literal("sobrante"), id: z.string() }),
 ]);
 
@@ -197,6 +215,8 @@ export const esquemaEleccion = z
   .optional()
   .catch(null);
 
+const esquemaFormato = z.object({ codigo: z.string(), ancho: numero, alto: numero, precio: numero });
+
 const esquema = z.object({
   version: z.literal(1),
   grupoId: z.string(),
@@ -208,7 +228,11 @@ const esquema = z.object({
   lugar: z.enum(["taller", "tienda"]).catch("taller"),
   rotable: z.boolean(),
   piezas: z.array(z.object({ ancho: numero, alto: numero, cantidad: numero })),
-  formato: z.object({ codigo: z.string(), ancho: numero, alto: numero, precio: numero }),
+  formato: esquemaFormato,
+  formatos: z
+    .array(esquemaFormato.extend({ productoId: numero.optional(), nombre: z.string().optional() }))
+    .optional()
+    .catch(undefined),
   planchas: z.array(esquemaPlancha),
   montoMaterial: numero,
   montoServicio: numero,
@@ -255,11 +279,43 @@ export const planchasNuevas = (c: Pick<CorteGuardado, "planchas">) =>
 export const sobrantesUsados = (c: Pick<CorteGuardado, "planchas">) =>
   c.planchas.flatMap((p) => (p.origen.tipo === "sobrante" ? [p.origen.id] : []));
 
-/** "3 planchas de 122×183"; con sobrantes, "2 planchas de 122×183 y 1 sobrante". */
-export function planchasTexto(c: Pick<CorteGuardado, "planchas" | "formato">): string {
+/** Los formatos de un corte, el principal primero: uno solo si no mezcla. */
+export const formatosDe = (c: Pick<CorteGuardado, "formato" | "formatos">): FormatoGuardado[] =>
+  c.formatos?.length ? c.formatos : [c.formato];
+
+/** El formato de una plancha del corte. */
+export const formatoDePlancha = (c: Pick<CorteGuardado, "formato" | "formatos">, p: Pick<PlanchaGuardada, "origen">) =>
+  formatoDe(formatosDe(c), p);
+
+/** Las planchas nuevas de cada formato, en el orden de `formatosDe`; los que no abren ninguna no salen. */
+export function planchasPorFormato(c: Pick<CorteGuardado, "formato" | "formatos" | "planchas">) {
+  const formatos = formatosDe(c);
+  const cuenta = new Map<string, number>();
+  for (const p of c.planchas) {
+    if (p.origen.tipo !== "plancha") continue;
+    const f = formatoDe(formatos, p);
+    cuenta.set(f.codigo, (cuenta.get(f.codigo) ?? 0) + 1);
+  }
+  return formatos.filter((f) => cuenta.has(f.codigo)).map((formato) => ({ formato, cantidad: cuenta.get(formato.codigo)! }));
+}
+
+/**
+ * "3 planchas de 122×183"; con sobrantes, "2 planchas de 122×183 y 1 sobrante";
+ * con varios formatos, "3 planchas de 122×244 + 1 de 122×183".
+ */
+export function planchasTexto(c: Pick<CorteGuardado, "planchas" | "formato" | "formatos">): string {
   const cuantas = planchasNuevas(c);
   const sobrantes = c.planchas.length - cuantas;
-  const nuevas = `${cuantas} ${cuantas === 1 ? "plancha" : "planchas"} de ${n(c.formato.ancho)}×${n(c.formato.alto)}`;
+  const porFormato = planchasPorFormato(c);
+  const nuevas =
+    porFormato.length > 1
+      ? porFormato
+          .map(
+            ({ formato: f, cantidad }, i) =>
+              `${cantidad}${i === 0 ? ` ${cantidad === 1 ? "plancha" : "planchas"}` : ""} de ${n(f.ancho)}×${n(f.alto)}`,
+          )
+          .join(" + ")
+      : `${cuantas} ${cuantas === 1 ? "plancha" : "planchas"} de ${n(c.formato.ancho)}×${n(c.formato.alto)}`;
   if (!sobrantes) return nuevas;
   const deAlmacen = `${sobrantes} ${sobrantes === 1 ? "sobrante" : "sobrantes"}`;
   return cuantas ? `${nuevas} y ${deAlmacen}` : deAlmacen;
@@ -284,13 +340,15 @@ export function fraccionEnPalabras(nombre: string): string {
  * Las planchas de un corte agrupadas por lo que se cobra de cada una: así van a
  * Odoo, una línea por precio distinto ("2 planchas completas", "1 media").
  */
-export function planchasPorCobro(c: Pick<CorteGuardado, "planchas">) {
-  const grupos = new Map<string, { nombre: string; monto: number; cantidad: number }>();
+export function planchasPorCobro(c: Pick<CorteGuardado, "planchas" | "formato" | "formatos">) {
+  const formatos = formatosDe(c);
+  const grupos = new Map<string, { nombre: string; monto: number; cantidad: number; formato: FormatoGuardado }>();
   for (const p of c.planchas) {
-    const clave = `${p.cobro.nombre}|${p.cobro.monto}`;
+    const formato = formatoDe(formatos, p);
+    const clave = `${formato.codigo}|${p.cobro.nombre}|${p.cobro.monto}`;
     const g = grupos.get(clave);
     if (g) g.cantidad += 1;
-    else grupos.set(clave, { nombre: p.cobro.nombre, monto: p.cobro.monto, cantidad: 1 });
+    else grupos.set(clave, { nombre: p.cobro.nombre, monto: p.cobro.monto, cantidad: 1, formato });
   }
   // Las completas primero: es como se lee una cotización.
   return [...grupos.values()].sort((a, b) => b.monto - a.monto);
