@@ -1285,7 +1285,7 @@
       "x": 20.0,
       "y": 1100,
       "width": 260,
-      "height": 80
+      "height": 90
     },
     {
       "angle": 0,
@@ -1309,12 +1309,12 @@
       "locked": false,
       "id": "n8-t",
       "type": "text",
-      "x": 69.35999999999999,
-      "y": 1120.0,
-      "width": 161.28000000000003,
-      "height": 40.0,
-      "text": "Proveedor despacha\na nuestro almacén",
-      "originalText": "Proveedor despacha\na nuestro almacén",
+      "x": 20.079999999999984,
+      "y": 1115.0,
+      "width": 259.84000000000003,
+      "height": 60.0,
+      "text": "Proveedor despacha\na nuestro almacén\n(flete incluido en el precio)",
+      "originalText": "Proveedor despacha\na nuestro almacén\n(flete incluido en el precio)",
       "fontSize": 16,
       "fontFamily": 2,
       "textAlign": "center",
@@ -2438,9 +2438,9 @@
       "id": "na10",
       "type": "arrow",
       "x": 150.0,
-      "y": 1180,
+      "y": 1190,
       "width": 230.0,
-      "height": 70,
+      "height": 60,
       "points": [
         [
           0.0,
@@ -2448,15 +2448,15 @@
         ],
         [
           0.0,
-          45
+          35
         ],
         [
           230.0,
-          45
+          35
         ],
         [
           230.0,
-          70
+          60
         ]
       ],
       "lastCommittedPoint": null,
@@ -9480,7 +9480,7 @@
       "x": -40,
       "y": 2248,
       "width": 330,
-      "height": 40
+      "height": 56
     },
     {
       "angle": 0,
@@ -9505,7 +9505,7 @@
       "id": "tb8-0-t",
       "type": "text",
       "x": -28,
-      "y": 2258.625,
+      "y": 2266.625,
       "width": 243.60000000000002,
       "height": 18.75,
       "text": "Transporte (tráiler / camión)",
@@ -9549,7 +9549,7 @@
       "x": 290,
       "y": 2248,
       "width": 230,
-      "height": 40
+      "height": 56
     },
     {
       "angle": 0,
@@ -9574,7 +9574,7 @@
       "id": "tb8-1-t",
       "type": "text",
       "x": 396.6,
-      "y": 2258.625,
+      "y": 2266.625,
       "width": 16.8,
       "height": 18.75,
       "text": "Sí",
@@ -9618,7 +9618,7 @@
       "x": 520,
       "y": 2248,
       "width": 230,
-      "height": 40
+      "height": 56
     },
     {
       "angle": 0,
@@ -9642,12 +9642,12 @@
       "locked": false,
       "id": "tb8-2-t",
       "type": "text",
-      "x": 563.6,
-      "y": 2258.625,
-      "width": 142.8,
-      "height": 18.75,
-      "text": "Solo si recogemos",
-      "originalText": "Solo si recogemos",
+      "x": 521.6,
+      "y": 2257.25,
+      "width": 226.8,
+      "height": 37.5,
+      "text": "Solo si recogemos\n(si despacha: en el precio)",
+      "originalText": "Solo si recogemos\n(si despacha: en el precio)",
       "fontSize": 15,
       "fontFamily": 2,
       "textAlign": "center",
@@ -9685,7 +9685,7 @@
       "id": "tb9-0",
       "type": "rectangle",
       "x": -40,
-      "y": 2288,
+      "y": 2304,
       "width": 330,
       "height": 40
     },
@@ -9712,7 +9712,7 @@
       "id": "tb9-0-t",
       "type": "text",
       "x": -28,
-      "y": 2298.625,
+      "y": 2314.625,
       "width": 84.00000000000001,
       "height": 18.75,
       "text": "Montacarga",
@@ -9754,7 +9754,7 @@
       "id": "tb9-1",
       "type": "rectangle",
       "x": 290,
-      "y": 2288,
+      "y": 2304,
       "width": 230,
       "height": 40
     },
@@ -9781,7 +9781,7 @@
       "id": "tb9-1-t",
       "type": "text",
       "x": 396.6,
-      "y": 2298.625,
+      "y": 2314.625,
       "width": 16.8,
       "height": 18.75,
       "text": "Sí",
@@ -9823,7 +9823,7 @@
       "id": "tb9-2",
       "type": "rectangle",
       "x": 520,
-      "y": 2288,
+      "y": 2304,
       "width": 230,
       "height": 40
     },
@@ -9850,7 +9850,7 @@
       "id": "tb9-2-t",
       "type": "text",
       "x": 555.2,
-      "y": 2298.625,
+      "y": 2314.625,
       "width": 159.60000000000002,
       "height": 18.75,
       "text": "— (descarga manual)",
@@ -9887,7 +9887,7 @@
       "id": "tab-n",
       "type": "text",
       "x": -40,
-      "y": 2342,
+      "y": 2358,
       "width": 595.84,
       "height": 52.5,
       "text": "Base de los impuestos = Valor aduana (CIF) = FOB + flete + seguro.\nIPM = Impuesto de Promoción Municipal · IGV = Impuesto General a las Ventas.\nEl ad valorem puede ser 0 según la partida o el tratado.",
