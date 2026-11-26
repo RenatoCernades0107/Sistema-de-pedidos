@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   calcularConSobrante,
   calcularCorte,
+  calcularMezcla,
   calcularEleccion,
   compararFormatos,
   desperdicioFisicoPct,
@@ -401,5 +402,71 @@ describe("plancha o sobrante elegidos a mano", () => {
     const r = calcularConSobrante(corte([[60, 80, 2]]), F7, config, SOB);
     const area = 61 * 183;
     expect(desperdicioFisicoPct(r)).toBeCloseTo((1 - (2 * 60 * 80) / area) * 100, 5);
+  });
+});
+
+describe("combinar formatos en un corte", () => {
+  // El pedido P2611-002: piezas largas (137 a 187 cm) en acrílico de 4 mm.
+  const F9: FormatoCorte = { codigo: "F9", ancho: 122, alto: 244, precio: 300 };
+  const F7c: FormatoCorte = { codigo: "F7", ancho: 122, alto: 183, precio: 230 };
+  const pedido = corte(
+    [
+      [138.5, 62.5, 1], [137, 14, 1], [137.2, 60.2, 1], [137.5, 14, 2], [178, 25, 1], [186.5, 61, 1],
+      [176.5, 25, 1], [176.5, 32.5, 1], [187, 61, 1], [137.5, 14, 2], [137.5, 65, 1],
+    ],
+    { espesorMm: 4 },
+  );
+
+  it("mezcla formatos cuando baja el precio y la merma", () => {
+    const solo = calcularCorte(pedido, F9, config);
+    const mezcla = calcularMezcla(pedido, F9, [F9, F7c], config)!;
+    expect(mezcla).not.toBeNull();
+    expect(mezcla.problema).toBeNull();
+    expect(mezcla.formatos.map((f) => f.codigo).sort()).toEqual(["F7", "F9"]);
+    expect(mezcla.material).toBeLessThan(solo.material);
+    expect(mezcla.desperdicioPct).toBeLessThan(solo.desperdicioPct);
+    expect(mezcla.mezclaDesde).toBe("F9");
+    // Las piezas de más de 183 cm siguen en planchas de 244.
+    for (const p of mezcla.planchas) {
+      const largo = Math.max(...p.paneles.filter((x) => !x.libre).map((x) => Math.max(x.x2 - x.x1, x.y2 - x.y1)));
+      expect(largo).toBeLessThanOrEqual(Math.max(p.ancho, p.alto) + EPS);
+    }
+    // Cada plancha cobra al precio de su formato.
+    const precios = { F9: 300, F7: 230 } as Record<string, number>;
+    for (const p of mezcla.planchas) {
+      expect(p.origen.tipo === "plancha" && p.origen.formato).toBeTruthy();
+      const codigo = (p.origen as { formato: string }).formato;
+      expect(p.cobro.monto).toBeLessThanOrEqual(precios[codigo] + EPS);
+    }
+    // No se pierde ninguna pieza.
+    expect(mezcla.planchas.reduce((s, p) => s + p.piezas, 0)).toBe(13);
+  });
+
+  it("es determinista: el servidor llega a lo mismo", () => {
+    const a = calcularMezcla(pedido, F9, [F9, F7c], config)!;
+    const b = calcularMezcla(pedido, F9, [F9, F7c], config)!;
+    expect(b.total).toBe(a.total);
+    expect(b.planchas.map((p) => p.origen)).toEqual(a.planchas.map((p) => p.origen));
+  });
+
+  it("sin otro formato, o si no mejora, no hay mezcla", () => {
+    expect(calcularMezcla(pedido, F9, [F9], config)).toBeNull();
+    // Una plancha más chica y más cara no conviene.
+    const cara = { ...F7c, precio: 900 };
+    expect(calcularMezcla(pedido, F9, [F9, cara], config)).toBeNull();
+  });
+
+  it("compararFormatos la ofrece solo si se pide, y la pone primero si es la más barata", () => {
+    expect(compararFormatos(pedido, [F9, F7c], config).every((c) => c.formatos.length === 1)).toBe(true);
+    const con = compararFormatos(pedido, [F9, F7c], config, [], "precio", true);
+    expect(con[0].formatos.length).toBe(2);
+    // Con sobrantes del almacén (el piloto) no se mezcla.
+    const conSobrantes = compararFormatos(pedido, [F9, F7c], config, [{ id: "S1", ancho: 50, alto: 50 }], "precio", true);
+    expect(conSobrantes.every((c) => c.formatos.length === 1)).toBe(true);
+  });
+
+  it("con la política de merma también decide la merma", () => {
+    const mezcla = calcularMezcla(pedido, F9, [F9, F7c], config, "merma")!;
+    expect(mezcla.desperdicioPct).toBeLessThan(calcularCorte(pedido, F9, config).desperdicioPct);
   });
 });

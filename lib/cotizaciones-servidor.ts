@@ -353,9 +353,10 @@ export function lineasParaOdoo(
 
   return [
     ...planchasPorCobro(corte).map((g) => ({
-      productoId: l.productoId,
-      nombreProducto: l.nombre,
-      codigo: l.codigo,
+      // Con varios formatos, cada grupo con el producto de su plancha; el principal es el de la línea.
+      productoId: g.formato.productoId ?? l.productoId,
+      nombreProducto: g.formato.productoId ? (g.formato.nombre ?? g.formato.codigo) : l.nombre,
+      codigo: g.formato.productoId ? g.formato.codigo : l.codigo,
       cantidad: g.cantidad,
       precioUnitario: g.monto,
       descripcion: g.nombre === "1" ? paraCortar : `Se cobra ${fraccionEnPalabras(g.nombre)}. ${paraCortar}`,

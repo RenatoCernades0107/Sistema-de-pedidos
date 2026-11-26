@@ -7,7 +7,7 @@
 
 import { cache } from "react";
 import { clienteServidor } from "./supabase-servidor";
-import { calcularConSobrante, calcularCorte, type CalculoCorte } from "./cortes/calcular";
+import { calcularConSobrante, calcularCorte, calcularMezcla, type CalculoCorte } from "./cortes/calcular";
 import { colorDe, type FormatoPlancha, type GrupoPlancha } from "./cortes/catalogo";
 import { leerConfigCortes, type ConfigCortes } from "./cortes/config";
 import { conPrecioFinal, precioMinimoCorte } from "./cortes/precio";
@@ -178,7 +178,26 @@ export async function prepararCorte(
   const formatoCorte = { codigo: formato.codigo, ancho: formato.anchoCm, alto: formato.largoCm, precio: plancha.precio };
   const eleccion = linea.eleccion ?? null;
   let calculo: CalculoCorte;
-  if (eleccion?.tipo === "formato") {
+  /** Con una mezcla, el producto de Odoo de cada formato del material. */
+  let productosMezcla: Map<string, { productoId: number; nombre: string }> | null = null;
+  if (linea.mezclaDesde) {
+    // La sugerencia mezcla formatos: se rehace igual que en la pantalla, desde
+    // el mismo formato y con todos los del material que Odoo vende.
+    if (grupo.sobrantesActivo) return fallo("Este material registra sobrantes: no se pueden mezclar formatos todavía.");
+    if (eleccion) return fallo("Una mezcla de formatos es una sugerencia: no va con una plancha elegida a mano.");
+    const precios = await preciosDeGrupo(grupo);
+    const todos = grupo.formatos
+      .filter((f) => f.activo && precios.has(f.codigo))
+      .map((f) => ({ codigo: f.codigo, ancho: f.anchoCm, alto: f.largoCm, precio: precios.get(f.codigo)!.precio }));
+    const base = todos.find((f) => f.codigo === linea.mezclaDesde);
+    if (!base) return fallo(`El formato ${linea.mezclaDesde} ya no está disponible para ese material.`);
+    const mezcla = calcularMezcla(entrada, base, todos, config);
+    if (!mezcla) {
+      return fallo("La combinación de formatos ya no sale igual (cambió un precio o el catálogo). Abre el corte de nuevo.");
+    }
+    calculo = mezcla;
+    productosMezcla = precios;
+  } else if (eleccion?.tipo === "formato") {
     // Elegido a mano: solo planchas nuevas de ese formato.
     calculo = calcularCorte(entrada, formatoCorte, config);
   } else if (eleccion?.tipo === "sobrante") {
@@ -227,13 +246,26 @@ export async function prepararCorte(
     calculo,
   );
 
+  if (productosMezcla) {
+    corte.formatos = (corte.formatos ?? []).map((f) => {
+      const p = productosMezcla.get(f.codigo);
+      return { ...f, productoId: p?.productoId, nombre: p?.nombre };
+    });
+  }
+  // La línea lleva el producto de la plancha principal (con una mezcla, puede no ser el que se pidió).
+  const principal =
+    corte.formato.codigo === plancha.codigo
+      ? plancha
+      : (await productosPorCodigo([corte.formato.codigo])).get(corte.formato.codigo);
+  if (!principal) return fallo(`La plancha ${corte.formato.codigo} no existe en Odoo.`);
+
   return {
     ok: true,
     fila: {
       tipo: "corte",
-      odoo_product_id: plancha.id,
-      producto_nombre: plancha.nombre,
-      producto_codigo: plancha.codigo,
+      odoo_product_id: principal.id,
+      producto_nombre: principal.nombre,
+      producto_codigo: principal.codigo,
       descripcion: `${tituloCorte(corte)}: ${resumenPiezas(corte.piezas)}`,
       cantidad: corte.planchas.length,
       // Referencial: lo que vale es el importe de la línea.

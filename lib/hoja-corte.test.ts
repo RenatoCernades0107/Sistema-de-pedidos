@@ -49,13 +49,30 @@ describe("indicacionesDe", () => {
 
 describe("origenDePlancha", () => {
   const formato = { codigo: "F7E024", ancho: 122, alto: 183, precio: 0 };
+  const corte = { formato };
 
   it("dice si es una plancha nueva o un sobrante del almacén", () => {
-    expect(origenDePlancha({ origen: { tipo: "plancha" }, ancho: 122, alto: 183 }, formato)).toBe(
+    expect(origenDePlancha({ origen: { tipo: "plancha" }, ancho: 122, alto: 183 }, corte)).toBe(
       "Plancha nueva F7E024 (122×183)",
     );
-    expect(origenDePlancha({ origen: { tipo: "sobrante", id: "S-0042" }, ancho: 61, alto: 183 }, formato)).toBe(
+    expect(origenDePlancha({ origen: { tipo: "sobrante", id: "S-0042" }, ancho: 61, alto: 183 }, corte)).toBe(
       "Sobrante S-0042 del almacén (61×183)",
+    );
+  });
+
+  it("con varios formatos, cada plancha nueva dice el suyo", () => {
+    const mezcla = {
+      formato: { codigo: "F9", ancho: 122, alto: 244, precio: 0 },
+      formatos: [
+        { codigo: "F9", ancho: 122, alto: 244, precio: 0 },
+        { codigo: "F7E024", ancho: 122, alto: 183, precio: 0 },
+      ],
+    };
+    expect(origenDePlancha({ origen: { tipo: "plancha", formato: "F7E024" }, ancho: 122, alto: 183 }, mezcla)).toBe(
+      "Plancha nueva F7E024 (122×183)",
+    );
+    expect(origenDePlancha({ origen: { tipo: "plancha", formato: "F9" }, ancho: 122, alto: 244 }, mezcla)).toBe(
+      "Plancha nueva F9 (122×244)",
     );
   });
 });

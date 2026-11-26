@@ -9,6 +9,7 @@ import {
   hastaDosDecimales,
   planchasCalculadas,
   planchasDe,
+  planchasPorFormatoDe,
   type LineaDePedido,
 } from "@/lib/pedido-lineas";
 import { sobrantesUsados } from "@/lib/cortes/guardado";
@@ -30,7 +31,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-export type PlanchasAnotadas = { posicion: number; planchas: number }[];
+/** Lo anotado de cada corte; si mezcla formatos, también lo de cada uno (`planchas` es la suma). */
+export type PlanchasAnotadas = { posicion: number; planchas: number; porFormato?: Record<string, number> | null }[];
 export type SobrantesGuardados = {
   posicion: number;
   /** Cada pedazo, con el almacén al que se fue (y, en un producto terminado, su material). */
@@ -150,8 +152,16 @@ function Formulario({
   pendiente: boolean;
   alConfirmar: (planchas: PlanchasAnotadas, sobrantes: SobrantesGuardados) => Promise<void>;
 }) {
-  const [valores, setValores] = useState(() => cortes.map((l) => n(planchasDe(l))));
-  const [errores, setErrores] = useState<(string | null)[]>(() => cortes.map(() => null));
+  // Un campo por corte; si el corte mezcla formatos, uno por formato.
+  const porFormato = cortes.map((l) => planchasPorFormatoDe(l));
+  const [valores, setValores] = useState<string[][]>(() =>
+    cortes.map((l, i) => porFormato[i]?.map((f) => n(f.usadas)) ?? [n(planchasDe(l))]),
+  );
+  const [errores, setErrores] = useState<(string | null)[][]>(() => valores.map((vs) => vs.map(() => null)));
+  const cambiarValor = (i: number, k: number, v: string) => {
+    setValores((prev) => prev.map((vs, j) => (j === i ? vs.map((x, m) => (m === k ? v : x)) : vs)));
+    setErrores((prev) => prev.map((es, j) => (j === i ? es.map((x, m) => (m === k ? null : x)) : es)));
+  };
   const [sobrantes, setSobrantes] = useState<SobranteEnEdicion[][]>(() =>
     cortes.map((l) =>
       alPasarAListo && l.corte?.sobrantes
@@ -176,10 +186,10 @@ function Formulario({
 
   const enviar = (e: React.FormEvent) => {
     e.preventDefault();
-    const leidos = valores.map(leer);
-    const nuevos = leidos.map((v) => (typeof v === "string" ? v : null));
+    const leidos = valores.map((vs) => vs.map(leer));
+    const nuevos = leidos.map((vs) => vs.map((v) => (typeof v === "string" ? v : null)));
     setErrores(nuevos);
-    if (nuevos.some(Boolean)) return;
+    if (nuevos.some((es) => es.some(Boolean))) return;
 
     const guardados: SobrantesGuardados = [];
     for (const [i, l] of cortes.entries()) {
@@ -200,7 +210,16 @@ function Formulario({
     }
     setErrorSobrantes(null);
     void alConfirmar(
-      cortes.map((l, i) => ({ posicion: l.posicion, planchas: leidos[i] as number })),
+      cortes.map((l, i) => {
+        const numeros = leidos[i] as number[];
+        const formatos = porFormato[i];
+        if (!formatos) return { posicion: l.posicion, planchas: numeros[0] };
+        return {
+          posicion: l.posicion,
+          planchas: Math.round(numeros.reduce((s, x) => s + x, 0) * 100) / 100,
+          porFormato: Object.fromEntries(formatos.map((f, k) => [f.codigo, numeros[k]])),
+        };
+      }),
       guardados,
     );
   };
@@ -219,34 +238,60 @@ function Formulario({
                   <p className="text-sm font-medium">
                     {MODALIDADES[c.modalidad]} · {materialDeCorte(c)}
                   </p>
-                  <p className="text-muted-foreground text-xs">
-                    Plancha de {n(c.formato.ancho)}×{n(c.formato.alto)}{" "}
-                    <span className="font-mono">{c.formato.codigo}</span> · calculadas: {n(planchasCalculadas(l))}
-                  </p>
+                  {!porFormato[i] && (
+                    <p className="text-muted-foreground text-xs">
+                      Plancha de {n(c.formato.ancho)}×{n(c.formato.alto)}{" "}
+                      <span className="font-mono">{c.formato.codigo}</span> · calculadas: {n(planchasCalculadas(l))}
+                    </p>
+                  )}
                   {sobrantesUsados(c).length > 0 && (
                     <p className="text-muted-foreground text-xs">
                       Usa del almacén: <span className="text-foreground font-mono">{sobrantesUsados(c).join(", ")}</span>
                     </p>
                   )}
                 </div>
-                <Campo
-                  label={`Planchas usadas (${c.formato.codigo})`}
-                  error={errores[i] ?? undefined}
-                  claseEtiqueta="sr-only"
-                >
-                  <Input
-                    inputMode="decimal"
-                    autoFocus={i === 0}
-                    className="tnum w-28"
-                    value={valores[i]}
-                    aria-invalid={!!errores[i]}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setValores((prev) => prev.map((x, j) => (j === i ? v : x)));
-                      setErrores((prev) => prev.map((x, j) => (j === i ? null : x)));
-                    }}
-                  />
-                </Campo>
+                {porFormato[i] ? (
+                  // Combina formatos: cada uno se descuenta de su producto en Odoo.
+                  <div className="flex flex-col gap-2">
+                    {porFormato[i]!.map((f, k) => (
+                      <div key={f.codigo} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <Campo
+                          label={`Planchas usadas (${f.codigo})`}
+                          error={errores[i][k] ?? undefined}
+                          claseEtiqueta="sr-only"
+                        >
+                          <Input
+                            inputMode="decimal"
+                            autoFocus={i === 0 && k === 0}
+                            className="tnum w-28"
+                            value={valores[i][k]}
+                            aria-invalid={!!errores[i][k]}
+                            onChange={(e) => cambiarValor(i, k, e.target.value)}
+                          />
+                        </Campo>
+                        <span className="text-muted-foreground text-xs">
+                          de {n(f.ancho)}×{n(f.alto)} <span className="font-mono">{f.codigo}</span> · calculadas:{" "}
+                          {n(f.calculadas)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <Campo
+                    label={`Planchas usadas (${c.formato.codigo})`}
+                    error={errores[i][0] ?? undefined}
+                    claseEtiqueta="sr-only"
+                  >
+                    <Input
+                      inputMode="decimal"
+                      autoFocus={i === 0}
+                      className="tnum w-28"
+                      value={valores[i][0]}
+                      aria-invalid={!!errores[i][0]}
+                      onChange={(e) => cambiarValor(i, 0, e.target.value)}
+                    />
+                  </Campo>
+                )}
 
                 {piloto && (
                   <fieldset className="flex flex-col gap-2 border-t pt-2">

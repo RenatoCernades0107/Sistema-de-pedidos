@@ -960,6 +960,7 @@ export type Database = {
           odoo_produccion_nombre: string | null
           odoo_product_id: number
           planchas_usadas: number | null
+          planchas_usadas_formato: Json | null
           posicion: number
           precio_unitario: number
           produccion_cerrada: boolean
@@ -982,6 +983,7 @@ export type Database = {
           odoo_produccion_nombre?: string | null
           odoo_product_id: number
           planchas_usadas?: number | null
+          planchas_usadas_formato?: Json | null
           posicion: number
           precio_unitario: number
           produccion_cerrada?: boolean
@@ -1004,6 +1006,7 @@ export type Database = {
           odoo_produccion_nombre?: string | null
           odoo_product_id?: number
           planchas_usadas?: number | null
+          planchas_usadas_formato?: Json | null
           posicion?: number
           precio_unitario?: number
           produccion_cerrada?: boolean
@@ -3407,7 +3410,12 @@ export type Database = {
         Returns: undefined
       }
       anotar_planchas_usadas: {
-        Args: { p_codigo: string; p_planchas: number; p_posicion: number }
+        Args: {
+          p_codigo: string
+          p_planchas: number
+          p_por_formato?: Json
+          p_posicion: number
+        }
         Returns: undefined
       }
       anotar_produccion: {
@@ -3645,6 +3653,7 @@ export type Database = {
           odoo_produccion_nombre: string
           odoo_product_id: number
           planchas_usadas: number
+          planchas_usadas_formato: Json
           posicion: number
           precio_unitario: number
           produccion_cerrada: boolean

@@ -7,7 +7,7 @@
  * también los componentes del navegador.
  */
 
-import { leerCorte, planchasNuevas, tituloCorte, totalPiezas, type CorteGuardado } from "./cortes/guardado";
+import { leerCorte, planchasNuevas, planchasPorFormato, tituloCorte, totalPiezas, type CorteGuardado } from "./cortes/guardado";
 import { leerTerminado, type MaterialUsado, type TerminadoGuardado } from "./terminados/guardado";
 import type { ReferenciaDiseno } from "./cad/referencia";
 import type { ItemPedido } from "./dominio";
@@ -57,6 +57,11 @@ export interface LineaDePedido {
   corte: CorteGuardado | null;
   /** Lo que el taller anotó que usó de verdad. `null`: nadie lo dijo todavía. */
   planchasUsadas: number | null;
+  /**
+   * Si el corte mezcla formatos: lo anotado de cada uno, por código. La suma es
+   * `planchasUsadas`. `null`: nadie lo dijo, o el corte es de un solo formato.
+   */
+  planchasUsadasPorFormato?: Record<string, number> | null;
   /** Si la línea es un producto terminado, su ficha (sin precios para quien no es Administración). */
   terminado: TerminadoGuardado | null;
   /** Lo que logística anotó que se usó en el producto terminado. `null`: nadie lo dijo todavía. */
@@ -97,6 +102,25 @@ export const planchasCalculadas = (l: Pick<LineaDePedido, "cantidad" | "corte">)
 export const planchasDe = (l: Pick<LineaDePedido, "cantidad" | "planchasUsadas" | "corte">) =>
   l.planchasUsadas ?? planchasCalculadas(l);
 
+/**
+ * Si el corte mezcla formatos: las planchas de cada uno, calculadas y las que se
+ * descuentan (las anotadas o, si no, las calculadas), con su producto de Odoo.
+ * `null` si el corte es de un solo formato.
+ */
+export function planchasPorFormatoDe(
+  l: Pick<LineaDePedido, "productoId" | "corte" | "planchasUsadasPorFormato">,
+): { codigo: string; ancho: number; alto: number; productoId: number; calculadas: number; usadas: number }[] | null {
+  if (!l.corte?.formatos || l.corte.formatos.length < 2) return null;
+  return planchasPorFormato(l.corte).map(({ formato: f, cantidad }) => ({
+    codigo: f.codigo,
+    ancho: f.ancho,
+    alto: f.alto,
+    productoId: f.productoId ?? l.productoId,
+    calculadas: cantidad,
+    usadas: l.planchasUsadasPorFormato?.[f.codigo] ?? cantidad,
+  }));
+}
+
 /** El tope de una cantidad de planchas anotada; el mismo que pone la base. */
 export const PLANCHAS_MAXIMAS = 9999;
 
@@ -109,9 +133,12 @@ export const hastaDosDecimales = (n: number) => Math.abs(n * 100 - Math.round(n 
  */
 export function cantidadesParaDescontar(lineas: LineaDePedido[]): Map<number, number> {
   const salida = new Map<number, number>();
+  const sumar = (productoId: number, cuanto: number) => salida.set(productoId, (salida.get(productoId) ?? 0) + cuanto);
   for (const l of lineas) {
-    const cuanto = l.corte ? planchasDe(l) : l.cantidad;
-    salida.set(l.productoId, (salida.get(l.productoId) ?? 0) + cuanto);
+    // Un corte que mezcla formatos sale de varios productos, cada uno con lo suyo.
+    const porFormato = planchasPorFormatoDe(l);
+    if (porFormato) porFormato.forEach((f) => sumar(f.productoId, f.usadas));
+    else sumar(l.productoId, l.corte ? planchasDe(l) : l.cantidad);
   }
   return salida;
 }

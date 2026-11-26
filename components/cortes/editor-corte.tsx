@@ -14,7 +14,7 @@ import {
 } from "@/lib/cortes/calcular";
 import { colorDe, type GrupoPlancha } from "@/lib/cortes/catalogo";
 import type { ConfigCortes } from "@/lib/cortes/config";
-import { LUGARES_CORTE, lugarDeCorte, planchasNuevas, planchasTexto, type LugarCorte } from "@/lib/cortes/guardado";
+import { LUGARES_CORTE, lugarDeCorte, planchasPorFormato, planchasTexto, type LugarCorte } from "@/lib/cortes/guardado";
 import { contenedoresDe } from "@/lib/sobrantes";
 import { money } from "@/lib/formato";
 import type { LineaCorte } from "@/lib/lineas-cotizacion";
@@ -176,8 +176,10 @@ export function EditorCorte({
   /** La sugerencia según la política de Configuración, con los sobrantes primero. */
   const calculos = useMemo(() => {
     if (!entrada || piezas.length === 0) return [];
-    return compararFormatos(entrada, formatos, config, contenedoresDe(delAlmacen));
-  }, [entrada, piezas, formatos, config, delAlmacen]);
+    // Mezclar formatos solo sin el piloto de sobrantes: su orden de fabricación lleva una sola plancha.
+    const mezclar = !grupo?.sobrantesActivo;
+    return compararFormatos(entrada, formatos, config, contenedoresDe(delAlmacen), undefined, mezclar);
+  }, [entrada, piezas, formatos, config, delAlmacen, grupo]);
 
   /** Cada formato, solo con planchas nuevas: lo que pasa si se elige ese. */
   const porFormato = useMemo(() => {
@@ -201,12 +203,12 @@ export function EditorCorte({
 
   const { stock, porAlmacen, validando, fallo: falloStock } = useStock(formatos.map((f) => f.codigo));
 
-  const alcanza = (c: CalculoCorte) => {
-    const necesita = planchasNuevas(c);
-    if (necesita === 0) return true;
-    const hay = stock?.[c.formato.codigo];
-    return typeof hay === "number" && hay >= necesita;
-  };
+  // Cada formato que abre, con su propio stock.
+  const alcanza = (c: CalculoCorte) =>
+    planchasPorFormato(c).every(({ formato, cantidad }) => {
+      const hay = stock?.[formato.codigo];
+      return typeof hay === "number" && hay >= cantidad;
+    });
   // Sin respuesta de Odoo no se sugiere nada: la sugerencia es "el mejor con stock".
   const sugerido = stock ? (calculos.find((c) => !c.problema && alcanza(c)) ?? null) : null;
   const elegido =

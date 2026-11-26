@@ -322,6 +322,18 @@ const planchasUsadas = z.object({
     .min(0, "No pueden ser menos de cero planchas")
     .max(PLANCHAS_MAXIMAS, "Son demasiadas planchas")
     .refine(hastaDosDecimales, "Hasta dos decimales"),
+  /** Si el corte mezcla formatos: lo usado de cada uno, por código. `planchas` es la suma. */
+  porFormato: z
+    .record(
+      z.string().trim().min(1).max(40),
+      z
+        .number({ error: "Escribe cuántas planchas se usaron" })
+        .min(0, "No pueden ser menos de cero planchas")
+        .max(PLANCHAS_MAXIMAS, "Son demasiadas planchas")
+        .refine(hastaDosDecimales, "Hasta dos decimales"),
+    )
+    .nullable()
+    .optional(),
 });
 
 /** Lo que se usó en un producto terminado: productos de Odoo y cuánto de cada uno. */
@@ -589,6 +601,12 @@ export const esquemaLineaCorte = z.object({
     .min(1, "Un corte necesita al menos una pieza")
     .max(40, "Son demasiadas medidas distintas para un solo corte"),
   formatoCodigo: z.string().trim().min(1, "Elige el formato de plancha").max(40),
+  /**
+   * Si la sugerencia mezcla formatos: el formato del que partió la mezcla
+   * (`calcularMezcla`). El servidor la rehace desde ahí con todos los formatos
+   * del material. `null`: un solo formato.
+   */
+  mezclaDesde: z.string().trim().min(1).max(40).nullable().optional(),
   /** La plancha o el sobrante elegidos a mano. `null`: la sugerencia. */
   eleccion: esquemaEleccionPlancha,
   /**
