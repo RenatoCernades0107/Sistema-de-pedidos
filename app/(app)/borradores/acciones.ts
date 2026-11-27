@@ -1,11 +1,12 @@
 "use server";
 
 /**
- * Guardar y borrar los borradores de "Nuevo pedido" y "Nueva cotización".
+ * Guardar y borrar los borradores de "Nuevo pedido", "Nueva cotización" y "Nueva compra".
  *
  * Se escribe con la sesión de quien pide: la RLS deja tocar solo los propios.
  */
 
+import { ROLES } from "@/lib/dominio";
 import { exigirCotizaciones, exigirCrearPedido, exigirSesion } from "@/lib/sesion";
 import { clienteServidor } from "@/lib/supabase-servidor";
 import { mensajeDeError } from "@/lib/errores";
@@ -20,7 +21,10 @@ export async function guardarBorrador(entrada: unknown): Promise<ResultadoBorrad
   const { id, tipo, cotizacionId, resumen } = v.data;
 
   if (tipo === "pedido") await exigirCrearPedido();
-  else await exigirCotizaciones();
+  else if (tipo === "compra") {
+    const perfil = await exigirSesion();
+    if (!ROLES[perfil.rol].gestionarCompras) return { ok: false, error: "Tu rol no gestiona compras." };
+  } else await exigirCotizaciones();
 
   const datos = leerDatos(tipo, v.data.datos);
   if (!datos) return { ok: false, error: "El borrador no es válido." };
