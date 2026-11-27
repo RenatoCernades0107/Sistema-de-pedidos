@@ -1,4 +1,5 @@
 import { exigirAlmacen } from "@/lib/sesion";
+import { medir } from "@/lib/tiempos";
 import { ROLES } from "@/lib/dominio";
 import { cargarCatalogoPlanchas } from "@/lib/cortes-servidor";
 import { odooConfigurado } from "@/lib/odoo/rpc";
@@ -35,16 +36,16 @@ export default async function Page({ searchParams }: PageProps<"/almacen">) {
   const verPrecios = permisos.verPrecios;
   const gestiona = permisos.gestionarStock;
   const [inventario, sobrantes, catalogo, ingresos, transferencias, faltantes, casos, conteos, conteo, porRecibir] = await Promise.all([
-    cargarInventario({ verPrecios, gestionaStock: permisos.gestionarStock }),
-    cargarSobrantes(),
-    cargarCatalogoPlanchas(true),
-    permisos.gestionarStock ? cargarIngresos() : Promise.resolve([]),
-    cargarTransferencias(),
-    permisos.gestionarStock ? cargarFaltantes() : Promise.resolve([]),
-    gestiona ? cargarCasos() : Promise.resolve([]),
-    gestiona ? cargarConteos() : Promise.resolve([]),
+    medir("almacen.inventario", () => cargarInventario({ verPrecios, gestionaStock: permisos.gestionarStock })),
+    medir("almacen.sobrantes", cargarSobrantes),
+    medir("almacen.catalogo", () => cargarCatalogoPlanchas(true)),
+    permisos.gestionarStock ? medir("almacen.ingresos", () => cargarIngresos()) : Promise.resolve([]),
+    medir("almacen.transferencias", () => cargarTransferencias()),
+    permisos.gestionarStock ? medir("almacen.faltantes", cargarFaltantes) : Promise.resolve([]),
+    gestiona ? medir("almacen.casos", () => cargarCasos()) : Promise.resolve([]),
+    gestiona ? medir("almacen.conteos", () => cargarConteos()) : Promise.resolve([]),
     gestiona && codigoConteo ? cargarConteo(codigoConteo) : Promise.resolve(null),
-    gestiona ? comprasPorRecibir() : Promise.resolve([]),
+    gestiona ? medir("almacen.porRecibir", comprasPorRecibir) : Promise.resolve([]),
   ]);
   const precios = verPrecios ? await preciosDeSobrantes(sobrantes, catalogo) : {};
 

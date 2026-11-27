@@ -1,4 +1,5 @@
 import { exigirCad } from "@/lib/sesion";
+import { medir } from "@/lib/tiempos";
 import { listarDisenos } from "@/lib/cad/disenos-servidor";
 import { listarPlantillas } from "@/lib/cad/motor";
 import type { PlantillaCad } from "@/lib/cad/tipos";
@@ -11,8 +12,8 @@ import { ListaDisenos } from "@/components/disenos/lista-disenos";
 export default async function Page() {
   await exigirCad();
   const [disenos, plantillas] = await Promise.all([
-    listarDisenos(),
-    listarPlantillas().catch((): PlantillaCad[] => []),
+    medir("disenos.lista", listarDisenos),
+    medir("disenos.plantillas", listarPlantillas).catch((): PlantillaCad[] => []),
   ]);
   return <ListaDisenos disenos={disenos} plantillas={plantillas} />;
 }

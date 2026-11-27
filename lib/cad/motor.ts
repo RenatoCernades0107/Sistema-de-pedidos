@@ -11,6 +11,7 @@
  * formulario necesita entera, y un `{ ok: false, error: string }` la perdería.
  */
 
+import { medir } from "../tiempos";
 import type {
   OpcionesDxf,
   OpcionesDxfPlanchas,
@@ -134,7 +135,9 @@ async function peticion(path: string, init?: RequestInit): Promise<Response> {
 
   let res: Response;
   try {
-    res = await fetch(url(path), { ...init, headers: cabeceras(), cache: "no-store" });
+    res = await medir(`motor${path}`, () =>
+      fetch(url(path), { cache: "no-store", ...init, headers: cabeceras() }),
+    );
   } catch {
     throw new ErrorMotorCad("No se pudo conectar con el motor CAD.", "sin_conexion", 503);
   }
@@ -154,7 +157,12 @@ async function json<T>(res: Response): Promise<T> {
 const post = (cuerpo: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(cuerpo) });
 
 export async function listarPlantillas(): Promise<PlantillaCad[]> {
-  return json<PlantillaCad[]>(await peticion("/plantillas"));
+  // Las plantillas casi nunca cambian: se guardan 10 minutos en la caché de datos
+  // de Next en vez de ir al motor (un servicio en AWS, a veces frío) en cada
+  // visita. Y si tarda más de 4 s no se espera: la lista sale con el código.
+  return json<PlantillaCad[]>(
+    await peticion("/plantillas", { cache: "force-cache", next: { revalidate: 600 }, signal: AbortSignal.timeout(4000) }),
+  );
 }
 
 /** `null` si el motor no conoce ese código. */

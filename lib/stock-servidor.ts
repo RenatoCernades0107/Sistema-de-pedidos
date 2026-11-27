@@ -9,6 +9,7 @@
  */
 
 import { cache } from "react";
+import { medir } from "./tiempos";
 import type { Almacen } from "./almacenes";
 import { asegurarAlmacenesEnOdoo, cargarAlmacenes, odooDeAlmacen, odooDeAlmacenId } from "./almacenes-servidor";
 import { cargarCatalogoPlanchas } from "./cortes-servidor";
@@ -154,13 +155,17 @@ export async function cargarInventario(opciones: { verPrecios: boolean; gestiona
     errorOdoo = ODOO_NO_CONFIGURADO;
   } else {
     try {
-      const { ubicaciones, problemas } = await ubicacionesDeAlmacenes(almacenes, opciones.gestionaStock);
+      // Ubicaciones y productos no dependen entre sí: cada una es una ida a Odoo.
+      const [{ ubicaciones, problemas }, encontrados] = await Promise.all([
+        medir("inventario.ubicaciones", () => ubicacionesDeAlmacenes(almacenes, opciones.gestionaStock)),
+        medir("inventario.productos", () => productosPorCodigo(codigos)),
+      ]);
       if (problemas.length) errorOdoo = problemas.join(" · ");
-      productos = await productosPorCodigo(codigos);
-      stock = await stockPorAlmacen(
+      productos = encontrados;
+      stock = await medir("inventario.stock", () => stockPorAlmacen(
         [...productos.values()].map((p) => p.id),
         ubicaciones,
-      );
+      ));
     } catch (e) {
       errorOdoo = mensajeOdoo(e, "inventario");
     }
