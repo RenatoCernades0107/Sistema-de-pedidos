@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { exigirCad } from "@/lib/sesion";
 import { ROLES } from "@/lib/dominio";
 import { obtenerDiseno, obtenerMaterialDiseno, obtenerMaterialesPorCopia } from "@/lib/cad/disenos-servidor";
+import { proyectoDeDiseno } from "@/lib/cad/proyectos-servidor";
 import { catalogoParaDiseno, plantillasDelMotor } from "@/lib/cad/pagina-servidor";
 import { DisenoProvider } from "@/components/disenos/diseno-contexto";
 import { BOTON_CABECERA } from "@/components/disenos/estilos";
@@ -38,6 +39,8 @@ export default async function Page({ params, searchParams }: PageProps<"/disenos
     catalogoParaDiseno(verMontos),
   ]);
   if (!diseno) notFound();
+  // Si pertenece a un proyecto, "volver" lleva al proyecto y no a la lista.
+  const proyecto = await proyectoDeDiseno(diseno.proyecto_id);
 
   return (
     <DisenoProvider
@@ -61,14 +64,14 @@ export default async function Page({ params, searchParams }: PageProps<"/disenos
         verCosto={verMontos}
         volver={
           <Button
-            render={<Link href="/disenos" />}
+            render={<Link href={proyecto ? `/disenos/proyectos/${proyecto.id}` : "/disenos"} />}
             nativeButton={false}
             variant="ghost"
             size="sm"
             className={BOTON_CABECERA}
           >
             <ArrowLeft />
-            <span className="hidden sm:inline">Diseños</span>
+            <span className="hidden sm:inline">{proyecto ? proyecto.nombre : "Diseños"}</span>
           </Button>
         }
       />

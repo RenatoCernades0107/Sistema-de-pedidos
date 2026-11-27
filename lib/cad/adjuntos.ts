@@ -85,3 +85,18 @@ export function rutasAReenviar(porMensaje: readonly (readonly AdjuntoCad[])[], m
   const todas = porMensaje.flat().map((a) => a.ruta);
   return new Set(max > 0 ? todas.slice(-max) : []);
 }
+
+/**
+ * Los archivos de la conversación que se copian a los diseños nuevos de un
+ * proyecto: los que se nombraron o, sin nombres, todos. Si un mismo nombre se
+ * adjuntó varias veces, el más reciente (la lista va del más viejo al más nuevo).
+ */
+export function archivosParaCopiar(todos: readonly AdjuntoCad[], nombres?: readonly string[]): AdjuntoCad[] {
+  const quiero = nombres?.length ? new Set(nombres.map((n) => n.trim().toLowerCase())) : null;
+  const porNombre = new Map<string, AdjuntoCad>();
+  for (const a of todos) {
+    const clave = a.nombre.trim().toLowerCase();
+    if (!quiero || quiero.has(clave)) porNombre.set(clave, a);
+  }
+  return [...porNombre.values()];
+}

@@ -3,13 +3,16 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Box, Check, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Box, Check, FolderKanban, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   crearDiseno,
+  crearProyectoAccion,
   eliminarDiseno,
   renombrarDiseno,
 } from "@/app/(app)/disenos/acciones";
+import { textoDeResumen } from "@/lib/cad/proyectos";
+import type { ProyectoConResumen } from "@/lib/cad/proyectos-servidor";
 import type { DisenoCad, PlantillaCad } from "@/lib/cad/tipos";
 import { momentoEnLima } from "@/lib/fecha";
 import {
@@ -32,9 +35,12 @@ import { Input } from "@/components/ui/input";
  */
 export function ListaDisenos({
   disenos,
+  proyectos,
   plantillas,
 }: {
+  /** Los diseños sueltos: los de un proyecto se ven dentro de su proyecto. */
   disenos: DisenoCad[];
+  proyectos: ProyectoConResumen[];
   /** Para mostrar el nombre de la plantilla; vacío si el motor no respondió. */
   plantillas: PlantillaCad[];
 }) {
@@ -42,6 +48,8 @@ export function ListaDisenos({
   const [creando, empezarCreacion] = useTransition();
   const [ocupado, empezar] = useTransition();
   const [editando, setEditando] = useState<{ id: string; nombre: string } | null>(null);
+  /** El nombre del proyecto que se está escribiendo; `null` si no se está creando uno. */
+  const [nuevoProyecto, setNuevoProyecto] = useState<string | null>(null);
 
   const nombrePlantilla = (codigo: string | null) =>
     codigo === null
@@ -55,6 +63,19 @@ export function ListaDisenos({
         router.push(`/disenos/${id}`);
       } catch {
         toast.error("No se pudo crear el diseño. Intenta de nuevo.");
+      }
+    });
+  }
+
+  function crearProyecto() {
+    const nombre = nuevoProyecto?.trim();
+    if (!nombre) return;
+    empezar(async () => {
+      try {
+        const { id } = await crearProyectoAccion(nombre);
+        router.push(`/disenos/proyectos/${id}`);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "No se pudo crear el proyecto.");
       }
     });
   }
@@ -95,13 +116,77 @@ export function ListaDisenos({
             Piezas diseñadas con el asistente: render 3D, despiece y archivos de corte.
           </p>
         </div>
+        <Button variant="outline" className="gap-1.5" onClick={() => setNuevoProyecto("")} disabled={nuevoProyecto !== null}>
+          <FolderKanban />
+          Nuevo proyecto
+        </Button>
         <Button className="gap-1.5" onClick={nuevo} disabled={creando}>
           {creando ? <Loader2 className="animate-spin" /> : <Plus />}
           Nuevo diseño
         </Button>
       </header>
 
-      {disenos.length === 0 ? (
+      {(proyectos.length > 0 || nuevoProyecto !== null) && (
+        <section aria-label="Proyectos" className="mb-6">
+          <h2 className="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">Proyectos</h2>
+          {nuevoProyecto !== null && (
+            <form
+              className="mb-2 flex items-center gap-1.5"
+              onSubmit={(e) => {
+                e.preventDefault();
+                crearProyecto();
+              }}
+            >
+              <Input
+                autoFocus
+                aria-label="Nombre del proyecto"
+                placeholder="Nombre del proyecto (por ejemplo, Hurley Trujillo)"
+                value={nuevoProyecto}
+                maxLength={120}
+                onChange={(e) => setNuevoProyecto(e.target.value)}
+                onKeyDown={(e) => e.key === "Escape" && setNuevoProyecto(null)}
+              />
+              <Button type="submit" size="icon-sm" disabled={ocupado || !nuevoProyecto.trim()}>
+                <Check />
+                <span className="sr-only">Crear proyecto</span>
+              </Button>
+              <Button type="button" variant="ghost" size="icon-sm" onClick={() => setNuevoProyecto(null)}>
+                <X />
+                <span className="sr-only">Cancelar</span>
+              </Button>
+            </form>
+          )}
+          <ul className="flex flex-col gap-2">
+            {proyectos.map((p) => (
+              <li
+                key={p.id}
+                className="bg-card hover:border-primary/40 relative flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors"
+              >
+                <span className="bg-muted text-muted-foreground grid size-12 shrink-0 place-items-center rounded-md">
+                  <FolderKanban className="size-5" aria-hidden />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <Link
+                    href={`/disenos/proyectos/${p.id}`}
+                    className="block truncate text-sm font-medium outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-ring"
+                  >
+                    {p.nombre}
+                  </Link>
+                  <p className="text-muted-foreground truncate text-xs">
+                    {textoDeResumen(p.resumen)} · {momentoEnLima(p.actualizado_en)}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {proyectos.length > 0 && disenos.length > 0 && (
+        <h2 className="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">Diseños sueltos</h2>
+      )}
+
+      {disenos.length === 0 && proyectos.length > 0 ? null : disenos.length === 0 ? (
         <div className="grid min-h-[40vh] place-items-center rounded-lg border border-dashed p-6 text-center">
           <div className="max-w-sm">
             <Box className="text-muted-foreground mx-auto size-6" aria-hidden />

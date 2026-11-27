@@ -25,6 +25,7 @@ import type { ConfigCortes } from "@/lib/cortes/config";
 import type { HerramientaLlm } from "@/lib/llm/inferhub";
 import { PARAMETRO_ESPESOR, type ResultadoAcomodo } from "./acomodo";
 import { NOMBRE_CONTORNO } from "./contornos";
+import { MAX_DISENOS_POR_LLAMADA } from "./proyectos";
 import { costoDiseno } from "./costo";
 import { conEspesor, conservarEspesores, espesoresDe, ESPESOR_MAX_MM, ESPESOR_MIN_MM } from "./espesores";
 import {
@@ -102,9 +103,27 @@ export interface DependenciasCad {
    * Administración: sin ella, `ver_costo` no da montos.
    */
   cargarPrecios?(codigos: string[]): Promise<Record<string, number>>;
+  /**
+   * Crea diseños dentro de un proyecto (`lib/cad/proyectos-servidor.ts`), con los
+   * archivos de la conversación copiados. Sin ella, `crear_disenos_en_proyecto`
+   * no está disponible.
+   */
+  crearDisenosEnProyecto?(entrada: {
+    proyecto?: string;
+    disenos: { nombre: string; descripcion: string }[];
+    /** Nombres de archivo a copiar; sin ellos, todos los de la conversación. */
+    adjuntos?: string[];
+  }): Promise<ResultadoCrearDisenos>;
   /** Solo si el diseño libre está activo (`CAD_DISENO_LIBRE=1` y sandbox configurado). */
   libre?: DependenciasLibre;
 }
+
+/** Lo que devuelve crear diseños en un proyecto. */
+export type ResultadoCrearDisenos = {
+  proyecto: { id: string; nombre: string; creado: boolean };
+  disenos: { id: string; nombre: string; ruta: string; adjuntosCopiados: number }[];
+  adjuntosFallidos: string[];
+};
 
 /** Lo que devuelve la extracción de un contorno: la medida y una previsualización (`data:` PNG), o por qué no se pudo. */
 export type ResultadoExtraerContorno =
@@ -184,6 +203,7 @@ export const NOMBRES_HERRAMIENTA = [
   "elegir_material",
   "cambiar_piezas",
   "ver_costo",
+  "crear_disenos_en_proyecto",
 ] as const;
 
 export type NombreHerramienta = (typeof NOMBRES_HERRAMIENTA)[number];
@@ -316,6 +336,46 @@ export const HERRAMIENTAS_CAD: HerramientaLlm[] = [
       "Necesita que el diseño tenga material (elegir_material).",
     parametros: SIN_ARGUMENTOS,
   },
+  {
+    nombre: "crear_disenos_en_proyecto",
+    descripcion:
+      "Crea un diseño nuevo por cada elemento de una lámina o plano que trae VARIOS productos distintos (por ejemplo cuatro letreros), " +
+      "todos dentro de un proyecto que los agrupa, y les copia los archivos adjuntos de la conversación y un mensaje inicial con su contexto. " +
+      "Úsala SOLO después de proponérselo a la persona y de que acepte, y no más de una vez por plano. NO genera geometría ni toca el diseño actual: " +
+      "cada diseño nuevo se abre y se trabaja con su propio chat. Si este diseño no está en un proyecto, se crea uno y este entra primero. " +
+      "Describe en `descripcion` todo lo que se sabe de ese elemento (medidas, materiales, cantidad, cómo se arma) para que no haya que releer el plano.",
+    parametros: {
+      type: "object",
+      properties: {
+        proyecto: {
+          type: "string",
+          description: "Nombre del proyecto, solo si hay que crearlo (por ejemplo «Hurley Trujillo»). Si este diseño ya está en uno, se ignora.",
+        },
+        disenos: {
+          type: "array",
+          description: "Un elemento por cada diseño nuevo (de 1 a 10).",
+          minItems: 1,
+          maxItems: 10,
+          items: {
+            type: "object",
+            properties: {
+              nombre: { type: "string", description: "Nombre corto del diseño, como se llama en el plano (máx. 120 caracteres)." },
+              descripcion: { type: "string", description: "Medidas, materiales, cantidad y construcción de este elemento, según el plano (máx. 2000 caracteres)." },
+            },
+            required: ["nombre", "descripcion"],
+            additionalProperties: false,
+          },
+        },
+        adjuntos: {
+          type: "array",
+          description: "Nombres de los archivos adjuntos a copiar a cada diseño. Sin ella, se copian todos (PDF e imágenes).",
+          items: { type: "string" },
+        },
+      },
+      required: ["disenos"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 /** Las herramientas del diseño libre: solo se ofrecen con el diseño libre activo. */
@@ -417,6 +477,20 @@ const esquemaGenerar = z.object({
 const esquemaReferencia = z.object({ nombre: z.string().trim().max(300).optional() });
 
 const esquemaCodigo = z.object({ codigo: z.string().min(1).max(60_000) });
+
+const esquemaCrearDisenos = z.object({
+  proyecto: z.string().trim().max(120).optional(),
+  disenos: z
+    .array(
+      z.object({
+        nombre: z.string().trim().min(1).max(120),
+        descripcion: z.string().trim().max(2000),
+      }),
+    )
+    .min(1)
+    .max(MAX_DISENOS_POR_LLAMADA),
+  adjuntos: z.array(z.string().trim().min(1).max(200)).max(20).optional(),
+});
 
 const fraccion = z.number().min(0).max(1);
 const esquemaExtraerContorno = z.object({
@@ -1144,6 +1218,31 @@ async function cambiarPiezas(args: unknown, deps: DependenciasCad): Promise<Resu
   );
 }
 
+async function crearDisenosEnProyectoHerramienta(args: unknown, deps: DependenciasCad): Promise<ResultadoHerramienta> {
+  if (!deps.crearDisenosEnProyecto) {
+    return fallo({ codigo: "no_disponible", mensaje: "No se pueden crear diseños en un proyecto en este momento." });
+  }
+  const a = esquemaCrearDisenos.safeParse(args ?? {});
+  if (!a.success) return argumentosInvalidos(a.error);
+  const nombres = a.data.disenos.map((d) => d.nombre.toLowerCase());
+  if (new Set(nombres).size !== nombres.length) {
+    return fallo({ codigo: "nombres_repetidos", mensaje: "Dos diseños tienen el mismo nombre. Dale a cada uno un nombre distinto." });
+  }
+  const r = await deps.crearDisenosEnProyecto(a.data);
+  return exito(
+    {
+      proyecto: r.proyecto.nombre,
+      proyecto_nuevo: r.proyecto.creado,
+      disenos: r.disenos.map((d) => ({ nombre: d.nombre, ruta: d.ruta, archivos_copiados: d.adjuntosCopiados })),
+      ...(r.adjuntosFallidos.length ? { no_se_pudieron_copiar: r.adjuntosFallidos } : {}),
+      nota:
+        "No se generó ninguna geometría: cada diseño se abre desde el proyecto y se trabaja con su propio chat, que ya tiene el contexto y el plano. " +
+        "Este diseño sigue siendo el que la persona tiene abierto. Dile cuántos diseños se crearon y cómo llegar a ellos.",
+    },
+    `${r.disenos.length === 1 ? "1 diseño creado" : `${r.disenos.length} diseños creados`} en «${r.proyecto.nombre}»`,
+  );
+}
+
 async function verCosto(deps: DependenciasCad): Promise<ResultadoHerramienta> {
   const actual = await deps.obtenerDisenoActual();
   if (!actual) return sinDiseno();
@@ -1567,6 +1666,8 @@ export async function ejecutarHerramienta(
         return await cambiarPiezas(argumentos, deps);
       case "ver_costo":
         return await verCosto(deps);
+      case "crear_disenos_en_proyecto":
+        return await crearDisenosEnProyectoHerramienta(argumentos, deps);
     }
     switch (nombre as NombreHerramientaLibre) {
       case "leer_referencia_cad":
