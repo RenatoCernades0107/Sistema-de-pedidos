@@ -80,7 +80,15 @@ describe("planificarImportacion", () => {
     expect(c.lineas).toEqual([{ productoId: 20, codigo: "F7E024", nombre: "A", cantidad: 40, precio: 175, recibida: 10 }]);
   });
 
-  it("no importa lo que la app misma creó en Odoo, pero dice cuál es y de qué compra", () => {
+  it("una orden de un ingreso de Almacén (ING-…) sí se importa, con su origen en la nota", () => {
+    for (const origen of ["App Plexiacril ING-00003", "App Plexiacril ING-00002 + ING-00003"]) {
+      const plan = planificarImportacion([orden({ origen })], ctx);
+      expect(plan.deLaApp).toEqual([]);
+      expect(plan.porImportar[0].nota).toContain(origen);
+    }
+  });
+
+  it("no importa lo que una compra de la app creó en Odoo, pero dice cuál es y de qué compra", () => {
     const plan = planificarImportacion([orden({ origen: "App Plexiacril CMP-00001" })], ctx);
     expect(plan).toEqual({
       porImportar: [],

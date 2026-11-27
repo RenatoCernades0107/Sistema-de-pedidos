@@ -5,7 +5,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { RotateCw } from "lucide-react";
 import * as acciones from "@/app/(app)/almacen/acciones";
-import { TIPOS_COMPRA, type CompraDetalle } from "@/lib/compras";
+import { TIPOS_COMPRA, codigoVisible, type CompraDetalle } from "@/lib/compras";
 import { diaMesTexto } from "@/lib/formato";
 import { Button } from "@/components/ui/button";
 import { Campo } from "@/components/ui/campo";
@@ -27,7 +27,7 @@ const entero = (t: string) => {
   return t.trim() === "" ? 0 : Number.isInteger(v) && v >= 0 && v <= 99_999 ? v : null;
 };
 
-const titulo = (c: CompraDetalle) => `${c.codigo} · ${c.proveedor}`;
+const titulo = (c: CompraDetalle) => `${codigoVisible(c)} · ${c.proveedor}`;
 
 /**
  * Recibir lo que llegó de una compra confirmada en `/compras`. Por defecto
@@ -69,8 +69,8 @@ export function DialogoRecibirCompra({ compras, alCerrar }: { compras: CompraDet
     iniciar(async () => {
       const r = await acciones.recibirCompra({ compraId: compra.id, nota, lineas });
       if (!r.ok) return setError(r.error);
-      if (r.aviso) toast.warning(`${compra.codigo}: recepción anotada`, { description: r.aviso, duration: 12_000 });
-      else toast.success(`${compra.codigo}: recepción registrada`, { description: "El stock ya entró en Odoo." });
+      if (r.aviso) toast.warning(`${codigoVisible(compra)}: recepción anotada`, { description: r.aviso, duration: 12_000 });
+      else toast.success(`${codigoVisible(compra)}: recepción registrada`, { description: "El stock ya entró en Odoo." });
       alCerrar();
     });
   };

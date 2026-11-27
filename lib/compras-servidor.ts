@@ -31,7 +31,7 @@ import {
 import { liquidar, type ConceptoGasto, type Incoterm, type Moneda, type Reparto, type TipoCompra, type TipoManoObra } from "./costeo";
 import { mensajeDeError } from "./errores";
 import { hoy } from "./fecha";
-import { PREFIJO_ORIGEN_APP, planificarImportacion, type CompraPorImportar, type ContextoImportacion, type OrdenOmitida } from "./compras-importar";
+import { PREFIJO_ORIGEN_APP, esOrdenDeCompraDeApp, planificarImportacion, type CompraPorImportar, type ContextoImportacion, type OrdenOmitida } from "./compras-importar";
 import { cancelarOrdenCompra, crearOrdenCompra, recibirOrdenCompra, tipoDeCambioUsd } from "./odoo/almacenes";
 import { productosPorId } from "./odoo/catalogos";
 import { buscarOrdenDeCompra, leerOrden, leerOrdenesDeCompra, nombresDeOrdenes } from "./odoo/compras-importar";
@@ -873,7 +873,7 @@ export async function explicarOrdenDeOdoo(numero: string, desde: string | null):
     }
     const orden = await leerOrden(vista.id);
     if (!orden) return { ok: true, veredicto: "Odoo no devolvió el detalle de la orden." };
-    if (orden.origen?.startsWith(PREFIJO_ORIGEN_APP)) {
+    if (esOrdenDeCompraDeApp(orden.origen)) {
       const [r] = await enlazarOrdenesDeLaApp([{ ordenId: orden.id, ordenNombre: orden.nombre, proveedor: orden.proveedorNombre, origen: orden.origen }], false);
       const dicho = {
         enlazaria: `La creó la app (${r.compra}) pero esa compra no tiene enlazada la orden. Pulsa «Traer» para enlazarla.`,

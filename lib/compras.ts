@@ -9,6 +9,7 @@
 
 import { z } from "zod";
 import { sumarDias } from "./dominio";
+import { diaEnLima } from "./fecha";
 import {
   CONCEPTOS,
   montoManoObra,
@@ -304,4 +305,22 @@ export function desgloseUnitario(l: Liquidacion["lineas"][number], cantidad: num
     mercaderia: porUnidad(l.mercaderiaPen),
     gastos: Object.fromEntries(Object.entries(l.gastos).map(([k, v]) => [k, porUnidad(v ?? 0)])),
   };
+}
+
+/**
+ * Lo que la persona ve como identificador de una compra: el número de la orden
+ * en Odoo ("P01722") si ya existe; si no (pre-compra o aún sin orden), el CMP.
+ * Solo es para mostrar: la URL, el valor guardado y el origen en Odoo usan `codigo`.
+ */
+export const codigoVisible = (c: { codigo: string; odooOrden: string | null }) => c.odooOrden?.trim() || c.codigo;
+
+/**
+ * ¿La compra se creó dentro del rango de días (en Lima, ambos inclusivos)?
+ * `desde` y `hasta` vienen de un input date ("2026-11-26") o vacíos.
+ */
+export function creadaEnRango(creadoEn: string, desde: string, hasta: string): boolean {
+  if (!desde && !hasta) return true;
+  const dia = diaEnLima(creadoEn);
+  if (!dia) return false;
+  return (!desde || dia >= desde) && (!hasta || dia <= hasta);
 }
