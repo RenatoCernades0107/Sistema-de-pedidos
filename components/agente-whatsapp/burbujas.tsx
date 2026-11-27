@@ -183,6 +183,11 @@ export function Burbuja({
           {pie}
         </div>
       )}
+      {mensaje.adjuntosCliente.map((a) => (
+        <div key={a.ruta} className={cn("rounded-lg p-1 text-sm shadow-sm", NEGOCIO)}>
+          <Archivo nombre={a.nombre} mime={a.mime} url={a.url} />
+        </div>
+      ))}
       {mensaje.adjuntos.map((a) => (
         <div key={a.documentoId} className={cn("rounded-lg p-1 text-sm shadow-sm", NEGOCIO)}>
           <Archivo nombre={a.nombre} mime={a.mime} url={a.url} texto={a.texto} />

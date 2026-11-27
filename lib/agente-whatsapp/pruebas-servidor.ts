@@ -11,15 +11,17 @@ import {
 } from "./pruebas";
 import { BUCKET_ADJUNTOS_CLIENTE } from "./tipos";
 
-const COLUMNAS_RESUMEN = "id, titulo, anuncio, actualizado_en, estado, motivo_atencion, atencion_desde";
+const COLUMNAS_RESUMEN =
+  "id, titulo, canal, telefono, contacto_nombre, anuncio, actualizado_en, estado, motivo_atencion, atencion_desde";
 const COLUMNAS_MENSAJE = "id, rol, contenido, adjuntos, traza, derivado, autor_id, creado_en";
 
-/** Las conversaciones de prueba, la más reciente primero. */
+/** Las conversaciones del área de pruebas (no las de WhatsApp), la más reciente primero. */
 export async function cargarPruebas(): Promise<PruebaResumen[]> {
   const supabase = await clienteServidor();
   const { data, error } = await supabase
     .from("agente_pruebas")
     .select(COLUMNAS_RESUMEN)
+    .eq("canal", "prueba")
     .order("actualizado_en", { ascending: false })
     .limit(100);
   if (error) throw new Error(`No se pudieron leer las pruebas del agente: ${error.message}`);
@@ -95,7 +97,10 @@ async function nombresDeUsuarios(): Promise<Map<string, string>> {
  */
 export async function conEnlaces(mensajes: MensajePrueba[]): Promise<MensajePrueba[]> {
   const supabase = await clienteServidor();
-  const rutasCliente = [...new Set(mensajes.flatMap((m) => m.adjuntosCliente.map((a) => a.ruta)))];
+  // Solo los del bucket: los de WhatsApp ya traen su enlace (/api/whatsapp/media).
+  const rutasCliente = [
+    ...new Set(mensajes.flatMap((m) => m.adjuntosCliente.flatMap((a) => (a.url ? [] : [a.ruta])))),
+  ];
   const hayAsesores = mensajes.some((m) => m.rol === "asesor");
   const [enlaces, firmados, nombres] = await Promise.all([
     enlacesDeDocumentos(mensajes.flatMap((m) => m.adjuntos.map((a) => a.documentoId))),
@@ -110,7 +115,7 @@ export async function conEnlaces(mensajes: MensajePrueba[]): Promise<MensajePrue
   return mensajes.map((m) => ({
     ...m,
     adjuntos: m.adjuntos.map((a) => ({ ...a, url: enlaces.get(a.documentoId) })),
-    adjuntosCliente: m.adjuntosCliente.map((a) => ({ ...a, url: porRuta.get(a.ruta) })),
+    adjuntosCliente: m.adjuntosCliente.map((a) => ({ ...a, url: a.url ?? porRuta.get(a.ruta) })),
     autorNombre: m.autorId ? nombres.get(m.autorId) : undefined,
   }));
 }
