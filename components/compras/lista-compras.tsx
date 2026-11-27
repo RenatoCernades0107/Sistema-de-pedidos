@@ -50,7 +50,7 @@ export function ListaCompras({ compras, odooListo }: { compras: CompraResumen[];
         <div className="min-w-0 flex-1">
           <h1 className="text-xl font-semibold tracking-tight">Compras</h1>
           <p className="text-muted-foreground mt-0.5 text-sm">
-            De la pre-compra a la orden de compra en Odoo, la recepción y la liquidación del costo.
+            De la pre-compra a la orden de compra en Odoo, y la recepción. El costeo se hace en Costos y precios.
           </p>
         </div>
         <TraerDeOdoo odooListo={odooListo} />

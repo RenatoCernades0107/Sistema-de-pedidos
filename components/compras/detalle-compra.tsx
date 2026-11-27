@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Ban, RotateCw } from "lucide-react";
+import { Ban, Calculator, RotateCw } from "lucide-react";
+import Link from "next/link";
 import * as acciones from "@/app/(app)/compras/acciones";
 import type { Almacen } from "@/lib/almacenes";
 import {
@@ -12,7 +13,6 @@ import {
   vencimientoCredito,
   type CompraDetalle,
 } from "@/lib/compras";
-import type { TipoManoObra } from "@/lib/costeo";
 import { momentoEnLima } from "@/lib/fecha";
 import { diaMesTexto, montoEn } from "@/lib/formato";
 import type { Ingresable } from "@/lib/inventario";
@@ -30,7 +30,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { CostosCompra } from "./costos-compra";
 import { EditorCompra } from "./editor-compra";
 import { EstadoCompraBadge } from "./estado-compra";
 
@@ -43,14 +42,15 @@ export function DetalleCompra({
   almacenes,
   productos,
   tcSugerido,
-  tarifas,
+  puedeCostear,
   odooListo,
 }: {
   compra: CompraDetalle;
   almacenes: Almacen[];
   productos: Ingresable[];
   tcSugerido: number | null;
-  tarifas: Record<TipoManoObra, number>;
+  /** Administración: el costeo se hace en Costos y precios. */
+  puedeCostear: boolean;
   odooListo: boolean;
 }) {
   const [anulando, setAnulando] = useState(false);
@@ -191,7 +191,21 @@ export function DetalleCompra({
             )}
           </Seccion>
 
-          {compra.estado !== "anulada" && <CostosCompra key={`${compra.estado}-${compra.gastos.length}`} compra={compra} tarifas={tarifas} />}
+          {["recibida_parcial", "recibida", "liquidada"].includes(compra.estado) && (
+            <div className="bg-card shadow-card flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 text-sm">
+              <p className="min-w-0 flex-1">
+                {compra.estado === "liquidada"
+                  ? "Costeada: el costo de cada plancha ya está en Costos y precios."
+                  : "Los gastos de la compra y el costo por plancha se cargan en Costos y precios → Costear."}
+              </p>
+              {puedeCostear && (
+                <Button render={<Link href={`/costos-precios/costear/${compra.codigo}`} />} nativeButton={false} variant="outline" className="gap-1.5">
+                  <Calculator className="size-4" />
+                  {compra.estado === "liquidada" ? "Ver costeo" : "Costear"}
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       )}
 

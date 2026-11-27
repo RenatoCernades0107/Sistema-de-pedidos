@@ -1,15 +1,16 @@
 "use client";
 
-import Link from "next/link";
 import { Fragment, useEffect, useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Calculator, Search, Tag } from "lucide-react";
 import * as acciones from "@/app/(app)/costos-precios/acciones";
 import { coincide } from "@/lib/busqueda";
+import type { CompraResumen } from "@/lib/compras";
 import {
   CONCEPTOS_GASTO,
   REDONDEOS,
   TIPOS_MANO_OBRA,
+  factorActual,
   margenActual,
   precioSugerido,
   type ConceptoGasto,
@@ -28,71 +29,99 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { leerNumero } from "@/components/compras/editor-compra";
+import { DialogoCostear } from "./dialogo-costear";
+import { GastosMes } from "./gastos-mes";
+import { GraficoCostos } from "./grafico-costos";
 
 const REDONDEO_TEXTO: Record<Redondeo, string> = { centimo: "al céntimo", decimo: "a S/ 0.10", sol: "al sol" };
-
 const pct = (n: number | null) => (n === null ? "—" : `${n.toFixed(1)}%`);
+const fx = (n: number | null) => (n === null ? "—" : `× ${n.toFixed(2)}`);
+
+type Vista = "planchas" | "grafico" | "operar" | "factores";
 
 /**
- * Costos y precios de las planchas. Cada fila: el último costo de adquisición
- * (de la compra liquidada más reciente), el promedio, el precio de venta en
- * Odoo, el margen que deja y el precio que pide el margen objetivo. Se eligen
- * las que hay que corregir y se aplican en Odoo de una vez.
+ * Costos y precios de las planchas, en dos costeos:
+ *   1er costo: la compra puesta en el almacén (botón Costear → la orden → sus gastos).
+ *   2do costo: el 1ro más los gastos de operar del mes (pestaña Gastos de operar).
+ *   Precio:    2do costo × factor, más IGV.
  */
-export function PantallaCostos({ datos }: { datos: DatosCostosPrecios }) {
-  const [vista, setVista] = useState<"planchas" | "margenes">("planchas");
+export function PantallaCostos({
+  datos,
+  compras,
+  hoy,
+}: {
+  datos: DatosCostosPrecios;
+  /** Las compras que se pueden costear (recibidas) o revisar (costeadas). */
+  compras: CompraResumen[];
+  /** AAAA-MM-DD en Lima. */
+  hoy: string;
+}) {
+  const [vista, setVista] = useState<Vista>("planchas");
+  const [costeando, setCosteando] = useState(false);
+  const porCostear = compras.filter((c) => c.estado !== "liquidada").length;
   return (
     <div className="px-4 py-5 md:px-6 md:py-6">
-      <header className="mb-4">
-        <h1 className="text-xl font-semibold tracking-tight">Costos y precios</h1>
-        <p className="text-muted-foreground mt-0.5 text-sm">
-          El costo de cada plancha puesta en el almacén (de las{" "}
-          <Link href="/compras" className="text-primary underline-offset-4 hover:underline">
-            compras liquidadas
-          </Link>
-          ), su precio de venta y el margen que deja.
-        </p>
+      <header className="mb-4 flex flex-wrap items-end gap-3">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl font-semibold tracking-tight">Costos y precios</h1>
+          <p className="text-muted-foreground mt-0.5 text-sm">
+            1er costo: la compra puesta en el almacén. 2do costo: más los gastos de operar. Precio: 2do costo × factor.
+          </p>
+        </div>
+        <Button className="gap-1.5" onClick={() => setCosteando(true)}>
+          <Calculator className="size-4" />
+          Costear
+          {porCostear > 0 && <span className="bg-primary-foreground/20 tnum rounded-full px-1.5 text-xs">{porCostear}</span>}
+        </Button>
       </header>
       {datos.errorOdoo && (
-        <p className="border-st-en_proceso/30 bg-st-en_proceso-soft/40 mb-4 rounded-xl border px-4 py-3 text-sm">
-          Sin precios de Odoo: {datos.errorOdoo}
-        </p>
+        <p className="border-st-en_proceso/30 bg-st-en_proceso-soft/40 mb-4 rounded-xl border px-4 py-3 text-sm">Sin precios de Odoo: {datos.errorOdoo}</p>
       )}
-      <Tabs value={vista} onValueChange={(v) => setVista(v as typeof vista)}>
+      <Tabs value={vista} onValueChange={(v) => setVista(v as Vista)}>
         <TabsList className="mb-4">
           <TabsTrigger value="planchas">Planchas</TabsTrigger>
-          <TabsTrigger value="margenes">Márgenes y tarifas</TabsTrigger>
+          <TabsTrigger value="grafico">Gráfico</TabsTrigger>
+          <TabsTrigger value="operar">Gastos de operar</TabsTrigger>
+          <TabsTrigger value="factores">Factores y tarifas</TabsTrigger>
         </TabsList>
         <TabsContent value="planchas">
           <TablaCostos datos={datos} />
         </TabsContent>
-        <TabsContent value="margenes">
-          <EditorMargenes config={datos.config} materiales={datos.materiales} />
+        <TabsContent value="grafico">
+          <GraficoCostos filas={datos.filas} series={datos.series} meses={datos.meses} config={datos.config} hoy={hoy} />
+        </TabsContent>
+        <TabsContent value="operar">
+          <GastosMes meses={datos.meses} tasaVigente={datos.tasaVigente} mesesPromedio={datos.config.mesesPromedio} mesActual={hoy.slice(0, 7)} />
+        </TabsContent>
+        <TabsContent value="factores">
+          <EditorFactores config={datos.config} materiales={datos.materiales} />
         </TabsContent>
       </Tabs>
+      {costeando && <DialogoCostear compras={compras} alCerrar={() => setCosteando(false)} />}
     </div>
   );
 }
 
-type Filtro = "todas" | "con_costo" | "bajo_objetivo" | "sin_costo";
+type Filtro = "todas" | "con_costo" | "bajo_factor" | "sin_costo";
 
 function TablaCostos({ datos }: { datos: DatosCostosPrecios }) {
-  const { config, filas } = datos;
+  const { config, filas, tasaVigente } = datos;
   const [consulta, setConsulta] = useState("");
   const [filtro, setFiltro] = useState<Filtro>("con_costo");
   const [elegidas, setElegidas] = useState<Set<string>>(new Set());
   const [manual, setManual] = useState<Record<string, string>>({});
   const [detalle, setDetalle] = useState<FilaCostoPrecio | null>(null);
-  const [margenDe, setMargenDe] = useState<FilaCostoPrecio | null>(null);
+  const [factorDe, setFactorDe] = useState<FilaCostoPrecio | null>(null);
   const [pendiente, iniciar] = useTransition();
 
+  const bajo = (f: FilaCostoPrecio) => f.factorActual !== null && f.factorActual < f.factorObjetivo - 0.005;
   const visibles = useMemo(
     () =>
       filas.filter((f) => {
         if (!coincide(`${f.codigo} ${f.material} ${f.titulo}`, consulta)) return false;
         if (filtro === "con_costo") return f.ultimoCosto !== null;
         if (filtro === "sin_costo") return f.ultimoCosto === null;
-        if (filtro === "bajo_objetivo") return f.margenActual !== null && f.margenActual < f.margenObjetivo - 0.05;
+        if (filtro === "bajo_factor") return bajo(f);
         return true;
       }),
     [filas, consulta, filtro],
@@ -123,15 +152,16 @@ function TablaCostos({ datos }: { datos: DatosCostosPrecios }) {
       const r = await acciones.aplicarPrecios(
         aplicables.map((f) => {
           const precio = precioNuevo(f)!;
-          const costo = f.ultimoCosto?.costoUnitarioPen ?? null;
           return {
             productoId: f.productoId!,
             codigo: f.codigo,
             nombre: `${f.material} · ${f.titulo}`,
             precioAnterior: f.precio,
             precio,
-            costoBase: costo,
-            margenPct: costo ? margenActual(precio, costo, config) : null,
+            costoBase: f.ultimoCosto?.costoUnitarioPen ?? null,
+            segundoCosto: f.segundoCosto,
+            factor: f.segundoCosto ? factorActual(precio, f.segundoCosto, config) : null,
+            margenPct: f.segundoCosto ? margenActual(precio, f.segundoCosto, config) : null,
           };
         }),
       );
@@ -155,33 +185,36 @@ function TablaCostos({ datos }: { datos: DatosCostosPrecios }) {
             onToggle={(v) => setFiltro(v as Filtro)}
             opciones={[
               { valor: "con_costo", label: "Con costo" },
-              { valor: "bajo_objetivo", label: "Bajo el margen" },
+              { valor: "bajo_factor", label: "Bajo el factor" },
               { valor: "sin_costo", label: "Sin costo" },
               { valor: "todas", label: "Todas" },
             ]}
           />
         </div>
+        <p className="text-muted-foreground ml-auto text-xs">
+          Gastos de operar: <span className="tnum text-foreground font-medium">{tasaVigente === null ? "sin tasa" : `+${(tasaVigente * 100).toFixed(1)}%`}</span>
+        </p>
       </div>
 
       {visibles.length === 0 ? (
         <div className="text-muted-foreground grid place-items-center rounded-xl border border-dashed px-6 py-12 text-center text-sm">
           <Calculator className="mb-2 size-5 opacity-50" />
           {filtro === "con_costo" && filas.every((f) => !f.ultimoCosto)
-            ? "Todavía no hay costos: aparecen cuando se liquida una compra."
+            ? "Todavía no hay costos: aparecen cuando se costea una compra (botón Costear)."
             : "Ninguna plancha coincide con el filtro."}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border">
-          <table className="w-full min-w-[60rem] text-sm">
+          <table className="w-full min-w-[64rem] text-sm">
             <thead className="bg-muted/40 text-muted-foreground text-left text-xs">
               <tr>
                 <th className="w-8 px-3 py-2.5" />
                 <th className="px-3 py-2.5 font-medium">Plancha</th>
-                <th className="px-3 py-2.5 text-right font-medium">Último costo</th>
-                <th className="px-3 py-2.5 text-right font-medium">Promedio</th>
+                <th className="px-3 py-2.5 text-right font-medium">1er costo</th>
+                <th className="px-3 py-2.5 text-right font-medium">2do costo</th>
                 <th className="px-3 py-2.5 text-right font-medium">Precio actual</th>
-                <th className="px-3 py-2.5 text-right font-medium">Margen</th>
-                <th className="px-3 py-2.5 text-right font-medium">Objetivo</th>
+                <th className="px-3 py-2.5 text-right font-medium">Factor actual</th>
+                <th className="px-3 py-2.5 text-right font-medium">Factor</th>
                 <th className="px-3 py-2.5 text-right font-medium">Precio nuevo</th>
               </tr>
             </thead>
@@ -191,33 +224,19 @@ function TablaCostos({ datos }: { datos: DatosCostosPrecios }) {
                   <tr className="bg-muted/20 border-t">
                     <th colSpan={8} className="px-3 py-1.5 text-left text-xs font-semibold">
                       {material}
-                      <span className="text-muted-foreground ml-2 font-normal">
-                        objetivo {pct(config.margenPorMaterial[material] ?? config.margenDefecto)}
-                      </span>
+                      <span className="text-muted-foreground ml-2 font-normal">factor {fx(config.factorPorMaterial[material] ?? config.factorDefecto)}</span>
                     </th>
                   </tr>
                   {lista.map((f) => {
-                    const bajo = f.margenActual !== null && f.margenActual < f.margenObjetivo - 0.05;
                     const nuevo = precioNuevo(f);
                     const puede = !!f.productoId && !!f.ultimoCosto;
                     return (
                       <tr key={f.codigo} className="border-t">
                         <td className="px-3 py-2">
-                          {puede && (
-                            <Checkbox
-                              checked={elegidas.has(f.codigo)}
-                              onCheckedChange={(v) => alternar(f, v === true)}
-                              aria-label={`Elegir ${f.codigo}`}
-                            />
-                          )}
+                          {puede && <Checkbox checked={elegidas.has(f.codigo)} onCheckedChange={(v) => alternar(f, v === true)} aria-label={`Elegir ${f.codigo}`} />}
                         </td>
                         <td className="px-3 py-2">
-                          <button
-                            type="button"
-                            className="hover:text-primary text-left"
-                            onClick={() => f.productoId && setDetalle(f)}
-                            disabled={!f.productoId}
-                          >
+                          <button type="button" className="hover:text-primary text-left" onClick={() => f.productoId && setDetalle(f)} disabled={!f.productoId}>
                             <span className="text-muted-foreground mr-2 font-mono text-xs">{f.codigo}</span>
                             {f.titulo}
                           </button>
@@ -225,7 +244,7 @@ function TablaCostos({ datos }: { datos: DatosCostosPrecios }) {
                         <td className="tnum px-3 py-2 text-right">
                           {f.ultimoCosto ? (
                             <>
-                              <span className="font-medium">{money(f.ultimoCosto.costoUnitarioPen)}</span>
+                              <span>{money(f.ultimoCosto.costoUnitarioPen)}</span>
                               <span className="text-muted-foreground text-2xs block">
                                 {f.ultimoCosto.referencia ?? ""} · {diaMesTexto(f.ultimoCosto.fecha)}
                                 {f.ultimoCosto.origen === "ingreso" && " · sin gastos"}
@@ -235,17 +254,20 @@ function TablaCostos({ datos }: { datos: DatosCostosPrecios }) {
                             <span className="text-muted-foreground">—</span>
                           )}
                         </td>
-                        <td className="tnum text-muted-foreground px-3 py-2 text-right">{f.costoPromedio === null ? "—" : money(f.costoPromedio)}</td>
+                        <td className="tnum px-3 py-2 text-right font-medium">{f.segundoCosto === null ? "—" : money(f.segundoCosto)}</td>
                         <td className="tnum px-3 py-2 text-right">{f.precio === null ? "—" : money(f.precio)}</td>
-                        <td className={cn("tnum px-3 py-2 text-right font-medium", bajo && "text-st-anulado")}>{pct(f.margenActual)}</td>
+                        <td className={cn("tnum px-3 py-2 text-right", bajo(f) && "text-st-anulado font-medium")}>
+                          {fx(f.factorActual)}
+                          {f.margenActual !== null && <span className="text-muted-foreground text-2xs block">margen {pct(f.margenActual)}</span>}
+                        </td>
                         <td className="px-3 py-2 text-right">
                           <button
                             type="button"
-                            onClick={() => setMargenDe(f)}
-                            className={cn("tnum hover:text-primary rounded px-1", f.origenMargen === "plancha" && "bg-primary/10 text-primary font-medium")}
-                            title={f.origenMargen === "plancha" ? "Margen propio de esta plancha" : `Margen de ${f.origenMargen === "material" ? "su material" : "general"}`}
+                            onClick={() => setFactorDe(f)}
+                            className={cn("tnum hover:text-primary rounded px-1", f.origenFactor === "plancha" && "bg-primary/10 text-primary font-medium")}
+                            title={f.origenFactor === "plancha" ? "Factor propio de esta plancha" : `Factor de ${f.origenFactor === "material" ? "su material" : "general"}`}
                           >
-                            {pct(f.margenObjetivo)}
+                            {fx(f.factorObjetivo)}
                           </button>
                         </td>
                         <td className="px-3 py-2 text-right">
@@ -258,10 +280,7 @@ function TablaCostos({ datos }: { datos: DatosCostosPrecios }) {
                                 setManual((m) => ({ ...m, [f.codigo]: e.target.value }));
                                 alternar(f, true);
                               }}
-                              className={cn(
-                                "tnum ml-auto h-7 w-24 text-right",
-                                nuevo !== null && f.precio !== null && Math.abs(nuevo - f.precio) >= 0.01 && "border-primary/50",
-                              )}
+                              className={cn("tnum ml-auto h-7 w-24 text-right", nuevo !== null && f.precio !== null && Math.abs(nuevo - f.precio) >= 0.01 && "border-primary/50")}
                             />
                           ) : (
                             <span className="text-muted-foreground">—</span>
@@ -278,8 +297,8 @@ function TablaCostos({ datos }: { datos: DatosCostosPrecios }) {
       )}
 
       <p className="text-muted-foreground mt-3 text-xs">
-        El margen es sobre el precio sin IGV{config.preciosIncluyenIgv ? ` (los precios de lista incluyen ${config.igvPct}% de IGV)` : ""}. Precio
-        sugerido = último costo ÷ (1 − margen){config.preciosIncluyenIgv ? " + IGV" : ""}, redondeado {REDONDEO_TEXTO[config.redondeo]} hacia arriba.
+        Precio sugerido = 2do costo × factor{config.preciosIncluyenIgv ? ` + ${config.igvPct}% de IGV` : ""}, redondeado {REDONDEO_TEXTO[config.redondeo]} hacia arriba. El factor
+        actual sale del precio de hoy sin IGV ÷ 2do costo.
       </p>
 
       {elegidas.size > 0 && (
@@ -287,7 +306,14 @@ function TablaCostos({ datos }: { datos: DatosCostosPrecios }) {
           <p className="min-w-0 flex-1 text-sm">
             {aplicables.length} {aplicables.length === 1 ? "precio elegido" : "precios elegidos"} para poner en Odoo
           </p>
-          <Button variant="outline" onClick={() => { setElegidas(new Set()); setManual({}); }} disabled={pendiente}>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setElegidas(new Set());
+              setManual({});
+            }}
+            disabled={pendiente}
+          >
             Limpiar
           </Button>
           <Button className="gap-1.5" onClick={aplicar} disabled={pendiente || aplicables.length === 0}>
@@ -298,7 +324,7 @@ function TablaCostos({ datos }: { datos: DatosCostosPrecios }) {
       )}
 
       {detalle && <PanelHistorial fila={detalle} alCerrar={() => setDetalle(null)} />}
-      {margenDe && <DialogoMargen fila={margenDe} config={config} alCerrar={() => setMargenDe(null)} />}
+      {factorDe && <PanelFactor fila={factorDe} config={config} alCerrar={() => setFactorDe(null)} />}
     </>
   );
 }
@@ -334,9 +360,9 @@ function PanelHistorial({ fila, alCerrar }: { fila: FilaCostoPrecio; alCerrar: (
           {datos && (
             <>
               <section>
-                <h3 className="mb-2 text-sm font-semibold">Historial de costos</h3>
+                <h3 className="mb-2 text-sm font-semibold">1er costo en cada compra</h3>
                 {datos.costos.length === 0 ? (
-                  <p className="text-muted-foreground text-sm">Sin compras liquidadas todavía.</p>
+                  <p className="text-muted-foreground text-sm">Sin compras costeadas todavía.</p>
                 ) : (
                   <ul className="divide-y rounded-xl border">
                     {datos.costos.map((c, i) => {
@@ -349,17 +375,17 @@ function PanelHistorial({ fila, alCerrar }: { fila: FilaCostoPrecio; alCerrar: (
                             <span className="tnum font-semibold">{money(c.costoUnitarioPen)}</span>
                             {c.costoUnitarioUsd !== null && <span className="tnum text-muted-foreground text-xs">{montoEn(c.costoUnitarioUsd, "USD")}</span>}
                             {cambio !== null && Math.abs(cambio) >= 0.05 && (
-                              <span className={cn("tnum text-xs", cambio > 0 ? "text-st-anulado" : "text-st-entregado")}>
-                                {cambio > 0 ? "+" : ""}
+                              <span className="tnum text-muted-foreground text-xs">
+                                {cambio > 0 ? "▲ +" : "▼ "}
                                 {cambio.toFixed(1)}%
                               </span>
                             )}
                             <span className="text-muted-foreground ml-auto text-xs">
                               {c.referencia ? (
                                 c.origen === "liquidacion" ? (
-                                  <Link href={`/compras/${c.referencia}`} className="text-primary hover:underline">
+                                  <a href={`/costos-precios/costear/${c.referencia}`} className="text-primary hover:underline">
                                     {c.referencia}
-                                  </Link>
+                                  </a>
                                 ) : (
                                   c.referencia
                                 )
@@ -392,7 +418,8 @@ function PanelHistorial({ fila, alCerrar }: { fila: FilaCostoPrecio; alCerrar: (
                         <span className="tnum">
                           {p.precioAnterior === null ? "—" : money(p.precioAnterior)} → <span className="font-semibold">{money(p.precioNuevo)}</span>
                         </span>
-                        {p.margenPct !== null && <span className="text-muted-foreground text-xs">margen {pct(p.margenPct)}</span>}
+                        {p.factor !== null && <span className="text-muted-foreground text-xs">factor {fx(p.factor)}</span>}
+                        {p.segundoCosto !== null && <span className="text-muted-foreground text-xs">2do costo {money(p.segundoCosto)}</span>}
                         <span className="text-muted-foreground ml-auto text-xs">
                           {diaMesTexto(momentoEnLima(p.fecha), true)}
                           {p.quien && ` · ${p.quien}`}
@@ -410,20 +437,20 @@ function PanelHistorial({ fila, alCerrar }: { fila: FilaCostoPrecio; alCerrar: (
   );
 }
 
-/** El margen propio de una plancha, o volver al de su material. */
-function DialogoMargen({ fila, config, alCerrar }: { fila: FilaCostoPrecio; config: ConfigCostos; alCerrar: () => void }) {
-  const [valor, setValor] = useState(fila.margenPlancha === null ? "" : String(fila.margenPlancha));
+/** El factor propio de una plancha, o volver al de su material. */
+function PanelFactor({ fila, config, alCerrar }: { fila: FilaCostoPrecio; config: ConfigCostos; alCerrar: () => void }) {
+  const [valor, setValor] = useState(fila.factorPlancha === null ? "" : String(fila.factorPlancha));
   const [error, setError] = useState<string | null>(null);
   const [pendiente, iniciar] = useTransition();
-  const delMaterial = config.margenPorMaterial[fila.material] ?? config.margenDefecto;
-  const m = leerNumero(valor);
-  const vista = fila.ultimoCosto ? precioSugerido(fila.ultimoCosto.costoUnitarioPen, m ?? delMaterial, config) : null;
+  const delMaterial = config.factorPorMaterial[fila.material] ?? config.factorDefecto;
+  const f = leerNumero(valor);
+  const vista = fila.segundoCosto ? precioSugerido(fila.segundoCosto, f ?? delMaterial, config) : null;
 
-  const guardar = (margen: number | null) =>
+  const guardar = (factor: number | null) =>
     iniciar(async () => {
-      const r = await acciones.guardarMargenPlancha({ codigo: fila.codigo, margen });
+      const r = await acciones.guardarFactorPlancha({ codigo: fila.codigo, factor });
       if (!r.ok) return setError(r.error);
-      toast.success(margen === null ? "Vuelve al margen de su material" : "Margen guardado");
+      toast.success(factor === null ? "Vuelve al factor de su material" : "Factor guardado");
       alCerrar();
     });
 
@@ -431,21 +458,25 @@ function DialogoMargen({ fila, config, alCerrar }: { fila: FilaCostoPrecio; conf
     <Sheet open onOpenChange={(a) => !a && alCerrar()}>
       <SheetContent side="right" className="w-full sm:max-w-sm">
         <SheetHeader>
-          <SheetTitle>Margen de {fila.codigo}</SheetTitle>
+          <SheetTitle>Factor de {fila.codigo}</SheetTitle>
           <SheetDescription>
-            {fila.material} · {fila.titulo}. Sin margen propio usa el de su material ({pct(delMaterial)}).
+            {fila.material} · {fila.titulo}. Sin factor propio usa el de su material ({fx(delMaterial)}).
           </SheetDescription>
         </SheetHeader>
         <div className="flex flex-col gap-3 px-4">
-          <Campo label="Margen propio (%)" error={error ?? undefined}>
+          <Campo label="Factor propio" error={error ?? undefined}>
             <Input inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} placeholder={String(delMaterial)} className="tnum" />
           </Campo>
-          {vista !== null && <p className="text-muted-foreground text-sm">Precio sugerido con ese margen: <span className="tnum text-foreground font-medium">{money(vista)}</span></p>}
+          {vista !== null && (
+            <p className="text-muted-foreground text-sm">
+              Precio sugerido con ese factor: <span className="tnum text-foreground font-medium">{money(vista)}</span>
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
-            <Button onClick={() => (m === null ? setError("Escribe el margen.") : guardar(m))} disabled={pendiente}>
+            <Button onClick={() => (f === null ? setError("Escribe el factor.") : guardar(f))} disabled={pendiente}>
               Guardar
             </Button>
-            {fila.margenPlancha !== null && (
+            {fila.factorPlancha !== null && (
               <Button variant="outline" onClick={() => guardar(null)} disabled={pendiente}>
                 Usar el del material
               </Button>
@@ -457,13 +488,12 @@ function DialogoMargen({ fila, config, alCerrar }: { fila: FilaCostoPrecio; conf
   );
 }
 
-/** El margen general, el de cada material, el IGV, el redondeo y las tarifas de la mano de obra. */
-function EditorMargenes({ config, materiales }: { config: ConfigCostos; materiales: string[] }) {
+/** El factor general y por material, los meses de la tasa, el IGV, el redondeo y las tarifas de mano de obra. */
+function EditorFactores({ config, materiales }: { config: ConfigCostos; materiales: string[] }) {
   const t = (n: number | undefined) => (n === undefined ? "" : String(n));
-  const [general, setGeneral] = useState(t(config.margenDefecto));
-  const [porMaterial, setPorMaterial] = useState<Record<string, string>>(
-    Object.fromEntries(materiales.map((m) => [m, t(config.margenPorMaterial[m])])),
-  );
+  const [general, setGeneral] = useState(t(config.factorDefecto));
+  const [porMaterial, setPorMaterial] = useState<Record<string, string>>(Object.fromEntries(materiales.map((m) => [m, t(config.factorPorMaterial[m])])));
+  const [meses, setMeses] = useState(t(config.mesesPromedio));
   const [igv, setIgv] = useState(t(config.igvPct));
   const [incluye, setIncluye] = useState(config.preciosIncluyenIgv);
   const [redondeo, setRedondeo] = useState<Redondeo>(config.redondeo);
@@ -476,17 +506,18 @@ function EditorMargenes({ config, materiales }: { config: ConfigCostos; material
   const [pendiente, iniciar] = useTransition();
 
   const guardar = () => {
-    const margenPorMaterial: Record<string, number> = {};
+    const factorPorMaterial: Record<string, number> = {};
     for (const [m, v] of Object.entries(porMaterial)) {
       if (!v.trim()) continue;
       const n = leerNumero(v);
-      if (n === null) return setError(`El margen de ${m} no es un número.`);
-      margenPorMaterial[m] = n;
+      if (n === null) return setError(`El factor de ${m} no es un número.`);
+      factorPorMaterial[m] = n;
     }
     iniciar(async () => {
       const r = await acciones.guardarConfigCostos({
-        margenDefecto: leerNumero(general),
-        margenPorMaterial,
+        factorDefecto: leerNumero(general),
+        factorPorMaterial,
+        mesesPromedio: leerNumero(meses),
         igvPct: leerNumero(igv),
         preciosIncluyenIgv: incluye,
         redondeo,
@@ -498,49 +529,42 @@ function EditorMargenes({ config, materiales }: { config: ConfigCostos; material
       });
       if (!r.ok) return setError(r.error);
       setError(null);
-      toast.success("Márgenes y tarifas guardados");
+      toast.success("Factores y tarifas guardados");
     });
   };
 
   return (
     <div className="flex max-w-3xl flex-col gap-5">
       <section className="bg-card shadow-card flex flex-col gap-4 rounded-xl border p-4">
-        <h2 className="text-sm font-semibold">Margen objetivo</h2>
+        <h2 className="text-sm font-semibold">Factor (margen de ganancia)</h2>
         <p className="text-muted-foreground -mt-2 text-xs">
-          Sobre el precio de venta sin IGV. Una plancha puede tener el suyo (se fija desde la tabla, tocando su objetivo).
+          Precio sin IGV = 2do costo × factor. Un factor de 1.40 deja 28.6% de margen sobre el precio. Una plancha puede tener el suyo (se fija desde la tabla, tocando su factor).
         </p>
-        <Campo label="General (%)" className="w-40" ayuda="Para los materiales sin margen propio">
+        <Campo label="General" className="w-40" ayuda="Para los materiales sin factor propio">
           <Input inputMode="decimal" value={general} onChange={(e) => setGeneral(e.target.value)} className="tnum" />
         </Campo>
         <div className="grid gap-3 sm:grid-cols-2">
           {materiales.map((m) => (
-            <Campo key={m} label={`${m} (%)`}>
-              <Input
-                inputMode="decimal"
-                value={porMaterial[m] ?? ""}
-                onChange={(e) => setPorMaterial((p) => ({ ...p, [m]: e.target.value }))}
-                placeholder={`General (${general || "—"})`}
-                className="tnum"
-              />
+            <Campo key={m} label={m}>
+              <Input inputMode="decimal" value={porMaterial[m] ?? ""} onChange={(e) => setPorMaterial((p) => ({ ...p, [m]: e.target.value }))} placeholder={`General (${general || "—"})`} className="tnum" />
             </Campo>
           ))}
         </div>
       </section>
 
       <section className="bg-card shadow-card flex flex-col gap-4 rounded-xl border p-4">
-        <h2 className="text-sm font-semibold">Precio de lista</h2>
-        <div className="grid gap-3 sm:grid-cols-3">
+        <h2 className="text-sm font-semibold">Gastos de operar y precio de lista</h2>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Campo label="Meses para la tasa" ayuda="Se juntan los últimos meses">
+            <Input inputMode="numeric" value={meses} onChange={(e) => setMeses(e.target.value)} className="tnum" />
+          </Campo>
           <Campo label="IGV (%)">
             <Input inputMode="decimal" value={igv} onChange={(e) => setIgv(e.target.value)} className="tnum" />
           </Campo>
           <Campo grupo label="Los precios de Odoo">
-            <Opciones
-              valores={[incluye ? "si" : "no"]}
-              onToggle={(v) => setIncluye(v === "si")}
-              opciones={[{ valor: "si", label: "Incluyen IGV" }, { valor: "no", label: "Sin IGV" }]}
-            />
+            <Opciones valores={[incluye ? "si" : "no"]} onToggle={(v) => setIncluye(v === "si")} opciones={[{ valor: "si", label: "Incluyen IGV" }, { valor: "no", label: "Sin IGV" }]} />
           </Campo>
-          <Campo grupo label="Redondeo del sugerido">
+          <Campo grupo label="Redondeo">
             <Opciones valores={[redondeo]} onToggle={(v) => setRedondeo(v as Redondeo)} opciones={Object.entries(REDONDEOS).map(([valor, label]) => ({ valor, label }))} />
           </Campo>
         </div>
@@ -548,7 +572,7 @@ function EditorMargenes({ config, materiales }: { config: ConfigCostos; material
 
       <section className="bg-card shadow-card flex flex-col gap-4 rounded-xl border p-4">
         <h2 className="text-sm font-semibold">Tarifa de la mano de obra (S/ por hora)</h2>
-        <p className="text-muted-foreground -mt-2 text-xs">Se propone al cargar la mano de obra en una compra (personas × horas × tarifa).</p>
+        <p className="text-muted-foreground -mt-2 text-xs">Se propone al cargar la mano de obra al costear una compra (personas × horas × tarifa).</p>
         <div className="grid gap-3 sm:grid-cols-3">
           {(Object.keys(TIPOS_MANO_OBRA) as TipoManoObra[]).map((k) => (
             <Campo key={k} label={TIPOS_MANO_OBRA[k]}>

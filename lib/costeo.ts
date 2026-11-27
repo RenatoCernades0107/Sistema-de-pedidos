@@ -274,6 +274,58 @@ export function liquidar(compra: CompraCosteo, lineas: LineaCosteo[], gastos: Ga
   };
 }
 
+/* ── Segundo costeo: los gastos de operar ─────────────────────────────────── */
+
+/**
+ * El primer costo es lo que cuesta poner la plancha en el almacén (la
+ * liquidación de su compra). El segundo le suma lo que cuesta operar: los gastos
+ * administrativos, financieros, del almacén propio y de ventas y despacho.
+ *
+ * Esos gastos se registran por mes y se reparten sobre el costo de lo vendido ese
+ * mes: tasa = gastos del mes ÷ costo de ventas del mes. Para no saltar con un mes
+ * raro, la tasa que vale es la de los últimos N meses juntos (gastos ÷ base).
+ */
+export const CONCEPTOS_OPERATIVOS = ["administrativos", "financieros", "almacen", "ventas_despacho", "otro"] as const;
+export type ConceptoOperativo = (typeof CONCEPTOS_OPERATIVOS)[number];
+
+export const ETIQUETAS_OPERATIVOS: Record<ConceptoOperativo, { etiqueta: string; ayuda: string }> = {
+  administrativos: { etiqueta: "Administrativos", ayuda: "Planilla administrativa, contador, sistemas, oficina, servicios" },
+  financieros: { etiqueta: "Financieros", ayuda: "Intereses, comisiones bancarias, ITF, diferencia de cambio" },
+  almacen: { etiqueta: "Almacén propio", ayuda: "Alquiler, vigilancia, personal de almacén, mermas" },
+  ventas_despacho: { etiqueta: "Ventas y despacho", ayuda: "Vendedores, comisiones, despacho al cliente, publicidad" },
+  otro: { etiqueta: "Otros", ayuda: "Lo que no entra en los demás" },
+};
+
+export interface MesOperativo {
+  /** AAAA-MM. */
+  mes: string;
+  /** Lo gastado en el mes (todos los conceptos), en soles. */
+  gastos: number;
+  /** El costo de lo vendido en el mes, en soles. `null` si no se sabe. */
+  base: number | null;
+}
+
+/** La tasa de un mes: gastos ÷ base. `null` sin base. */
+export const tasaDelMes = (m: MesOperativo) => (m.base && m.base > 0 ? m.gastos / m.base : null);
+
+/**
+ * La tasa que vale para un mes `vigenteEn` (AAAA-MM): la de los `n` meses
+ * anteriores que tienen base, juntos (no el promedio de las tasas, para que un
+ * mes flojo no pese igual que uno bueno). `null` si no hay ninguno.
+ */
+export function tasaOperativa(meses: MesOperativo[], vigenteEn: string, n: number): number | null {
+  const previos = meses
+    .filter((m) => m.mes < vigenteEn && m.base !== null && m.base > 0)
+    .sort((a, b) => b.mes.localeCompare(a.mes))
+    .slice(0, Math.max(1, n));
+  const base = previos.reduce((t, m) => t + (m.base ?? 0), 0);
+  if (base <= 0) return null;
+  return Math.round((previos.reduce((t, m) => t + m.gastos, 0) / base) * 1_000_000) / 1_000_000;
+}
+
+/** Primer costo + su parte de los gastos de operar. */
+export const segundoCosto = (primer: number, tasa: number | null) => Math.round(primer * (1 + (tasa ?? 0)) * 10_000) / 10_000;
+
 /* ── Precio y margen ───────────────────────────────────────────────────────── */
 
 export type Redondeo = "centimo" | "decimo" | "sol";
@@ -293,13 +345,12 @@ export interface OpcionesPrecio {
 const paso: Record<Redondeo, number> = { centimo: 0.01, decimo: 0.1, sol: 1 };
 
 /**
- * El precio de lista para ganar `margenPct` sobre el precio SIN IGV:
- * precio = costo / (1 − margen), más IGV si la lista lo incluye. Se redondea
- * hacia arriba para no quedar por debajo del margen.
+ * El precio de lista: segundo costo × factor (el margen de ganancia), más IGV si
+ * la lista lo incluye. Se redondea hacia arriba para no quedar por debajo.
  */
-export function precioSugerido(costo: number, margenPct: number, o: OpcionesPrecio): number | null {
-  if (!(costo > 0) || !(margenPct < 100) || margenPct < 0) return null;
-  const sinIgv = costo / (1 - margenPct / 100);
+export function precioSugerido(costo: number, factor: number, o: OpcionesPrecio): number | null {
+  if (!(costo > 0) || !(factor > 0)) return null;
+  const sinIgv = costo * factor;
   const lista = o.preciosIncluyenIgv ? sinIgv * (1 + o.igvPct / 100) : sinIgv;
   const p = paso[o.redondeo];
   return Math.round(Math.ceil(lista / p - 1e-9) * p * 100) / 100;
@@ -316,6 +367,13 @@ export function margenActual(precio: number, costo: number, o: OpcionesPrecio): 
   return Math.round(((base - costo) / base) * 1000) / 10;
 }
 
+/** El factor que de verdad tiene el precio actual sobre un costo (sin IGV). */
+export function factorActual(precio: number, costo: number, o: OpcionesPrecio): number | null {
+  const base = sinIgv(precio, o);
+  if (!(base > 0) || !(costo > 0)) return null;
+  return Math.round((base / costo) * 1000) / 1000;
+}
+
 /** Promedio ponderado por cantidad; `null` sin historial. */
 export function costoPromedio(historial: { cantidad: number; costoUnitarioPen: number }[]): number | null {
   const cant = historial.reduce((a, h) => a + Math.max(0, h.cantidad), 0);
@@ -327,16 +385,18 @@ export function costoPromedio(historial: { cantidad: number; costoUnitarioPen: n
 
 export const CLAVE_CONFIG_COSTOS = "costos_precios";
 
-const pct = z.coerce
-  .number("El margen es un porcentaje")
-  .min(0, "El margen no puede ser negativo")
-  .max(95, "Un margen de más de 95% no es razonable");
+const factor = z.coerce
+  .number("El factor es un número")
+  .min(1, "El factor no puede ser menor que 1: venderías bajo el costo")
+  .max(10, "Un factor de más de 10 no es razonable");
 
 const tarifa = z.coerce.number("La tarifa es un número").min(0, "La tarifa no puede ser negativa").max(1000, "Esa tarifa no es razonable");
 
 export const esquemaConfigCostos = z.object({
-  margenDefecto: pct,
-  margenPorMaterial: z.record(z.string().trim().min(1).max(80), pct),
+  factorDefecto: factor,
+  factorPorMaterial: z.record(z.string().trim().min(1).max(80), factor),
+  /** Cuántos meses se juntan para la tasa de los gastos de operar. */
+  mesesPromedio: z.coerce.number().int("Los meses van enteros").min(1, "Al menos un mes").max(12, "Hasta 12 meses"),
   igvPct: z.coerce.number().min(0).max(50),
   preciosIncluyenIgv: z.boolean(),
   redondeo: z.enum(["centimo", "decimo", "sol"]),
@@ -346,8 +406,9 @@ export const esquemaConfigCostos = z.object({
 export type ConfigCostos = z.infer<typeof esquemaConfigCostos>;
 
 export const CONFIG_COSTOS_POR_DEFECTO: ConfigCostos = {
-  margenDefecto: 30,
-  margenPorMaterial: {},
+  factorDefecto: 1.4,
+  factorPorMaterial: {},
+  mesesPromedio: 3,
   igvPct: 18,
   preciosIncluyenIgv: true,
   redondeo: "decimo",
@@ -368,8 +429,9 @@ export function leerConfigCostos(json: unknown): ConfigCostos {
     return r.success ? r.data : d.tarifasManoObra[k];
   };
   return {
-    margenDefecto: campo("margenDefecto"),
-    margenPorMaterial: campo("margenPorMaterial"),
+    factorDefecto: campo("factorDefecto"),
+    factorPorMaterial: campo("factorPorMaterial"),
+    mesesPromedio: campo("mesesPromedio"),
     igvPct: campo("igvPct"),
     preciosIncluyenIgv: campo("preciosIncluyenIgv"),
     redondeo: campo("redondeo"),
@@ -377,14 +439,14 @@ export function leerConfigCostos(json: unknown): ConfigCostos {
   };
 }
 
-/** El margen objetivo: la excepción de la plancha, el de su material o el general. */
-export function margenObjetivo(
+/** El factor que vale: el de la plancha, el de su material o el general. */
+export function factorObjetivo(
   config: ConfigCostos,
   material: string,
   excepcion: number | null | undefined,
-): { pct: number; origen: "plancha" | "material" | "general" } {
-  if (excepcion !== null && excepcion !== undefined) return { pct: excepcion, origen: "plancha" };
-  const m = config.margenPorMaterial[material];
-  if (m !== undefined) return { pct: m, origen: "material" };
-  return { pct: config.margenDefecto, origen: "general" };
+): { factor: number; origen: "plancha" | "material" | "general" } {
+  if (excepcion !== null && excepcion !== undefined) return { factor: excepcion, origen: "plancha" };
+  const m = config.factorPorMaterial[material];
+  if (m !== undefined) return { factor: m, origen: "material" };
+  return { factor: config.factorDefecto, origen: "general" };
 }
