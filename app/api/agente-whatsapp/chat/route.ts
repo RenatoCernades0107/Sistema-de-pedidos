@@ -73,7 +73,7 @@ export async function POST(request: Request) {
 
   const supabase = await clienteServidor();
   const [{ data: prueba }, { data: anteriores, error: errorHistorial }] = await Promise.all([
-    supabase.from("agente_pruebas").select("id, titulo, anuncio, estado").eq("id", pruebaId).maybeSingle(),
+    supabase.from("agente_pruebas").select("id, titulo, anuncio, estado, canal").eq("id", pruebaId).maybeSingle(),
     supabase
       .from("agente_pruebas_mensajes")
       .select("rol, contenido, adjuntos")
@@ -81,6 +81,7 @@ export async function POST(request: Request) {
       .order("creado_en", { ascending: true }),
   ]);
   if (!prueba) return errorJson("La prueba ya no existe.", 404);
+  if (prueba.canal !== "prueba") return errorJson("Es una conversación real de WhatsApp: se atiende en Conversaciones.", 400);
   if (errorHistorial) return errorJson("No se pudo leer la conversación.", 500);
 
   const estadoAntes = leerEstado(prueba.estado);
