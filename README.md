@@ -205,14 +205,23 @@ El proceso de compras (nacional e importación, con sus costos) está en
 [`docs/proceso-compras.svg`](docs/proceso-compras.svg); se edita en [`docs/proceso-compras.excalidraw`](docs/proceso-compras.excalidraw).
 
 - **Compras** (`/compras`, Administración y Logística): pre-compra → confirmar (orden de compra en
-  Odoo, sin recibir) → Almacén la recibe por partes con *Recibir compra* → se cargan los gastos →
-  liquidación. El reparto está en `lib/costeo.ts` (puro, con pruebas): la mercadería va directa por
-  ítem y cada gasto se reparte por valor o por kilos según lo que lo genera; el IGV, el IPM y la
-  percepción son crédito fiscal y no suben el costo. La liquidación deja el costo de cada plancha en
-  `costos_historial` (migración `20261218000100`, prueba en `supabase/tests/compras_costos.sql`).
-- **Costos y precios** (`/costos-precios`, Administración): último costo, promedio, precio de Odoo,
-  margen actual y precio sugerido por margen objetivo (general, por material o por plancha); los
-  precios elegidos se aplican en Odoo y quedan en `cambios_precio`.
+  Odoo, sin recibir) → Almacén la recibe por partes con *Recibir compra*. El costeo no se hace aquí.
+- **Costos y precios** (`/costos-precios`, Administración), en dos costeos y un factor:
+  - **1er costo** — botón *Costear*: se busca la orden y se cargan sus gastos (flete, DAM, aduana,
+    almacén, tráiler, mano de obra…). El reparto está en `lib/costeo.ts` (puro, con pruebas): la
+    mercadería va directa por ítem y cada gasto se reparte por valor o por kilos según lo que lo
+    genera; el IGV, el IPM y la percepción son crédito fiscal y no suben el costo. Cerrar el costeo
+    deja el costo de cada plancha en `costos_historial`.
+  - **2do costo** — pestaña *Gastos de operar*: los gastos administrativos, financieros, del almacén
+    propio y de ventas y despacho de cada mes, sobre el costo de lo vendido ese mes (calculado con
+    Odoo: lo que salió a clientes × su 1er costo, o escrito a mano). La tasa que vale junta los
+    últimos N meses: 2do costo = 1er costo × (1 + tasa).
+  - **Precio** = 2do costo × factor (general, por material o por plancha) + IGV. Los precios elegidos
+    se aplican en Odoo y quedan en `cambios_precio`.
+  - **Gráfico** (`lib/costos-grafico.ts`): costo y precio de una plancha, comparar el costo de
+    varias (por plancha, kg o m²) y el margen en el tiempo, filtrando material → color → espesor →
+    medida.
+  - Migraciones `20261218000100` y `20261220000100`; prueba en `supabase/tests/compras_costos.sql`.
 
 - `app/(app)/` — las vistas por rol. El layout carga los pedidos una vez y las cuatro páginas
   filtran sobre el mismo conjunto; `acciones.ts` son las Server Actions, el único camino de

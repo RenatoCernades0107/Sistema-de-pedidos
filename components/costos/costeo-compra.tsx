@@ -3,7 +3,7 @@
 import { Fragment, useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Lock, Plus, Receipt, Trash2, Unlock } from "lucide-react";
-import * as acciones from "@/app/(app)/compras/acciones";
+import * as acciones from "@/app/(app)/costos-precios/acciones";
 import { gastoParaCosteo, sePuedenCargarGastos, sePuedeLiquidar, type CompraDetalle, type GastoCompra } from "@/lib/compras";
 import {
   CONCEPTOS_GASTO,
@@ -24,7 +24,7 @@ import { Campo, Opciones } from "@/components/ui/campo";
 import { Input } from "@/components/ui/input";
 import { Seccion } from "@/components/ui/seccion";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { leerNumero } from "./editor-compra";
+import { leerNumero } from "@/components/compras/editor-compra";
 
 interface FilaGasto {
   clave: number;
@@ -102,7 +102,7 @@ const DAM: ConceptoGasto[] = ["ad_valorem", "ipm", "igv", "percepcion_igv"];
  * plancha puesta en nuestro almacén. Cada gasto se reparte según lo que lo genera
  * (por valor o por kilos) y el IGV, el IPM y la percepción no suben el costo.
  */
-export function CostosCompra({ compra, tarifas }: { compra: CompraDetalle; tarifas: Record<TipoManoObra, number> }) {
+export function CosteoCompra({ compra, tarifas }: { compra: CompraDetalle; tarifas: Record<TipoManoObra, number> }) {
   const editable = sePuedenCargarGastos(compra.estado);
   const [filas, setFilas] = useState<FilaGasto[]>(() => compra.gastos.map(deGasto));
   const [tcGastos, setTcGastos] = useState(txt(compra.tcGastos));
@@ -154,7 +154,7 @@ export function CostosCompra({ compra, tarifas }: { compra: CompraDetalle; tarif
       if (!yLiquidar) return void toast.success("Gastos guardados");
       const l = await acciones.liquidarCompra(compra.id);
       if (!l.ok) return setError(l.error);
-      toast.success(`${compra.codigo} liquidada`, { description: "El costo de cada plancha ya está en Costos y precios." });
+      toast.success(`${compra.codigo} costeada`, { description: "El costo de cada plancha ya está en Costos y precios." });
     });
   };
 
@@ -162,12 +162,12 @@ export function CostosCompra({ compra, tarifas }: { compra: CompraDetalle; tarif
     iniciar(async () => {
       const r = await acciones.reabrirLiquidacion(compra.id);
       if (!r.ok) return setError(r.error);
-      toast.success("Liquidación reabierta", { description: "Corrige los gastos y vuelve a cerrarla." });
+      toast.success("Costeo reabierto", { description: "Corrige los gastos y vuelve a cerrarlo." });
     });
 
   return (
     <>
-      <Seccion n={2} titulo="Gastos de la compra" nota={editable ? "Se pueden ir cargando mientras llegan" : "Liquidación cerrada"}>
+      <Seccion n={1} titulo="Gastos de la compra" nota={editable ? "Se pueden ir cargando mientras llegan" : "Costeo cerrado"}>
         <div className="flex flex-wrap items-end gap-3">
           <Campo label="TC gastos (S/ por US$)" className="w-44" ayuda="Para los gastos en dólares">
             <Input
@@ -356,8 +356,8 @@ export function CostosCompra({ compra, tarifas }: { compra: CompraDetalle; tarif
       </Seccion>
 
       <Seccion
-        n={3}
-        titulo="Liquidación: costo de adquisición"
+        n={2}
+        titulo="Primer costeo: costo de adquisición"
         nota={compra.estado === "liquidada" ? "Cerrada" : "Vista previa con los gastos de arriba"}
       >
         <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
@@ -444,11 +444,11 @@ export function CostosCompra({ compra, tarifas }: { compra: CompraDetalle; tarif
           {compra.estado === "liquidada" ? (
             <>
               <p className="text-muted-foreground mr-auto text-xs">
-                Liquidada{compra.liquidadaPor ? ` por ${compra.liquidadaPor}` : ""}. El costo ya está en Costos y precios.
+                Costeada{compra.liquidadaPor ? ` por ${compra.liquidadaPor}` : ""}. El costo ya está en la tabla de Costos y precios.
               </p>
               <Button variant="outline" className="gap-1.5" onClick={reabrir} disabled={pendiente}>
                 <Unlock className="size-4" />
-                Reabrir liquidación
+                Reabrir costeo
               </Button>
             </>
           ) : (
@@ -462,7 +462,7 @@ export function CostosCompra({ compra, tarifas }: { compra: CompraDetalle; tarif
                 disabled={pendiente || !sePuedeLiquidar(compra.estado) || liq.errores.length > 0}
               >
                 <Lock className="size-4" />
-                Cerrar liquidación
+                Cerrar costeo
               </Button>
             </>
           )}
