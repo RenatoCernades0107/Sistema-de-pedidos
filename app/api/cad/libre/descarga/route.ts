@@ -7,7 +7,7 @@
  */
 
 import { z } from "zod";
-import { obtenerVersionLibre } from "@/lib/cad/libre-servidor";
+import { contornosDeDiseno, obtenerVersionLibre } from "@/lib/cad/libre-servidor";
 import { ErrorSandboxCad, exportarDxfLibre, exportarStepLibre, sandboxConfigurado } from "@/lib/cad/sandbox";
 import { archivo, error, leerCuerpo, puertaCad } from "../../respuesta";
 
@@ -36,10 +36,11 @@ export async function POST(request: Request) {
         codigo: "sin_aprobar",
       });
     }
+    const contornos = await contornosDeDiseno(disenoId);
     const nombre = `diseno-personalizado-v${libre.version}.${formato}`;
     return formato === "dxf"
-      ? archivo(await exportarDxfLibre(libre.codigo, opciones), "application/dxf", nombre)
-      : archivo(await exportarStepLibre(libre.codigo), "application/step", nombre);
+      ? archivo(await exportarDxfLibre(libre.codigo, opciones, contornos), "application/dxf", nombre)
+      : archivo(await exportarStepLibre(libre.codigo, contornos), "application/step", nombre);
   } catch (e) {
     if (e instanceof ErrorSandboxCad) {
       return error(e.message, e.estado === 422 || e.estado === 503 ? e.estado : 502, { codigo: e.codigo });

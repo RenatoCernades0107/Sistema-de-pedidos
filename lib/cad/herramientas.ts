@@ -24,6 +24,7 @@ import { colorDe, espesorTexto, type GrupoPlancha } from "@/lib/cortes/catalogo"
 import type { ConfigCortes } from "@/lib/cortes/config";
 import type { HerramientaLlm } from "@/lib/llm/inferhub";
 import { PARAMETRO_ESPESOR, type ResultadoAcomodo } from "./acomodo";
+import { NOMBRE_CONTORNO } from "./contornos";
 import { costoDiseno } from "./costo";
 import { conEspesor, conservarEspesores, espesoresDe, ESPESOR_MAX_MM, ESPESOR_MIN_MM } from "./espesores";
 import {
@@ -105,6 +106,11 @@ export interface DependenciasCad {
   libre?: DependenciasLibre;
 }
 
+/** Lo que devuelve la extracción de un contorno: la medida y una previsualización (`data:` PNG), o por qué no se pudo. */
+export type ResultadoExtraerContorno =
+  | { ok: true; anchoMm: number; altoMm: number; trazos: number; segmentos: number; previsualizacion: string }
+  | { ok: false; codigo: string; mensaje: string };
+
 /** Diseño libre: el sandbox (`lib/cad/sandbox.ts`) y la persistencia de versiones libres. */
 export interface DependenciasLibre {
   /** Lanza un error con `errorCodigo` si el código falla (lo que lanza `ErrorSandboxCad`). */
@@ -123,6 +129,19 @@ export interface DependenciasLibre {
   ): Promise<{ version: number }>;
   /** El render 2×2 del diseño vigente (libre o de plantilla), como `data:` URL. */
   renderizarActual(): Promise<string>;
+  /**
+   * Saca el contorno vectorial de una región de un PDF adjunto y lo guarda con el
+   * diseño (`lib/cad/contornos-servidor.ts`). Sin ella, `extraer_contorno_pdf` no
+   * está disponible.
+   */
+  extraerContorno?(peticion: {
+    adjunto: string;
+    pagina: number;
+    region: { x0: number; y0: number; x1: number; y1: number };
+    nombre: string;
+    anchoMm: number;
+    incluirTrazos?: boolean;
+  }): Promise<ResultadoExtraerContorno>;
   listarReferencias(): Promise<{ nombre: string; bytes: number }[]>;
   leerReferencia(nombre: string): Promise<string | null>;
   /** Cuántas veces se ejecutó código en este turno; lo lleva quien arma las dependencias. */
@@ -300,7 +319,7 @@ export const HERRAMIENTAS_CAD: HerramientaLlm[] = [
 ];
 
 /** Las herramientas del diseño libre: solo se ofrecen con el diseño libre activo. */
-export const NOMBRES_HERRAMIENTA_LIBRE = ["leer_referencia_cad", "ejecutar_build123d", "ver_render"] as const;
+export const NOMBRES_HERRAMIENTA_LIBRE = ["leer_referencia_cad", "ejecutar_build123d", "ver_render", "extraer_contorno_pdf"] as const;
 
 export type NombreHerramientaLibre = (typeof NOMBRES_HERRAMIENTA_LIBRE)[number];
 
@@ -335,6 +354,49 @@ export const HERRAMIENTAS_LIBRE: HerramientaLlm[] = [
       "Devuelve una imagen del diseño vigente con cuatro vistas (isométrica, frente, planta, lateral) para comprobar que se ve como se pidió.",
     parametros: SIN_ARGUMENTOS,
   },
+  {
+    nombre: "extraer_contorno_pdf",
+    descripcion:
+      "Saca el contorno VECTORIAL EXACTO de un logo (o cualquier forma) de un PDF adjunto y lo guarda con el diseño con un nombre. " +
+      "Después, en `ejecutar_build123d`, `from diseno import caras_de_contorno` lo da como caras planas en mm, con sus curvas reales. " +
+      "Úsala cuando el plano trae el logo del cliente y hay que reproducirlo (no lo dibujes a ojo, ni uses la tipografía de las plantillas). " +
+      "La región se da en FRACCIONES de la página (0 a 1), con el origen ARRIBA a la izquierda, tal como ves la página en la imagen: " +
+      "encierra el logo entero y nada más. Solo cuentan los rellenos vectoriales; una imagen incrustada no sirve. " +
+      "Devuelve la medida y una imagen del contorno: compruébala antes de seguir. Cada nombre se usa una sola vez por diseño.",
+    parametros: {
+      type: "object",
+      properties: {
+        adjunto: { type: "string", description: "El nombre del archivo PDF, como lo adjuntó la persona." },
+        pagina: { type: "integer", description: "Número de página, desde 1." },
+        region: {
+          type: "object",
+          description: "La caja que encierra el logo, en fracciones de la página (0 a 1), origen arriba a la izquierda.",
+          properties: {
+            x0: { type: "number", description: "Borde izquierdo." },
+            y0: { type: "number", description: "Borde de arriba." },
+            x1: { type: "number", description: "Borde derecho." },
+            y1: { type: "number", description: "Borde de abajo." },
+          },
+          required: ["x0", "y0", "x1", "y1"],
+          additionalProperties: false,
+        },
+        nombre: {
+          type: "string",
+          description: 'Cómo lo pedirá el código: minúsculas, números y guion bajo, empezando por letra, hasta 40. Ej.: "hurley".',
+        },
+        ancho_mm: {
+          type: "number",
+          description: "El ancho REAL del logo en milímetros (de las cotas del plano). El alto sale en proporción.",
+        },
+        incluir_trazos: {
+          type: "boolean",
+          description: "Solo si el logo es un contorno sin relleno (líneas): cuenta también los trazos. Por defecto no.",
+        },
+      },
+      required: ["adjunto", "pagina", "region", "nombre", "ancho_mm"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 /** Las herramientas que se le ofrecen al modelo en este turno. */
@@ -355,6 +417,18 @@ const esquemaGenerar = z.object({
 const esquemaReferencia = z.object({ nombre: z.string().trim().max(300).optional() });
 
 const esquemaCodigo = z.object({ codigo: z.string().min(1).max(60_000) });
+
+const fraccion = z.number().min(0).max(1);
+const esquemaExtraerContorno = z.object({
+  adjunto: z.string().trim().min(1).max(200),
+  pagina: z.number().int().min(1).max(1000),
+  region: z
+    .object({ x0: fraccion, y0: fraccion, x1: fraccion, y1: fraccion })
+    .refine((r) => r.x0 < r.x1 && r.y0 < r.y1, { message: "La región tiene que ir de x0 < x1 y de y0 < y1 (arriba a abajo)." }),
+  nombre: z.string().trim().regex(NOMBRE_CONTORNO, "Minúsculas, números y guion bajo; empieza por letra; hasta 40."),
+  ancho_mm: z.number().positive().max(100_000),
+  incluir_trazos: z.boolean().optional(),
+});
 
 const esquemaBuscarPlanchas = z.object({
   material: z.string().trim().max(80).optional(),
@@ -1387,6 +1461,39 @@ async function ejecutarBuild123d(args: unknown, deps: DependenciasCad): Promise<
   );
 }
 
+async function extraerContornoPdf(args: unknown, deps: DependenciasCad): Promise<ResultadoHerramienta> {
+  if (!deps.libre) return sinLibre("extraer_contorno_pdf");
+  if (!deps.libre.extraerContorno) {
+    return fallo({ codigo: "no_disponible", mensaje: "No se pueden extraer contornos de PDF en este momento." });
+  }
+  const a = esquemaExtraerContorno.safeParse(args ?? {});
+  if (!a.success) return argumentosInvalidos(a.error);
+  const r = await deps.libre.extraerContorno({
+    adjunto: a.data.adjunto,
+    pagina: a.data.pagina,
+    region: a.data.region,
+    nombre: a.data.nombre,
+    anchoMm: a.data.ancho_mm,
+    incluirTrazos: a.data.incluir_trazos,
+  });
+  if (!r.ok) return fallo({ codigo: r.codigo, mensaje: r.mensaje }, r.mensaje);
+  return exito(
+    {
+      nombre: a.data.nombre,
+      ancho_mm: r.anchoMm,
+      alto_mm: r.altoMm,
+      trazos: r.trazos,
+      segmentos: r.segmentos,
+      uso: `from diseno import caras_de_contorno\ncaras = caras_de_contorno("${a.data.nombre}")  # lista de caras en mm, de izquierda a derecha`,
+      nota:
+        "La imagen que sigue es el contorno extraído (negro sobre blanco). Compruébalo: si no es el logo completo, " +
+        `vuelve a llamar con otra región y OTRO nombre (p. ej. «${a.data.nombre}_2»). Un logo de varias formas devuelve varias caras.`,
+    },
+    `Contorno «${a.data.nombre}»: ${r.anchoMm} × ${r.altoMm} mm`,
+    { imagenes: [r.previsualizacion] },
+  );
+}
+
 async function verRender(deps: DependenciasCad): Promise<ResultadoHerramienta> {
   if (!deps.libre) return sinLibre("ver_render");
   const actual = await deps.obtenerDisenoActual();
@@ -1468,6 +1575,8 @@ export async function ejecutarHerramienta(
         return await conSandbox(() => ejecutarBuild123d(argumentos, deps), deps);
       case "ver_render":
         return await conSandbox(() => verRender(deps), deps);
+      case "extraer_contorno_pdf":
+        return await extraerContornoPdf(argumentos, deps);
       default:
         return fallo(
           {

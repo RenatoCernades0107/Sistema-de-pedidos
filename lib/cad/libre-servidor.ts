@@ -13,6 +13,7 @@
 
 import { clienteServidor } from "@/lib/supabase-servidor";
 import { mensajeDeError } from "@/lib/errores";
+import { MAX_CONTORNOS, NOMBRE_CONTORNO, deFilasDeContorno, type ContornoSandbox, type ContornosSandbox } from "./contornos";
 import type { MaterialesPorCopia } from "./materiales";
 import type { Json } from "@/lib/supabase-tipos";
 import type { MaterialDiseno, VersionLibreCad } from "./tipos";
@@ -141,4 +142,52 @@ export async function aprobarVersionLibre(disenoId: string, version: number): Pr
     p_version: version,
   });
   if (error) throw new Error(mensajeDeError(error));
+}
+
+/* ── Contornos vectoriales (logos) de un diseño ──────────────────────────────── */
+
+/** Guarda un contorno extraído de un PDF. El nombre no se repite dentro del diseño: la base lo rechaza. */
+export async function guardarContorno(entrada: {
+  disenoId: string;
+  nombre: string;
+  contorno: ContornoSandbox;
+  origen?: Json;
+}): Promise<void> {
+  if (!NOMBRE_CONTORNO.test(entrada.nombre)) {
+    throw new Error("El nombre del contorno va en minúsculas, números y guion bajo (hasta 40 caracteres, empezando por letra).");
+  }
+  const supabase = await clienteServidor();
+  const { error } = await supabase.from("cad_contornos").insert({
+    diseno_id: entrada.disenoId,
+    nombre: entrada.nombre,
+    ancho_mm: entrada.contorno.ancho_mm,
+    alto_mm: entrada.contorno.alto_mm,
+    trazos: entrada.contorno.trazos,
+    origen: entrada.origen ?? null,
+  });
+  if (error) {
+    if (error.code === "23505") throw new ContornoRepetido(entrada.nombre);
+    throw new Error(mensajeDeError(error));
+  }
+}
+
+/** Ya hay un contorno con ese nombre en el diseño (no se pisan: se guarda con otro). */
+export class ContornoRepetido extends Error {
+  constructor(readonly nombre: string) {
+    super(`Ya hay un contorno llamado «${nombre}» en este diseño.`);
+    this.name = "ContornoRepetido";
+  }
+}
+
+/** Los contornos del diseño, en la forma que recibe el sandbox. Sin ninguno, `{}`. */
+export async function contornosDeDiseno(disenoId: string): Promise<ContornosSandbox> {
+  const supabase = await clienteServidor();
+  const { data, error } = await supabase
+    .from("cad_contornos")
+    .select("nombre, ancho_mm, alto_mm, trazos")
+    .eq("diseno_id", disenoId)
+    .order("creado_en", { ascending: true })
+    .limit(MAX_CONTORNOS);
+  if (error) throw new Error(`No se pudieron leer los contornos del diseño: ${error.message}`);
+  return deFilasDeContorno(data ?? []);
 }

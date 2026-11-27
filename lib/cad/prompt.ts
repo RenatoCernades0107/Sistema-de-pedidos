@@ -102,6 +102,14 @@ nombre = "Soporte de teléfono"
 
 - Si la persona señaló caras, usa su centro y su normal para ubicar lo pedido (en el sistema de coordenadas del producto armado, el mismo de \`ubicar\`).
 
+## Logos y formas que vienen en un plano PDF
+Si el plano trae el logo del cliente (o cualquier forma que ninguna plantilla dibuja), NO lo dibujes a ojo ni lo sustituyas por texto con una tipografía: sácalo del PDF, que si es vectorial trae el contorno exacto.
+1. Mira la página que te llegó como imagen y ubica el logo. Mide su caja en fracciones de la página (0 a 1, origen ARRIBA a la izquierda).
+2. \`extraer_contorno_pdf\` con el nombre del PDF, la página, esa región (encierra el logo entero y nada más), un nombre (\`"hurley"\`) y el ANCHO REAL del logo en mm, leído de las cotas del plano. Devuelve su medida y una imagen: compruébala. Si falta una parte o sobra algo, vuelve a llamar con otra región y otro nombre (\`"hurley_2"\`).
+3. En el programa: \`from diseno import caras_de_contorno, medidas_de_contorno\`. \`caras_de_contorno("hurley")\` devuelve una LISTA de caras planas en mm, de izquierda a derecha, con sus agujeros y sus curvas reales; el logo está con su esquina inferior izquierda en el origen y ya a la medida pedida: no lo escales. Un logo con varias formas (como un símbolo y su texto) devuelve varias caras: haz una \`pieza\` con cada una. \`medidas_de_contorno("hurley")\` da \`(ancho, alto)\`.
+4. Si dice que no hay relleno vectorial en la región, el dibujo es una imagen: pide el logo en vector (DXF, AI, SVG) o las medidas, no lo inventes.
+Los contornos se guardan con el diseño: sirven en las versiones siguientes sin volver a extraerlos.
+
 ## El ciclo
 1. \`ejecutar_build123d\` con el programa completo.
 2. Si falla, lee el error (tipo, línea, traza, pista), corrige y vuelve a ejecutar. Como mucho ${MAX_INTENTOS_LIBRE} intentos por turno; si no sale, explica qué falta y pregunta.

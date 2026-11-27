@@ -113,8 +113,14 @@ def ejecutar(
     modo: str = "generar",
     opciones: dict[str, Any] | None = None,
     limites: Limites | None = None,
+    contornos: dict[str, Any] | None = None,
 ) -> Resultado:
-    """Ejecuta el código en un hijo aislado. Nunca lanza por culpa del código del usuario."""
+    """
+    Ejecuta el código en un hijo aislado. Nunca lanza por culpa del código del usuario.
+
+    `contornos`: los logos del diseño (nombre → `{ancho_mm, alto_mm, trazos}`), que el
+    código pide con `caras_de_contorno(nombre)`. Viajan en `entrada.json`, como datos.
+    """
     rechazo = revisar(codigo)
     if rechazo is not None:
         return Resultado(False, {"ok": False, "error": rechazo.como_dict()})
@@ -123,7 +129,7 @@ def ejecutar(
     dir_trabajo = tempfile.mkdtemp(prefix="cad-libre-")
     try:
         with open(os.path.join(dir_trabajo, "entrada.json"), "w", encoding="utf-8") as f:
-            json.dump({"codigo": codigo, "modo": modo, "opciones": opciones or {}}, f)
+            json.dump({"codigo": codigo, "modo": modo, "opciones": opciones or {}, "contornos": contornos or {}}, f)
         ruta_salida = os.path.join(dir_trabajo, "consola.txt")
         with open(ruta_salida, "wb") as consola:
             # En Linux (Lambda/Docker) el hijo lleva límites de CPU/memoria/archivo (rlimit).

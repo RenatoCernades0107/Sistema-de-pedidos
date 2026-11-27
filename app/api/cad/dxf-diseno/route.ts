@@ -13,6 +13,7 @@ import { aPlanchasMotor } from "@/lib/cad/acomodo";
 import { leerAcomodoGuardado } from "@/lib/cad/materiales";
 import type { PlanchaAcomodadaCad } from "@/lib/cad/tipos";
 import { deParametros } from "@/lib/cad/disenos-servidor";
+import { contornosDeDiseno } from "@/lib/cad/libre-servidor";
 import { exportarDxf, exportarDxfPlanchas } from "@/lib/cad/motor";
 import {
   ErrorSandboxCad,
@@ -85,17 +86,19 @@ export async function POST(request: Request) {
         return error("Falta configurar el sandbox CAD.", 503, {
           codigo: "no_configurado",
         });
+      const contornos = await contornosDeDiseno(disenoId);
       const guardado = conPlanchas(v.acomodo);
       if (guardado) {
         const dxf = await exportarDxfPlanchasLibre(
           v.codigo,
           guardado.planchas,
           guardado.kerf,
+          contornos,
         );
         return archivo(dxf, "application/dxf", `${nombre}-planchas.dxf`);
       }
       return archivo(
-        await exportarDxfLibre(v.codigo),
+        await exportarDxfLibre(v.codigo, undefined, contornos),
         "application/dxf",
         `${nombre}.dxf`,
       );

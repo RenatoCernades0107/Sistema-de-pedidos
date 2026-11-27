@@ -919,3 +919,65 @@ describe("espesor y material por copia", () => {
     expect(leer(r.contenido).error.codigo).toBe("nada_que_cambiar");
   });
 });
+
+describe("extraer_contorno_pdf", () => {
+  const args = {
+    adjunto: "plano.pdf",
+    pagina: 1,
+    region: { x0: 0.1, y0: 0.2, x1: 0.5, y1: 0.4 },
+    nombre: "hurley",
+    ancho_mm: 3470,
+  };
+  const bien = { ok: true as const, anchoMm: 3470, altoMm: 830, trazos: 2, segmentos: 120, previsualizacion: "data:image/png;base64,iVBOR" };
+
+  it("pasa la petición a quien extrae, devuelve la medida y la imagen, y dice cómo usarlo", async () => {
+    const extraerContorno = vi.fn(async () => bien);
+    const r = await ejecutarHerramienta("extraer_contorno_pdf", args, dependencias({ libre: depsLibre({ extraerContorno }) }));
+    expect(r.ok).toBe(true);
+    expect(extraerContorno).toHaveBeenCalledWith({
+      adjunto: "plano.pdf",
+      pagina: 1,
+      region: args.region,
+      nombre: "hurley",
+      anchoMm: 3470,
+      incluirTrazos: undefined,
+    });
+    expect(r.imagenes).toEqual([bien.previsualizacion]);
+    const datos = leer(r.contenido);
+    expect(datos).toMatchObject({ nombre: "hurley", ancho_mm: 3470, alto_mm: 830 });
+    expect(datos.uso).toContain('caras_de_contorno("hurley")');
+    expect(r.contenido).not.toContain("iVBOR");
+    expect(r.resumen).toContain("3470");
+  });
+
+  it("un fallo de la extracción vuelve como resultado para que el modelo lo corrija", async () => {
+    const extraerContorno = vi.fn(async () => ({ ok: false as const, codigo: "contorno_no_encontrado", mensaje: "No hay relleno vectorial." }));
+    const r = await ejecutarHerramienta("extraer_contorno_pdf", args, dependencias({ libre: depsLibre({ extraerContorno }) }));
+    expect(r.ok).toBe(false);
+    expect(leer(r.contenido).error).toMatchObject({ codigo: "contorno_no_encontrado", mensaje: "No hay relleno vectorial." });
+  });
+
+  it("rechaza argumentos inválidos sin extraer nada", async () => {
+    const extraerContorno = vi.fn(async () => bien);
+    const deps = dependencias({ libre: depsLibre({ extraerContorno }) });
+    for (const malos of [
+      { ...args, nombre: "Con Espacios" },
+      { ...args, region: { x0: 0.5, y0: 0.2, x1: 0.1, y1: 0.4 } },
+      { ...args, region: { x0: 0, y0: 0, x1: 1.5, y1: 1 } },
+      { ...args, ancho_mm: 0 },
+      { ...args, pagina: 0 },
+    ]) {
+      const r = await ejecutarHerramienta("extraer_contorno_pdf", malos, deps);
+      expect(r.ok).toBe(false);
+      expect(leer(r.contenido).error.codigo).toBe("argumentos_invalidos");
+    }
+    expect(extraerContorno).not.toHaveBeenCalled();
+  });
+
+  it("sin diseño libre no existe, y sin quien extraiga dice que no está disponible", async () => {
+    const sin = await ejecutarHerramienta("extraer_contorno_pdf", args, dependencias());
+    expect(leer(sin.contenido).error.codigo).toBe("diseno_libre_no_disponible");
+    const r = await ejecutarHerramienta("extraer_contorno_pdf", args, dependencias({ libre: depsLibre() }));
+    expect(leer(r.contenido).error.codigo).toBe("no_disponible");
+  });
+});
