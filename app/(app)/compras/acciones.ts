@@ -77,8 +77,20 @@ export async function traerComprasDeOdoo(entrada: unknown): Promise<compras.Resu
   const datos = esquemaTraer.safeParse(entrada);
   if (!datos.success) return { ok: false, error: primerError(datos.error) };
   const r = await compras.traerComprasDeOdoo(datos.data);
-  if (r.ok && r.aplicado) refresh();
+  // También tras solo revisar: se rellenan los números de orden de Odoo de las compras que no lo tenían.
+  if (r.ok) refresh();
   return r;
+}
+
+/** Por qué una orden de Odoo (P01726) entra o no entra al traer de Odoo. */
+export async function explicarOrdenDeOdoo(numero: unknown, desde: unknown): Promise<{ ok: true; veredicto: string } | { ok: false; error: string }> {
+  const no = await puede();
+  if (no) return no as { ok: false; error: string };
+  const datos = z
+    .object({ numero: z.string().trim().min(2, "Escribe el número de la orden, por ejemplo P01726").max(40), desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable() })
+    .safeParse({ numero, desde: desde || null });
+  if (!datos.success) return { ok: false, error: primerError(datos.error) };
+  return compras.explicarOrdenDeOdoo(datos.data.numero, datos.data.desde);
 }
 
 /** Los proveedores (contactos de Odoo) para una compra. */

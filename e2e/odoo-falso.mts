@@ -213,7 +213,7 @@ const CAMPOS: Record<string, string[]> = {
   ],
   "purchase.order": [
     "name", "partner_id", "origin", "partner_ref", "picking_type_id", "order_line", "state", "picking_ids", "date_order",
-    "currency_id", "date_planned",
+    "currency_id", "date_planned", "date_approve",
   ],
   "res.currency": ["name", "active", "rate", "inverse_rate"],
   "stock.backorder.confirmation": ["pick_ids"],
@@ -756,6 +756,7 @@ export async function crearOdooFalso(
     const pickings = tabla("stock.picking");
     const movs = tabla("stock.move");
     po.state = "purchase";
+    po.date_approve = ahora();
     const tipo = tabla("stock.picking.type").find((x) => x.id === valorDe(po, "picking_type_id")) ?? tabla("stock.picking.type")[0];
     const almacen = tabla("stock.warehouse").find((w) => valorDe(w, "in_type_id") === tipo.id);
     const destino = almacen ? valorDe(almacen, "lot_stock_id") : 8;
