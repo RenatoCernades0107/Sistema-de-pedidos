@@ -42,6 +42,8 @@ import {
 } from "./odoo/produccion";
 import { materialesADescontar, type TerminadoGuardado } from "./terminados/guardado";
 import { almacenDeVenta, origenDe } from "./odoo/pedidos-venta";
+import { crearLoteSobrante, productoSobrante } from "./odoo/sobrantes";
+import type { PiezaDeEntrega } from "./odoo/entregas";
 import { ErrorOdoo } from "./odoo/rpc";
 import type { LineaDePedido } from "./pedido-lineas";
 import {
@@ -134,26 +136,6 @@ async function asegurarProduccion(
   });
   if (error) throw new Error(`Se creó ${mo.nombre} en Odoo, pero no se pudo anotar aquí: ${mensajeDeError(error)}`);
   return mo.id;
-}
-
-/**
- * Las órdenes de los cortes con piloto de una cotización ya confirmada. Corre
- * después de confirmar la venta: la orden reserva las planchas que el corte va a
- * consumir.
- */
-export async function producirCortes(
-  cotizacionId: string,
-  orderId: number,
-  lineas: { posicion: number; productoId: number; corte: CorteGuardado | null; produccionId?: number | null }[],
-): Promise<Resultado> {
-  for (const l of lineas.filter(conPiloto)) {
-    try {
-      await asegurarProduccion(cotizacionId, orderId, { ...l, produccionId: l.produccionId ?? null });
-    } catch (e) {
-      return { ok: false, error: `No se creó la orden de fabricación del corte: ${mensaje(e, "crear")}` };
-    }
-  }
-  return { ok: true };
 }
 
 /* ── La reserva ────────────────────────────────────────────────────────────── */
@@ -404,9 +386,14 @@ async function anotarLotes(filas: { id: string; codigo: string }[], lotes: Map<s
 }
 
 /**
- * Cierra en Odoo las órdenes de los cortes con piloto de un pedido terminado:
- * consume las planchas usadas (las anotadas o las calculadas) y crea un lote
- * por cada sobrante guardado. Se puede repetir: lo ya cerrado no se toca.
+ * Lleva a Odoo lo que dejaron los cortes con piloto de un pedido terminado: un
+ * lote por cada sobrante que el taller guardó. Se puede repetir: lo ya cerrado
+ * no se toca, y un lote que ya existe se reutiliza.
+ *
+ * Los cortes ya no se fabrican: la venta lleva las planchas y las piezas del
+ * almacén que usa, y la entrega las descuenta. Solo los cortes que ya tenían
+ * orden de fabricación (cotizados antes de este cambio) la cierran como antes:
+ * consume las planchas usadas y crea los lotes de los sobrantes.
  */
 export async function cerrarCortesDePedido(
   codigoPedido: string,
@@ -422,6 +409,41 @@ export async function cerrarCortesDePedido(
   if (!pedido) return { ok: false, error: "Ese pedido no existe." };
 
   for (const l of pendientes) {
+    if (!l.produccionId) {
+      try {
+        const { filas, reales } = await sobrantesParaOdoo(pedido.id, l.posicion, "corte");
+        const lotes = new Map<string, number>();
+        for (const r of reales) {
+          lotes.set(
+            r.nombre,
+            await crearLoteSobrante({
+              material: r.material!,
+              nombre: r.nombre,
+              largo: r.largo,
+              ancho: r.ancho,
+              nota: r.nota,
+              ubicacionId: r.ubicacionId,
+            }),
+          );
+        }
+        await anotarLotes(filas, lotes);
+        // Las piezas del almacén que usó el corte salen con la entrega de la venta.
+        await supabase.rpc("soltar_sobrantes_de_pedido", {
+          p_codigo: codigoPedido,
+          p_consumir: true,
+          p_posicion: l.posicion,
+        });
+        const { error: alAnotar } = await supabase.rpc("anotar_produccion", {
+          p_cotizacion: cotizacionId,
+          p_posicion: l.posicion,
+          p_cerrada: true,
+        });
+        if (alAnotar) return { ok: false, error: `Los sobrantes entraron a Odoo, pero no se pudo anotar aquí: ${mensajeDeError(alAnotar)}` };
+      } catch (e) {
+        return { ok: false, error: `No entraron a Odoo los sobrantes del corte: ${mensaje(e, "sobrantes")}` };
+      }
+      continue;
+    }
     try {
       const moId = await asegurarProduccion(cotizacionId, orderId, l);
       const grupo = await cargarGrupoPlancha(l.corte!.grupoId);
@@ -453,6 +475,24 @@ export async function cerrarCortesDePedido(
     }
   }
   return { ok: true };
+}
+
+/**
+ * Las piezas del almacén (sobrantes) que venden los cortes de un pedido, con su
+ * producto y su lote en Odoo: salen con la entrega de la venta. Los cortes con
+ * orden de fabricación (los de antes) las consumen en la orden, no aquí.
+ */
+export async function piezasDeEntrega(lineas: LineaDePedido[]): Promise<PiezaDeEntrega[]> {
+  const salida: PiezaDeEntrega[] = [];
+  for (const l of lineas) {
+    if (!l.corte || l.produccionId || sobrantesUsados(l.corte).length === 0) continue;
+    const grupo = await cargarGrupoPlancha(l.corte.grupoId);
+    const material = grupo ? materialOdoo(grupo) : null;
+    if (!material) throw new ErrorOdoo("El material del corte ya no tiene planchas en el catálogo.");
+    const productoId = await productoSobrante(material);
+    for (const loteId of await lotesConsumidos(l.corte)) salida.push({ productoId, loteId });
+  }
+  return salida;
 }
 
 /** Cancela las órdenes abiertas de un pedido anulado: las planchas que reservaban quedan libres. */

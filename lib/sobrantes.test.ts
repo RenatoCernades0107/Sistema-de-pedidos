@@ -13,7 +13,6 @@ import {
   precioDeSobrante,
   sobrantesDeCorte,
   areaPiezasM2,
-  lineasCorteAMedida,
 } from "./sobrantes";
 
 const formatos = [
@@ -153,10 +152,4 @@ describe("el piloto", () => {
     expect(areaPiezasM2([{ ancho: 60, alto: 80, cantidad: 10 }])).toBe(4.8);
   });
 
-  it("el material en m² y el servicio cuadran al céntimo con lo calculado", () => {
-    const r = lineasCorteAMedida(545, 41.3, 4.8);
-    expect(r).toEqual({ cantidad: 4.8, precio: 113.54, servicio: 41.31 });
-    const total = Math.round(r.cantidad * r.precio * 100) / 100 + r.servicio;
-    expect(Math.round(total * 100) / 100).toBe(586.3);
-  });
 });

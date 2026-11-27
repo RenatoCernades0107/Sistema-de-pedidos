@@ -1,10 +1,11 @@
 /**
  * La producción de un corte en Odoo, para los materiales con el piloto de
- * sobrantes encendido.
+ * sobrantes encendido, tal como se hacía antes.
  *
- * Sin piloto, un corte se vende como planchas y al terminar se entregan las
- * planchas. Con piloto, el corte es un producto en sí, "Corte a medida" de su
- * material, en m², que se fabrica:
+ * Ya no se crean órdenes para cortes nuevos: la venta lleva las planchas (y las
+ * piezas del almacén que usa) para poder facturarlas, y la entrega las descuenta.
+ * Esto queda para cerrar las órdenes de los cortes que se cotizaron con el
+ * esquema anterior, en el que el corte era un producto "Corte a medida" en m²:
  *
  *   orden de fabricación (sin lista de materiales: la arma la app, pieza por pieza)
  *     consume   las planchas nuevas del formato
@@ -12,9 +13,7 @@
  *     y además  un sobrante por cada pedazo que vuelve al almacén, cada uno su
  *               propio lote con largo y ancho
  *
- * La orden se crea y se confirma con el pedido (eso reserva las planchas); se
- * cierra al pasar a Listo, con lo que el taller confirma que usó y que guardó.
- * Después, la entrega de la venta saca el corte a medida.
+ * Los productos terminados sí siguen fabricándose (`crearFabricacion`).
  *
  * Lo que cambia entre versiones y aquí se detecta: la cantidad hecha de un
  * movimiento (`quantity` + `picked` desde la 17, `quantity_done` / `qty_done`

@@ -181,12 +181,13 @@ export async function llevarAOdoo(codigo: string): Promise<{ ok: true } | { ok: 
   const s = await cargarSobrante(codigo);
   if (!s) return { ok: false, error: "Ese sobrante ya no existe." };
   if (s.sincronizacion === "sincronizada" && s.odooLotId) return { ok: true };
-  /* Uno que salió de un pedido entra a Odoo por la orden de fabricación de su
-     línea, al cerrarla: crearlo aquí lo pondría dos veces en el stock. */
+  /* Uno que salió de un pedido entra a Odoo al pasar el pedido a Listo (o por la
+     orden de fabricación de su línea, en los de antes): crearlo aquí podría
+     ponerlo dos veces en el stock. */
   if (s.origen === "corte" || s.origen === "terminado") {
     return {
       ok: false,
-      error: `Este sobrante entra a Odoo al cerrar la producción de ${s.nacioEn ? `el pedido ${s.nacioEn}` : "su pedido"}: reintenta desde el pedido.`,
+      error: `Este sobrante entra a Odoo al terminar ${s.nacioEn ? `el pedido ${s.nacioEn}` : "su pedido"}: reintenta desde el pedido.`,
     };
   }
 

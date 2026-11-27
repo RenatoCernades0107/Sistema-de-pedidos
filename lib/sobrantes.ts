@@ -212,21 +212,9 @@ export function sobrantesDeCorte(
   return salida.sort((a, b) => b.largo * b.ancho - a.largo * a.ancho);
 }
 
-/** Los m² de piezas de un corte: lo que se vende como "Corte a medida". */
+/** Los m² de piezas de un corte: lo que producía la orden de un corte (las de antes). */
 export const areaPiezasM2 = (piezas: { ancho: number; alto: number; cantidad: number }[]) =>
   redondear(
     piezas.reduce((s, p) => s + (p.cantidad > 0 ? Math.floor(p.cantidad) * p.ancho * p.alto : 0), 0) / 10000,
     4,
   );
-
-/**
- * Cómo va a Odoo un corte con piloto: el material como m² de corte a medida y
- * el servicio aparte. Odoo redondea cada línea al céntimo; lo que el precio por
- * m² no alcanza a cuadrar lo absorbe el servicio, así el total es el calculado.
- */
-export function lineasCorteAMedida(montoMaterial: number, montoServicio: number, areaM2: number) {
-  const cantidad = Math.max(areaM2, 0.0001);
-  const precio = redondear(montoMaterial / cantidad, 2);
-  const subtotal = redondear(cantidad * precio, 2);
-  return { cantidad, precio, servicio: redondear(montoServicio + montoMaterial - subtotal, 2) };
-}
