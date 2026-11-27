@@ -22,6 +22,7 @@ import {
   cambiarAlmacenDeCotizacion,
   marcarCotizacionEnviada,
   nuevaVersionDeCotizacion,
+  refrescarCotizacionEnOdoo,
   reintentarCambiosEnOdoo,
   reintentarConfirmacion,
   reintentarSincronizacion,
@@ -88,6 +89,7 @@ export function DetalleCotizacion({
   const [enviando, iniciarEnvio] = useTransition();
   const [versionando, iniciarVersion] = useTransition();
   const [reintentandoCambios, iniciarCambios] = useTransition();
+  const [refrescando, iniciarRefresco] = useTransition();
   const despacho = almacenes.find((a) => a.id === despachoId) ?? null;
   const editable = esEditable(c);
   const motivoNoEnvio = motivoNoEnviable(c);
@@ -162,6 +164,17 @@ export function DetalleCotizacion({
       router.refresh();
     });
 
+  const refrescar = () =>
+    iniciarRefresco(async () => {
+      const r = await refrescarCotizacionEnOdoo(c.id);
+      if (r.ok) toast.success(`${r.orderName} refrescada en Odoo`);
+      else toast.error("No se refrescó en Odoo", { description: r.error });
+      router.refresh();
+    });
+  // Solo mientras en Odoo siga siendo cotización: con pedido, ya se confirmó (o está por confirmarse).
+  const refrescable =
+    !!c.odooOrderId && c.sincronizacion === "sincronizada" && !c.pedido && c.estado !== "reemplazada" && !c.errorEdicion;
+
   const reintentar = () =>
     iniciar(async () => {
       const r = await reintentarSincronizacion(c.id);
@@ -222,6 +235,18 @@ export function DetalleCotizacion({
             >
               <ExternalLink />
               Abrir en Odoo
+            </Button>
+          )}
+          {refrescable && (
+            <Button
+              onClick={refrescar}
+              disabled={refrescando}
+              title="Vuelve a escribir en Odoo las líneas de esta cotización, tal como están aquí"
+              variant="outline"
+              className="gap-1.5"
+            >
+              <RotateCw className={refrescando ? "animate-spin" : undefined} />
+              {refrescando ? "Refrescando…" : "Refrescar en Odoo"}
             </Button>
           )}
           {editable && (

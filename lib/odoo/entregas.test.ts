@@ -8,6 +8,7 @@ import { BASE, CLAVE, USUARIO, crearOdooFalso } from "../../e2e/odoo-falso.mjs";
 import { cancelarPedidoDeVenta, repartirCantidades, validarEntrega } from "./entregas";
 import { confirmarPedidoDeVenta, crearPedidoDeVenta } from "./pedidos-venta";
 import { reiniciarCacheOdoo } from "./rpc";
+import { crearLoteSobrante, productoSobrante } from "./sobrantes";
 
 describe("repartirCantidades", () => {
   const movs = [
@@ -138,6 +139,30 @@ describe("validarEntrega", () => {
   it("no valida con todo en cero", async () => {
     const orderId = await venta();
     await expect(validarEntrega(orderId, new Map([[20, 0]]))).rejects.toThrow(/todo en cero/);
+  });
+
+  it("una pieza del almacén sale con su lote exacto, no con otro del mismo material", async () => {
+    const material = { codigoBase: "F7E024", nombre: "SOBRANTE ACRILICO ECO CRISTAL 3MM" };
+    const pieza = (nombre: string) =>
+      crearLoteSobrante({ material, nombre, largo: 100, ancho: 90, nota: null, ubicacionId: 8 });
+    await pieza("SOB-00001");
+    const elegido = await pieza("SOB-00002");
+    const productoId = await productoSobrante(material);
+
+    const v = await crearPedidoDeVenta({
+      cotizacionId: "c-pieza",
+      clienteId: 1,
+      lineas: [linea(20, 1, 200), linea(productoId, 1, 150), linea(31, 1, 45)],
+    });
+    await confirmarPedidoDeVenta(v.orderId);
+    expect(await validarEntrega(v.orderId, new Map([[20, 1]]), [{ productoId, loteId: elegido }])).toEqual({
+      estado: "validada",
+      yaEstaba: false,
+    });
+
+    expect(stock(20)).toBe(9);
+    const porLote = Object.fromEntries(odoo.estado().lotes.map((l) => [l.name, l.cantidad]));
+    expect(porLote).toEqual({ "SOB-00001": 1, "SOB-00002": 0 });
   });
 
   it("con Odoo caído falla con su mensaje y la entrega queda pendiente", async () => {

@@ -20,6 +20,7 @@ import {
   cancelarTerminadosDePedido,
   cerrarCortesDePedido,
   cerrarTerminadosDePedido,
+  piezasDeEntrega,
 } from "./produccion-servidor";
 import { leerMaterialesUsados, leerTerminado } from "./terminados/guardado";
 import { clienteServidor } from "./supabase-servidor";
@@ -115,9 +116,9 @@ export async function descontarStockDePedido(codigo: string): Promise<ResultadoO
   } else {
     try {
       const lineas = await leerLineasDePedido(codigo);
-      /* Con el piloto, el corte se fabrica: primero se cierra su orden (consume las
-         planchas y devuelve los sobrantes al almacén) y después la entrega saca
-         el corte terminado. */
+      /* Con el piloto, primero entran a Odoo los sobrantes que dejó cada corte (o,
+         en uno con orden de fabricación de antes, se cierra la orden); después la
+         entrega saca las planchas y las piezas del almacén que se vendieron. */
       const cortes = await cerrarCortesDePedido(codigo, odoo.cotizacionId, odoo.orderId, lineas);
       /* Un producto terminado también se fabrica: su orden consume lo que de
          verdad se usó y deja el producto en el almacén, listo para la entrega. */
@@ -127,7 +128,7 @@ export async function descontarStockDePedido(codigo: string): Promise<ResultadoO
       if (!cortes.ok) resultado = cortes;
       else if (!terminados.ok) resultado = terminados;
       else {
-        await validarEntrega(odoo.orderId, cantidadesParaDescontar(lineas));
+        await validarEntrega(odoo.orderId, cantidadesParaDescontar(lineas), await piezasDeEntrega(lineas));
         resultado = { ok: true };
       }
     } catch (e) {

@@ -28,6 +28,7 @@ import {
   crearVersionNueva,
   marcarEnviada,
   olvidarPopularidad,
+  refrescarEnOdoo,
   sincronizarCambiosConOdoo,
   sincronizarConOdoo,
   type ResultadoEnvio,
@@ -126,6 +127,17 @@ export async function reintentarCambiosEnOdoo(id: string): Promise<{ ok: true; o
   if (typeof id !== "string") return fallo("Falta la cotización.");
 
   const r = await sincronizarCambiosConOdoo(id);
+  refresh();
+  return r;
+}
+
+/** Vuelve a escribir en Odoo las líneas de la cotización, tal como están en la app. */
+export async function refrescarCotizacionEnOdoo(id: unknown): Promise<{ ok: true; orderName: string } | Fallo> {
+  await exigirCotizaciones();
+  if (!odooConfigurado()) return fallo(ODOO_NO_CONFIGURADO);
+  if (typeof id !== "string") return fallo("Falta la cotización.");
+
+  const r = await refrescarEnOdoo(id);
   refresh();
   return r;
 }
