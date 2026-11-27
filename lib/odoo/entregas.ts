@@ -12,7 +12,7 @@
  * valida la que está lista.
  */
 
-import { camposExistentes, ejecutar, ErrorOdoo, idDe, texto } from "./rpc";
+import { campoCantidad, ejecutar, ErrorOdoo, idDe, texto } from "./rpc";
 
 type Fila = Record<string, unknown>;
 
@@ -91,9 +91,20 @@ export type ResultadoEntrega =
  * Si la venta todavía es una cotización (se registró con Odoo caído y nadie la
  * confirmó), primero se confirma: sin eso no hay entrega que validar.
  */
+/** Una pieza del almacén (un sobrante) que sale con la venta: su producto y su lote. */
+export interface PiezaDeEntrega {
+  productoId: number;
+  loteId: number;
+}
+
 export async function validarEntrega(
   orderId: number,
   cantidades: CantidadesPorProducto,
+  /**
+   * Las piezas del almacén que vende un corte. Su producto va por lotes y cada
+   * pieza es una distinta: salen con su lote exacto, no con el que Odoo reservó.
+   */
+  piezas: PiezaDeEntrega[] = [],
 ): Promise<ResultadoEntrega> {
   const ordenes = await ejecutar<Fila[]>("sale.order", "read", [[orderId]], { fields: ["state"] });
   const estadoOrden = texto(ordenes[0]?.state);
@@ -120,27 +131,30 @@ export async function validarEntrega(
     "stock.move",
     "search_read",
     [[["picking_id", "in", pendientes], ["state", "not in", ["done", "cancel"]]]],
-    { fields: ["product_id", "product_uom_qty"], order: "id" },
+    { fields: ["product_id", "product_uom_qty", "location_id", "location_dest_id"], order: "id" },
   );
+  const conLote = new Set(piezas.map((p) => p.productoId));
   const movimientos: MovimientoDeEntrega[] = filas
     .map((f) => ({ id: f.id as number, productoId: idDe(f.product_id) ?? 0, demanda: Number(f.product_uom_qty) || 0 }))
-    .filter((m) => m.productoId > 0);
+    .filter((m) => m.productoId > 0 && !conLote.has(m.productoId));
   const reparto = repartirCantidades(movimientos, cantidades);
+  const movimientosDePiezas = filas.filter((f) => conLote.has(idDe(f.product_id) ?? 0));
 
-  if ([...reparto.values()].every((q) => q <= 0)) {
+  if ([...reparto.values()].every((q) => q <= 0) && piezas.length === 0) {
     throw new ErrorOdoo("No salió nada del almacén: la entrega no se puede validar con todo en cero.");
   }
 
   /* Desde la 17 la cantidad hecha es `quantity` y se marca `picked`; hasta la 16
      era `quantity_done`. Se escribe la que este Odoo tenga. */
-  const picked = (await camposExistentes("stock.move", ["picked"])).length > 0;
-  const campo = picked ? "quantity" : "quantity_done";
+  const { picked, campoMov: campo, campoLinea } = await campoCantidad();
 
   for (const [moveId, cantidad] of reparto) {
     const valores: Record<string, unknown> = { [campo]: cantidad };
     if (picked) valores.picked = cantidad > 0;
     await ejecutar("stock.move", "write", [[moveId], valores]);
   }
+
+  await sacarPiezas(movimientosDePiezas, piezas, { picked, campoLinea });
 
   const r = await ejecutar("stock.picking", "button_validate", [pendientes], {
     context: contextoValidar(pendientes),
@@ -149,6 +163,64 @@ export async function validarEntrega(
     throw new ErrorOdoo("Odoo pidió confirmar algo más para validar la entrega. Valídala desde Odoo.");
   }
   return { estado: "validada", yaEstaba: false };
+}
+
+/**
+ * Las piezas del almacén, cada una con su lote: se quita lo que Odoo reservó por
+ * su cuenta (puede ser otra pieza del mismo material) y se pone una línea por
+ * lote, desde donde está ese lote. Cada movimiento se lleva tantos lotes como su
+ * demanda, en orden; los que sobran van al último.
+ */
+async function sacarPiezas(
+  movimientos: Fila[],
+  piezas: PiezaDeEntrega[],
+  campos: { picked: boolean; campoLinea: string },
+) {
+  if (!piezas.length) return;
+  const porProducto = new Map<number, Fila[]>();
+  for (const m of movimientos) {
+    const p = idDe(m.product_id) ?? 0;
+    porProducto.set(p, [...(porProducto.get(p) ?? []), m]);
+  }
+
+  for (const [productoId, lista] of porProducto) {
+    const lotes = piezas.filter((p) => p.productoId === productoId).map((p) => p.loteId);
+    const previas = await ejecutar<number[]>("stock.move.line", "search", [
+      [["move_id", "in", lista.map((m) => m.id as number)], ["state", "!=", "done"]],
+    ]);
+    if (previas.length) await ejecutar("stock.move.line", "unlink", [previas]);
+
+    let i = 0;
+    for (const [n, m] of lista.entries()) {
+      const toca = n === lista.length - 1 ? lotes.length - i : Math.min(Number(m.product_uom_qty) || 0, lotes.length - i);
+      for (const lote of lotes.slice(i, i + toca)) {
+        await ejecutar("stock.move.line", "create", [
+          {
+            move_id: m.id,
+            product_id: productoId,
+            lot_id: lote,
+            location_id: (await dondeEsta(lote)) ?? idDe(m.location_id),
+            location_dest_id: idDe(m.location_dest_id),
+            [campos.campoLinea]: 1,
+            ...(campos.picked ? { picked: true } : {}),
+          },
+        ]);
+      }
+      i += toca;
+      if (campos.picked) await ejecutar("stock.move", "write", [[m.id], { picked: toca > 0 }]);
+    }
+  }
+}
+
+/** La ubicación interna donde hay stock de un lote. */
+async function dondeEsta(loteId: number): Promise<number | null> {
+  const quants = await ejecutar<Fila[]>(
+    "stock.quant",
+    "search_read",
+    [[["lot_id", "=", loteId], ["quantity", ">", 0], ["location_id.usage", "=", "internal"]]],
+    { fields: ["location_id"], limit: 1 },
+  );
+  return idDe(quants[0]?.location_id);
 }
 
 /**

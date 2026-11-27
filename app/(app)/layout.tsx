@@ -3,6 +3,7 @@ import { StoreProvider } from "@/lib/store";
 import { cargarPedidos } from "@/lib/pedidos-servidor";
 import { cargarTrabajadores, cargarUbigeo } from "@/lib/catalogos-servidor";
 import { exigirSesion } from "@/lib/sesion";
+import { medir } from "@/lib/tiempos";
 
 /**
  * La puerta de la aplicación. El proxy ya desvió a quien no tiene sesión, pero
@@ -15,12 +16,14 @@ import { exigirSesion } from "@/lib/sesion";
  * es también el sitio por donde entra el resultado de cada escritura.
  */
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const perfil = await exigirSesion();
-  const [pedidos, trabajadores, ubigeo] = await Promise.all([
-    cargarPedidos(perfil.rol, perfil.id),
-    cargarTrabajadores(),
-    cargarUbigeo(),
+  // Los catálogos no dependen del rol: se piden a la vez que el perfil en vez de
+  // esperarlo. Solo los pedidos necesitan saber quién mira.
+  const [perfil, trabajadores, ubigeo] = await Promise.all([
+    medir("layout.perfil", exigirSesion),
+    medir("layout.trabajadores", cargarTrabajadores),
+    medir("layout.ubigeo", cargarUbigeo),
   ]);
+  const pedidos = await medir("layout.pedidos", () => cargarPedidos(perfil.rol, perfil.id));
 
   return (
     <StoreProvider

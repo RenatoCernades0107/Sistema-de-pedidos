@@ -2,6 +2,7 @@ import { cache } from "react";
 import { redirect } from "next/navigation";
 import { ROLES, RUTA_PEDIDOS, type Rol } from "./dominio";
 import { clienteServidor } from "./supabase-servidor";
+import { medir } from "./tiempos";
 
 export interface Perfil {
   id: string;
@@ -37,17 +38,20 @@ export const RUTA_CAMBIO_PASSWORD = "/cambiar-contrasena";
 export const perfilActual = cache(async (): Promise<Perfil | null> => {
   const supabase = await clienteServidor();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Los claims se verifican en local: sin ida a Auth. Que la cuenta siga activa y
+  // su rol lo decide la fila de `usuarios`, que se lee justo abajo.
+  const { data: claims } = await medir("sesion.getClaims", () => supabase.auth.getClaims());
+  const idUsuario = claims?.claims.sub;
 
-  if (!user) return null;
+  if (!idUsuario) return null;
 
-  const { data } = await supabase
-    .from("usuarios")
-    .select("id, nombre, usuario, rol, activo, debe_cambiar_password, email_recuperacion")
-    .eq("id", user.id)
-    .maybeSingle();
+  const { data } = await medir("sesion.usuarios", () =>
+    supabase
+      .from("usuarios")
+      .select("id, nombre, usuario, rol, activo, debe_cambiar_password, email_recuperacion")
+      .eq("id", idUsuario)
+      .maybeSingle(),
+  );
 
   if (!data?.activo) return null;
 
