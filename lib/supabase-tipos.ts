@@ -143,28 +143,47 @@ export type Database = {
         Row: {
           actualizado_en: string
           anuncio: Json | null
+          atencion_desde: string | null
+          atendida_por: string | null
           creado_en: string
           creado_por: string
+          estado: string
           id: string
+          motivo_atencion: string | null
           titulo: string
         }
         Insert: {
           actualizado_en?: string
           anuncio?: Json | null
+          atencion_desde?: string | null
+          atendida_por?: string | null
           creado_en?: string
           creado_por?: string
+          estado?: string
           id?: string
+          motivo_atencion?: string | null
           titulo?: string
         }
         Update: {
           actualizado_en?: string
           anuncio?: Json | null
+          atencion_desde?: string | null
+          atendida_por?: string | null
           creado_en?: string
           creado_por?: string
+          estado?: string
           id?: string
+          motivo_atencion?: string | null
           titulo?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "agente_pruebas_atendida_por_fkey"
+            columns: ["atendida_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "agente_pruebas_creado_por_fkey"
             columns: ["creado_por"]
@@ -177,6 +196,7 @@ export type Database = {
       agente_pruebas_mensajes: {
         Row: {
           adjuntos: Json | null
+          autor_id: string | null
           contenido: string
           creado_en: string
           derivado: boolean
@@ -187,6 +207,7 @@ export type Database = {
         }
         Insert: {
           adjuntos?: Json | null
+          autor_id?: string | null
           contenido?: string
           creado_en?: string
           derivado?: boolean
@@ -197,6 +218,7 @@ export type Database = {
         }
         Update: {
           adjuntos?: Json | null
+          autor_id?: string | null
           contenido?: string
           creado_en?: string
           derivado?: boolean
@@ -206,6 +228,13 @@ export type Database = {
           traza?: Json | null
         }
         Relationships: [
+          {
+            foreignKeyName: "agente_pruebas_mensajes_autor_id_fkey"
+            columns: ["autor_id"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "agente_pruebas_mensajes_prueba_id_fkey"
             columns: ["prueba_id"]
@@ -3867,6 +3896,8 @@ export type Database = {
       }
     }
     Functions: {
+      atiende_conversaciones: { Args: never; Returns: boolean }
+      prueba_de_ruta_adjunto: { Args: { p_ruta: string }; Returns: string }
       buscar_fragmentos_agente: {
         Args: {
           p_embedding?: string | null

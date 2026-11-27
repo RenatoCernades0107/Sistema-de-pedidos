@@ -218,3 +218,22 @@ export async function exigirCostos(): Promise<Perfil> {
   }
   return perfil;
 }
+
+/**
+ * La vista `/conversaciones`: las conversaciones del agente de WhatsApp que atiende
+ * un humano. Administración y Ventas.
+ */
+export async function exigirConversaciones(): Promise<Perfil> {
+  const perfil = await exigirSesion();
+  if (!ROLES[perfil.rol].atenderConversaciones) {
+    redirect(RUTA_PEDIDOS);
+  }
+  return perfil;
+}
+
+/** Lo mismo para route handlers. `null` si no puede. */
+export async function perfilConConversaciones(): Promise<Perfil | null> {
+  const perfil = await perfilActual();
+  if (!perfil || bienvenidaPendiente(perfil)) return null;
+  return ROLES[perfil.rol].atenderConversaciones ? perfil : null;
+}

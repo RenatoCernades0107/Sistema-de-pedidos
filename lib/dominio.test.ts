@@ -49,7 +49,7 @@ describe("gruposDe", () => {
 
   it("a Administración le da las tres secciones en orden", () => {
     expect(resumen("administracion")).toEqual([
-      ["principal", ["Cotizaciones", "Chat"]],
+      ["principal", ["Cotizaciones", "Chat", "Conversaciones"]],
       ["taller", ["Diseños", "Almacén"]],
       ["gestion", ["Compras", "Costos y precios", "Métricas", "Agente de WhatsApp", "Configuración"]],
     ]);
@@ -63,9 +63,9 @@ describe("gruposDe", () => {
     ]);
   });
 
-  it("a Ventas le da Cotizaciones, Chat, Diseños y Almacén: ni Métricas ni Configuración", () => {
+  it("a Ventas le da Cotizaciones, Chat, Conversaciones, Diseños y Almacén: ni Métricas ni Configuración", () => {
     expect(resumen("ventas")).toEqual([
-      ["principal", ["Cotizaciones", "Chat"]],
+      ["principal", ["Cotizaciones", "Chat", "Conversaciones"]],
       ["taller", ["Diseños", "Almacén"]],
     ]);
   });

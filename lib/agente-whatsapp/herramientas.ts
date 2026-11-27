@@ -111,8 +111,9 @@ export const HERRAMIENTAS_AGENTE: HerramientaLlm[] = [
   {
     nombre: "derivar_a_asesor",
     descripcion:
-      "Pasa la conversación a un asesor humano. Úsalo para cotizar cortes a medida, cotizar productos terminados, " +
-      "tomar o registrar un pedido, o cuando el cliente lo pida o no sepas responder. Después despídete con el mensaje que te devuelve.",
+      "Pasa la conversación a una persona del equipo cuando no puedes responder con certeza: cotizar cortes o productos " +
+      "terminados, pedidos, pagos, stock, plazos, reclamos, adjuntos que no entiendes, o cuando lo pide el cliente. " +
+      "Después de llamarla NO escribas nada: el cliente no recibe mensaje tuyo y lo atiende un asesor.",
     parametros: {
       type: "object",
       properties: {
@@ -150,7 +151,6 @@ export async function ejecutarHerramienta(
   nombre: string,
   argumentos: Record<string, unknown>,
   contexto: ContextoHerramientas,
-  { mensajeDerivacion }: { mensajeDerivacion: string },
 ): Promise<ResultadoHerramienta> {
   const paso = (resumen: string, detalle?: unknown, error = false): PasoTraza => ({
     herramienta: nombre,
@@ -269,8 +269,7 @@ export async function ejecutarHerramienta(
         return {
           contenido: json({
             derivado: true,
-            dile_al_cliente: mensajeDerivacion,
-            nota: "Un asesor seguirá la conversación. Despídete con ese mensaje (puedes adaptarlo un poco) y no sigas cotizando.",
+            nota: "Listo: una persona del equipo atenderá al cliente. No escribas nada más; termina tu turno sin texto.",
           }),
           paso: paso(`Deriva a un asesor: ${motivo}`),
           derivar: { motivo },
