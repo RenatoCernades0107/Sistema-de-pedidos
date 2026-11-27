@@ -168,6 +168,18 @@ export function llmConfigurado(): boolean {
  * (por defecto) o `texto` (solo el texto que extrae la app, para pasarelas que
  * no aceptan partes `file`).
  */
+export type ModoPdf = "imagenes" | "archivo" | "texto";
+
+/**
+ * Cómo ve el modelo un PDF del chat de diseños: `INFERHUB_PDF` = `imagenes`
+ * (por defecto: cada página como imagen, más su texto), `archivo` (parte
+ * `file`, que algunas pasarelas descartan en silencio) o `texto`.
+ */
+export function modoPdf(): ModoPdf {
+  const v = process.env.INFERHUB_PDF?.trim().toLowerCase();
+  return v === "archivo" || v === "texto" ? v : "imagenes";
+}
+
 export function pdfComoArchivo(): boolean {
   return process.env.INFERHUB_PDF?.trim().toLowerCase() !== "texto";
 }
