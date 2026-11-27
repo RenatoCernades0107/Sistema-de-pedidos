@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Opciones } from "@/components/ui/campo";
 import { EstadoSincronizacion } from "@/components/cotizaciones/estado-cotizacion";
 import { EstadoCompraBadge } from "./estado-compra";
+import { TraerDeOdoo } from "./traer-de-odoo";
 
 type Filtro = "abiertas" | "borrador" | "por_recibir" | "por_liquidar" | "liquidada" | "todas";
 
@@ -52,6 +53,7 @@ export function ListaCompras({ compras, odooListo }: { compras: CompraResumen[];
             De la pre-compra a la orden de compra en Odoo, la recepción y la liquidación del costo.
           </p>
         </div>
+        <TraerDeOdoo odooListo={odooListo} />
         <Button render={<Link href="/compras/nueva" />} nativeButton={false} className="gap-1.5">
           <Plus />
           Nueva compra

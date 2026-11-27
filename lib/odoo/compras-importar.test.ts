@@ -1,0 +1,94 @@
+/**
+ * Leer las órdenes de compra de Odoo, contra el Odoo falso.
+ */
+
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { BASE, CLAVE, USUARIO, crearOdooFalso } from "../../e2e/odoo-falso.mjs";
+import { asegurarAlmacen, crearOrdenCompra, recibirOrdenCompra } from "./almacenes";
+import { leerOrdenesDeCompra } from "./compras-importar";
+import { ejecutar, reiniciarCacheOdoo } from "./rpc";
+
+let odoo: Awaited<ReturnType<typeof crearOdooFalso>>;
+
+beforeAll(async () => {
+  odoo = await crearOdooFalso();
+  vi.stubEnv("ODOO_URL", odoo.url);
+  vi.stubEnv("ODOO_DB", BASE);
+  vi.stubEnv("ODOO_USERNAME", USUARIO);
+  vi.stubEnv("ODOO_PASSWORD", CLAVE);
+});
+
+afterAll(async () => {
+  vi.unstubAllEnvs();
+  await odoo.cerrar();
+});
+
+beforeEach(() => {
+  odoo.reiniciar();
+  reiniciarCacheOdoo();
+});
+
+/** Una orden hecha directo en Odoo, sin el origen de la app. */
+async function ordenDeOdoo(lineas: { productoId: number; cantidad: number; costo: number }[], origen: string | false = false) {
+  const almacen = await asegurarAlmacen({ nombre: "Católica", codigo: "CAT" });
+  const id = await crearOrdenCompra({
+    almacen,
+    proveedorId: 2,
+    origen: origen || "",
+    documento: "PRO-1",
+    moneda: "PEN",
+    fechaPrevista: null,
+    lineas,
+  });
+  if (!origen) await ejecutar("purchase.order", "write", [[id], { origin: false }]);
+  return { id, almacen };
+}
+
+describe("leerOrdenesDeCompra", () => {
+  it("lee la orden con su proveedor, almacén, líneas y códigos", async () => {
+    const { id, almacen } = await ordenDeOdoo([
+      { productoId: 20, cantidad: 10, costo: 95.5 },
+      { productoId: 21, cantidad: 4, costo: 40 },
+    ]);
+    const { ordenes, truncado } = await leerOrdenesDeCompra([]);
+    expect(truncado).toBe(false);
+    expect(ordenes).toHaveLength(1);
+    expect(ordenes[0]).toMatchObject({
+      id,
+      proveedorId: 2,
+      referencia: "PRO-1",
+      moneda: "PEN",
+      almacenOdooId: almacen.warehouseId,
+      ultimaRecepcionId: null,
+    });
+    expect(ordenes[0].lineas).toEqual([
+      expect.objectContaining({ productoId: 20, codigo: "F7E024", cantidad: 10, recibida: 0, precio: 95.5 }),
+      expect.objectContaining({ productoId: 21, codigo: "F9.5E015", cantidad: 4, recibida: 0, precio: 40 }),
+    ]);
+  });
+
+  it("trae lo recibido y la última recepción hecha", async () => {
+    const { id } = await ordenDeOdoo([{ productoId: 20, cantidad: 10, costo: 100 }]);
+    const picking = await recibirOrdenCompra(id, [{ productoId: 20, cantidad: 6, recibidoAntes: 0 }]);
+    const { ordenes } = await leerOrdenesDeCompra([]);
+    expect(ordenes[0].lineas[0]).toMatchObject({ cantidad: 10, recibida: 6 });
+    expect(ordenes[0].ultimaRecepcionId).toBe(picking);
+  });
+
+  it("salta las que la app ya tiene, y no lee las que no están confirmadas", async () => {
+    const { id } = await ordenDeOdoo([{ productoId: 20, cantidad: 1, costo: 1 }]);
+    expect((await leerOrdenesDeCompra([id])).ordenes).toEqual([]);
+
+    // Una solicitud de cotización (borrador) no es una compra.
+    await ejecutar("purchase.order", "create", [
+      { partner_id: 2, picking_type_id: 1, order_line: [[0, 0, { product_id: 20, name: "x", product_qty: 1 }]] },
+    ]);
+    expect((await leerOrdenesDeCompra([])).ordenes.map((o) => o.id)).toEqual([id]);
+  });
+
+  it("devuelve el origen, para distinguir las que creó la app", async () => {
+    await ordenDeOdoo([{ productoId: 20, cantidad: 1, costo: 1 }], "App Plexiacril CMP-00001");
+    const { ordenes } = await leerOrdenesDeCompra([]);
+    expect(ordenes[0].origen).toBe("App Plexiacril CMP-00001");
+  });
+});

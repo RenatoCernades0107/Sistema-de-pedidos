@@ -71,6 +71,28 @@ export async function reabrirLiquidacion(entrada: unknown) {
   return con(id, entrada, compras.reabrirLiquidacion);
 }
 
+const esquemaTraer = z.object({
+  aplicar: z.boolean(),
+  desde: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "La fecha no es válida")
+    .nullable(),
+});
+
+/**
+ * Las órdenes de compra de Odoo que la app no tiene. Con `aplicar: false` solo
+ * muestra cuáles entrarían; con `true` las guarda.
+ */
+export async function traerComprasDeOdoo(entrada: unknown): Promise<compras.ResultadoImportacion> {
+  const no = await puede();
+  if (no) return no as { ok: false; error: string };
+  const datos = esquemaTraer.safeParse(entrada);
+  if (!datos.success) return { ok: false, error: primerError(datos.error) };
+  const r = await compras.traerComprasDeOdoo(datos.data);
+  if (r.ok && r.aplicado) refresh();
+  return r;
+}
+
 /** Los proveedores (contactos de Odoo) para una compra. */
 export async function buscarProveedores(q: unknown): Promise<{ ok: true; proveedores: ClienteOdoo[] } | { ok: false; error: string }> {
   const no = await puede();

@@ -30,8 +30,10 @@ import {
 import { liquidar, type ConceptoGasto, type Incoterm, type Moneda, type Reparto, type TipoCompra, type TipoManoObra } from "./costeo";
 import { mensajeDeError } from "./errores";
 import { hoy } from "./fecha";
+import { planificarImportacion, type CompraPorImportar, type OrdenOmitida } from "./compras-importar";
 import { cancelarOrdenCompra, crearOrdenCompra, recibirOrdenCompra, tipoDeCambioUsd } from "./odoo/almacenes";
 import { productosPorId } from "./odoo/catalogos";
+import { leerOrdenesDeCompra } from "./odoo/compras-importar";
 import { origenDe } from "./odoo/pedidos-venta";
 import { ErrorOdoo, ODOO_NO_CONFIGURADO, odooConfigurado } from "./odoo/rpc";
 import { codigosDelCatalogo } from "./stock-servidor";
@@ -597,4 +599,166 @@ export async function reabrirLiquidacion(id: string): Promise<ResultadoCompra> {
     .eq("id", id);
   if (alEstado) return { ok: false, error: mensajeDeError(alEstado) };
   return { ok: true, codigo: actual.codigo };
+}
+
+/* ── Traer de Odoo las órdenes que la app no tiene ─────────────────────────── */
+
+/** Una orden de Odoo que entra (o entraría) a la app, en lo que se ve en el aviso. */
+export interface CompraTraida {
+  orden: string;
+  proveedor: string;
+  tipo: TipoCompra;
+  moneda: Moneda;
+  total: number;
+  items: number;
+  estado: EstadoCompra;
+  fecha: string;
+}
+
+export type ResultadoImportacion =
+  | {
+      ok: true;
+      /** false: solo se mostró lo que entraría, no se guardó nada. */
+      aplicado: boolean;
+      porImportar: CompraTraida[];
+      omitidas: OrdenOmitida[];
+      /** Las que no se pudieron guardar (solo al aplicar). */
+      fallidas: { orden: string; error: string }[];
+      importadas: number;
+      /** Las órdenes de Odoo que nacieron en la app: no se tocan. */
+      deLaApp: number;
+      /** Había más órdenes de las que se leyeron. */
+      truncado: boolean;
+    }
+  | { ok: false; error: string };
+
+const resumenTraida = (c: CompraPorImportar): CompraTraida => ({
+  orden: c.ordenNombre,
+  proveedor: c.proveedorNombre,
+  tipo: c.tipo,
+  moneda: c.moneda,
+  total: Math.round(c.lineas.reduce((t, l) => t + l.cantidad * l.precio, 0) * 100) / 100,
+  items: c.lineas.length,
+  estado: c.estado,
+  fecha: c.creadaEn.slice(0, 10),
+});
+
+/**
+ * Guarda una orden de Odoo como compra de la app: ya sincronizada, en el estado
+ * que le toca por lo recibido, y con esa recepción anotada (así Almacén puede
+ * recibir el resto sin que la cuenta de Odoo y la de la app se contradigan).
+ */
+async function guardarTraida(c: CompraPorImportar): Promise<{ ok: true } | { ok: false; error: string; yaEstaba?: boolean }> {
+  const supabase = await clienteServidor();
+  const { data: compra, error } = await supabase
+    .from("compras")
+    .insert({
+      tipo: c.tipo,
+      estado: c.estado,
+      proveedor_odoo_id: c.proveedorId,
+      proveedor_nombre: c.proveedorNombre,
+      almacen_id: c.almacenId,
+      documento_proveedor: c.documento,
+      moneda_mercaderia: c.moneda,
+      tc_mercaderia: c.tcMercaderia,
+      condicion_pago: c.condicionPago,
+      fecha_llegada_estimada: c.fechaLlegadaEstimada,
+      nota: c.nota,
+      odoo_orden_id: c.ordenId,
+      sincronizacion: "sincronizada",
+      confirmada_en: c.confirmadaEn,
+      creado_en: c.creadaEn,
+    })
+    .select("id")
+    .single();
+  // Otro usuario la trajo a la vez: el índice único de `odoo_orden_id` la rechaza.
+  if (error?.code === "23505") return { ok: false, error: "Ya estaba en la app.", yaEstaba: true };
+  if (error || !compra) return { ok: false, error: mensajeDeError(error) };
+
+  const deshacer = async (e: Parameters<typeof mensajeDeError>[0]) => {
+    // Sin recepciones guardadas todavía, borrar la compra se lleva sus ítems.
+    await supabase.from("compras").delete().eq("id", compra.id);
+    return { ok: false as const, error: mensajeDeError(e) };
+  };
+
+  const { error: alLineas } = await supabase.from("compras_lineas").insert(
+    c.lineas.map((l, i) => ({
+      compra_id: compra.id,
+      posicion: i + 1,
+      producto_odoo_id: l.productoId,
+      codigo: l.codigo,
+      nombre: l.nombre,
+      cantidad: l.cantidad,
+      precio_unitario: l.precio,
+      cantidad_recibida: l.recibida,
+    })),
+  );
+  if (alLineas) return deshacer(alLineas);
+
+  const recibido = c.lineas.map((l, i) => ({ posicion: i + 1, cantidad: l.recibida })).filter((l) => l.cantidad > 0);
+  if (recibido.length === 0) return { ok: true };
+  const { data: rec, error: alRecibir } = await supabase
+    .from("compras_recepciones")
+    .insert({
+      compra_id: compra.id,
+      odoo_picking_id: c.ultimaRecepcionId,
+      sincronizacion: "sincronizada",
+      nota: "Recibido en Odoo antes de traer la orden a la app.",
+    })
+    .select("id")
+    .single();
+  if (alRecibir || !rec) return deshacer(alRecibir);
+  const { error: alDetalle } = await supabase
+    .from("compras_recepciones_lineas")
+    .insert(recibido.map((l) => ({ recepcion_id: rec.id, ...l })));
+  if (alDetalle) return deshacer(alDetalle);
+  return { ok: true };
+}
+
+/**
+ * Las órdenes de compra confirmadas que están en Odoo y no en la app. Con
+ * `aplicar: false` solo dice cuáles entrarían y cuáles no (y por qué); con
+ * `aplicar: true` las guarda. Repetirlo no duplica: lo que ya está se salta.
+ */
+export async function traerComprasDeOdoo(opciones: { aplicar: boolean; desde: string | null }): Promise<ResultadoImportacion> {
+  if (!odooConfigurado()) return { ok: false, error: ODOO_NO_CONFIGURADO };
+  const supabase = await clienteServidor();
+  const { data: conocidas, error } = await supabase.from("compras").select("odoo_orden_id").not("odoo_orden_id", "is", null);
+  if (error) return { ok: false, error: mensajeDeError(error) };
+
+  let plan;
+  let truncado: boolean;
+  try {
+    const leidas = await leerOrdenesDeCompra((conocidas ?? []).map((c) => c.odoo_orden_id as number));
+    truncado = leidas.truncado;
+    const enDolares = leidas.ordenes.some((o) => o.moneda === "USD" && !o.tasaPorDolar);
+    plan = planificarImportacion(leidas.ordenes, {
+      almacenes: (await cargarAlmacenes()).filter((a) => a.activo),
+      catalogo: await codigosDelCatalogo(),
+      tcActual: enDolares ? (await tipoDeCambioSugerido()).tc : null,
+      desde: opciones.desde,
+    });
+  } catch (e) {
+    return { ok: false, error: mensajeOdoo(e, "traer compras de Odoo") };
+  }
+
+  const base = { ok: true as const, omitidas: plan.omitidas, deLaApp: plan.deLaApp, truncado };
+  if (!opciones.aplicar) {
+    return { ...base, aplicado: false, porImportar: plan.porImportar.map(resumenTraida), fallidas: [], importadas: 0 };
+  }
+
+  const fallidas: { orden: string; error: string }[] = [];
+  let importadas = 0;
+  for (const c of plan.porImportar) {
+    const r = await guardarTraida(c);
+    if (r.ok) importadas++;
+    else if (!r.yaEstaba) fallidas.push({ orden: c.ordenNombre, error: r.error });
+  }
+  return {
+    ...base,
+    aplicado: true,
+    porImportar: plan.porImportar.map(resumenTraida),
+    fallidas,
+    importadas,
+  };
 }
