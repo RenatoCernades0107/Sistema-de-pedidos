@@ -4,11 +4,15 @@ import {
   costoPromedio,
   leerConfigCostos,
   liquidar,
+  factorActual,
+  factorObjetivo,
   margenActual,
-  margenObjetivo,
   montoManoObra,
   precioSugerido,
   repartirCentimos,
+  segundoCosto,
+  tasaDelMes,
+  tasaOperativa,
   CONFIG_COSTOS_POR_DEFECTO,
   type CompraCosteo,
 } from "./costeo";
@@ -159,22 +163,50 @@ describe("liquidar", () => {
   });
 });
 
-describe("precio y margen", () => {
-  const o = { igvPct: 18, preciosIncluyenIgv: true, redondeo: "decimo" as const };
+describe("segundo costeo", () => {
+  const meses = [
+    { mes: "2026-08", gastos: 20_000, base: 100_000 }, // 20%
+    { mes: "2026-09", gastos: 12_000, base: 150_000 }, // 8%
+    { mes: "2026-10", gastos: 9_000, base: 60_000 }, // 15%
+    { mes: "2026-11", gastos: 10_000, base: null }, // sin base: no cuenta
+  ];
 
-  it("precio = costo / (1 − margen) + IGV, redondeado hacia arriba", () => {
-    // 100 / 0.7 = 142.857 × 1.18 = 168.57 → 168.6
-    expect(precioSugerido(100, 30, o)).toBe(168.6);
-    expect(precioSugerido(100, 30, { ...o, redondeo: "sol" })).toBe(169);
-    expect(precioSugerido(100, 30, { ...o, preciosIncluyenIgv: false, redondeo: "centimo" })).toBe(142.86);
-    expect(precioSugerido(0, 30, o)).toBeNull();
+  it("la tasa de un mes es gastos ÷ costo de ventas", () => {
+    expect(tasaDelMes(meses[1])).toBeCloseTo(0.08);
+    expect(tasaDelMes(meses[3])).toBeNull();
   });
 
-  it("el margen actual sale sobre el precio sin IGV", () => {
+  it("vale la de los N meses anteriores juntos, no el promedio de las tasas", () => {
+    // Para diciembre: oct + sep + ago = 41,000 ÷ 310,000.
+    expect(tasaOperativa(meses, "2026-12", 3)).toBeCloseTo(41_000 / 310_000, 6);
+    // Para octubre solo cuentan los anteriores: sep + ago.
+    expect(tasaOperativa(meses, "2026-10", 3)).toBeCloseTo(32_000 / 250_000, 6);
+    expect(tasaOperativa(meses, "2026-12", 1)).toBeCloseTo(0.15, 6);
+    expect(tasaOperativa(meses, "2026-08", 3)).toBeNull();
+  });
+
+  it("segundo costo = primero × (1 + tasa)", () => {
+    expect(segundoCosto(100, 0.08)).toBe(108);
+    expect(segundoCosto(100, null)).toBe(100);
+  });
+});
+
+describe("precio por factor", () => {
+  const o = { igvPct: 18, preciosIncluyenIgv: true, redondeo: "decimo" as const };
+
+  it("precio = segundo costo × factor + IGV, redondeado hacia arriba", () => {
+    // 108 × 1.4 = 151.2 × 1.18 = 178.416 → 178.5
+    expect(precioSugerido(108, 1.4, o)).toBe(178.5);
+    expect(precioSugerido(108, 1.4, { ...o, redondeo: "sol" })).toBe(179);
+    expect(precioSugerido(108, 1.4, { ...o, preciosIncluyenIgv: false, redondeo: "centimo" })).toBe(151.2);
+    expect(precioSugerido(0, 1.4, o)).toBeNull();
+  });
+
+  it("margen y factor del precio actual, sobre el precio sin IGV", () => {
     expect(margenActual(118, 70, o)).toBe(30);
     expect(margenActual(0, 70, o)).toBeNull();
-    // ida y vuelta: el sugerido da al menos el margen pedido
-    expect(margenActual(precioSugerido(87.3, 35, o)!, 87.3, o)!).toBeGreaterThanOrEqual(35);
+    expect(factorActual(118, 80, o)).toBe(1.25);
+    expect(factorActual(precioSugerido(87.3, 1.35, o)!, 87.3, o)!).toBeGreaterThanOrEqual(1.35);
   });
 
   it("promedio ponderado por cantidad", () => {
@@ -182,18 +214,21 @@ describe("precio y margen", () => {
     expect(costoPromedio([])).toBeNull();
   });
 
-  it("margen objetivo: plancha, luego material, luego general", () => {
-    const c = { ...CONFIG_COSTOS_POR_DEFECTO, margenPorMaterial: { "Acrílico ECO": 25 } };
-    expect(margenObjetivo(c, "Acrílico ECO", 40)).toEqual({ pct: 40, origen: "plancha" });
-    expect(margenObjetivo(c, "Acrílico ECO", null)).toEqual({ pct: 25, origen: "material" });
-    expect(margenObjetivo(c, "Espejo", undefined)).toEqual({ pct: 30, origen: "general" });
+  it("factor: plancha, luego material, luego general", () => {
+    const c = { ...CONFIG_COSTOS_POR_DEFECTO, factorPorMaterial: { "Acrílico ECO": 1.3 } };
+    expect(factorObjetivo(c, "Acrílico ECO", 1.6)).toEqual({ factor: 1.6, origen: "plancha" });
+    expect(factorObjetivo(c, "Acrílico ECO", null)).toEqual({ factor: 1.3, origen: "material" });
+    expect(factorObjetivo(c, "Espejo", undefined)).toEqual({ factor: 1.4, origen: "general" });
   });
 });
 
 describe("config y conceptos", () => {
   it("lee valor por valor con defectos", () => {
-    const c = leerConfigCostos({ margenDefecto: 40, igvPct: "x", tarifasManoObra: { descarga: 12 } });
-    expect(c.margenDefecto).toBe(40);
+    const c = leerConfigCostos({ factorDefecto: 1.5, factorPorMaterial: { X: 0.5 }, igvPct: "x", tarifasManoObra: { descarga: 12 } });
+    expect(c.factorDefecto).toBe(1.5);
+    // Un factor menor que 1 no vale: queda el defecto.
+    expect(c.factorPorMaterial).toEqual({});
+    expect(c.mesesPromedio).toBe(3);
     expect(c.igvPct).toBe(18);
     expect(c.tarifasManoObra).toEqual({ descarga: 12, supervision: 0, despacho: 0 });
     expect(leerConfigCostos(null)).toEqual(CONFIG_COSTOS_POR_DEFECTO);

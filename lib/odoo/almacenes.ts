@@ -570,6 +570,34 @@ export async function recibirOrdenCompra(ordenId: number, lineas: LineaRecibida[
   return id;
 }
 
+/* ── Lo vendido en un período ──────────────────────────────────────────────── */
+
+/**
+ * Cuánto salió de cada producto hacia clientes entre `desde` (incluido) y
+ * `hasta` (excluido), menos lo que los clientes devolvieron. Es la cantidad del
+ * costo de ventas de un mes. Las fechas van como "AAAA-MM-DD HH:MM:SS" (UTC).
+ */
+export async function salidasAClientes(desde: string, hasta: string): Promise<Map<number, number>> {
+  const { campoMov } = await campoCantidad();
+  const leer = (lado: "location_dest_id" | "location_id") =>
+    ejecutar<Fila[]>(
+      "stock.move",
+      "search_read",
+      [[["state", "=", "done"], [`${lado}.usage`, "=", "customer"], ["date", ">=", desde], ["date", "<", hasta]]],
+      { fields: ["product_id", campoMov] },
+    );
+  const [salen, vuelven] = await Promise.all([leer("location_dest_id"), leer("location_id")]);
+  const neto = new Map<number, number>();
+  for (const [lista, signo] of [[salen, 1], [vuelven, -1]] as const) {
+    for (const m of lista) {
+      const p = idDe(m.product_id);
+      if (p) neto.set(p, (neto.get(p) ?? 0) + signo * (Number(m[campoMov]) || 0));
+    }
+  }
+  for (const [p, q] of neto) if (q <= 0) neto.delete(p);
+  return neto;
+}
+
 export interface Ajuste {
   ubicacionId: number;
   lineas: { productoId: number; cantidad: number }[];

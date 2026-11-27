@@ -67,6 +67,15 @@ describe("leerOrdenesDeCompra", () => {
     ]);
   });
 
+  it("el código sale del producto, no del texto de la línea, y el nombre no lo lleva pegado", async () => {
+    const { id } = await ordenDeOdoo([{ productoId: 20, cantidad: 1, costo: 1 }]);
+    // La línea quedó con la descripción de cuando el producto tenía otro código.
+    await ejecutar("purchase.order.line", "write", [[1], { name: "[CODIGO-VIEJO] ACRILICO ECO" }]);
+    const { ordenes } = await leerOrdenesDeCompra([]);
+    expect(ordenes[0].id).toBe(id);
+    expect(ordenes[0].lineas[0]).toMatchObject({ codigo: "F7E024", nombre: "ACRILICO ECO CRISTAL 3MM 1.22X1.83" });
+  });
+
   it("trae lo recibido y la última recepción hecha", async () => {
     const { id } = await ordenDeOdoo([{ productoId: 20, cantidad: 10, costo: 100 }]);
     const picking = await recibirOrdenCompra(id, [{ productoId: 20, cantidad: 6, recibidoAntes: 0 }]);
