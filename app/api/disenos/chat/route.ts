@@ -50,7 +50,7 @@ import {
   type ResultadoHerramienta,
 } from "@/lib/cad/herramientas";
 import { generarDiseno, listarPlantillas, obtenerPlantilla } from "@/lib/cad/motor";
-import { guardarVersionLibre, obtenerVersionLibre } from "@/lib/cad/libre-servidor";
+import { contornosDeDiseno, guardarVersionLibre, obtenerVersionLibre } from "@/lib/cad/libre-servidor";
 import {
   disenoLibreActivo,
   ejecutarCodigo,
@@ -65,6 +65,7 @@ import { NOMBRE_POR_DEFECTO, generarTitulo } from "@/lib/cad/titulo";
 import { esquemaReferencias, mensajeConReferencias } from "@/lib/cad/caras";
 import { esquemaAdjuntos, rutaDeDiseno, rutasAReenviar, type AdjuntoCad } from "@/lib/cad/adjuntos";
 import { AdjuntoNoDisponible, partesDeAdjuntos } from "@/lib/cad/adjuntos-servidor";
+import { extraerYGuardarContorno } from "@/lib/cad/contornos-servidor";
 import {
   ErrorLlm,
   LLM_NO_CONFIGURADO,
@@ -154,13 +155,13 @@ async function disenoActual(disenoId: string): Promise<DisenoActual | null> {
 }
 
 /** El sandbox y las versiones libres, atados al diseño de esta conversación. */
-function dependenciasLibre(disenoId: string): DependenciasLibre {
+function dependenciasLibre(disenoId: string, adjuntos: readonly AdjuntoCad[]): DependenciasLibre {
   // El GLB de la última ejecución que salió bien en este turno: `ver_render`
   // lo reutiliza en vez de volver a ejecutar el código.
   let ultimoGlb: string | null = null;
   return {
     ejecutarCodigo: async (codigo) => {
-      const r = await ejecutarCodigo(codigo);
+      const r = await ejecutarCodigo(codigo, await contornosDeDiseno(disenoId));
       ultimoGlb = r.glb_base64;
       return r;
     },
@@ -177,12 +178,14 @@ function dependenciasLibre(disenoId: string): DependenciasLibre {
     renderizarActual: async () => {
       const actual = await disenoActual(disenoId);
       if (actual?.plantilla === PLANTILLA_LIBRE && actual.codigo) {
-        return ultimoGlb ? renderizar({ glb_base64: ultimoGlb }) : renderizar({ codigo: actual.codigo });
+        if (ultimoGlb) return renderizar({ glb_base64: ultimoGlb });
+        return renderizar({ codigo: actual.codigo, contornos: await contornosDeDiseno(disenoId) });
       }
       if (!actual) throw new Error("Sin diseño");
       const generado = await generarDiseno(actual.plantilla, actual.parametros);
       return renderizar({ glb_base64: generado.glb_base64 });
     },
+    extraerContorno: (peticion) => extraerYGuardarContorno(disenoId, adjuntos, peticion),
     listarReferencias,
     leerReferencia,
     intentos: { n: 0 },
@@ -199,7 +202,12 @@ async function preciosDePlanchas(codigos: string[]): Promise<Record<string, numb
  * El motor, la base y el catálogo de verdad, atados al diseño de esta
  * conversación. Los precios, solo si quien chatea es Administración.
  */
-function dependencias(disenoId: string, libreActivo: boolean, conPrecios: boolean): DependenciasCad {
+function dependencias(
+  disenoId: string,
+  libreActivo: boolean,
+  conPrecios: boolean,
+  adjuntos: readonly AdjuntoCad[],
+): DependenciasCad {
   return {
     listarPlantillas,
     obtenerPlantilla,
@@ -221,7 +229,7 @@ function dependencias(disenoId: string, libreActivo: boolean, conPrecios: boolea
     cargarPlanchas: () => cargarCatalogoPlanchas(true),
     cargarConfigCortes,
     ...(conPrecios ? { cargarPrecios: preciosDePlanchas } : {}),
-    ...(libreActivo ? { libre: dependenciasLibre(disenoId) } : {}),
+    ...(libreActivo ? { libre: dependenciasLibre(disenoId, adjuntos) } : {}),
   };
 }
 
@@ -268,6 +276,8 @@ export async function POST(request: Request) {
 
   let sistema: string;
   let mensajes: MensajeLlm[];
+  /** Todos los archivos de la conversación (los de turnos anteriores y los de este mensaje): de ahí lee `extraer_contorno_pdf`. */
+  let adjuntosDeLaConversacion: AdjuntoCad[] = [];
   /** Si este es el primer turno de un diseño que aún no tiene nombre. */
   let ponerTitulo = false;
   try {
@@ -286,6 +296,9 @@ export async function POST(request: Request) {
     ponerTitulo = historial.length === 0 && diseno.nombre === NOMBRE_POR_DEFECTO;
     sistema = promptDeTurno(actual, { disenoLibre: libreActivo });
     const anteriores = historial.filter((m) => m.contenido.trim() || m.adjuntos.length);
+    adjuntosDeLaConversacion = [...anteriores.flatMap((m) => m.adjuntos), ...adjuntos].filter((a) =>
+      rutaDeDiseno(a.ruta, disenoId),
+    );
     const reenviar = rutasAReenviar(
       [...anteriores.map((m) => m.adjuntos), adjuntos],
       MAX_ADJUNTOS_REENVIADOS,
@@ -310,7 +323,7 @@ export async function POST(request: Request) {
     return error("No se pudo abrir la conversación. Intenta de nuevo.", 500);
   }
 
-  const deps = dependencias(disenoId, libreActivo, perfil.rol === "administracion");
+  const deps = dependencias(disenoId, libreActivo, perfil.rol === "administracion", adjuntosDeLaConversacion);
   const inicio = new Date();
 
   // El título se pide a la vez que la respuesta, para no hacer esperar al

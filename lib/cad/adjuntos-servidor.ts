@@ -36,7 +36,8 @@ export class AdjuntoNoDisponible extends Error {
   }
 }
 
-async function descargar(adjunto: AdjuntoCad, bucket: string): Promise<Buffer> {
+/** Los bytes de un adjunto, con la sesión de quien escribe. Lanza `AdjuntoNoDisponible` si ya no está. */
+export async function descargarAdjunto(adjunto: AdjuntoCad, bucket: string = BUCKET_CAD_ADJUNTOS): Promise<Buffer> {
   const supabase = await clienteServidor();
   const { data, error } = await supabase.storage.from(bucket).download(adjunto.ruta);
   if (error || !data) throw new AdjuntoNoDisponible(adjunto.nombre);
@@ -61,7 +62,7 @@ async function textoDePdf(bytes: Buffer): Promise<{ texto: string; paginas: numb
 
 /** Las partes de un archivo para el modelo. */
 async function partesDeUno(adjunto: AdjuntoCad, bucket: string): Promise<ParteLlm[]> {
-  const bytes = await descargar(adjunto, bucket);
+  const bytes = await descargarAdjunto(adjunto, bucket);
 
   if (esImagenAdjunto(adjunto.mime)) {
     return [

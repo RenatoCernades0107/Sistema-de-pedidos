@@ -588,6 +588,57 @@ export type Database = {
           },
         ]
       }
+      cad_contornos: {
+        Row: {
+          alto_mm: number
+          ancho_mm: number
+          creado_en: string
+          creado_por: string | null
+          diseno_id: string
+          id: string
+          nombre: string
+          origen: Json | null
+          trazos: Json
+        }
+        Insert: {
+          alto_mm: number
+          ancho_mm: number
+          creado_en?: string
+          creado_por?: string | null
+          diseno_id: string
+          id?: string
+          nombre: string
+          origen?: Json | null
+          trazos: Json
+        }
+        Update: {
+          alto_mm?: number
+          ancho_mm?: number
+          creado_en?: string
+          creado_por?: string | null
+          diseno_id?: string
+          id?: string
+          nombre?: string
+          origen?: Json | null
+          trazos?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cad_contornos_creado_por_fkey"
+            columns: ["creado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cad_contornos_diseno_id_fkey"
+            columns: ["diseno_id"]
+            isOneToOne: false
+            referencedRelation: "cad_disenos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cad_disenos: {
         Row: {
           actualizado_en: string
