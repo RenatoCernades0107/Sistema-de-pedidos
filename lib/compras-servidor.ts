@@ -14,11 +14,13 @@ import {
   desgloseUnitario,
   estadoPorRecepcion,
   gastoParaCosteo,
+  sePuedeCorregir,
   sePuedeConfirmar,
   sePuedeEditar,
   sePuedenCargarGastos,
   sePuedeLiquidar,
   sePuedeRecibir,
+  type CorreccionCompra,
   type CompraDetalle,
   type CompraResumen,
   type CondicionPago,
@@ -28,7 +30,7 @@ import {
   type NuevaRecepcion,
   type Sincronizacion,
 } from "./compras";
-import { liquidar, type ConceptoGasto, type Incoterm, type Moneda, type Reparto, type TipoCompra, type TipoManoObra } from "./costeo";
+import { CONCEPTOS_GASTO, conceptosDe, liquidar, type ConceptoGasto, type Incoterm, type Moneda, type Reparto, type TipoCompra, type TipoManoObra } from "./costeo";
 import { mensajeDeError } from "./errores";
 import { hoy } from "./fecha";
 import { PREFIJO_ORIGEN_APP, esOrdenDeCompraDeApp, planificarImportacion, type CompraPorImportar, type ContextoImportacion, type OrdenOmitida } from "./compras-importar";
@@ -397,6 +399,48 @@ export async function anularCompra(id: string): Promise<ResultadoCompra> {
   }
   const { error: alAnular } = await supabase.from("compras").update({ estado: "anulada" }).eq("id", id);
   if (alAnular) return { ok: false, error: mensajeDeError(alAnular) };
+  return { ok: true, codigo: c.codigo };
+}
+
+/**
+ * Corrige una compra ya confirmada (p. ej. una traída de Odoo, donde el tipo se dedujo
+ * de la moneda y no hay kilos): su tipo y los kilos de cada ítem. No toca Odoo. Si ya hay gastos cargados que el tipo nuevo
+ * no admite (flete marítimo en una compra nacional), no lo deja: primero se quitan.
+ */
+export async function corregirCompra(v: CorreccionCompra): Promise<ResultadoCompra> {
+  const c = await cargarCompraPorId(v.compraId);
+  if (!c) return { ok: false, error: "Esa compra ya no existe." };
+  if (c.estado === "liquidada") return { ok: false, error: "La compra ya está liquidada: reabre la liquidación para corregirla." };
+  if (!sePuedeCorregir(c.estado)) {
+    return { ok: false, error: c.estado === "borrador" ? "La pre-compra se edita entera: cambia el tipo ahí." : "Esa compra está anulada." };
+  }
+  const sinItem = v.kilos.find((k) => !c.lineas.some((l) => l.posicion === k.posicion));
+  if (sinItem) return { ok: false, error: "Uno de los ítems ya no está en la compra. Recarga la página." };
+  const admitidos = new Set(conceptosDe(v.tipo, v.incoterm));
+  const sobran = [...new Set(c.gastos.filter((g) => !admitidos.has(g.concepto)).map((g) => CONCEPTOS_GASTO[g.concepto].etiqueta))];
+  if (sobran.length) {
+    return { ok: false, error: `Una compra ${v.tipo === "nacional" ? "nacional" : "de importación"}${v.incoterm ? ` ${v.incoterm}` : ""} no lleva: ${sobran.join(", ")}. Quita esos gastos primero.` };
+  }
+
+  const supabase = await clienteServidor();
+  const { error } = await supabase
+    .from("compras")
+    .update({
+      tipo: v.tipo,
+      incoterm: v.tipo === "importacion" ? v.incoterm : null,
+      condicion_pago: v.condicionPago,
+      dias_credito: v.condicionPago === "credito" ? v.diasCredito : null,
+      fecha_embarque: v.tipo === "importacion" ? v.fechaEmbarque : null,
+      actualizado_en: new Date().toISOString(),
+    })
+    .eq("id", c.id)
+    .in("estado", ["confirmada", "recibida_parcial", "recibida"]);
+  if (error) return { ok: false, error: mensajeDeError(error) };
+  for (const k of v.kilos) {
+    if (c.lineas.find((l) => l.posicion === k.posicion)?.kilos === k.kilos) continue;
+    const { error: alKilo } = await supabase.from("compras_lineas").update({ kilos: k.kilos }).eq("compra_id", c.id).eq("posicion", k.posicion);
+    if (alKilo) return { ok: false, error: mensajeDeError(alKilo) };
+  }
   return { ok: true, codigo: c.codigo };
 }
 

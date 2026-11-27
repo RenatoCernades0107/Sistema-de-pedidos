@@ -11,7 +11,7 @@
 
 import { refresh } from "next/cache";
 import { z } from "zod";
-import { esquemaCompra } from "@/lib/compras";
+import { esquemaCompra, esquemaCorreccionCompra } from "@/lib/compras";
 import * as compras from "@/lib/compras-servidor";
 import { ROLES } from "@/lib/dominio";
 import { buscarClientes } from "@/lib/odoo/catalogos";
@@ -53,6 +53,10 @@ export async function reintentarCompra(entrada: unknown) {
     const r = await compras.llevarCompraAOdoo(v);
     return r.ok ? { ok: true } : r;
   });
+}
+
+export async function corregirCompra(entrada: unknown) {
+  return con(esquemaCorreccionCompra, entrada, compras.corregirCompra);
 }
 
 export async function anularCompra(entrada: unknown) {

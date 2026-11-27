@@ -58,6 +58,8 @@ export const sePuedeConfirmar = (e: EstadoCompra) => e === "borrador";
 export const sePuedeRecibir = (e: EstadoCompra) => e === "confirmada" || e === "recibida_parcial";
 export const sePuedenCargarGastos = (e: EstadoCompra) => e !== "liquidada" && e !== "anulada";
 export const sePuedeLiquidar = (e: EstadoCompra) => e === "recibida";
+/** El tipo y los kilos (y lo que depende del tipo) se corrigen con la compra ya confirmada, hasta liquidarla. La pre-compra se edita entera. */
+export const sePuedeCorregir = (e: EstadoCompra) => e === "confirmada" || e === "recibida_parcial" || e === "recibida";
 
 /** El estado según lo recibido de cada ítem. */
 export function estadoPorRecepcion(lineas: { cantidad: number; recibida: number }[]): EstadoCompra {
@@ -164,6 +166,52 @@ export const esquemaCompra = z
   });
 
 export type NuevaCompra = z.output<typeof esquemaCompra>;
+
+/**
+ * Corregir una compra ya confirmada: su tipo (nacional o importación, con lo que
+ * depende de él: incoterm, condición de pago y embarque) y los kilos de cada ítem
+ * (los gastos "por kilos" los necesitan). Las mismas reglas que `esquemaCompra`.
+ */
+export const esquemaCorreccionCompra = z
+  .object({
+    compraId: z.uuid(),
+    tipo: z.enum(["nacional", "importacion"]),
+    incoterm: z.enum(["FOB", "CIF"]).nullable(),
+    condicionPago: z.enum(["contado", "contra_entrega", "adelantado", "credito"]),
+    diasCredito: z.number().int().min(1, "Los días de crédito van de 1 a 365").max(365, "Los días de crédito van de 1 a 365").nullable(),
+    fechaEmbarque: fecha,
+    kilos: z
+      .array(
+        z.object({
+          posicion: z.number().int().positive(),
+          kilos: z.number({ error: "Los kilos son un número" }).positive("Los kilos tienen que ser mayores que cero").max(1_000_000, "Esos kilos no son razonables").nullable(),
+        }),
+      )
+      .max(100),
+  })
+  .superRefine((v, ctx) => {
+    if (v.tipo === "nacional" && v.incoterm) {
+      ctx.addIssue({ code: "custom", path: ["incoterm"], message: "Una compra nacional no lleva incoterm" });
+    }
+    if (v.tipo === "importacion" && !v.incoterm) {
+      ctx.addIssue({ code: "custom", path: ["incoterm"], message: "Elige si es FOB o CIF" });
+    }
+    if (new Set(v.kilos.map((k) => k.posicion)).size !== v.kilos.length) {
+      ctx.addIssue({ code: "custom", path: ["kilos"], message: "Un ítem está dos veces" });
+    }
+    if (!condicionesDe(v.tipo).includes(v.condicionPago)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["condicionPago"],
+        message: `${CONDICIONES_PAGO[v.condicionPago]} no se usa en una compra ${TIPOS_COMPRA[v.tipo].toLowerCase()}`,
+      });
+    }
+    if (v.condicionPago === "credito" && !v.diasCredito) {
+      ctx.addIssue({ code: "custom", path: ["diasCredito"], message: "Escribe los días de crédito" });
+    }
+  });
+
+export type CorreccionCompra = z.output<typeof esquemaCorreccionCompra>;
 
 export const esquemaGastos = z.object({
   compraId: z.uuid(),
