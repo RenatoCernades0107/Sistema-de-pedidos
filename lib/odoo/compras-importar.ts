@@ -22,22 +22,29 @@ const fecha = (v: unknown) => texto(v);
 
 /**
  * Las órdenes de compra confirmadas o cerradas, menos las de `conocidas` (las que
- * la app ya tiene). `truncado` avisa que había más de las que se leyeron.
+ * la app ya tiene), pedidas desde `desde` (YYYY-MM-DD) si se da. El filtro va en la
+ * consulta y no después: si no, con muchas órdenes el tope se llenaría de las más
+ * viejas y las nuevas nunca se verían. Se leen las más recientes primero;
+ * `truncado` avisa que había más de las que se leyeron.
  */
-export async function leerOrdenesDeCompra(conocidas: number[]): Promise<{ ordenes: OrdenOdoo[]; truncado: boolean }> {
+export async function leerOrdenesDeCompra(
+  conocidas: number[],
+  desde: string | null = null,
+): Promise<{ ordenes: OrdenOdoo[]; truncado: boolean }> {
   const campos = await camposExistentes("purchase.order", [
     "name", "partner_id", "origin", "partner_ref", "picking_type_id", "order_line", "picking_ids",
     "state", "date_order", "date_approve", "date_planned", "currency_id", "currency_rate",
   ]);
   const dominio: unknown[] = [["state", "in", ["purchase", "done"]]];
   if (conocidas.length) dominio.push(["id", "not in", conocidas]);
+  if (desde) dominio.push(["date_order", ">=", `${desde} 00:00:00`]);
   const filas = await ejecutar<Fila[]>("purchase.order", "search_read", [dominio], {
     fields: campos,
-    order: "id asc",
+    order: "id desc",
     limit: LIMITE + 1,
   });
   const truncado = filas.length > LIMITE;
-  const ordenes = filas.slice(0, LIMITE);
+  const ordenes = filas.slice(0, LIMITE).reverse(); // de la más vieja a la más nueva
   if (ordenes.length === 0) return { ordenes: [], truncado: false };
 
   // Las líneas, con la referencia interna de sus productos.
@@ -106,4 +113,11 @@ export async function leerOrdenesDeCompra(conocidas: number[]): Promise<{ ordene
       };
     }),
   };
+}
+
+/** El número de cada orden en Odoo ("P01727"), por su id. */
+export async function nombresDeOrdenes(ids: number[]): Promise<Map<number, string>> {
+  if (ids.length === 0) return new Map();
+  const filas = await ejecutar<Fila[]>("purchase.order", "read", [unico(ids)], { fields: ["name"] });
+  return new Map(filas.map((f) => [f.id as number, texto(f.name)]).filter((x): x is [number, string] => x[1] !== null));
 }
