@@ -2,11 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { ArrowLeftRight, CircleAlert, FileDown, PackageMinus, PackagePlus, Plus, Warehouse } from "lucide-react";
+import { ArrowLeftRight, CircleAlert, ClipboardCheck, FileDown, PackageCheck, PackageMinus, Plus, Warehouse } from "lucide-react";
 import { TIPOS_ALMACEN } from "@/lib/almacenes";
 import { materialesConPrecio } from "@/lib/lista-precios";
 import type { GrupoPlancha } from "@/lib/cortes/catalogo";
 import type { Caso, Conteo, ConteoResumen } from "@/lib/casos";
+import type { CompraDetalle } from "@/lib/compras";
 import type { FaltanteGuardado } from "@/lib/faltantes";
 import type { IngresoResumen, TransferenciaResumen } from "@/lib/inventario";
 import type { Sobrante } from "@/lib/sobrantes";
@@ -17,6 +18,7 @@ import { PantallaSobrantes } from "@/components/sobrantes/pantalla-sobrantes";
 import type { PedidoKardex, PermisosAlmacen } from "./comun";
 import { DialogoAlmacenes } from "./dialogo-almacenes";
 import { DialogoIngreso, ingresables } from "./dialogo-ingreso";
+import { DialogoRecibirCompra } from "./dialogo-recibir-compra";
 import { DialogoListaPrecios } from "./dialogo-lista-precios";
 import { DialogoProducto } from "./dialogo-producto";
 import { DialogoBaja, type BajaInicial } from "./dialogo-baja";
@@ -51,6 +53,7 @@ export function PantallaAlmacen({
   casos,
   conteos,
   conteo,
+  porRecibir = [],
   permisos,
   odooConectado,
 }: {
@@ -68,13 +71,15 @@ export function PantallaAlmacen({
   conteos: ConteoResumen[];
   /** El conteo abierto (`?conteo=`), para contar. */
   conteo: Conteo | null;
+  /** Las compras confirmadas a las que les falta llegar algo. */
+  porRecibir?: CompraDetalle[];
   permisos: PermisosAlmacen & { cerrarCasos: boolean };
   odooConectado: boolean;
 }) {
   const router = useRouter();
   const ruta = usePathname();
   const [vista, setVista] = useState<Vista>(inicial);
-  const [dialogo, setDialogo] = useState<"ingreso" | "producto" | "almacenes" | "transferencia" | "baja" | "lista" | null>(null);
+  const [dialogo, setDialogo] = useState<"ingreso" | "recibir" | "producto" | "almacenes" | "transferencia" | "baja" | "lista" | null>(null);
   const [baja, setBaja] = useState<BajaInicial | undefined>(undefined);
   const [kardex, setKardex] = useState<PedidoKardex | null>(null);
   const [transferencia, setTransferencia] = useState<TransferenciaInicial | undefined>(undefined);
@@ -139,9 +144,16 @@ export function PantallaAlmacen({
               <ArrowLeftRight className="size-4" />
               Transferir
             </Button>
-            <Button className="gap-1.5" onClick={() => setDialogo("ingreso")} disabled={!odooConectado}>
-              <PackagePlus className="size-4" />
-              Ingresar stock
+            <Button variant="outline" className="gap-1.5" onClick={() => setDialogo("ingreso")} disabled={!odooConectado}>
+              <ClipboardCheck className="size-4" />
+              Ajustar inventario
+            </Button>
+            <Button className="gap-1.5" onClick={() => setDialogo("recibir")} disabled={!odooConectado}>
+              <PackageCheck className="size-4" />
+              Recibir compra
+              {porRecibir.length > 0 && (
+                <span className="bg-primary-foreground/20 tnum rounded-full px-1.5 text-xs">{porRecibir.length}</span>
+              )}
             </Button>
               </>
             )}
@@ -294,6 +306,7 @@ export function PantallaAlmacen({
       {dialogo === "ingreso" && (
         <DialogoIngreso almacenes={almacenes} productos={productos} alCerrar={() => setDialogo(null)} />
       )}
+      {dialogo === "recibir" && <DialogoRecibirCompra compras={porRecibir} alCerrar={() => setDialogo(null)} />}
       {dialogo === "producto" && (
         <DialogoProducto
           planchas={planchas}

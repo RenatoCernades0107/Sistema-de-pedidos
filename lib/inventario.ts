@@ -7,7 +7,7 @@
  */
 
 import { z } from "zod";
-import { colorDe, medidaDe, type GrupoPlancha } from "./cortes/catalogo";
+import { colorDe, espesorTexto, medidaDe, type GrupoPlancha } from "./cortes/catalogo";
 
 /* ── Lo que se muestra ─────────────────────────────────────────────────────── */
 
@@ -59,6 +59,29 @@ export interface CategoriaAccesorio {
   prefijo: string;
   orden: number;
 }
+
+/** Un producto que se puede ingresar: una plancha o un accesorio del almacén que existe en Odoo. */
+export interface Ingresable {
+  productoId: number;
+  codigo: string;
+  /** "Acrílico ECO · Cristal · 3 mm · 122×183" o el nombre del accesorio. */
+  titulo: string;
+  precio: number | null;
+  porAlmacen: Record<string, number>;
+}
+
+/** Los productos del almacén que se pueden ingresar, con lo que se busca en cada uno. */
+export function ingresables(planchas: PlanchaInventario[], accesorios: AccesorioInventario[]): Ingresable[] {
+  const desde = (p: { productoId: number | null; codigo: string; precio: number | null; stock: { porAlmacen: Record<string, number> } | null }, titulo: string) =>
+    p.productoId ? [{ productoId: p.productoId, codigo: p.codigo, titulo, precio: p.precio, porAlmacen: p.stock?.porAlmacen ?? {} }] : [];
+  return [
+    ...planchas
+      .filter((p) => p.activo)
+      .flatMap((p) => desde(p, `${p.material} · ${p.color} · ${espesorTexto(p.espesorMm)} · ${p.formato}`)),
+    ...accesorios.filter((a) => a.activo).flatMap((a) => desde(a, a.nombre)),
+  ];
+}
+
 
 export interface IngresoResumen {
   id: string;

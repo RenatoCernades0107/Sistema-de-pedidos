@@ -17,6 +17,15 @@ const soles = new Intl.NumberFormat("es-PE", {
 
 export const money = (n: number) => soles.format(n);
 
+const dolares = new Intl.NumberFormat("es-PE", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+});
+
+/** Un monto en su moneda: S/ 1,234.50 o US$ 1,234.50. */
+export const montoEn = (n: number, moneda: "PEN" | "USD") => (moneda === "USD" ? dolares : soles).format(n);
+
 /** Sin céntimos: para cifras grandes de un vistazo (S/ 12,346). */
 const solesEnteros = new Intl.NumberFormat("es-PE", {
   style: "currency",

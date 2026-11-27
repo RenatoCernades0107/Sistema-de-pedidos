@@ -196,3 +196,21 @@ export async function perfilConAgenteWhatsapp(): Promise<Perfil | null> {
   if (!perfil || bienvenidaPendiente(perfil)) return null;
   return ROLES[perfil.rol].usarAgenteWhatsapp ? perfil : null;
 }
+
+/** Las compras (`/compras`): pre-compras, órdenes de compra, gastos y liquidación. */
+export async function exigirCompras(): Promise<Perfil> {
+  const perfil = await exigirSesion();
+  if (!ROLES[perfil.rol].gestionarCompras) {
+    redirect(RUTA_PEDIDOS);
+  }
+  return perfil;
+}
+
+/** Costos y precios (`/costos-precios`): costo de adquisición, márgenes y precio sugerido. */
+export async function exigirCostos(): Promise<Perfil> {
+  const perfil = await exigirSesion();
+  if (!ROLES[perfil.rol].verCostos) {
+    redirect(RUTA_PEDIDOS);
+  }
+  return perfil;
+}

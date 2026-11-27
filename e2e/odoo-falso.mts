@@ -6,7 +6,7 @@
  * `res.partner`, `product.product`, `sale.order`, `sale.order.line`,
  * `stock.picking`, `stock.move`, `stock.lot`, `stock.quant`, `stock.warehouse`,
  * `stock.location`, `stock.move.line`, `mrp.production`, `purchase.order`,
- * `purchase.order.line`, `uom.uom`, `ir.model`,
+ * `purchase.order.line`, `res.currency`, `stock.backorder.confirmation`, `uom.uom`, `ir.model`,
  * `ir.model.fields`, `res.country`, `stock.picking.type` y
  * `l10n_latam.identification.type`. El stock de cada producto se lleva por
  * ubicación (`__stock`), y `qty_available` responde a `context.location` como en
@@ -136,6 +136,12 @@ function sembrar() {
     "stock.move": [] as Registro[],
     "purchase.order": [] as Registro[],
     "purchase.order.line": [] as Registro[],
+    // El dólar a 3.75 soles: `inverse_rate` es soles por dólar (la moneda de la empresa es el sol).
+    "res.currency": [
+      { id: 1, name: "PEN", active: true, rate: 1, inverse_rate: 1 },
+      { id: 2, name: "USD", active: true, rate: 0.266667, inverse_rate: 3.75 },
+    ] as Registro[],
+    "stock.backorder.confirmation": [] as Registro[],
     "res.country": [{ id: 173, code: "PE", name: "Perú" }] as Registro[],
     "l10n_latam.identification.type": [
       { id: 4, name: "RUC", l10n_pe_vat_code: "6" },
@@ -205,7 +211,12 @@ const CAMPOS: Record<string, string[]> = {
     "name", "sale_id", "picking_type_code", "state", "move_ids", "picking_type_id", "partner_id", "origin",
     "location_id", "location_dest_id", "partner_ref", "purchase_id", "date_done",
   ],
-  "purchase.order": ["name", "partner_id", "origin", "partner_ref", "picking_type_id", "order_line", "state", "picking_ids", "date_order"],
+  "purchase.order": [
+    "name", "partner_id", "origin", "partner_ref", "picking_type_id", "order_line", "state", "picking_ids", "date_order",
+    "currency_id", "date_planned",
+  ],
+  "res.currency": ["name", "active", "rate", "inverse_rate"],
+  "stock.backorder.confirmation": ["pick_ids"],
   "purchase.order.line": ["order_id", "product_id", "name", "product_qty", "price_unit", "product_uom", "qty_received"],
   "stock.picking.type": ["name", "code", "warehouse_id"],
   "stock.lot": ["name", "product_id", "note", "ref"],
@@ -620,7 +631,14 @@ export async function crearOdooFalso(
         id, name: `P${String(id).padStart(5, "0")}`, partner_id: [proveedor.id, proveedor.name], origin: vals.origin ?? false,
         partner_ref: vals.partner_ref ?? false, picking_type_id: tipo ? [tipo.id, tipo.name] : [1, ""],
         order_line: idsLineas, state: "draft", picking_ids: [], date_order: ahora(),
+        currency_id: vals.currency_id ? [vals.currency_id, ""] : [1, "PEN"], date_planned: vals.date_planned ?? false,
       });
+      return id;
+    }
+
+    if (modelo === "stock.backorder.confirmation") {
+      const ids = (vals.pick_ids as [number, number, number[]][] | undefined)?.[0]?.[2] ?? [];
+      t.push({ id, pick_ids: ids });
       return id;
     }
 
@@ -1049,6 +1067,21 @@ export async function crearOdooFalso(
         }
         return true;
       }
+      case "button_cancel": {
+        if (modelo !== "purchase.order") break;
+        for (const po of tabla(modelo).filter((r) => (args[0] as number[]).includes(r.id))) {
+          const recepciones = tabla("stock.picking").filter((p) => (po.picking_ids as number[]).includes(p.id));
+          if (recepciones.some((p) => p.state === "done")) {
+            throw new ErrorRpc("odoo.exceptions.UserError", "Unable to cancel purchase order as some receptions have already been done.");
+          }
+          for (const p of recepciones) {
+            p.state = "cancel";
+            for (const m of tabla("stock.move").filter((x) => valorDe(x, "picking_id") === p.id)) m.state = "cancel";
+          }
+          po.state = "cancel";
+        }
+        return true;
+      }
       case "action_cancel": {
         if (modelo === "stock.picking") {
           for (const p of tabla(modelo).filter((r) => (args[0] as number[]).includes(r.id))) {
@@ -1112,6 +1145,39 @@ export async function crearOdooFalso(
         }
         return true;
       }
+      case "process": {
+        if (modelo !== "stock.backorder.confirmation") break;
+        // Como Odoo: lo que falta de cada movimiento pasa a una recepción nueva
+        // (el backorder) y esta se valida con lo que llegó.
+        for (const asistente of tabla(modelo).filter((r) => (args[0] as number[]).includes(r.id))) {
+          for (const pid of asistente.pick_ids as number[]) {
+            const p = tabla("stock.picking").find((x) => x.id === pid);
+            if (!p) continue;
+            const pickings = tabla("stock.picking");
+            const movs = tabla("stock.move");
+            const idNuevo = siguienteId(pickings);
+            const idsMov: number[] = [];
+            for (const m of movs.filter((x) => valorDe(x, "picking_id") === pid && x.state !== "cancel")) {
+              const hecho = m.picked ? Number(m.quantity) : 0;
+              const falta = Number(m.product_uom_qty) - hecho;
+              if (falta <= 0) continue;
+              const idMov = siguienteId(movs);
+              movs.push({ ...m, id: idMov, picking_id: [idNuevo, ""], product_uom_qty: falta, quantity: 0, picked: false,
+                state: "assigned" });
+              idsMov.push(idMov);
+              m.product_uom_qty = hecho;
+            }
+            if (idsMov.length) {
+              pickings.push({ ...p, id: idNuevo, name: `IN/${String(idNuevo).padStart(5, "0")}`, state: "assigned",
+                move_ids: idsMov, backorder_id: [p.id, p.name], date_done: false });
+              const compra = tabla("purchase.order").find((o) => valorDe(p, "purchase_id") === o.id);
+              if (compra) (compra.picking_ids as number[]).push(idNuevo);
+            }
+            ejecutar("stock.picking", "button_validate", [[pid]], { context: { skip_backorder: true } });
+          }
+        }
+        return true;
+      }
       case "button_validate": {
         if (modelo !== "stock.picking") break;
         if (modo === "caido") {
@@ -1137,7 +1203,10 @@ export async function crearOdooFalso(
           // Menos de lo pedido sin decir qué hacer con el resto: Odoo abre el asistente.
           const parcial = movs.some((m) => !m.picked || Number(m.quantity) < Number(m.product_uom_qty));
           if (parcial && !contexto.skip_backorder) {
-            return { type: "ir.actions.act_window", res_model: "stock.backorder.confirmation" };
+            return {
+              type: "ir.actions.act_window", res_model: "stock.backorder.confirmation",
+              context: { default_pick_ids: [[4, p.id]], button_validate_picking_ids: [p.id] },
+            };
           }
           for (const m of movs) {
             if (!m.picked || Number(m.quantity) <= 0) {

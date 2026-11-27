@@ -333,6 +333,13 @@ export interface PermisosRol {
   verPrecios: boolean;
   /** Cambiar el precio de venta de planchas, accesorios y sobrantes. */
   editarPrecios: boolean;
+  /**
+   * Registrar pre-compras, confirmarlas (orden de compra en Odoo), cargar sus
+   * gastos y liquidar el costo en `/compras`. Como `gestiona_compras()` en la base.
+   */
+  gestionarCompras: boolean;
+  /** Ver costos, márgenes y precios sugeridos en `/costos-precios`, y fijar los márgenes. */
+  verCostos: boolean;
   /** Recibir una transferencia en camino: lo hace quien trabaja en el almacén de destino. */
   recibirTransferencias: boolean;
   /**
@@ -376,6 +383,8 @@ export const ROLES: Record<Rol, PermisosRol> = {
     gestionarStock: true,
     verPrecios: true,
     editarPrecios: true,
+    gestionarCompras: true,
+    verCostos: true,
     recibirTransferencias: true,
     cerrarCasos: true,
     usarChat: true,
@@ -407,6 +416,8 @@ export const ROLES: Record<Rol, PermisosRol> = {
     gestionarStock: true,
     verPrecios: true,
     editarPrecios: false,
+    gestionarCompras: true,
+    verCostos: false,
     recibirTransferencias: true,
     cerrarCasos: false,
     usarChat: true,
@@ -438,6 +449,8 @@ export const ROLES: Record<Rol, PermisosRol> = {
     gestionarStock: false,
     verPrecios: false,
     editarPrecios: false,
+    gestionarCompras: false,
+    verCostos: false,
     recibirTransferencias: true,
     cerrarCasos: false,
     usarChat: true,
@@ -470,6 +483,8 @@ export const ROLES: Record<Rol, PermisosRol> = {
     gestionarStock: false,
     verPrecios: true,
     editarPrecios: false,
+    gestionarCompras: false,
+    verCostos: false,
     recibirTransferencias: false,
     cerrarCasos: false,
     usarChat: true,
@@ -698,6 +713,18 @@ export const HERRAMIENTAS: ConfigHerramienta[] = [
     href: "/almacen",
     permiso: "verAlmacen",
     grupo: "taller",
+  },
+  {
+    titulo: "Compras",
+    href: "/compras",
+    permiso: "gestionarCompras",
+    grupo: "gestion",
+  },
+  {
+    titulo: "Costos y precios",
+    href: "/costos-precios",
+    permiso: "verCostos",
+    grupo: "gestion",
   },
   {
     titulo: "Métricas",

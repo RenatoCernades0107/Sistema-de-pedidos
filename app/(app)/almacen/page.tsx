@@ -7,6 +7,7 @@ import { cargarConteo, cargarConteos } from "@/lib/conteos-servidor";
 import { cargarFaltantes } from "@/lib/faltantes-servidor";
 import { cargarSobrantes } from "@/lib/sobrantes-servidor";
 import { cargarIngresos, cargarInventario, preciosDeSobrantes } from "@/lib/stock-servidor";
+import { comprasPorRecibir } from "@/lib/compras-servidor";
 import { cargarTransferencias, enCamino } from "@/lib/transferencias-servidor";
 import { PantallaAlmacen, type Vista } from "@/components/almacen/pantalla-almacen";
 
@@ -33,7 +34,7 @@ export default async function Page({ searchParams }: PageProps<"/almacen">) {
 
   const verPrecios = permisos.verPrecios;
   const gestiona = permisos.gestionarStock;
-  const [inventario, sobrantes, catalogo, ingresos, transferencias, faltantes, casos, conteos, conteo] = await Promise.all([
+  const [inventario, sobrantes, catalogo, ingresos, transferencias, faltantes, casos, conteos, conteo, porRecibir] = await Promise.all([
     cargarInventario({ verPrecios, gestionaStock: permisos.gestionarStock }),
     cargarSobrantes(),
     cargarCatalogoPlanchas(true),
@@ -43,6 +44,7 @@ export default async function Page({ searchParams }: PageProps<"/almacen">) {
     gestiona ? cargarCasos() : Promise.resolve([]),
     gestiona ? cargarConteos() : Promise.resolve([]),
     gestiona && codigoConteo ? cargarConteo(codigoConteo) : Promise.resolve(null),
+    gestiona ? comprasPorRecibir() : Promise.resolve([]),
   ]);
   const precios = verPrecios ? await preciosDeSobrantes(sobrantes, catalogo) : {};
 
@@ -60,6 +62,7 @@ export default async function Page({ searchParams }: PageProps<"/almacen">) {
       casos={casos}
       conteos={conteos}
       conteo={conteo}
+      porRecibir={porRecibir}
       permisos={{
         gestionarStock: permisos.gestionarStock,
         editarPrecios: permisos.editarPrecios,
