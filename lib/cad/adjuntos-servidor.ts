@@ -32,9 +32,9 @@ export class AdjuntoNoDisponible extends Error {
   }
 }
 
-async function descargar(adjunto: AdjuntoCad): Promise<Buffer> {
+async function descargar(adjunto: AdjuntoCad, bucket: string): Promise<Buffer> {
   const supabase = await clienteServidor();
-  const { data, error } = await supabase.storage.from(BUCKET_CAD_ADJUNTOS).download(adjunto.ruta);
+  const { data, error } = await supabase.storage.from(bucket).download(adjunto.ruta);
   if (error || !data) throw new AdjuntoNoDisponible(adjunto.nombre);
   return Buffer.from(await data.arrayBuffer());
 }
@@ -56,8 +56,8 @@ async function textoDePdf(bytes: Buffer): Promise<{ texto: string; paginas: numb
 }
 
 /** Las partes de un archivo para el modelo. */
-async function partesDeUno(adjunto: AdjuntoCad): Promise<ParteLlm[]> {
-  const bytes = await descargar(adjunto);
+async function partesDeUno(adjunto: AdjuntoCad, bucket: string): Promise<ParteLlm[]> {
+  const bytes = await descargar(adjunto, bucket);
 
   if (esImagenAdjunto(adjunto.mime)) {
     return [
@@ -90,12 +90,19 @@ async function partesDeUno(adjunto: AdjuntoCad): Promise<ParteLlm[]> {
  * Las partes de todos los adjuntos de un mensaje, en orden. Con `estricto`
  * (el mensaje que se está enviando) un archivo que falta es un error; si no
  * (los del historial), queda una línea que dice que ya no está.
+ *
+ * `bucket`: de dónde se bajan. Por defecto los del chat de diseños; el agente de
+ * WhatsApp usa los mismos adjuntos (misma forma de ruta) en `agente_adjuntos`.
  */
-export async function partesDeAdjuntos(adjuntos: AdjuntoCad[], estricto: boolean): Promise<ParteLlm[]> {
+export async function partesDeAdjuntos(
+  adjuntos: AdjuntoCad[],
+  estricto: boolean,
+  bucket: string = BUCKET_CAD_ADJUNTOS,
+): Promise<ParteLlm[]> {
   const grupos = await Promise.all(
     adjuntos.map(async (a): Promise<ParteLlm[]> => {
       try {
-        return await partesDeUno(a);
+        return await partesDeUno(a, bucket);
       } catch (e) {
         if (estricto) throw e;
         return [{ tipo: "texto", texto: `[Adjunto: ${a.nombre} — ya no está disponible]` }];

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { EventoLlm, PeticionChat } from "@/lib/llm/inferhub";
 import { AJUSTES_POR_DEFECTO } from "./ajustes";
 import type { ContextoHerramientas } from "./herramientas";
-import { MAX_VUELTAS, mensajesDeHistorial, responderMensaje } from "./motor";
+import { MAX_VUELTAS, PREFIJO_ASESOR, mensajesDeHistorial, responderMensaje } from "./motor";
 
 type Turno = { texto?: string; llamadas?: { nombre: string; argumentos: Record<string, unknown> }[] };
 
@@ -101,10 +101,16 @@ describe("responderMensaje", () => {
     expect(JSON.stringify(recibido[1].mensajes.at(-1))).toContain("listar_archivos");
   });
 
-  it("deriva a un asesor cuando le piden cotizar un corte", async () => {
-    const { transmitir } = modelo([
-      { llamadas: [{ nombre: "derivar_a_asesor", argumentos: { motivo: "cotizar corte" } }] },
-      { texto: "Te paso con un asesor 🙌" },
+  it("al derivar calla: no manda nada (ni lo que escribió junto) y no vuelve a llamar al modelo", async () => {
+    const { transmitir, recibido } = modelo([
+      {
+        texto: "Te paso con un asesor 🙌",
+        llamadas: [
+          { nombre: "enviar_archivo", argumentos: { documento_id: "doc-1" } },
+          { nombre: "derivar_a_asesor", argumentos: { motivo: "cotizar corte" } },
+        ],
+      },
+      { texto: "Esto no debería pedirse" },
     ]);
     const r = await responderMensaje({
       ...base,
@@ -112,8 +118,15 @@ describe("responderMensaje", () => {
       contexto: contexto(),
       transmitir,
     });
-    expect(r.derivado).toBe(true);
-    expect(r.motivoDerivacion).toBe("cotizar corte");
+    expect(r).toMatchObject({ mensajes: [], derivado: true, motivoDerivacion: "cotizar corte" });
+    expect(r.traza.map((p) => p.herramienta)).toEqual(["enviar_archivo", "derivar_a_asesor"]);
+    expect(recibido).toHaveLength(1);
+  });
+
+  it("si el modelo no dice nada, también lo deja a un asesor", async () => {
+    const { transmitir } = modelo([{ texto: "" }]);
+    const r = await responderMensaje({ ...base, historial: [{ rol: "cliente", contenido: "?" }], contexto: contexto(), transmitir });
+    expect(r).toMatchObject({ mensajes: [], derivado: true });
   });
 
   it("si una fuente falla, el modelo se entera y la traza lo marca", async () => {
@@ -128,11 +141,11 @@ describe("responderMensaje", () => {
     expect(JSON.stringify(recibido[1].mensajes.at(-1))).toContain("No inventes");
   });
 
-  it("si no termina en MAX_VUELTAS, deriva con el mensaje de Ajustes", async () => {
+  it("si no termina en MAX_VUELTAS, calla y lo deja a un asesor", async () => {
     const { transmitir } = modelo([{ llamadas: [{ nombre: "buscar_informacion", argumentos: { consulta: "x" } }] }]);
     const r = await responderMensaje({ ...base, historial: [{ rol: "cliente", contenido: "?" }], contexto: contexto(), transmitir });
     expect(r.derivado).toBe(true);
-    expect(r.mensajes[0]).toEqual({ tipo: "texto", texto: AJUSTES_POR_DEFECTO.mensajeDerivacion });
+    expect(r.mensajes).toEqual([]);
     expect(r.traza.filter((p) => p.herramienta === "buscar_informacion")).toHaveLength(MAX_VUELTAS);
   });
 
@@ -149,7 +162,48 @@ describe("responderMensaje", () => {
   });
 });
 
+describe("adjuntos del cliente", () => {
+  const foto = { ruta: "c/1.jpg", nombre: "plancha.jpg", mime: "image/jpeg" as const, tamano: 10 };
+  const vieja = { ruta: "c/0.pdf", nombre: "plano.pdf", mime: "application/pdf" as const, tamano: 10 };
+
+  it("los que van enteros llegan al modelo como partes; los demás, nombrados", async () => {
+    const { transmitir, recibido } = modelo([{ texto: "Es acrílico cristal." }]);
+    await responderMensaje({
+      ...base,
+      historial: [
+        { rol: "cliente", contenido: "mira esto", adjuntosCliente: [vieja] },
+        { rol: "agente", contenido: "Lo reviso" },
+        { rol: "cliente", contenido: "¿y esta?", adjuntosCliente: [foto] },
+      ],
+      partesDe: (a) => (a.ruta === foto.ruta ? [{ tipo: "imagen", url: "data:image/jpeg;base64,AAA" }] : undefined),
+      contexto: contexto(),
+      transmitir,
+    });
+    const mensajes = recibido[0].mensajes;
+    expect(mensajes[0]).toEqual({
+      rol: "usuario",
+      contenido: [
+        { tipo: "texto", texto: "mira esto" },
+        { tipo: "texto", texto: "[Adjuntó: plano.pdf]" },
+      ],
+    });
+    expect(mensajes[2]).toEqual({
+      rol: "usuario",
+      contenido: [
+        { tipo: "texto", texto: "¿y esta?" },
+        { tipo: "imagen", url: "data:image/jpeg;base64,AAA" },
+      ],
+    });
+  });
+});
+
 describe("mensajesDeHistorial", () => {
+  it("los mensajes del asesor van marcados para el modelo", () => {
+    expect(mensajesDeHistorial([{ rol: "asesor", contenido: "Te cotizo el corte en un rato" }])).toEqual([
+      { rol: "asistente", contenido: `${PREFIJO_ASESOR}Te cotizo el corte en un rato` },
+    ]);
+  });
+
   it("convierte turnos y dice qué archivos se enviaron", () => {
     expect(
       mensajesDeHistorial([
