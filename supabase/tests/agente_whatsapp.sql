@@ -86,7 +86,8 @@ begin
   end if;
 end $$;
 
--- 9. Ventas no ve nada del agente.
+-- 9. Ventas no toca la base de conocimiento (desde 20261221000100 sí atiende las
+--    conversaciones y lee los documentos: ver agente_conversaciones.sql).
 select set_config('request.jwt.claims',
                   json_build_object('sub', current_setting('plexi.test_ventas'), 'role', 'authenticated')::text,
                   true)
@@ -98,8 +99,8 @@ begin
     raise notice 'Sin usuario de Ventas: se salta la prueba de permisos';
     return;
   end if;
-  if exists (select 1 from public.agente_pruebas) then
-    raise exception 'FALLO: Ventas ve las pruebas del agente';
+  if exists (select 1 from public.agente_fragmentos) then
+    raise exception 'FALLO: Ventas ve los fragmentos del agente';
   end if;
   begin
     insert into public.agente_documentos (nombre, tipo, mime, ruta, tamano)

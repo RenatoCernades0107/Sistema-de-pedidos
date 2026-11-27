@@ -18,6 +18,7 @@ import {
   leerAlmacen,
   recibirDeTransito,
   recibirOrdenCompra,
+  salidasAClientes,
   stockPorAlmacen,
   tipoDeCambioUsd,
 } from "./almacenes";
@@ -120,6 +121,29 @@ describe("compra en dos pasos: la orden y lo que llega", () => {
 
   it("el tipo de cambio sale de la tasa del dólar en Odoo", async () => {
     expect(await tipoDeCambioUsd()).toBe(3.75);
+  });
+});
+
+describe("salidasAClientes", () => {
+  /** Mueve `cantidad` de un producto entre dos ubicaciones y lo valida. */
+  async function mover(producto: number, desde: number, hacia: number, cantidad: number) {
+    const picking = await ejecutar<number>("stock.picking", "create", [{ picking_type_id: 4, partner_id: 1, origin: "prueba", location_id: desde, location_dest_id: hacia }]);
+    const mov = await ejecutar<number>("stock.move", "create", [
+      { picking_id: picking, product_id: producto, product_uom_qty: cantidad, product_uom: 1, location_id: desde, location_dest_id: hacia, name: "x" },
+    ]);
+    await ejecutar("stock.picking", "action_confirm", [[picking]]);
+    await ejecutar("stock.move", "write", [[mov], { quantity: cantidad, picked: true }]);
+    await ejecutar("stock.picking", "button_validate", [[picking]], { context: { skip_backorder: true } });
+  }
+
+  it("suma lo que salió a clientes en el período, menos lo devuelto", async () => {
+    await mover(20, 8, 9, 3); // venta
+    await mover(21, 8, 9, 2); // venta
+    await mover(20, 9, 8, 1); // devolución
+    await mover(23, 8, 10, 4); // a producción: no es venta
+    const r = await salidasAClientes("2000-01-01 00:00:00", "2100-01-01 00:00:00");
+    expect(Object.fromEntries(r)).toEqual({ 20: 2, 21: 2 });
+    expect((await salidasAClientes("2100-01-01 00:00:00", "2100-02-01 00:00:00")).size).toBe(0);
   });
 });
 

@@ -1,8 +1,8 @@
 /**
  * Compras y costos de punta a punta: una importación en dólares se registra,
- * se confirma (orden de compra en Odoo), Almacén la recibe, se cargan sus
- * gastos (flete y DAM) y se liquida; el costo de cada plancha aparece en
- * "Costos y precios" y desde ahí se aplica un precio nuevo en Odoo.
+ * se confirma (orden de compra en Odoo), Almacén la recibe, y en "Costos y
+ * precios" se costea (sus gastos: flete y DAM); el costo de cada plancha aparece
+ * en la tabla y desde ahí se aplica un precio nuevo en Odoo.
  *
  * Odoo es el falso de `e2e/odoo-falso.mts` (el dólar a 3.75). Las compras no se
  * borran: las de prueba llevan "E2E" en la nota y al final quedan anuladas y
@@ -85,8 +85,14 @@ test("una importación se liquida y su costo llega a Costos y precios", async ({
   await dialogo.getByRole("button", { name: "Recibir", exact: true }).click();
   await expect(dialogo).toBeHidden();
 
-  // 4. Los gastos: flete (por kilos) e IGV de la DAM (crédito fiscal, no es costo).
-  await page.goto(`/compras/${codigo}`);
+  // 4. Costear: en Costos y precios se busca la orden y se cargan sus gastos:
+  //    flete (por kilos) e IGV de la DAM (crédito fiscal, no es costo).
+  await page.goto("/costos-precios");
+  await page.getByRole("button", { name: /Costear/ }).click();
+  const buscador = page.getByRole("dialog", { name: "Costear una compra" });
+  await buscador.getByLabel("Buscar compra").fill(codigo);
+  await buscador.getByRole("link", { name: new RegExp(codigo) }).click();
+  await page.waitForURL(new RegExp(`/costos-precios/costear/${codigo}$`));
   await elegir(page, page.locator("main"), "Concepto del gasto", "Transporte marítimo");
   await page.getByRole("button", { name: "Agregar", exact: true }).click();
   const gastos = page.getByRole("list", { name: "Gastos" });
@@ -97,10 +103,10 @@ test("una importación se liquida y su costo llega a Costos y precios", async ({
   // 400 US$ × 3.75 = S/ 1,500 de mercadería + 50 US$ × 3.75 = S/ 187.50 de flete → S/ 168.75 por plancha.
   const liquidacion = page.getByRole("table").filter({ hasText: "Costo c/u" });
   await expect(liquidacion.getByRole("row").filter({ hasText: "F9.5E015" })).toContainText("S/ 168.75");
-  await page.getByRole("button", { name: "Cerrar liquidación" }).click();
-  await expect(page.getByText(`${codigo} liquidada`)).toBeVisible();
+  await page.getByRole("button", { name: "Cerrar costeo" }).click();
+  await expect(page.getByText(`${codigo} costeada`)).toBeVisible();
 
-  // 5. En Costos y precios: el último costo, y un precio nuevo que va a Odoo.
+  // 5. En la tabla: el 1er costo, y un precio nuevo que va a Odoo.
   await page.goto("/costos-precios");
   await page.getByLabel("Filtrar planchas").fill("F9.5E015");
   const fila = page.getByRole("row").filter({ hasText: "F9.5E015" });

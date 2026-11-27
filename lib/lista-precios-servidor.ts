@@ -6,6 +6,7 @@
 
 import { cache } from "react";
 import { cargarCatalogoPlanchas } from "./cortes-servidor";
+import type { GrupoPlancha } from "./cortes/catalogo";
 import { filasDePlanchas } from "./inventario";
 import { leerConfigListaPrecios, type ConfigListaPrecios } from "./lista-precios-config";
 import type { AccesorioParaLista, PlanchaParaLista } from "./lista-precios";
@@ -35,6 +36,19 @@ export async function cargarDatosListaPrecios(): Promise<DatosListaPrecios> {
     cargarAccesorios(),
     cargarCategorias(),
   ]);
+  return armarDatosListaPrecios(catalogo, accesorios, categorias);
+}
+
+/**
+ * La lista a partir del catálogo ya leído (con sesión, o por `wa_catalogo` en el
+ * webhook de WhatsApp), con los precios de Odoo. Lanza si Odoo no responde.
+ */
+export async function armarDatosListaPrecios(
+  catalogo: GrupoPlancha[],
+  accesorios: { codigo_odoo: string; categoria_id: string; activo: boolean }[],
+  categorias: { id: string; nombre: string; orden: number }[],
+): Promise<DatosListaPrecios> {
+  if (!odooConfigurado()) throw new Error(ODOO_NO_CONFIGURADO);
   const codigoDeFormato = new Map(catalogo.flatMap((g) => g.formatos.map((f) => [f.id, f.codigo] as const)));
   const productos = await productosPorCodigo([
     ...codigoDeFormato.values(),

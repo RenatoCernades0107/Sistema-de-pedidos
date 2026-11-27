@@ -256,6 +256,7 @@ function valorDe(r: Registro, campo: string): unknown {
   // `product_tmpl_id.write_date`: aquí la plantilla y la variante son lo mismo.
   if (campo === "product_tmpl_id.write_date") return r.write_date;
   if (campo === "location_id.usage") return USO_UBICACION[valorDe(r, "location_id") as number];
+  if (campo === "location_dest_id.usage") return USO_UBICACION[valorDe(r, "location_dest_id") as number];
   const v = r[campo];
   return Array.isArray(v) ? v[0] : v;
 }
@@ -285,6 +286,8 @@ function termino([campo, op, valor]: [string, string, unknown]): Predicado {
         return typeof v === "string" && v >= String(valor);
       case ">":
         return typeof valor === "number" ? Number(v) > valor : typeof v === "string" && v > String(valor);
+      case "<":
+        return typeof valor === "number" ? Number(v) < valor : typeof v === "string" && v < String(valor);
       default:
         throw new Error(`Operador no soportado por el Odoo falso: ${op}`);
     }
