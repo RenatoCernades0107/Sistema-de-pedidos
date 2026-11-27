@@ -22,6 +22,8 @@ export function TraerDeOdoo({ odooListo }: { odooListo: boolean }) {
   const [desde, setDesde] = useState("");
   const [revision, setRevision] = useState<Revision | null>(null);
   const [pendiente, iniciar] = useTransition();
+  const [numero, setNumero] = useState("");
+  const [veredicto, setVeredicto] = useState<string | null>(null);
 
   const pedir = (aplicar: boolean) =>
     iniciar(async () => {
@@ -38,6 +40,13 @@ export function TraerDeOdoo({ odooListo }: { odooListo: boolean }) {
     setAbierto(true);
     pedir(false);
   };
+
+  const explicar = () =>
+    iniciar(async () => {
+      const r = await acciones.explicarOrdenDeOdoo(numero, desde || null);
+      if (!r.ok) return void toast.error(r.error);
+      setVeredicto(r.veredicto);
+    });
 
   const hechas = revision?.aplicado ?? false;
 
@@ -59,7 +68,7 @@ export function TraerDeOdoo({ odooListo }: { odooListo: boolean }) {
           </DialogHeader>
 
           <label className="flex items-center gap-2 text-sm">
-            Solo pedidas desde
+            Solo confirmadas desde
             <Input
               type="date"
               value={desde}
@@ -74,12 +83,35 @@ export function TraerDeOdoo({ odooListo }: { odooListo: boolean }) {
             </Button>
           </label>
 
+          <div className="flex flex-col gap-1.5">
+            <label className="flex items-center gap-2 text-sm">
+              ¿Una orden no aparece?
+              <Input
+                value={numero}
+                onChange={(e) => {
+                  setNumero(e.target.value);
+                  setVeredicto(null);
+                }}
+                onKeyDown={(e) => e.key === "Enter" && numero.trim() && explicar()}
+                placeholder="P01726"
+                className="w-32 font-mono"
+              />
+              <Button variant="outline" size="sm" onClick={explicar} disabled={pendiente || numero.trim().length < 2}>
+                Explicar
+              </Button>
+            </label>
+            {veredicto && <p className="bg-muted/50 rounded-lg px-3 py-2 text-sm">{veredicto}</p>}
+          </div>
+
           {!revision ? (
             <p className="text-muted-foreground py-6 text-center text-sm">{pendiente ? "Leyendo Odoo…" : "—"}</p>
           ) : (
             <div className="flex flex-col gap-4">
               {revision.truncado && (
-                <p className="text-sm">Hay más órdenes de las que se leyeron. Usa “desde” para traerlas por tramos.</p>
+                <p className="text-sm">
+                  Hay más órdenes de las que caben en una sola lectura: se leyeron las más recientes. Cuando las traigas,
+                  vuelve a pulsar para ver las siguientes, o usa “desde” para acotar.
+                </p>
               )}
 
               <section>
@@ -103,6 +135,26 @@ export function TraerDeOdoo({ odooListo }: { odooListo: boolean }) {
                   </ul>
                 )}
               </section>
+
+              {revision.deLaApp.length > 0 && (
+                <section>
+                  <h3 className="mb-1.5 text-sm font-medium">Creadas por la app, sin enlazar: {revision.deLaApp.length}</h3>
+                  <ul className="divide-y rounded-lg border text-sm">
+                    {revision.deLaApp.map((o) => (
+                      <li key={o.orden} className="px-3 py-2">
+                        <span className="font-medium">{o.orden}</span>
+                        <span className="text-muted-foreground"> · {o.proveedor}</span>
+                        <p className="text-muted-foreground text-xs">
+                          {o.situacion === "enlazaria" && `Se enlazaría a ${o.compra}.`}
+                          {o.situacion === "enlazada" && `Quedó enlazada a ${o.compra}.`}
+                          {o.situacion === "otra" && `${o.compra} ya está enlazada a otra orden de Odoo: revísala.`}
+                          {o.situacion === "sin_compra" && `No hay una compra ${o.compra ?? "con ese código"} en la app: revísala en Odoo.`}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
 
               {revision.fallidas.length > 0 && (
                 <section>
@@ -139,8 +191,11 @@ export function TraerDeOdoo({ odooListo }: { odooListo: boolean }) {
               {hechas ? "Cerrar" : "Cancelar"}
             </Button>
             {!hechas && (
-              <Button onClick={() => pedir(true)} disabled={pendiente || !revision || revision.porImportar.length === 0}>
-                {revision && revision.porImportar.length > 0 ? `Traer ${revision.porImportar.length}` : "Traer"}
+              <Button
+                onClick={() => pedir(true)}
+                disabled={pendiente || !revision || (revision.porImportar.length === 0 && !revision.deLaApp.some((o) => o.situacion === "enlazaria"))}
+              >
+                {revision && revision.porImportar.length > 0 ? `Traer ${revision.porImportar.length}` : "Enlazar"}
               </Button>
             )}
           </DialogFooter>

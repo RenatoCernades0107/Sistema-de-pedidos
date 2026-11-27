@@ -6,9 +6,11 @@ import {
   leerDatos,
   resumenDe,
   rutaDeBorrador,
+  type DatosBorradorCompra,
   type DatosBorradorCotizacion,
   type DatosBorradorPedido,
 } from "./borradores";
+import { compraTieneContenido, resumenDeCompra } from "./borradores-compra";
 import type { Linea } from "./lineas-cotizacion";
 
 const producto: Linea = {
@@ -123,5 +125,64 @@ describe("rutaDeBorrador", () => {
     expect(rutaDeBorrador({ id: "x", tipo: "cotizacion", cotizacionId: null })).toBe("/cotizaciones/nueva?borrador=x");
     expect(rutaDeBorrador({ id: "x", tipo: "pedido", cotizacionId: null })).toBe("/pedidos/nuevo?borrador=x");
     expect(rutaDeBorrador({ id: "x", tipo: "pedido", cotizacionId: "c" })).toBe("/pedidos/nuevo?cotizacion=c&borrador=x");
+  });
+});
+
+describe("borrador de compra", () => {
+  const vacia: DatosBorradorCompra = {
+    version: 1,
+    tipo: "nacional",
+    proveedor: null,
+    almacenId: null,
+    documento: "",
+    moneda: "PEN",
+    tcMerc: "3.75",
+    tcGastos: "3.75",
+    incoterm: null,
+    condicion: "contado",
+    dias: "",
+    embarque: "",
+    llegada: "",
+    nota: "",
+    filas: [],
+  };
+  const fila = { productoId: 5, codigo: "F7E024", titulo: "Eco cristal 3", cantidad: "10", kilos: "", precio: "1,5", total: "" };
+
+  it("el formulario de fábrica no cuenta como contenido", () => {
+    expect(compraTieneContenido(vacia)).toBe(false);
+    expect(compraTieneContenido({ ...vacia, nota: "   ", documento: " " })).toBe(false);
+  });
+
+  it("cualquier cosa escrita o elegida sí", () => {
+    expect(compraTieneContenido({ ...vacia, proveedor: cliente })).toBe(true);
+    expect(compraTieneContenido({ ...vacia, almacenId: "a" })).toBe(true);
+    expect(compraTieneContenido({ ...vacia, documento: "PI-1" })).toBe(true);
+    expect(compraTieneContenido({ ...vacia, nota: "negociar" })).toBe(true);
+    expect(compraTieneContenido({ ...vacia, llegada: "2026-12-01" })).toBe(true);
+    expect(compraTieneContenido({ ...vacia, filas: [fila] })).toBe(true);
+  });
+
+  it("vuelve igual tras pasar por JSON, aunque esté incompleta", () => {
+    const d: DatosBorradorCompra = { ...vacia, proveedor: cliente, filas: [fila], moneda: "USD", incoterm: "FOB", tipo: "importacion" };
+    expect(leerDatos("compra", JSON.parse(JSON.stringify(d)))).toEqual(d);
+  });
+
+  it("rechaza datos de otro tipo o con valores fuera de catálogo", () => {
+    expect(leerDatos("compra", { ...vacia, version: 2 })).toBeNull();
+    expect(leerDatos("compra", { ...vacia, moneda: "EUR" })).toBeNull();
+    expect(leerDatos("compra", null)).toBeNull();
+    expect(leerDatos("pedido", vacia)).toBeNull();
+  });
+
+  it("el resumen suma cantidad × precio, tolera filas a medias y lleva la moneda", () => {
+    const r = resumenDeCompra({ proveedor: cliente, moneda: "USD", filas: [fila, { ...fila, productoId: 6, cantidad: "", precio: "" }] });
+    expect(r).toEqual({ cliente: "Juan Pérez", productos: 2, total: 15, moneda: "USD" });
+    expect(resumenDeCompra({ proveedor: null, moneda: "PEN", filas: [] })).toEqual({ cliente: null, productos: 0, total: 0, moneda: "PEN" });
+  });
+
+  it("guardar acepta el tipo compra y la ruta retoma en /compras/nueva", () => {
+    const base = { id: null, cotizacionId: null, datos: {}, resumen: { cliente: null, productos: 0, total: 0, moneda: "PEN" } };
+    expect(esquemaGuardarBorrador.safeParse({ ...base, tipo: "compra" }).success).toBe(true);
+    expect(rutaDeBorrador({ id: "x", tipo: "compra", cotizacionId: null })).toBe("/compras/nueva?borrador=x");
   });
 });

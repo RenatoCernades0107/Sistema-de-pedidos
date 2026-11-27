@@ -10,14 +10,17 @@
 import { cache } from "react";
 import { cargarAlmacenes, odooDeAlmacenId } from "./almacenes-servidor";
 import {
+  ESTADOS_COMPRA,
   desgloseUnitario,
   estadoPorRecepcion,
   gastoParaCosteo,
+  sePuedeCorregir,
   sePuedeConfirmar,
   sePuedeEditar,
   sePuedenCargarGastos,
   sePuedeLiquidar,
   sePuedeRecibir,
+  type CorreccionCompra,
   type CompraDetalle,
   type CompraResumen,
   type CondicionPago,
@@ -27,13 +30,13 @@ import {
   type NuevaRecepcion,
   type Sincronizacion,
 } from "./compras";
-import { liquidar, type ConceptoGasto, type Incoterm, type Moneda, type Reparto, type TipoCompra, type TipoManoObra } from "./costeo";
+import { CONCEPTOS_GASTO, conceptosDe, liquidar, type ConceptoGasto, type Incoterm, type Moneda, type Reparto, type TipoCompra, type TipoManoObra } from "./costeo";
 import { mensajeDeError } from "./errores";
 import { hoy } from "./fecha";
-import { planificarImportacion, type CompraPorImportar, type OrdenOmitida } from "./compras-importar";
+import { PREFIJO_ORIGEN_APP, esOrdenDeCompraDeApp, planificarImportacion, type CompraPorImportar, type ContextoImportacion, type OrdenOmitida } from "./compras-importar";
 import { cancelarOrdenCompra, crearOrdenCompra, recibirOrdenCompra, tipoDeCambioUsd } from "./odoo/almacenes";
 import { productosPorId } from "./odoo/catalogos";
-import { leerOrdenesDeCompra } from "./odoo/compras-importar";
+import { buscarOrdenDeCompra, leerOrden, leerOrdenesDeCompra, nombresDeOrdenes } from "./odoo/compras-importar";
 import { origenDe } from "./odoo/pedidos-venta";
 import { ErrorOdoo, ODOO_NO_CONFIGURADO, odooConfigurado } from "./odoo/rpc";
 import { codigosDelCatalogo } from "./stock-servidor";
@@ -52,7 +55,7 @@ const num = (v: number | string | null) => (v === null ? null : Number(v));
 
 /* ── Leer ──────────────────────────────────────────────────────────────────── */
 
-const CAMPOS_RESUMEN = `id, codigo, tipo, estado, proveedor_nombre, documento_proveedor, moneda_mercaderia,
+const CAMPOS_RESUMEN = `id, codigo, tipo, estado, proveedor_nombre, documento_proveedor, odoo_orden_nombre, moneda_mercaderia,
   fecha_llegada_estimada, sincronizacion, error_sincronizacion, creado_en,
   almacen:almacenes ( nombre ),
   compras_lineas ( cantidad, precio_unitario )`;
@@ -64,6 +67,7 @@ type FilaResumen = {
   estado: string;
   proveedor_nombre: string;
   documento_proveedor: string | null;
+  odoo_orden_nombre: string | null;
   moneda_mercaderia: string;
   fecha_llegada_estimada: string | null;
   sincronizacion: Sincronizacion | null;
@@ -83,6 +87,7 @@ function deResumen(f: FilaResumen): CompraResumen {
     proveedor: f.proveedor_nombre,
     almacen: uno(f.almacen)?.nombre ?? "(almacén borrado)",
     documentoProveedor: f.documento_proveedor,
+    odooOrden: f.odoo_orden_nombre,
     monedaMercaderia: f.moneda_mercaderia as Moneda,
     totalMercaderia: Math.round(lineas.reduce((t, l) => t + l.cantidad * Number(l.precio_unitario), 0) * 100) / 100,
     items: lineas.length,
@@ -345,8 +350,12 @@ export async function llevarCompraAOdoo(id: string): Promise<{ ok: true } | { ok
   if (!c) return { ok: false, error: "Esa compra ya no existe." };
   if (c.sincronizacion === "sincronizada" && c.odoo_orden_id) return { ok: true };
 
-  const anotar = (cambios: { odoo_orden_id?: number; sincronizacion: "sincronizada" | "error"; error_sincronizacion: string | null }) =>
-    supabase.from("compras").update(cambios).eq("id", id);
+  const anotar = (cambios: {
+    odoo_orden_id?: number;
+    odoo_orden_nombre?: string | null;
+    sincronizacion: "sincronizada" | "error";
+    error_sincronizacion: string | null;
+  }) => supabase.from("compras").update(cambios).eq("id", id);
   if (!odooConfigurado()) {
     await anotar({ sincronizacion: "error", error_sincronizacion: ODOO_NO_CONFIGURADO });
     return { ok: false, error: ODOO_NO_CONFIGURADO };
@@ -363,7 +372,8 @@ export async function llevarCompraAOdoo(id: string): Promise<{ ok: true } | { ok
         .sort((a, b) => a.posicion - b.posicion)
         .map((l) => ({ productoId: l.producto_odoo_id, cantidad: l.cantidad, costo: Number(l.precio_unitario) })),
     });
-    await anotar({ odoo_orden_id: ordenId, sincronizacion: "sincronizada", error_sincronizacion: null });
+    const nombre = (await nombresDeOrdenes([ordenId]).catch(() => new Map<number, string>())).get(ordenId) ?? null;
+    await anotar({ odoo_orden_id: ordenId, odoo_orden_nombre: nombre, sincronizacion: "sincronizada", error_sincronizacion: null });
     return { ok: true };
   } catch (e) {
     const mensaje = mensajeOdoo(e, "llevar compra");
@@ -394,6 +404,48 @@ export async function anularCompra(id: string): Promise<ResultadoCompra> {
   }
   const { error: alAnular } = await supabase.from("compras").update({ estado: "anulada" }).eq("id", id);
   if (alAnular) return { ok: false, error: mensajeDeError(alAnular) };
+  return { ok: true, codigo: c.codigo };
+}
+
+/**
+ * Corrige una compra ya confirmada (p. ej. una traída de Odoo, donde el tipo se dedujo
+ * de la moneda y no hay kilos): su tipo y los kilos de cada ítem. No toca Odoo. Si ya hay gastos cargados que el tipo nuevo
+ * no admite (flete marítimo en una compra nacional), no lo deja: primero se quitan.
+ */
+export async function corregirCompra(v: CorreccionCompra): Promise<ResultadoCompra> {
+  const c = await cargarCompraPorId(v.compraId);
+  if (!c) return { ok: false, error: "Esa compra ya no existe." };
+  if (c.estado === "liquidada") return { ok: false, error: "La compra ya está liquidada: reabre la liquidación para corregirla." };
+  if (!sePuedeCorregir(c.estado)) {
+    return { ok: false, error: c.estado === "borrador" ? "La pre-compra se edita entera: cambia el tipo ahí." : "Esa compra está anulada." };
+  }
+  const sinItem = v.kilos.find((k) => !c.lineas.some((l) => l.posicion === k.posicion));
+  if (sinItem) return { ok: false, error: "Uno de los ítems ya no está en la compra. Recarga la página." };
+  const admitidos = new Set(conceptosDe(v.tipo, v.incoterm));
+  const sobran = [...new Set(c.gastos.filter((g) => !admitidos.has(g.concepto)).map((g) => CONCEPTOS_GASTO[g.concepto].etiqueta))];
+  if (sobran.length) {
+    return { ok: false, error: `Una compra ${v.tipo === "nacional" ? "nacional" : "de importación"}${v.incoterm ? ` ${v.incoterm}` : ""} no lleva: ${sobran.join(", ")}. Quita esos gastos primero.` };
+  }
+
+  const supabase = await clienteServidor();
+  const { error } = await supabase
+    .from("compras")
+    .update({
+      tipo: v.tipo,
+      incoterm: v.tipo === "importacion" ? v.incoterm : null,
+      condicion_pago: v.condicionPago,
+      dias_credito: v.condicionPago === "credito" ? v.diasCredito : null,
+      fecha_embarque: v.tipo === "importacion" ? v.fechaEmbarque : null,
+      actualizado_en: new Date().toISOString(),
+    })
+    .eq("id", c.id)
+    .in("estado", ["confirmada", "recibida_parcial", "recibida"]);
+  if (error) return { ok: false, error: mensajeDeError(error) };
+  for (const k of v.kilos) {
+    if (c.lineas.find((l) => l.posicion === k.posicion)?.kilos === k.kilos) continue;
+    const { error: alKilo } = await supabase.from("compras_lineas").update({ kilos: k.kilos }).eq("compra_id", c.id).eq("posicion", k.posicion);
+    if (alKilo) return { ok: false, error: mensajeDeError(alKilo) };
+  }
   return { ok: true, codigo: c.codigo };
 }
 
@@ -620,6 +672,16 @@ export interface CompraTraida {
   fecha: string;
 }
 
+/** Una orden que la app creó en Odoo pero cuya compra no la tiene enlazada. */
+export interface OrdenDeLaApp {
+  orden: string;
+  proveedor: string;
+  /** "CMP-00012", si el origen lo dice. */
+  compra: string | null;
+  /** enlazaria / enlazada: se unió a su compra. otra: esa compra ya tiene otra orden. sin_compra: no hay compra con ese código. */
+  situacion: "enlazaria" | "enlazada" | "otra" | "sin_compra";
+}
+
 export type ResultadoImportacion =
   | {
       ok: true;
@@ -630,8 +692,8 @@ export type ResultadoImportacion =
       /** Las que no se pudieron guardar (solo al aplicar). */
       fallidas: { orden: string; error: string }[];
       importadas: number;
-      /** Las órdenes de Odoo que nacieron en la app: no se tocan. */
-      deLaApp: number;
+      /** Las órdenes de Odoo que creó la propia app, y qué pasa con su compra. */
+      deLaApp: OrdenDeLaApp[];
       /** Había más órdenes de las que se leyeron. */
       truncado: boolean;
     }
@@ -670,6 +732,7 @@ async function guardarTraida(c: CompraPorImportar): Promise<{ ok: true } | { ok:
       fecha_llegada_estimada: c.fechaLlegadaEstimada,
       nota: c.nota,
       odoo_orden_id: c.ordenId,
+      odoo_orden_nombre: c.ordenNombre,
       sincronizacion: "sincronizada",
       confirmada_en: c.confirmadaEn,
       creado_en: c.creadaEn,
@@ -721,6 +784,28 @@ async function guardarTraida(c: CompraPorImportar): Promise<{ ok: true } | { ok:
 }
 
 /**
+ * Las compras que ya tienen orden en Odoo pero no guardaron su número (P01727):
+ * las creadas desde la app antes de que se guardara. Es solo una etiqueta, así que
+ * si algo falla se sigue sin ella.
+ */
+async function completarNumerosDeOrden(): Promise<void> {
+  try {
+    const supabase = await clienteServidor();
+    const { data } = await supabase.from("compras").select("id, odoo_orden_id").not("odoo_orden_id", "is", null).is("odoo_orden_nombre", null);
+    if (!data?.length) return;
+    const nombres = await nombresDeOrdenes(data.map((c) => c.odoo_orden_id as number));
+    await Promise.all(
+      data.map(async (c) => {
+        const nombre = nombres.get(c.odoo_orden_id as number);
+        if (nombre) await supabase.from("compras").update({ odoo_orden_nombre: nombre }).eq("id", c.id);
+      }),
+    );
+  } catch (e) {
+    console.error("[compras] completar números de orden", e);
+  }
+}
+
+/**
  * Las órdenes de compra confirmadas que están en Odoo y no en la app. Con
  * `aplicar: false` solo dice cuáles entrarían y cuáles no (y por qué); con
  * `aplicar: true` las guarda. Repetirlo no duplica: lo que ya está se salta.
@@ -734,20 +819,16 @@ export async function traerComprasDeOdoo(opciones: { aplicar: boolean; desde: st
   let plan;
   let truncado: boolean;
   try {
-    const leidas = await leerOrdenesDeCompra((conocidas ?? []).map((c) => c.odoo_orden_id as number));
+    const leidas = await leerOrdenesDeCompra((conocidas ?? []).map((c) => c.odoo_orden_id as number), opciones.desde);
     truncado = leidas.truncado;
-    const enDolares = leidas.ordenes.some((o) => o.moneda === "USD" && !o.tasaPorDolar);
-    plan = planificarImportacion(leidas.ordenes, {
-      almacenes: (await cargarAlmacenes()).filter((a) => a.activo),
-      catalogo: await codigosDelCatalogo(),
-      tcActual: enDolares ? (await tipoDeCambioSugerido()).tc : null,
-      desde: opciones.desde,
-    });
+    plan = planificarImportacion(leidas.ordenes, await contextoImportacion(leidas.ordenes.some((o) => o.moneda === "USD" && !o.tasaPorDolar)));
   } catch (e) {
     return { ok: false, error: mensajeOdoo(e, "traer compras de Odoo") };
   }
 
-  const base = { ok: true as const, omitidas: plan.omitidas, deLaApp: plan.deLaApp, truncado };
+  await completarNumerosDeOrden();
+  const deLaApp = await enlazarOrdenesDeLaApp(plan.deLaApp, opciones.aplicar);
+  const base = { ok: true as const, omitidas: plan.omitidas, deLaApp, truncado };
   if (!opciones.aplicar) {
     return { ...base, aplicado: false, porImportar: plan.porImportar.map(resumenTraida), fallidas: [], importadas: 0 };
   }
@@ -766,4 +847,95 @@ export async function traerComprasDeOdoo(opciones: { aplicar: boolean; desde: st
     fallidas,
     importadas,
   };
+}
+
+/** Lo que `planificarImportacion` necesita saber de la app. */
+async function contextoImportacion(hayDolares: boolean): Promise<ContextoImportacion> {
+  return {
+    almacenes: (await cargarAlmacenes()).filter((a) => a.activo),
+    catalogo: await codigosDelCatalogo(),
+    tcActual: hayDolares ? (await tipoDeCambioSugerido()).tc : null,
+  };
+}
+
+/**
+ * Las órdenes que la app creó en Odoo ("App Plexiacril CMP-00012") y que aparecen
+ * porque su compra no guardó el id (se creó la orden y algo falló antes de anotarlo).
+ * Con `aplicar`, se enlazan a su compra; si no, solo se dice qué pasaría.
+ */
+async function enlazarOrdenesDeLaApp(ordenes: { ordenId: number; ordenNombre: string; proveedor: string; origen: string }[], aplicar: boolean): Promise<OrdenDeLaApp[]> {
+  if (ordenes.length === 0) return [];
+  const supabase = await clienteServidor();
+  const codigoDe = (origen: string) => origen.slice(PREFIJO_ORIGEN_APP.length).trim();
+  const codigos = ordenes.map((o) => codigoDe(o.origen)).filter((c) => /^CMP-\d+$/.test(c));
+  const { data } = codigos.length
+    ? await supabase.from("compras").select("id, codigo, odoo_orden_id").in("codigo", codigos)
+    : { data: [] };
+  const resultado: OrdenDeLaApp[] = [];
+  for (const o of ordenes) {
+    const codigo = codigoDe(o.origen);
+    const compra = (data ?? []).find((c) => c.codigo === codigo);
+    const base = { orden: o.ordenNombre, proveedor: o.proveedor, compra: compra?.codigo ?? (/^CMP-\d+$/.test(codigo) ? codigo : null) };
+    if (!compra) resultado.push({ ...base, situacion: "sin_compra" });
+    else if (compra.odoo_orden_id) resultado.push({ ...base, situacion: "otra" });
+    else if (!aplicar) resultado.push({ ...base, situacion: "enlazaria" });
+    else {
+      const { error } = await supabase
+        .from("compras")
+        .update({ odoo_orden_id: o.ordenId, odoo_orden_nombre: o.ordenNombre, sincronizacion: "sincronizada", error_sincronizacion: null })
+        .eq("id", compra.id)
+        .is("odoo_orden_id", null);
+      resultado.push({ ...base, situacion: error ? "otra" : "enlazada" });
+    }
+  }
+  return resultado;
+}
+
+/**
+ * Por qué una orden (P01726) entra o no entra al traer de Odoo: lo dice en una
+ * frase, mirando la orden tal como la ve el usuario de la integración.
+ */
+export async function explicarOrdenDeOdoo(numero: string, desde: string | null): Promise<{ ok: true; veredicto: string } | { ok: false; error: string }> {
+  if (!odooConfigurado()) return { ok: false, error: ODOO_NO_CONFIGURADO };
+  const supabase = await clienteServidor();
+  try {
+    const [vista] = await buscarOrdenDeCompra(numero);
+    if (!vista) {
+      const { data: propia } = await supabase.from("compras").select("codigo").ilike("odoo_orden_nombre", numero.trim()).maybeSingle();
+      return {
+        ok: true,
+        veredicto: propia
+          ? `Ya está en la app como ${propia.codigo}.`
+          : `Odoo no le muestra la orden ${numero.trim()} al usuario de la integración (ODOO_USERNAME). En Odoo existe, pero ese usuario no la ve: revisa su compañía y sus permisos de Compras (que no sea "solo mis documentos").`,
+      };
+    }
+    const { data: enApp } = await supabase.from("compras").select("codigo, estado").eq("odoo_orden_id", vista.id).maybeSingle();
+    if (enApp) return { ok: true, veredicto: `Ya está en la app como ${enApp.codigo} (${ESTADOS_COMPRA[enApp.estado as EstadoCompra] ?? enApp.estado}).` };
+    if (vista.estado !== "purchase" && vista.estado !== "done") {
+      const nombre: Record<string, string> = { draft: "solicitud de presupuesto (borrador)", sent: "solicitud enviada", "to approve": "por aprobar", cancel: "cancelada" };
+      return { ok: true, veredicto: `En Odoo está como ${nombre[vista.estado ?? ""] ?? vista.estado ?? "sin estado"}. Solo se traen las órdenes confirmadas.` };
+    }
+    // La importación deja pasar la orden si CUALQUIERA de sus dos fechas es de «desde» en adelante.
+    const fechas = [vista.confirmadaEn, vista.fechaPedido].filter((f): f is string => !!f).map((f) => f.slice(0, 10));
+    if (desde && fechas.length && fechas.every((f) => f < desde)) {
+      return { ok: true, veredicto: `Su fecha de confirmación (${fechas[0]}) es anterior a «desde» (${desde}).` };
+    }
+    const orden = await leerOrden(vista.id);
+    if (!orden) return { ok: true, veredicto: "Odoo no devolvió el detalle de la orden." };
+    if (esOrdenDeCompraDeApp(orden.origen)) {
+      const [r] = await enlazarOrdenesDeLaApp([{ ordenId: orden.id, ordenNombre: orden.nombre, proveedor: orden.proveedorNombre, origen: orden.origen }], false);
+      const dicho = {
+        enlazaria: `La creó la app (${r.compra}) pero esa compra no tiene enlazada la orden. Pulsa «Traer» para enlazarla.`,
+        enlazada: `La creó la app (${r.compra}).`,
+        otra: `La creó la app (${r.compra}), pero esa compra ya está enlazada a otra orden de Odoo.`,
+        sin_compra: `La creó la app (origen «${orden.origen}»), pero no hay una compra con ese código.`,
+      } as const;
+      return { ok: true, veredicto: dicho[r.situacion] };
+    }
+    const plan = planificarImportacion([orden], await contextoImportacion(orden.moneda === "USD" && !orden.tasaPorDolar));
+    if (plan.porImportar.length) return { ok: true, veredicto: `Entraría como compra (${plan.porImportar[0].estado.replace("_", " ")}). Si no la ves en la lista, revisa que «desde» no la deje fuera.` };
+    return { ok: true, veredicto: `Se queda fuera: ${plan.omitidas[0]?.motivo ?? "no cumple las condiciones."}` };
+  } catch (e) {
+    return { ok: false, error: mensajeOdoo(e, "explicar orden de Odoo") };
+  }
 }

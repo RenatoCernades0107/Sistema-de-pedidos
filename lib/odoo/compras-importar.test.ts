@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { BASE, CLAVE, USUARIO, crearOdooFalso } from "../../e2e/odoo-falso.mjs";
 import { asegurarAlmacen, crearOrdenCompra, recibirOrdenCompra } from "./almacenes";
-import { leerOrdenesDeCompra } from "./compras-importar";
+import { buscarOrdenDeCompra, leerOrden, leerOrdenesDeCompra, nombresDeOrdenes } from "./compras-importar";
 import { ejecutar, reiniciarCacheOdoo } from "./rpc";
 
 let odoo: Awaited<ReturnType<typeof crearOdooFalso>>;
@@ -93,6 +93,45 @@ describe("leerOrdenesDeCompra", () => {
       { partner_id: 2, picking_type_id: 1, order_line: [[0, 0, { product_id: 20, name: "x", product_qty: 1 }]] },
     ]);
     expect((await leerOrdenesDeCompra([])).ordenes.map((o) => o.id)).toEqual([id]);
+  });
+
+  it("'desde' filtra en Odoo y no después: no depende de cuántas órdenes viejas haya", async () => {
+    const { id: vieja } = await ordenDeOdoo([{ productoId: 20, cantidad: 1, costo: 1 }]);
+    const { id: nueva } = await ordenDeOdoo([{ productoId: 20, cantidad: 1, costo: 1 }]);
+    await ejecutar("purchase.order", "write", [[vieja], { date_order: "2025-01-10 10:00:00", date_approve: "2025-01-11 10:00:00" }]);
+    expect((await leerOrdenesDeCompra([], "2026-01-01")).ordenes.map((o) => o.id)).toEqual([nueva]);
+    expect((await leerOrdenesDeCompra([])).ordenes.map((o) => o.id)).toEqual([vieja, nueva]);
+  });
+
+  it("'desde' cuenta desde la CONFIRMACIÓN: una solicitud vieja confirmada hace poco entra", async () => {
+    const { id } = await ordenDeOdoo([{ productoId: 20, cantidad: 1, costo: 1 }]);
+    // Se pidió en octubre, se confirmó ahora (como P01726).
+    await ejecutar("purchase.order", "write", [[id], { date_order: "2026-10-01 09:00:00" }]);
+    expect((await leerOrdenesDeCompra([], "2026-11-22")).ordenes.map((o) => o.id)).toEqual([id]);
+  });
+
+  it("busca una orden por su número sin filtros de estado, y la lee por id aunque no esté confirmada", async () => {
+    const { id } = await ordenDeOdoo([{ productoId: 20, cantidad: 1, costo: 1 }]);
+    const [nombre] = [...(await nombresDeOrdenes([id])).values()];
+    const [vista] = await buscarOrdenDeCompra(nombre.toLowerCase());
+    expect(vista).toMatchObject({ id, nombre, estado: "purchase", origen: null });
+    expect(vista.confirmadaEn).toBeTruthy();
+    expect(await buscarOrdenDeCompra("P99999")).toEqual([]);
+    expect((await leerOrden(id))?.lineas).toHaveLength(1);
+    expect(await leerOrden(9999)).toBeNull();
+
+    // Una solicitud en borrador: la importación no la trae, pero la búsqueda sí la ve.
+    const borrador = await ejecutar<number>("purchase.order", "create", [
+      { partner_id: 2, picking_type_id: 1, order_line: [[0, 0, { product_id: 20, name: "x", product_qty: 1 }]] },
+    ]);
+    const [nb] = [...(await nombresDeOrdenes([borrador])).values()];
+    expect((await buscarOrdenDeCompra(nb))[0]).toMatchObject({ id: borrador, estado: "draft" });
+  });
+
+  it("da el número de la orden en Odoo", async () => {
+    const { id } = await ordenDeOdoo([{ productoId: 20, cantidad: 1, costo: 1 }]);
+    expect(await nombresDeOrdenes([id, id, 999])).toEqual(new Map([[id, expect.stringMatching(/^P\d+$/)]]));
+    expect(await nombresDeOrdenes([])).toEqual(new Map());
   });
 
   it("devuelve el origen, para distinguir las que creó la app", async () => {

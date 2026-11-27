@@ -113,8 +113,17 @@ export function useBorrador({
     if (id.current) await eliminarBorrador(id.current).catch(() => {});
   };
 
+  /** Guarda ya lo pendiente (botón "Guardar borrador"). `true` si lo de pantalla quedó guardado. */
+  const guardarAhora = async (): Promise<boolean> => {
+    if (apagado.current) return false;
+    await pendiente.current?.();
+    if (enVuelo.current) await enVuelo.current.catch(() => {});
+    return guardado.current === json;
+  };
+
   return {
     terminar,
+    guardarAhora,
     estado: hayCambios && estado !== "guardando" ? ("sin-guardar" as const) : estado,
     /** El id del borrador, si ya se guardó alguna vez. */
     id: () => id.current,

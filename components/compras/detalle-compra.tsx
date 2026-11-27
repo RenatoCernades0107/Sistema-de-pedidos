@@ -9,8 +9,10 @@ import type { Almacen } from "@/lib/almacenes";
 import {
   CONDICIONES_PAGO,
   TIPOS_COMPRA,
+  codigoVisible,
   descuadre,
   vencimientoCredito,
+  sePuedeCorregir,
   type CompraDetalle,
 } from "@/lib/compras";
 import { momentoEnLima } from "@/lib/fecha";
@@ -30,6 +32,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { CorregirCompra } from "./corregir-compra";
 import { EditorCompra } from "./editor-compra";
 import { EstadoCompraBadge } from "./estado-compra";
 
@@ -64,7 +67,7 @@ export function DetalleCompra({
       const r = await acciones.anularCompra(compra.id);
       setAnulando(false);
       if (!r.ok) return void toast.error(r.error);
-      toast.success(`${compra.codigo} anulada`);
+      toast.success(`${codigoVisible(compra)} anulada`);
     });
 
   const reintentar = () =>
@@ -86,15 +89,20 @@ export function DetalleCompra({
             {compra.sincronizacion && compra.sincronizacion !== "sincronizada" && <EstadoSincronizacion estado={compra.sincronizacion} />}
           </>
         }
-        titulo={`${compra.codigo} · ${compra.proveedor}`}
-        subtitulo={`Creada ${diaMesTexto(momentoEnLima(compra.creadoEn), true)}${compra.creadoPor ? ` por ${compra.creadoPor}` : ""}`}
+        titulo={`${codigoVisible(compra)} · ${compra.proveedor}`}
+        subtitulo={`${compra.odooOrden ? `${compra.codigo} · ` : ""}Creada ${diaMesTexto(momentoEnLima(compra.creadoEn), true)}${compra.creadoPor ? ` por ${compra.creadoPor}` : ""}`}
         className="max-w-5xl"
         lateral={
-          anulable && (
-            <Button variant="outline" className="gap-1.5" onClick={() => setAnulando(true)} disabled={pendiente}>
-              <Ban className="size-4" />
-              Anular
-            </Button>
+          (anulable || sePuedeCorregir(compra.estado)) && (
+            <div className="flex gap-2">
+              {sePuedeCorregir(compra.estado) && <CorregirCompra compra={compra} />}
+              {anulable && (
+                <Button variant="outline" className="gap-1.5" onClick={() => setAnulando(true)} disabled={pendiente}>
+                  <Ban className="size-4" />
+                  Anular
+                </Button>
+              )}
+            </div>
           )
         }
       />
@@ -115,10 +123,10 @@ export function DetalleCompra({
         <EditorCompra compra={compra} almacenes={almacenes} productos={productos} tcSugerido={tcSugerido} odooListo={odooListo} />
       ) : (
         <div className="flex max-w-5xl flex-col gap-4">
-          <Seccion n={1} titulo="Pedido y recepción" nota={compra.odooOrdenId ? `Orden de compra en Odoo #${compra.odooOrdenId}` : undefined}>
+          <Seccion n={1} titulo="Pedido y recepción" nota={compra.odooOrden ? `Orden de compra en Odoo ${compra.odooOrden}` : compra.odooOrdenId ? `Orden de compra en Odoo (id ${compra.odooOrdenId})` : undefined}>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4">
               <Par t="Llega a" v={compra.almacen} />
-              <Par t="Proforma" v={compra.documentoProveedor ?? "—"} />
+              <Par t="Doc. del proveedor" v={compra.documentoProveedor ?? "—"} />
               <Par
                 t="Mercadería"
                 v={`${montoEn(compra.totalMercaderia, compra.monedaMercaderia)}${compra.tcMercaderia ? ` · TC ${compra.tcMercaderia}` : ""}`}
@@ -212,7 +220,7 @@ export function DetalleCompra({
       <AlertDialog open={anulando} onOpenChange={setAnulando}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>¿Anular {compra.codigo}?</AlertDialogTitle>
+            <AlertDialogTitle>¿Anular {codigoVisible(compra)}?</AlertDialogTitle>
             <AlertDialogDescription>
               {compra.odooOrdenId ? "La orden de compra también se cancela en Odoo. " : ""}No se puede deshacer.
             </AlertDialogDescription>

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Plus, Search, ShoppingCart } from "lucide-react";
 import { coincide } from "@/lib/busqueda";
-import { TIPOS_COMPRA, type CompraResumen, type EstadoCompra } from "@/lib/compras";
+import { TIPOS_COMPRA, codigoVisible, creadaEnRango, type CompraResumen, type EstadoCompra } from "@/lib/compras";
 import { momentoEnLima } from "@/lib/fecha";
 import { diaMesTexto, montoEn } from "@/lib/formato";
 import { Button } from "@/components/ui/button";
@@ -32,15 +32,18 @@ const FILTROS: Record<Filtro, { label: string; estados: EstadoCompra[] | null }>
 export function ListaCompras({ compras, odooListo }: { compras: CompraResumen[]; odooListo: boolean }) {
   const [consulta, setConsulta] = useState("");
   const [filtro, setFiltro] = useState<Filtro>("abiertas");
+  const [desde, setDesde] = useState("");
+  const [hasta, setHasta] = useState("");
 
   const visibles = useMemo(() => {
     const estados = FILTROS[filtro].estados;
     return compras.filter(
       (c) =>
         (!estados || estados.includes(c.estado)) &&
-        coincide(`${c.codigo} ${c.proveedor} ${c.documentoProveedor ?? ""} ${c.almacen}`, consulta),
+        creadaEnRango(c.creadoEn, desde, hasta) &&
+        coincide(`${c.codigo} ${c.odooOrden ?? ""} ${c.proveedor} ${c.documentoProveedor ?? ""} ${c.almacen}`, consulta),
     );
-  }, [compras, filtro, consulta]);
+  }, [compras, filtro, consulta, desde, hasta]);
 
   const enlace = (c: CompraResumen) => `/compras/${c.codigo}`;
 
@@ -72,7 +75,7 @@ export function ListaCompras({ compras, odooListo }: { compras: CompraResumen[];
           <Input
             value={consulta}
             onChange={(e) => setConsulta(e.target.value)}
-            placeholder="Código, proveedor o proforma…"
+            placeholder="Código, orden de Odoo, proveedor o factura…"
             aria-label="Filtrar compras"
             className="pl-8"
           />
@@ -83,6 +86,28 @@ export function ListaCompras({ compras, odooListo }: { compras: CompraResumen[];
             onToggle={(v) => setFiltro(v as Filtro)}
             opciones={Object.entries(FILTROS).map(([valor, f]) => ({ valor, label: f.label }))}
           />
+        </div>
+        <div role="group" aria-label="Fecha de creación" className="flex flex-wrap items-center gap-2 text-sm">
+          <label className="flex items-center gap-1.5">
+            Desde
+            <Input type="date" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} className="w-auto" />
+          </label>
+          <label className="flex items-center gap-1.5">
+            Hasta
+            <Input type="date" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} className="w-auto" />
+          </label>
+          {(desde || hasta) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setDesde("");
+                setHasta("");
+              }}
+            >
+              Limpiar fechas
+            </Button>
+          )}
         </div>
       </div>
 
@@ -111,12 +136,13 @@ export function ListaCompras({ compras, odooListo }: { compras: CompraResumen[];
                   <tr key={c.id} className="hover:bg-muted/40 relative border-t">
                     <td className="px-4 py-2.5">
                       <Link href={enlace(c)} className="text-primary font-medium after:absolute after:inset-0">
-                        {c.codigo}
+                        {codigoVisible(c)}
                       </Link>
                       <EstadoCompraBadge estado={c.estado} className="ml-2" />
                       {c.sincronizacion && c.sincronizacion !== "sincronizada" && (
                         <EstadoSincronizacion estado={c.sincronizacion} className="ml-2" />
                       )}
+                      {c.odooOrden && <p className="text-muted-foreground text-xs">{c.codigo}</p>}
                     </td>
                     <td className="max-w-72 px-4 py-2.5">
                       <p className="truncate">{c.proveedor}</p>
@@ -140,7 +166,8 @@ export function ListaCompras({ compras, odooListo }: { compras: CompraResumen[];
               <li key={c.id}>
                 <Link href={enlace(c)} className="bg-card hover:bg-muted/40 flex flex-col gap-1 rounded-xl border p-3">
                   <span className="flex flex-wrap items-center gap-2">
-                    <span className="text-primary text-sm font-medium">{c.codigo}</span>
+                    <span className="text-primary text-sm font-medium">{codigoVisible(c)}</span>
+                    {c.odooOrden && <span className="text-muted-foreground text-xs">{c.codigo}</span>}
                     <EstadoCompraBadge estado={c.estado} />
                     <span className="text-muted-foreground ml-auto text-xs">{TIPOS_COMPRA[c.tipo]}</span>
                   </span>

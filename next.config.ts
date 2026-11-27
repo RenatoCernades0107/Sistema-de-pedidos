@@ -34,7 +34,7 @@ const CABECERAS_DE_SEGURIDAD = [
 const nextConfig: NextConfig = {
   // pdf.js lee los PDF que se adjuntan al chat de diseños (`lib/cad/adjuntos-servidor.ts`).
   // Se carga con el `import` de Node: empaquetado no encuentra su worker.
-  serverExternalPackages: ["pdfjs-dist"],
+  serverExternalPackages: ["pdfjs-dist", "@napi-rs/canvas"],
   // Caché de navegación del cliente: volver a una vista visitada en los últimos
   // 30 s no pide nada al servidor. Las Server Actions que llaman a `refresh()`
   // (todas las escrituras) la invalidan, así que lo que cada quien cambia se ve

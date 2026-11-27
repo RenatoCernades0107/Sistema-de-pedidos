@@ -15,6 +15,11 @@ type Fila = Record<string, unknown>;
 /** Más que esto en una sola vez es mucho para revisar a ojo: se dice que hay más. */
 const LIMITE = 1000;
 
+const CAMPOS_ORDEN = [
+  "name", "partner_id", "origin", "partner_ref", "picking_type_id", "order_line", "picking_ids",
+  "state", "date_order", "date_approve", "date_planned", "currency_id", "currency_rate",
+];
+
 const unico = <T,>(xs: T[]) => [...new Set(xs)];
 
 /** La fecha de Odoo, o null si viene `false`. */
@@ -22,23 +27,46 @@ const fecha = (v: unknown) => texto(v);
 
 /**
  * Las órdenes de compra confirmadas o cerradas, menos las de `conocidas` (las que
- * la app ya tiene). `truncado` avisa que había más de las que se leyeron.
+ * la app ya tiene), confirmadas desde `desde` (YYYY-MM-DD) si se da. El filtro va en la
+ * consulta y no después: si no, con muchas órdenes el tope se llenaría de las más
+ * viejas y las nuevas nunca se verían. Se leen las más recientes primero;
+ * `truncado` avisa que había más de las que se leyeron.
  */
-export async function leerOrdenesDeCompra(conocidas: number[]): Promise<{ ordenes: OrdenOdoo[]; truncado: boolean }> {
-  const campos = await camposExistentes("purchase.order", [
-    "name", "partner_id", "origin", "partner_ref", "picking_type_id", "order_line", "picking_ids",
-    "state", "date_order", "date_approve", "date_planned", "currency_id", "currency_rate",
-  ]);
+export async function leerOrdenesDeCompra(
+  conocidas: number[],
+  desde: string | null = null,
+): Promise<{ ordenes: OrdenOdoo[]; truncado: boolean }> {
+  const campos = await camposExistentes("purchase.order", CAMPOS_ORDEN);
   const dominio: unknown[] = [["state", "in", ["purchase", "done"]]];
   if (conocidas.length) dominio.push(["id", "not in", conocidas]);
+  if (desde) {
+    // "Desde" es desde que se CONFIRMÓ: `date_order` es la fecha de la solicitud (o su plazo)
+    // y puede ser muy anterior. Por si una de las dos viene vacía, vale cualquiera de las dos.
+    const d = `${desde} 00:00:00`;
+    const fechas = ["date_approve", "date_order"].filter((c) => campos.includes(c));
+    for (let i = 1; i < fechas.length; i++) dominio.push("|");
+    for (const c of fechas) dominio.push([c, ">=", d]);
+  }
   const filas = await ejecutar<Fila[]>("purchase.order", "search_read", [dominio], {
     fields: campos,
-    order: "id asc",
+    order: "id desc",
     limit: LIMITE + 1,
   });
   const truncado = filas.length > LIMITE;
-  const ordenes = filas.slice(0, LIMITE);
-  if (ordenes.length === 0) return { ordenes: [], truncado: false };
+  // De la más vieja a la más nueva.
+  return { ordenes: await armar(filas.slice(0, LIMITE).reverse()), truncado };
+}
+
+/** Una orden por su id, sea cual sea su estado (para explicar por qué entra o no). */
+export async function leerOrden(id: number): Promise<OrdenOdoo | null> {
+  const campos = await camposExistentes("purchase.order", CAMPOS_ORDEN);
+  const filas = await ejecutar<Fila[]>("purchase.order", "search_read", [[["id", "=", id]]], { fields: campos, limit: 1 });
+  return (await armar(filas))[0] ?? null;
+}
+
+/** De las filas de `purchase.order`, las órdenes con sus líneas, productos, almacén y recepciones. */
+async function armar(ordenes: Fila[]): Promise<OrdenOdoo[]> {
+  if (ordenes.length === 0) return [];
 
   // Las líneas, con la referencia interna de sus productos.
   const idsLineas = unico(ordenes.flatMap((o) => (o.order_line as number[]) ?? []));
@@ -81,9 +109,7 @@ export async function leerOrdenesDeCompra(conocidas: number[]): Promise<{ ordene
     lineasDe.set(orden, arr);
   }
 
-  return {
-    truncado,
-    ordenes: ordenes.map((o): OrdenOdoo => {
+  return ordenes.map((o): OrdenOdoo => {
       const tipo = idDe(o.picking_type_id);
       // `currency_rate` es cuántas unidades de la moneda de la orden vale 1 sol.
       const tasa = Number(o.currency_rate);
@@ -104,6 +130,44 @@ export async function leerOrdenesDeCompra(conocidas: number[]): Promise<{ ordene
         ultimaRecepcionId: entregadas.length ? Math.max(...entregadas) : null,
         lineas: lineasDe.get(o.id as number) ?? [],
       };
-    }),
-  };
+  });
+}
+
+/** El número de cada orden en Odoo ("P01727"), por su id. */
+export async function nombresDeOrdenes(ids: number[]): Promise<Map<number, string>> {
+  if (ids.length === 0) return new Map();
+  const filas = await ejecutar<Fila[]>("purchase.order", "read", [unico(ids)], { fields: ["name"] });
+  return new Map(filas.map((f) => [f.id as number, texto(f.name)]).filter((x): x is [number, string] => x[1] !== null));
+}
+
+export interface OrdenVista {
+  id: number;
+  nombre: string;
+  estado: string | null;
+  origen: string | null;
+  proveedor: string | null;
+  fechaPedido: string | null;
+  confirmadaEn: string | null;
+  compania: string | null;
+}
+
+/**
+ * Una orden por su número, SIN los filtros de la importación (estado, fecha, las
+ * que la app ya tiene): lo que Odoo le muestra al usuario de la integración. Si no
+ * vuelve nada, ese usuario no la ve (otra compañía o sus permisos), aunque en
+ * Odoo exista. Sirve para explicar por qué una orden concreta no entra.
+ */
+export async function buscarOrdenDeCompra(nombre: string): Promise<OrdenVista[]> {
+  const campos = await camposExistentes("purchase.order", ["name", "state", "origin", "partner_id", "date_order", "date_approve", "company_id"]);
+  const filas = await ejecutar<Fila[]>("purchase.order", "search_read", [[["name", "=ilike", nombre.trim()]]], { fields: campos, limit: 5 });
+  return filas.map((f) => ({
+    id: f.id as number,
+    nombre: texto(f.name) ?? nombre,
+    estado: texto(f.state),
+    origen: texto(f.origin),
+    proveedor: nombreDe(f.partner_id),
+    fechaPedido: fecha(f.date_order),
+    confirmadaEn: fecha(f.date_approve),
+    compania: nombreDe(f.company_id),
+  }));
 }

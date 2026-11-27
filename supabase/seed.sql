@@ -951,3 +951,10 @@ drop table seed_pedidos;
 insert into public.secretos_app (nombre, valor)
 values ('login', 'plexi-login-dev-secreto')
 on conflict (nombre) do nothing;
+
+-- Clave con la que el webhook de WhatsApp lee y escribe lo del agente (funciones
+-- `wa_*`, AGENTE_WA_SECRETO). Solo para desarrollo local: en el proyecto alojado se
+-- inserta a mano con otro valor.
+insert into public.secretos_app (nombre, valor)
+values ('agente_whatsapp', 'plexi-agente-dev-secreto')
+on conflict (nombre) do nothing;
