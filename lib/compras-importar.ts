@@ -7,6 +7,9 @@
  * Esto decide, orden por orden, si se puede traer y cómo queda. Sin red ni base
  * de datos: recibe lo leído de Odoo y devuelve el plan.
  *
+ * Las que creó una compra de la app (origen CMP-…) no se importan: ya existen. Las que
+ * creó un ingreso de Almacén (origen ING-…) sí, porque Compras no las tiene.
+ *
  * Qué es una "orden de Odoo" aquí: la confirmada (`purchase`) o cerrada (`done`).
  * Las solicitudes de cotización (borrador) y las canceladas no son compras.
  *
@@ -21,8 +24,17 @@
 import { estadoPorRecepcion, type CondicionPago, type EstadoCompra } from "./compras";
 import type { Moneda, TipoCompra } from "./costeo";
 
-/** El origen de lo que la propia app crea en Odoo (`origenDe`): ya está en la app. */
+/** El origen de lo que la propia app crea en Odoo (`origenDe`). */
 export const PREFIJO_ORIGEN_APP = "App Plexiacril";
+
+/**
+ * ¿La orden la creó una compra de este módulo ("App Plexiacril CMP-00012")? Esas ya
+ * tienen su compra en la app: se enlazan, no se importan. El mismo prefijo lo llevan
+ * los ingresos de Almacén ("App Plexiacril ING-00003", también "ING-00002 + ING-00003"):
+ * son órdenes de compra de verdad que Compras no tiene, y esas SÍ se importan.
+ */
+export const esOrdenDeCompraDeApp = (origen: string | null | undefined): origen is string =>
+  !!origen && new RegExp(`^${PREFIJO_ORIGEN_APP} CMP-\\d+$`).test(origen.trim());
 
 export interface LineaOrdenOdoo {
   productoId: number;
@@ -116,7 +128,7 @@ export function planificarImportacion(ordenes: OrdenOdoo[], ctx: ContextoImporta
   const plan: PlanImportacion = { porImportar: [], omitidas: [], deLaApp: [] };
 
   for (const o of ordenes) {
-    if (o.origen?.startsWith(PREFIJO_ORIGEN_APP)) {
+    if (esOrdenDeCompraDeApp(o.origen)) {
       plan.deLaApp.push({ ordenId: o.id, ordenNombre: o.nombre, proveedor: o.proveedorNombre, origen: o.origen });
       continue;
     }
