@@ -7,6 +7,7 @@
  */
 
 import type { LineaOrdenOdoo, OrdenOdoo } from "../compras-importar";
+import { nombreSinCodigo } from "./productos";
 import { camposExistentes, ejecutar, idDe, nombreDe, texto } from "./rpc";
 
 type Fila = Record<string, unknown>;
@@ -67,10 +68,12 @@ export async function leerOrdenesDeCompra(conocidas: number[]): Promise<{ ordene
     // Las secciones y notas del pedido no son un producto.
     if (!producto || !orden || texto(l.display_type)) continue;
     const arr = lineasDe.get(orden) ?? [];
+    const codigo = codigoDe.get(producto) ?? null;
+    // El código viene del producto; el texto de la línea puede tener uno viejo, y no se usa.
     arr.push({
       productoId: producto,
-      nombre: nombreProducto.get(producto) || texto(l.name) || nombreDe(l.product_id) || "Producto",
-      codigo: codigoDe.get(producto) ?? null,
+      nombre: nombreSinCodigo(nombreProducto.get(producto) || nombreDe(l.product_id) || "Producto", codigo),
+      codigo,
       cantidad: Number(l.product_qty) || 0,
       recibida: Number(l.qty_received) || 0,
       precio: Number(l.price_unit) || 0,
