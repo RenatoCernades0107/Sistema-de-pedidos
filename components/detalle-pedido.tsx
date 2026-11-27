@@ -26,6 +26,7 @@ import {
   esTerminal,
   etiquetaComprobante,
   pasosDelFlujo,
+  devueltoDe,
   saldoDe,
   textoItem,
   venceCreditoEl,
@@ -43,6 +44,7 @@ import { BARRA_ESTADO, EstadoBadge } from "@/components/estado-badge";
 import { AsignacionPedido, MoverPedido } from "@/components/acciones-pedido";
 import { EditarDatos, EditarEnvio } from "@/components/editar-pedido";
 import { RegistrarAbono } from "@/components/registrar-abono";
+import { RegistrarDevolucion } from "@/components/registrar-devolucion";
 import { AdjuntosPedido } from "@/components/adjuntos-pedido";
 import { Button } from "@/components/ui/button";
 import {
@@ -960,6 +962,7 @@ function PanelPago({ pedido: p }: { pedido: Pedido }) {
     : 0;
   const vence = venceCreditoEl(p);
   const vencido = creditoVencido(p);
+  const devuelto = devueltoDe(p);
 
   return (
     <section className="bg-card rounded-xl border">
@@ -983,7 +986,7 @@ function PanelPago({ pedido: p }: { pedido: Pedido }) {
             <dd className="tnum text-sm font-medium">{money(p.montoTotal)}</dd>
           </div>
           <div>
-            <dt className="text-muted-foreground text-xs">Abonado</dt>
+            <dt className="text-muted-foreground text-xs">{devuelto > 0 ? "Cobrado neto" : "Abonado"}</dt>
             <dd className="tnum text-st-entregado text-sm font-medium">{money(p.montoPagado)}</dd>
           </div>
           <div className="text-right">
@@ -1009,6 +1012,7 @@ function PanelPago({ pedido: p }: { pedido: Pedido }) {
         </div>
 
         {saldo > 0 && permisos.editarTodo && <RegistrarAbono pedido={p} />}
+        {p.montoPagado > 0 && permisos.editarTodo && <RegistrarDevolucion pedido={p} />}
 
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs">
           <p>
@@ -1030,6 +1034,27 @@ function PanelPago({ pedido: p }: { pedido: Pedido }) {
                       <span className="text-muted-foreground"> · {a.usuario}</span>
                     </span>
                     <span className="tnum shrink-0 font-medium">{money(a.monto)}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {p.devoluciones.length > 0 && (
+            <details className="group w-full">
+              <summary className="text-muted-foreground hover:text-foreground cursor-pointer select-none">
+                Devoluciones ({p.devoluciones.length}) · {money(devuelto)}
+              </summary>
+              <ul className="mt-1.5 flex flex-col gap-1.5">
+                {p.devoluciones.map((d, i) => (
+                  <li key={i} className="flex flex-col gap-0.5">
+                    <span className="flex items-baseline justify-between gap-2">
+                      <span className="min-w-0">
+                        <span className="tnum">{fechaCompleta(d.fecha)}</span> · {METODOS[d.metodo]}
+                        <span className="text-muted-foreground"> · {d.usuario}</span>
+                      </span>
+                      <span className="tnum text-saldo-alerta shrink-0 font-medium">−{money(d.monto)}</span>
+                    </span>
+                    <span className="text-muted-foreground break-words">{d.motivo}</span>
                   </li>
                 ))}
               </ul>

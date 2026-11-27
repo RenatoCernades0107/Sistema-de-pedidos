@@ -246,6 +246,25 @@ export const esquemaFormAbono = (saldo: number) =>
   });
 
 /**
+ * Devolución (`components/registrar-devolucion.tsx`). El tope es lo cobrado: no se
+ * devuelve más de lo que entró. El motivo es obligatorio, porque es lo único que
+ * explica después por qué salió plata.
+ */
+export const esquemaFormDevolucion = (cobrado: number) =>
+  z.object({
+    monto: z.coerce
+      .number()
+      .positive("El monto tiene que ser mayor que cero")
+      .max(cobrado, `Como máximo lo cobrado: S/ ${cobrado.toFixed(2)}`),
+    metodo: metodoPago,
+    motivo: z
+      .string()
+      .trim()
+      .min(1, "Cuenta por qué se devuelve")
+      .max(300, "Máximo 300 caracteres"),
+  });
+
+/**
  * Motivo y comprobante del diálogo de cambio de estado (`components/acciones-pedido.tsx`).
  * El campo vacío es válido aquí: el motivo lo exige el estado de destino y el
  * comprobante es siempre opcional. Sin el `or(literal(""))`, el valor inicial "" fallaría el regex y el
@@ -425,6 +444,13 @@ export const esquemaAbono = z.object({
   codigo,
   monto: dinero.refine((n) => n > 0, "El monto tiene que ser mayor que cero"),
   metodo: metodoPago,
+});
+
+export const esquemaDevolucion = z.object({
+  codigo,
+  monto: dinero.refine((n) => n > 0, "El monto tiene que ser mayor que cero"),
+  metodo: metodoPago,
+  motivo: z.string().trim().min(1, "Cuenta por qué se devuelve").max(300, "Máximo 300 caracteres"),
 });
 
 /* ── Avisos ─────────────────────────────────────────────────────────────────── */

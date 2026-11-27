@@ -68,6 +68,18 @@ export interface Abono {
   usuario: string;
 }
 
+/**
+ * Plata que se devolvió al cliente. Resta de `Pedido.montoPagado`, que es lo
+ * cobrado neto: abonos menos devoluciones. No es una nota de crédito.
+ */
+export interface Devolucion {
+  fecha: string;
+  monto: number;
+  metodo: MetodoPago;
+  motivo: string;
+  usuario: string;
+}
+
 export interface CambioEstado {
   estado: Estado;
   usuario: string;
@@ -153,6 +165,7 @@ export interface Pedido {
   envio?: EnvioProvincia;
   adjuntos: Adjunto[];
   abonos: Abono[];
+  devoluciones: Devolucion[];
   historial: CambioEstado[];
   auditoria: EntradaAuditoria[];
   /** Si lo registró quien tiene la sesión abierta. No es un dato del pedido sino de
@@ -531,6 +544,8 @@ export const ofreceComprobante = (e: Estado) => e === "entregado";
 
 export const saldoDe = (p: Pedido) => p.montoTotal - p.montoPagado;
 export const estaPagado = (p: Pedido) => saldoDe(p) <= 0;
+/** Lo que se le devolvió al cliente. `montoPagado` ya lo trae restado. */
+export const devueltoDe = (p: Pedido) => p.devoluciones.reduce((s, d) => s + d.monto, 0);
 export const esTerminal = (e: Estado) => e === "entregado" || e === "anulado";
 
 /**

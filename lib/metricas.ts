@@ -320,17 +320,33 @@ export const ventasPorRegistrador = (pedidos: Pedido[], r: Rango) =>
 export const abonosEn = (pedidos: Pedido[], r: Rango) =>
   pedidos.flatMap((p) => p.abonos.filter((a) => enRango(r, a.fecha)));
 
-export const cobradoEn = (pedidos: Pedido[], r: Rango) =>
-  suma(abonosEn(pedidos, r).map((a) => a.monto));
+/** Lo que salió de la caja en el rango: devoluciones al cliente. */
+export const devolucionesEn = (pedidos: Pedido[], r: Rango) =>
+  pedidos.flatMap((p) => p.devoluciones.filter((d) => enRango(r, d.fecha)));
 
-/** Por método de pago. `pedidos` aquí cuenta abonos, no pedidos. */
-export const cobradoPorMetodo = (pedidos: Pedido[], r: Rango) =>
-  agruparFilas(
+/** Lo cobrado NETO: abonos del rango menos devoluciones del rango. */
+export const cobradoEn = (pedidos: Pedido[], r: Rango) =>
+  suma(abonosEn(pedidos, r).map((a) => a.monto)) -
+  suma(devolucionesEn(pedidos, r).map((d) => d.monto));
+
+/**
+ * Por método de pago, neto de devoluciones. `pedidos` aquí cuenta abonos, no
+ * pedidos. Una barra no puede ser negativa: un método que solo devolvió en el
+ * período no aparece, aunque su salida sí resta del total de `cobradoEn`.
+ */
+export const cobradoPorMetodo = (pedidos: Pedido[], r: Rango) => {
+  const filas = agruparFilas(
     abonosEn(pedidos, r),
     (a) => a.metodo,
     (a) => METODOS[a.metodo],
     (a) => a.monto,
   );
+  for (const d of devolucionesEn(pedidos, r)) {
+    const fila = filas.find((f) => f.clave === d.metodo);
+    if (fila) fila.monto -= d.monto;
+  }
+  return filas.filter((f) => f.monto > 0).sort((a, b) => b.monto - a.monto || b.pedidos - a.pedidos);
+};
 
 /** Lo que se debe hoy. Una foto: no depende del período elegido. */
 export const conDeuda = (pedidos: Pedido[]) =>

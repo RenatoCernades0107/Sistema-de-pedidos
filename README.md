@@ -303,6 +303,12 @@ El proceso de compras (nacional e importación, con sus costos) está en
   (la configuración por defecto del almacén). Todo pasa por funciones de la base
   (`odoo_de_pedido()`, `anotar_stock_de_pedido()`, `anotar_anulacion_en_odoo()`, migración
   `20261111000100`) porque quien mueve el pedido puede ser el taller, que no lee `cotizaciones`.
+- **Devoluciones de dinero** (`components/registrar-devolucion.tsx`, migración `20261220000100`):
+  Administración registra plata devuelta al cliente desde el panel *Pago* del pedido, con monto,
+  método y motivo obligatorio. Resta de `monto_pagado` —que pasa a ser lo cobrado neto: abonos
+  menos devoluciones—, así que el saldo sube y la caja de *Métricas* descuenta lo devuelto. No se
+  devuelve más de lo cobrado (`validar_devolucion()`), no se edita ni se borra, y Ventas las lee.
+  Es solo el registro: no emite nota de crédito ni toca Odoo (ni el stock ni la venta).
 - **La hoja de corte** (`/pedidos/<código>/hoja-de-corte`, `components/hoja-corte.tsx`): se abre desde
   *Productos y cortes* y se imprime en A4. Lleva los datos del pedido y sus indicaciones (sin la lista
   de productos que el detalle repite, `lib/hoja-corte.ts`), y por cada corte la lista de medidas

@@ -50,6 +50,7 @@ import {
   esquemaAbono,
   esquemaCambioEstado,
   esquemaCodigo,
+  esquemaDevolucion,
   esquemaPlanchasUsadas,
   esquemaMaterialesUsados,
   esquemaDatosEditables,
@@ -586,6 +587,40 @@ export async function registrarAbono(entrada: unknown): Promise<Resultado> {
     pedido_id: pedidoId,
     monto,
     metodo,
+    registrado_por: perfil.id,
+  });
+
+  if (error) return fallo(mensajeDeError(error));
+
+  refresh();
+  return { ok: true };
+}
+
+/* ── Devoluciones ───────────────────────────────────────────────────────────── */
+
+/**
+ * Registra plata devuelta al cliente. Es solo el registro: no emite nota de crédito
+ * ni toca Odoo. El tope (no devolver más de lo cobrado) lo pone el trigger
+ * `validar_devolucion`, que bloquea el pedido para que dos devoluciones a la vez no
+ * se pasen juntas; el trigger de saldo resta el monto de `monto_pagado`.
+ */
+export async function registrarDevolucion(entrada: unknown): Promise<Resultado> {
+  const perfil: Perfil = await exigirSesion();
+  if (!ROLES[perfil.rol].editarTodo) return fallo("Solo Administración registra devoluciones.");
+
+  const datos = esquemaDevolucion.safeParse(entrada);
+  if (!datos.success) return falloDeEsquema(datos.error);
+  const { codigo, monto, metodo, motivo } = datos.data;
+
+  const pedidoId = await idDePedido(codigo);
+  if (!pedidoId) return fallo(ERROR_SIN_FILAS);
+
+  const supabase = await clienteServidor();
+  const { error } = await supabase.from("devoluciones").insert({
+    pedido_id: pedidoId,
+    monto,
+    metodo,
+    motivo,
     registrado_por: perfil.id,
   });
 

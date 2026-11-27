@@ -52,7 +52,7 @@ export async function cargarPedidos(rol: Rol, usuarioId: string): Promise<Pedido
 
   // Las colecciones se piden de una vez para todos los pedidos, no una consulta
   // por tarjeta. La RLS ya recorta lo que cada rol puede ver de cada tabla.
-  const [adjuntos, historial, abonos, auditoria, lineas] = await medir("pedidos.colecciones", () => Promise.all([
+  const [adjuntos, historial, abonos, devoluciones, auditoria, lineas] = await medir("pedidos.colecciones", () => Promise.all([
     supabase
       .from("adjuntos")
       .select("id, pedido_id, tipo, nombre_archivo, tamano_bytes, linea_posicion")
@@ -67,6 +67,13 @@ export async function cargarPedidos(rol: Rol, usuarioId: string): Promise<Pedido
       ? supabase
           .from("pagos_pedido")
           .select("pedido_id, monto, metodo, fecha, usuario")
+          .in("pedido_id", ids)
+          .order("fecha", { ascending: true })
+      : null,
+    permisos.verMontos
+      ? supabase
+          .from("devoluciones_pedido")
+          .select("pedido_id, monto, metodo, motivo, fecha, usuario")
           .in("pedido_id", ids)
           .order("fecha", { ascending: true })
       : null,
@@ -99,6 +106,7 @@ export async function cargarPedidos(rol: Rol, usuarioId: string): Promise<Pedido
     adjuntos: agrupar(adjuntos.data),
     historial: agrupar(historial.data),
     abonos: agrupar(abonos?.data),
+    devoluciones: agrupar(devoluciones?.data),
     auditoria: agrupar(auditoria?.data),
     lineas: agrupar(lineas.data),
   };
@@ -169,6 +177,13 @@ export async function cargarPedidos(rol: Rol, usuarioId: string): Promise<Pedido
         monto: numero(a.monto),
         metodo: a.metodo!,
         usuario: a.usuario ?? "—",
+      })),
+      devoluciones: (porPedido.devoluciones.get(id) ?? []).map((d) => ({
+        fecha: diaEnLima(d.fecha),
+        monto: numero(d.monto),
+        metodo: d.metodo!,
+        motivo: d.motivo ?? "",
+        usuario: d.usuario ?? "—",
       })),
       historial: (porPedido.historial.get(id) ?? []).map((h) => ({
         estado: h.estado!,

@@ -2369,6 +2369,72 @@ export type Database = {
           },
         ]
       }
+      devoluciones: {
+        Row: {
+          fecha: string
+          id: string
+          metodo: Database["public"]["Enums"]["metodo_pago"]
+          monto: number
+          motivo: string
+          pedido_id: string
+          registrado_por: string | null
+        }
+        Insert: {
+          fecha?: string
+          id?: string
+          metodo: Database["public"]["Enums"]["metodo_pago"]
+          monto: number
+          motivo: string
+          pedido_id: string
+          registrado_por?: string | null
+        }
+        Update: {
+          fecha?: string
+          id?: string
+          metodo?: Database["public"]["Enums"]["metodo_pago"]
+          monto?: number
+          motivo?: string
+          pedido_id?: string
+          registrado_por?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "devoluciones_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "devoluciones_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_admin"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "devoluciones_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_logistica"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "devoluciones_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_operaciones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "devoluciones_registrado_por_fkey"
+            columns: ["registrado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pagos: {
         Row: {
           fecha: string
@@ -3477,6 +3543,47 @@ export type Database = {
           },
           {
             foreignKeyName: "historial_estados_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_operaciones"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      devoluciones_pedido: {
+        Row: {
+          fecha: string | null
+          id: string | null
+          metodo: Database["public"]["Enums"]["metodo_pago"] | null
+          monto: number | null
+          motivo: string | null
+          pedido_id: string | null
+          usuario: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "devoluciones_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "devoluciones_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_admin"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "devoluciones_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_logistica"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "devoluciones_pedido_id_fkey"
             columns: ["pedido_id"]
             isOneToOne: false
             referencedRelation: "pedidos_operaciones"

@@ -44,6 +44,12 @@ interface Store {
   cambiarUbicacion: (codigo: string, ubicacion: Ubicacion) => Promise<Resultado>;
   asignarResponsable: (codigo: string, responsableId: string | null) => Promise<Resultado>;
   registrarAbono: (codigo: string, monto: number, metodo: MetodoPago) => Promise<Resultado>;
+  registrarDevolucion: (
+    codigo: string,
+    monto: number,
+    metodo: MetodoPago,
+    motivo: string,
+  ) => Promise<Resultado>;
   editarDatos: (codigo: string, cambios: DatosEditables) => Promise<Resultado>;
   editarEnvio: (codigo: string, cambios: DatosEnvio) => Promise<Resultado>;
 }
@@ -282,6 +288,29 @@ export function StoreProvider({
     [buscar, mutar, usuario],
   );
 
+  const registrarDevolucion = useCallback(
+    (codigo: string, monto: number, metodo: MetodoPago, motivo: string) => {
+      const actual = buscar(codigo);
+      if (!actual) return Promise.resolve(sinCambios());
+
+      return mutar(
+        {
+          codigo,
+          cambios: {
+            montoPagado: actual.montoPagado - monto,
+            devoluciones: [...actual.devoluciones, { fecha: hoy(), monto, metodo, motivo, usuario }],
+          },
+        },
+        () => acciones.registrarDevolucion({ codigo, monto, metodo, motivo }),
+        () =>
+          toast.success(`Devolución de ${soles(monto)} registrada`, {
+            description: `${METODOS[metodo]} · el saldo del pedido sube a ${soles(saldoDe(actual) + monto)}`,
+          }),
+      );
+    },
+    [buscar, mutar, usuario],
+  );
+
   const editarDatos = useCallback(
     (codigo: string, cambios: DatosEditables) =>
       mutar(
@@ -352,6 +381,7 @@ export function StoreProvider({
       cambiarUbicacion,
       asignarResponsable,
       registrarAbono,
+      registrarDevolucion,
       editarDatos,
       editarEnvio,
     }),
@@ -367,6 +397,7 @@ export function StoreProvider({
       cambiarUbicacion,
       asignarResponsable,
       registrarAbono,
+      registrarDevolucion,
       editarDatos,
       editarEnvio,
     ],
