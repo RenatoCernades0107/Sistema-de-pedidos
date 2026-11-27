@@ -1,9 +1,9 @@
 /**
  * Los sobrantes de un corte (el piloto, ya encendido para todos los materiales):
- * el corte se vende como "Corte a medida" en m² y se fabrica en Odoo, en el
- * almacén donde se corta. Al pasar a Listo, el taller confirma los sobrantes que
- * guardó y a qué almacén se fue cada uno, y nacen como lotes en ese almacén con
- * su etiqueta.
+ * el corte se vende con sus planchas (y las piezas del almacén que usa), que es
+ * lo que se factura y lo que la entrega descuenta. Al pasar a Listo, el taller
+ * confirma los sobrantes que guardó y a qué almacén se fue cada uno, y nacen
+ * como lotes en ese almacén con su etiqueta.
  *
  * Odoo es el falso de `e2e/odoo-falso.mts`.
  */
@@ -28,6 +28,7 @@ const ubicacionDe = async (codigo: string) => (await estado()).almacenes.find((a
 /** Dónde quedó el lote de un sobrante en el Odoo falso. */
 const dondeEsta = async (loteId: number) =>
   (await estado()).quants.find((q) => q.lot_id && q.lot_id[0] === loteId && q.quantity > 0)?.location_id[0];
+const producto = (l: Registro) => (l.product_id as [number, string])[1];
 const stockDe = async (codigo: string) =>
   (await estado()).productos.find((p) => p.default_code === codigo)?.qty_available as number | undefined;
 
@@ -74,28 +75,24 @@ test.afterAll(async () => {
   await borrarCotizacionesDePrueba();
 });
 
-test("el corte se vende en m² y se fabrica: al terminar, los sobrantes vuelven al almacén como lotes", async ({
+test("el corte se vende con sus planchas: al terminar, los sobrantes vuelven al almacén como lotes", async ({
   page: admin,
   browser,
 }) => {
   const codigo = await registrarPedidoConCorte(admin);
 
-  // La venta: el corte a medida en m², por el mismo total que sin piloto.
+  // La venta: las planchas del corte (nada en m²), por el mismo total que sin piloto, y sin fabricar.
   const orden = (await estado()).ordenes.at(-1)!;
   expect(orden.state).toBe("sale");
   expect(orden.amount_total).toBe(784.7);
-  const corte = orden.lineas.find((l) => (l.product_id as [number, string])[1].startsWith("[CAM-F7E024]"))!;
-  expect(corte).toMatchObject({ product_uom_qty: 4.8, price_unit: 108.33 });
-
-  // La orden de fabricación, confirmada: consume 3 planchas y prevé un sobrante.
-  const [mo] = (await estado()).producciones;
-  expect(mo.state).toBe("confirmed");
-  expect(mo.movimientos.map((m) => m.product_uom_qty)).toEqual([3, 1, 4.8]);
+  expect(orden.lineas.some((l) => producto(l).startsWith("[CAM-"))).toBe(false);
+  const planchas = orden.lineas.filter((l) => producto(l).startsWith("[F7E024]"));
+  expect(planchas.reduce((s, l) => s + Number(l.product_uom_qty), 0)).toBe(3);
+  expect((await estado()).producciones).toHaveLength(0);
   const planchasAntes = await stockDe("F7E024");
 
   const page = await comoTaller(browser, codigo);
   const lineas = await abrirCorte(page);
-  await expect(lineas.getByText(`${mo.name} · abierta en Odoo`)).toBeVisible();
 
   await page.getByRole("button", { name: "En proceso", exact: true }).click();
   await expect(page.getByText(`${codigo} → En proceso`)).toBeVisible();
@@ -129,7 +126,6 @@ test("el corte se vende en m² y se fabrica: al terminar, los sobrantes vuelven 
   // Al pasar a Listo se queda en los materiales: el stock, ahí; la producción, en el ítem.
   await expect(page.getByRole("region", { name: "Materiales del pedido" }).getByText("Stock descontado en Odoo.")).toBeVisible();
   await abrirCorte(page);
-  await expect(lineas.getByText(`${mo.name} · cerrada en Odoo`)).toBeVisible();
   const guardados = lineas.getByRole("list", { name: "Sobrantes guardados" }).getByRole("listitem");
   await expect(guardados).toHaveCount(2);
   await expect(guardados.first()).toContainText("183×60 cm");
@@ -138,9 +134,8 @@ test("el corte se vende en m² y se fabrica: al terminar, los sobrantes vuelven 
   await expect(guardados.nth(1)).toContainText("40×35 cm");
   await expect(guardados.nth(1)).toContainText("Andahuaylas");
 
-  // En Odoo: la orden cerrada, las planchas consumidas, dos lotes con su medida y el corte entregado.
+  // En Odoo: las planchas entregadas y dos lotes con su medida.
   const e = await estado();
-  expect(e.producciones[0].state).toBe("done");
   expect(await stockDe("F7E024")).toBe(planchasAntes! - 3);
   expect(e.lotes.map((l) => [l.x_largo, l.x_ancho, l.cantidad])).toEqual([
     [183, 60, 1],
@@ -149,7 +144,6 @@ test("el corte se vende en m² y se fabrica: al terminar, los sobrantes vuelven 
   // Cada lote, en la ubicación de su almacén.
   expect(await dondeEsta(e.lotes[0].id)).toBe(await ubicacionDe("CAT"));
   expect(await dondeEsta(e.lotes[1].id)).toBe(await ubicacionDe("AND"));
-  expect(await stockDe("CAM-F7E024")).toBe(0);
   expect(e.ordenes.at(-1)!.entregas[0].state).toBe("done");
 
   // Y la etiqueta del sobrante, desde el pedido.
@@ -159,7 +153,7 @@ test("el corte se vende en m² y se fabrica: al terminar, los sobrantes vuelven 
   await expect(page.getByRole("article", { name: `Etiqueta de ${primerCodigo}` })).toContainText("183×60 cm");
 });
 
-test("al anular un pedido con piloto, su orden de fabricación se cancela", async ({ page }) => {
+test("al anular un pedido con piloto, la venta se cancela y no hay orden de fabricación", async ({ page }) => {
   const codigo = await registrarPedidoConCorte(page);
   await page.getByRole("button", { name: "Anulado", exact: true }).click();
   const dialogo = page.getByRole("dialog");
@@ -168,11 +162,11 @@ test("al anular un pedido con piloto, su orden de fabricación se cancela", asyn
   await expect(page.getByText(`${codigo} → Anulado`)).toBeVisible();
 
   const e = await estado();
-  expect(e.producciones.at(-1)!.state).toBe("cancel");
+  expect(e.producciones).toHaveLength(0);
   expect(e.ordenes.at(-1)!.state).toBe("cancel");
 });
 
-test("si Odoo falla al cerrar la producción, Sincronizar no duplica el sobrante y Reintentar lo cierra una vez", async ({
+test("si Odoo falla al terminar, Sincronizar no duplica el sobrante y Reintentar lo crea una vez", async ({
   page: admin,
   browser,
 }) => {
@@ -188,7 +182,7 @@ test("si Odoo falla al cerrar la producción, Sincronizar no duplica el sobrante
   await dialogo.getByRole("group", { name: "Sobrante 1" }).getByLabel("Ubicación").fill("E2E rack 8");
   await dialogo.getByRole("button", { name: "Pasar a Listo" }).click();
   await expect(page.getByText(`${codigo} → Listo`)).toBeVisible();
-  await expect(page.getByText(/No se descontó el stock en Odoo: No se cerró la orden de fabricación/).first()).toBeVisible();
+  await expect(page.getByText(/No se descontó el stock en Odoo: No entraron a Odoo los sobrantes del corte/).first()).toBeVisible();
   await fetch(`${ODOO}/__modo`, { method: "POST", body: JSON.stringify({ modo: null }) });
 
   const lineas = await abrirCorte(page);
@@ -201,10 +195,10 @@ test("si Odoo falla al cerrar la producción, Sincronizar no duplica el sobrante
   await expect(admin.getByText("Sobrantes al día con Odoo")).toBeVisible();
   await expect(
     admin.getByRole("list", { name: "Sobrantes" }).getByRole("listitem").filter({ hasText: "E2E rack 8" }),
-  ).toContainText(`Entra a Odoo al cerrar la producción de ${codigo}`);
+  ).toContainText(`Entra a Odoo al terminar ${codigo}`);
   expect((await estado()).lotes.length).toBe(lotesAntes);
 
-  // Reintentar desde el pedido cierra la orden, y el sobrante entra una sola vez.
+  // Reintentar desde el pedido lo crea, una sola vez, y valida la entrega.
   await page.goto(`/pedidos/${codigo}`);
   const materiales = await verMateriales(page);
   await materiales.getByRole("button", { name: "Reintentar" }).click();
@@ -253,12 +247,15 @@ test("el corte usa primero un sobrante del almacén: queda reservado para el ped
   const planchasAntes = await stockDe("F7E024");
 
   const codigo = await registrarPedidoConCorte(admin);
-  // Dos piezas salen del sobrante: dos planchas nuevas en vez de tres, al mismo precio.
-  expect((await estado()).ordenes.at(-1)!.amount_total).toBe(784.7);
+  // Dos piezas salen del sobrante: dos planchas nuevas y la pieza del almacén, al mismo precio.
+  const orden = (await estado()).ordenes.at(-1)!;
+  expect(orden.amount_total).toBe(784.7);
   expect((await sobranteEnBase(codigoSobrante)).estado).toBe("reservado");
-  const mo = (await estado()).producciones.at(-1)!;
-  const crudos = mo.movimientos.filter((m) => (m.raw_material_production_id as [number])?.[0] === mo.id);
-  expect(crudos.map((m) => m.product_uom_qty)).toEqual([2, 1]);
+  const planchas = orden.lineas.filter((l) => producto(l).startsWith("[F7E024]"));
+  expect(planchas.reduce((s, l) => s + Number(l.product_uom_qty), 0)).toBe(2);
+  const piezas = orden.lineas.filter((l) => producto(l).startsWith("[SOB-F7E024] PIEZA"));
+  expect(piezas.map((l) => l.product_uom_qty)).toEqual([1]);
+  expect(String(piezas[0].name)).toContain(`Pieza ${codigoSobrante}`);
 
   const page = await comoTaller(browser, codigo);
   const lineas = await abrirCorte(page);
@@ -273,7 +270,7 @@ test("el corte usa primero un sobrante del almacén: queda reservado para el ped
   await dialogo.getByRole("button", { name: "Pasar a Listo" }).click();
   await expect((await verMateriales(page)).getByText("Stock descontado en Odoo.")).toBeVisible();
 
-  // Se consumieron el sobrante (su lote queda sin stock) y dos planchas nuevas.
+  // La entrega sacó el sobrante (su lote queda sin stock) y dos planchas nuevas.
   expect((await sobranteEnBase(codigoSobrante)).estado).toBe("consumido");
   expect((await estado()).lotes.find((l) => l.id === lote.id)!.cantidad).toBe(0);
   expect(await stockDe("F7E024")).toBe(planchasAntes! - 2);

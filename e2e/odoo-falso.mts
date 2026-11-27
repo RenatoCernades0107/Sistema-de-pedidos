@@ -921,6 +921,7 @@ export async function crearOdooFalso(
           if ("name" in vals) r.name = vals.name;
           if ("list_price" in vals) r.lst_price = vals.list_price;
           if ("active" in vals) r.active = vals.active;
+          if ("sale_ok" in vals) r.sale_ok = vals.sale_ok;
           if ("categ_id" in vals) r.categ_id = [vals.categ_id, ""];
           r.display_name = r.default_code ? `[${r.default_code}] ${r.name}` : r.name;
           r.write_date = ahora();

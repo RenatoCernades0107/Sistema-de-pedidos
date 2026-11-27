@@ -132,8 +132,17 @@ export interface MaterialDeSobrante {
 }
 
 /**
- * El producto Sobrante de un material (`product.product`). Lo crea si no está:
- * almacenable, con lotes, ni para vender ni para comprar.
+ * Cómo se llama el producto en Odoo, que es lo que lee el cliente en la
+ * cotización y la factura: "PIEZA ACRILICO ECO CRISTAL 3MM". Para la app sigue
+ * siendo un sobrante.
+ */
+export const nombrePieza = (nombreSobrante: string) => nombreSobrante.replace(/^SOBRANTE /, "PIEZA ");
+
+/**
+ * El producto Sobrante de un material (`product.product`), que en Odoo se llama
+ * "PIEZA …". Lo crea si no está: almacenable, con lotes y vendible (un corte que
+ * usa una pieza del almacén la vende tal cual). Uno creado antes, con el nombre
+ * de "SOBRANTE …" y sin poder venderse, se pone al día la primera vez.
  */
 export function productoSobrante(m: MaterialDeSobrante): Promise<number> {
   const codigo = `${PREFIJO_PRODUCTO}${m.codigoBase}`;
@@ -141,23 +150,36 @@ export function productoSobrante(m: MaterialDeSobrante): Promise<number> {
   if (!p) {
     p = recordar(
       (async () => {
-        const buscar = () =>
-          ejecutar<number[]>("product.product", "search", [[["default_code", "=", codigo]]], { limit: 1 });
-        const [existente] = await buscar();
-        if (existente) return existente;
+        const nombre = nombrePieza(m.nombre);
+        const existentes = await ejecutar<Fila[]>(
+          "product.product",
+          "search_read",
+          [[["default_code", "=", codigo]]],
+          { fields: ["name", "sale_ok", "product_tmpl_id"], limit: 1 },
+        );
+        const existente = existentes[0];
+        if (existente) {
+          const plantilla = idDe(existente.product_tmpl_id);
+          if (plantilla && (existente.sale_ok !== true || texto(existente.name) !== nombre)) {
+            await ejecutar("product.template", "write", [[plantilla], { name: nombre, sale_ok: true }]);
+          }
+          return existente.id as number;
+        }
 
         await ejecutar("product.template", "create", [
           {
-            name: m.nombre,
+            name: nombre,
             default_code: codigo,
             tracking: "lot",
-            sale_ok: false,
+            sale_ok: true,
             purchase_ok: false,
             ...(await valoresAlmacenable()),
           },
         ]);
-        const [creado] = await buscar();
-        if (!creado) throw new ErrorOdoo("Odoo creó el producto Sobrante pero no lo devolvió.");
+        const [creado] = await ejecutar<number[]>("product.product", "search", [[["default_code", "=", codigo]]], {
+          limit: 1,
+        });
+        if (!creado) throw new ErrorOdoo("Odoo creó el producto Pieza pero no lo devolvió.");
         return creado;
       })(),
       () => productos.delete(codigo),

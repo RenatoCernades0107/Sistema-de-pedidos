@@ -128,6 +128,47 @@ describe("un corte en la cotización guardada", () => {
     expect(lineas.filter((l) => l.productoId === 20).reduce((s, l) => s + l.cantidad, 0)).toBe(3);
   });
 
+  it("con el piloto de sobrantes va igual: planchas a su precio y el servicio, nada en m²", () => {
+    const piloto = { ...guardada, corte: { ...corte, sobrantes: true } };
+    expect(lineasParaOdoo(piloto).map((l) => [l.productoId, l.cantidad, l.precioUnitario])).toEqual([
+      [20, 2, 200],
+      [20, 1, 110],
+      [31, 1, corte.montoServicio],
+    ]);
+  });
+
+  it("una pieza del almacén va como producto Pieza, cantidad 1 al precio que se cobró", () => {
+    const [primera, ...resto] = corte.planchas;
+    const conPieza = {
+      ...guardada,
+      corte: {
+        ...corte,
+        sobrantes: true,
+        planchas: [{ ...primera, origen: { tipo: "sobrante" as const, id: "SOB-00042" }, ancho: 100, alto: 90 }, ...resto],
+      },
+    };
+    const pieza = { productoId: 77, nombre: "PIEZA ACRILICO ECO CRISTAL 3MM", codigo: "SOB-F7E024" };
+    const lineas = lineasParaOdoo(conPieza, pieza);
+    expect(lineas.map((l) => [l.productoId, l.cantidad, l.precioUnitario])).toEqual([
+      [20, 1, 200],
+      [20, 1, 110],
+      [77, 1, primera.cobro.monto],
+      [31, 1, corte.montoServicio],
+    ]);
+    expect(lineas[2].descripcion).toBe("Pieza SOB-00042 de 100×90 cm. Para cortar: 10 × 60×80 cm");
+    expect(lineas.reduce((s, l) => s + l.cantidad * l.precioUnitario, 0)).toBeCloseTo(corte.total, 2);
+    // Sin el producto Pieza no se puede cotizar.
+    expect(() => lineasParaOdoo(conPieza)).toThrow();
+  });
+
+  it("si al reservar cambió lo cobrado por plancha, el servicio absorbe la diferencia", () => {
+    const [primera, ...resto] = corte.planchas;
+    const otro = { ...guardada, corte: { ...corte, sobrantes: true, planchas: [{ ...primera, cobro: { ...primera.cobro, monto: 190 } }, ...resto] } };
+    const lineas = lineasParaOdoo(otro);
+    expect(lineas.at(-1)?.precioUnitario).toBeCloseTo(corte.montoServicio + 10, 2);
+    expect(lineas.reduce((s, l) => s + l.cantidad * l.precioUnitario, 0)).toBeCloseTo(corte.total, 2);
+  });
+
   it("en el detalle del pedido se describe como trabajo, no como producto", () => {
     expect(detalleDesdeLineas([guardada])).toBe(
       "Corte láser · Acrílico ECO · Cristal · 3 mm: 10 piezas (10 × 60×80 cm) — 3 planchas de 122×183",

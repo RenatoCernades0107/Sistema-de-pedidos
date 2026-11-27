@@ -27,6 +27,7 @@ import {
   materialDeCorte,
   planchasPorCobro,
   resumenPiezas,
+  sobrantesUsados,
   totalPiezas,
 } from "./cortes/guardado";
 import { leerCliente } from "./odoo/clientes";
@@ -39,13 +40,14 @@ import {
   leerPedidoDeVenta,
   type LineaParaOdoo,
 } from "./odoo/pedidos-venta";
-import { ErrorOdoo, odooConfigurado } from "./odoo/rpc";
-import { PREFIJO_CORTE, alDia, productoCorte } from "./odoo/produccion";
+import { ejecutar, ErrorOdoo, odooConfigurado } from "./odoo/rpc";
+import { alDia } from "./odoo/produccion";
+import { nombrePieza, PREFIJO_PRODUCTO, productoSobrante } from "./odoo/sobrantes";
 import { cargarGrupoPlancha } from "./cortes-servidor";
 import { despachoPorStock } from "./faltantes-servidor";
-import { producirCortes, reservarTerminados } from "./produccion-servidor";
+import { reservarTerminados } from "./produccion-servidor";
 import { leerTerminado } from "./terminados/guardado";
-import { areaPiezasM2, lineasCorteAMedida, materialOdoo } from "./sobrantes";
+import { materialOdoo } from "./sobrantes";
 import type { ClienteOdoo } from "./odoo/tipos";
 import {
   CLAVE_CONFIG_COTIZACIONES,
@@ -294,17 +296,25 @@ async function leerPopularidadProductos(): Promise<Map<number, number>> {
 
 /* ── Odoo ──────────────────────────────────────────────────────────────────── */
 
+/** El producto Pieza (el sobrante del almacén) de un material, como va en la venta. */
+export interface ProductoPieza {
+  productoId: number;
+  nombre: string;
+  codigo: string;
+}
+
 /**
  * Una línea de la cotización, como va a Odoo.
  *
  * Un producto es una línea. Un corte son varias: la plancha, una línea por cada
- * precio distinto ("2 planchas completas", "1 media plancha"), y el servicio de
- * corte. La cantidad de planchas es la que Odoo descuenta del stock.
+ * precio distinto ("2 planchas completas", "1 media plancha"), una por cada
+ * pieza del almacén (un sobrante) que usa, y el servicio de corte. Lo que va en
+ * la venta es lo que se factura y lo que la entrega descuenta del stock.
  */
 export function lineasParaOdoo(
   l: LineaGuardada,
-  /** Con el piloto de sobrantes, el producto "Corte a medida" del material. */
-  corteAMedida?: { productoId: number; nombre: string; codigo: string },
+  /** Si el corte usa sobrantes del almacén, el producto Pieza de su material. */
+  pieza?: ProductoPieza,
 ): LineaParaOdoo[] {
   if (!l.corte) {
     return [
@@ -325,34 +335,19 @@ export function lineasParaOdoo(
   const corte = l.corte;
   const piezas = totalPiezas(corte.piezas);
   const paraCortar = `Para cortar: ${resumenPiezas(corte.piezas)}`;
-  const servicio = (precio: number) => ({
-    productoId: corte.servicio.productoId,
-    nombreProducto: corte.servicio.nombre,
-    codigo: corte.servicio.codigo,
-    cantidad: 1,
-    precioUnitario: precio,
-    descripcion: `${piezas} ${piezas === 1 ? "pieza" : "piezas"} en ${materialDeCorte(corte)}`,
-  });
-
-  /* Con el piloto, el corte es un producto que se fabrica: se vende en m² de
-     piezas, por el mismo importe que el cálculo por fracción de plancha. */
-  if (corte.sobrantes && corteAMedida) {
-    const m2 = lineasCorteAMedida(corte.montoMaterial, corte.montoServicio, areaPiezasM2(corte.piezas));
-    return [
-      {
-        productoId: corteAMedida.productoId,
-        nombreProducto: corteAMedida.nombre,
-        codigo: corteAMedida.codigo,
-        cantidad: m2.cantidad,
-        precioUnitario: m2.precio,
-        descripcion: paraCortar,
-      },
-      servicio(m2.servicio),
-    ];
+  const nuevas = corte.planchas.filter((p) => p.origen.tipo === "plancha");
+  const delAlmacen = corte.planchas.filter((p) => p.origen.tipo === "sobrante");
+  if (delAlmacen.length && !pieza) {
+    throw new ErrorOdoo("Falta el producto Pieza del material para cotizar los sobrantes del corte.");
   }
+  /* Al registrar el pedido el acomodo se rehace con los sobrantes de ese momento
+     y lo cobrado por plancha puede moverse, pero el precio es el de la
+     cotización: la diferencia la absorbe el servicio. */
+  const enPlanchas = corte.planchas.reduce((s, p) => s + p.cobro.monto, 0);
+  const servicio = Math.max(0, redondear2(corte.montoServicio + corte.montoMaterial - enPlanchas));
 
   return [
-    ...planchasPorCobro(corte).map((g) => ({
+    ...planchasPorCobro({ ...corte, planchas: nuevas }).map((g) => ({
       // Con varios formatos, cada grupo con el producto de su plancha; el principal es el de la línea.
       productoId: g.formato.productoId ?? l.productoId,
       nombreProducto: g.formato.productoId ? (g.formato.nombre ?? g.formato.codigo) : l.nombre,
@@ -361,22 +356,44 @@ export function lineasParaOdoo(
       precioUnitario: g.monto,
       descripcion: g.nombre === "1" ? paraCortar : `Se cobra ${fraccionEnPalabras(g.nombre)}. ${paraCortar}`,
     })),
-    servicio(corte.montoServicio),
+    // Cada pieza del almacén es un lote propio: una línea por pieza, al precio que se cobró.
+    ...delAlmacen.map((p) => ({
+      productoId: pieza!.productoId,
+      nombreProducto: pieza!.nombre,
+      codigo: pieza!.codigo,
+      cantidad: 1,
+      precioUnitario: p.cobro.monto,
+      descripcion: `Pieza ${p.origen.tipo === "sobrante" ? p.origen.id : ""} de ${medida(p.ancho)}×${medida(p.alto)} cm. ${paraCortar}`,
+    })),
+    {
+      productoId: corte.servicio.productoId,
+      nombreProducto: corte.servicio.nombre,
+      codigo: corte.servicio.codigo,
+      cantidad: 1,
+      precioUnitario: servicio,
+      descripcion: `${piezas} ${piezas === 1 ? "pieza" : "piezas"} en ${materialDeCorte(corte)}`,
+    },
   ];
 }
 
-/** El "Corte a medida" de cada corte con piloto, por posición: hay que tenerlo en Odoo antes de cotizar. */
-async function productosDeCorte(lineas: LineaGuardada[]) {
-  const salida = new Map<number, { productoId: number; nombre: string; codigo: string }>();
+const medida = (cm: number) => String(+cm.toFixed(1));
+const redondear2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+/**
+ * El producto Pieza de cada corte que usa sobrantes del almacén, por posición:
+ * hay que tenerlo en Odoo (y vendible) antes de cotizar.
+ */
+async function productosPieza(lineas: LineaGuardada[]) {
+  const salida = new Map<number, ProductoPieza>();
   for (const l of lineas) {
-    if (!l.corte?.sobrantes) continue;
+    if (!l.corte || sobrantesUsados(l.corte).length === 0) continue;
     const grupo = await cargarGrupoPlancha(l.corte.grupoId);
     const material = grupo ? materialOdoo(grupo) : null;
     if (!material) throw new ErrorOdoo("El material de un corte ya no tiene planchas en el catálogo.");
     salida.set(l.posicion, {
-      productoId: await productoCorte(material),
-      nombre: material.nombre.replace(/^SOBRANTE /, "CORTE A MEDIDA "),
-      codigo: `${PREFIJO_CORTE}${material.codigoBase}`,
+      productoId: await productoSobrante(material),
+      nombre: nombrePieza(material.nombre),
+      codigo: `${PREFIJO_PRODUCTO}${material.codigoBase}`,
     });
   }
   return salida;
@@ -426,13 +443,13 @@ export async function sincronizarConOdoo(id: string): Promise<ResultadoSincroniz
   try {
     const despacho = await almacenDeDespacho(c, { porStock: true });
     const warehouseId = (await odooDeAlmacen(despacho)).warehouseId;
-    // Si el producto Corte a medida que la app recordaba ya no está en Odoo, se vuelve a crear.
+    // Si el producto Pieza que la app recordaba ya no está en Odoo, se vuelve a crear.
     const venta = await alDia(async () => {
-      const corteAMedida = await productosDeCorte(c.lineas);
+      const piezas = await productosPieza(c.lineas);
       return crearPedidoDeVenta({
         cotizacionId: c.id,
         clienteId: c.cliente.id,
-        lineas: c.lineas.flatMap((l) => lineasParaOdoo(l, corteAMedida.get(l.posicion))),
+        lineas: c.lineas.flatMap((l) => lineasParaOdoo(l, piezas.get(l.posicion))),
         warehouseId,
       });
     });
@@ -495,10 +512,10 @@ export async function sincronizarCambiosConOdoo(id: string): Promise<ResultadoSi
     const warehouseId = (await odooDeAlmacen(despacho)).warehouseId;
     const orderId = c.odooOrderId;
     const venta = await alDia(async () => {
-      const corteAMedida = await productosDeCorte(c.lineas);
+      const piezas = await productosPieza(c.lineas);
       return actualizarPedidoDeVenta(orderId, {
         clienteId: c.cliente.id,
-        lineas: c.lineas.flatMap((l) => lineasParaOdoo(l, corteAMedida.get(l.posicion))),
+        lineas: c.lineas.flatMap((l) => lineasParaOdoo(l, piezas.get(l.posicion))),
         warehouseId,
       });
     });
@@ -528,6 +545,47 @@ export async function sincronizarCambiosConOdoo(id: string): Promise<ResultadoSi
     if (!(e instanceof ErrorOdoo)) console.error("[cotizaciones] actualizar en Odoo", e);
     await supabase.from("cotizaciones").update({ error_edicion: mensaje }).eq("id", id);
     return { ok: false, error: mensaje };
+  }
+}
+
+/**
+ * Vuelve a escribir en la cotización de Odoo las líneas que tiene la app, sin
+ * cambiar nada de lo cotizado: sirve para traer al día una que se creó con otra
+ * forma de mandar las líneas (los cortes que iban como "Corte a medida" en m²),
+ * o una que alguien tocó en Odoo. Vale también para una enviada, porque lo que
+ * ve el cliente no cambia; no para una que ya es pedido de venta en Odoo.
+ */
+export async function refrescarEnOdoo(id: string): Promise<ResultadoSincronizacion> {
+  const c = await leerCotizacion(id);
+  if (!c) return { ok: false, error: "La cotización ya no existe." };
+  if (c.estado === "reemplazada") return { ok: false, error: "La reemplaza una versión nueva: refresca esa." };
+  if (!c.odooOrderId || c.sincronizacion !== "sincronizada") {
+    return c.estado === "borrador" ? sincronizarConOdoo(id) : { ok: false, error: "Todavía no está en Odoo." };
+  }
+
+  const orderId = c.odooOrderId;
+  try {
+    const venta = await alDia(async () => {
+      const piezas = await productosPieza(c.lineas);
+      return actualizarPedidoDeVenta(orderId, {
+        clienteId: c.cliente.id,
+        lineas: c.lineas.flatMap((l) => lineasParaOdoo(l, piezas.get(l.posicion))),
+      });
+    });
+    const supabase = await clienteServidor();
+    await supabase
+      .from("cotizaciones")
+      .update({
+        odoo_order_name: venta.orderName,
+        monto_sin_impuestos: venta.montoSinImpuestos,
+        monto_impuestos: venta.montoImpuestos,
+        monto_total: venta.montoTotal,
+      })
+      .eq("id", id);
+    return { ok: true, orderName: venta.orderName };
+  } catch (e) {
+    if (!(e instanceof ErrorOdoo)) console.error("[cotizaciones] refrescar en Odoo", e);
+    return { ok: false, error: e instanceof ErrorOdoo ? e.message : "Algo falló al refrescar la cotización en Odoo." };
   }
 }
 
@@ -644,6 +702,37 @@ export async function versionAnterior(
 }
 
 /**
+ * Al registrar el pedido, los cortes con piloto rehacen su acomodo con los
+ * sobrantes de ese momento (`reservarSobrantes`): una pieza del almacén que se
+ * cotizó puede ya no estar, u otra aparecer. Antes de confirmar, la venta de
+ * Odoo pasa a llevar las planchas y piezas que de verdad se van a usar, que es
+ * lo que la entrega descontará. Solo mientras siga siendo cotización.
+ */
+async function alinearCortesEnOdoo(id: string, orderId: number) {
+  const c = await leerCotizacion(id);
+  if (!c || !c.lineas.some((l) => l.corte?.sobrantes)) return;
+  const estado = await ejecutar<Record<string, unknown>[]>("sale.order", "read", [[orderId]], { fields: ["state"] });
+  const s = estado[0]?.state;
+  if (s !== "draft" && s !== "sent") return;
+  const venta = await alDia(async () => {
+    const piezas = await productosPieza(c.lineas);
+    return actualizarPedidoDeVenta(orderId, {
+      clienteId: c.cliente.id,
+      lineas: c.lineas.flatMap((l) => lineasParaOdoo(l, piezas.get(l.posicion))),
+    });
+  });
+  const supabase = await clienteServidor();
+  await supabase
+    .from("cotizaciones")
+    .update({
+      monto_sin_impuestos: venta.montoSinImpuestos,
+      monto_impuestos: venta.montoImpuestos,
+      monto_total: venta.montoTotal,
+    })
+    .eq("id", id);
+}
+
+/**
  * Confirma en Odoo la cotización de la que salió un pedido: la `sale.order` pasa
  * de cotización a pedido de venta. Anota el resultado en la fila; si Odoo falla,
  * queda el motivo y el detalle ofrece "Confirmar en Odoo".
@@ -675,6 +764,7 @@ export async function confirmarEnOdoo(id: string): Promise<{ ok: true } | { ok: 
 
   let resultado: { ok: true } | { ok: false; error: string };
   try {
+    await alinearCortesEnOdoo(id, orderId);
     await confirmarPedidoDeVenta(orderId);
     resultado = { ok: true };
   } catch (e) {
@@ -698,14 +788,11 @@ export async function confirmarEnOdoo(id: string): Promise<{ ok: true } | { ok: 
   }
   if (!resultado.ok) return resultado;
 
-  /* Con la venta confirmada, las órdenes de fabricación de los cortes con piloto:
-     son las que reservan sus planchas. Si fallan, se vuelven a intentar al
-     pasar a Listo. */
+  /* Los cortes ya no se fabrican en Odoo: la venta lleva sus planchas y piezas,
+     y la entrega las reserva. Los productos terminados que pidieron reservar su
+     material estimado sí tienen su orden de fabricación. */
   const cotizacion = await leerCotizacion(id);
   if (!cotizacion) return resultado;
-  const cortes = await producirCortes(id, orderId, cotizacion.lineas);
-  if (!cortes.ok) return cortes;
-  // Y las de los productos terminados que pidieron reservar su material estimado.
   return reservarTerminados(id, orderId, cotizacion.lineas);
 }
 
