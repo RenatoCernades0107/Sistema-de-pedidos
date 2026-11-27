@@ -51,14 +51,15 @@ describe("gruposDe", () => {
     expect(resumen("administracion")).toEqual([
       ["principal", ["Cotizaciones", "Chat"]],
       ["taller", ["Diseños", "Almacén"]],
-      ["gestion", ["Métricas", "Agente de WhatsApp", "Configuración"]],
+      ["gestion", ["Compras", "Costos y precios", "Métricas", "Agente de WhatsApp", "Configuración"]],
     ]);
   });
 
-  it("a Logística no le pinta Gestión, que se le quedaría vacía", () => {
+  it("a Logística le da Compras en Gestión, sin costos ni métricas", () => {
     expect(resumen("logistica")).toEqual([
       ["principal", ["Chat"]],
       ["taller", ["Diseños", "Almacén"]],
+      ["gestion", ["Compras"]],
     ]);
   });
 

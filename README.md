@@ -201,6 +201,18 @@ E2E_URL=https://<dominio>.vercel.app npm run e2e
 El recorrido de punta a punta (cotización → pedido → estados → almacén, con quién hace cada paso)
 está en [`docs/flujo-app.svg`](docs/flujo-app.svg); se edita en [`docs/flujo-app.excalidraw`](docs/flujo-app.excalidraw)
 (excalidraw.com → *Abrir*, o la extensión de VS Code).
+El proceso de compras (nacional e importación, con sus costos) está en
+[`docs/proceso-compras.svg`](docs/proceso-compras.svg); se edita en [`docs/proceso-compras.excalidraw`](docs/proceso-compras.excalidraw).
+
+- **Compras** (`/compras`, Administración y Logística): pre-compra → confirmar (orden de compra en
+  Odoo, sin recibir) → Almacén la recibe por partes con *Recibir compra* → se cargan los gastos →
+  liquidación. El reparto está en `lib/costeo.ts` (puro, con pruebas): la mercadería va directa por
+  ítem y cada gasto se reparte por valor o por kilos según lo que lo genera; el IGV, el IPM y la
+  percepción son crédito fiscal y no suben el costo. La liquidación deja el costo de cada plancha en
+  `costos_historial` (migración `20261218000100`, prueba en `supabase/tests/compras_costos.sql`).
+- **Costos y precios** (`/costos-precios`, Administración): último costo, promedio, precio de Odoo,
+  margen actual y precio sugerido por margen objetivo (general, por material o por plancha); los
+  precios elegidos se aplican en Odoo y quedan en `cambios_precio`.
 
 - `app/(app)/` — las vistas por rol. El layout carga los pedidos una vez y las cuatro páginas
   filtran sobre el mismo conjunto; `acciones.ts` son las Server Actions, el único camino de

@@ -1,4 +1,4 @@
-import { BotMessageSquare, Box, ChartColumn, MessageCircle, MessageSquareText, Settings, Warehouse, type LucideIcon } from "lucide-react";
+import { BotMessageSquare, Box, Calculator, ChartColumn, MessageCircle, MessageSquareText, Settings, ShoppingCart, Warehouse, type LucideIcon } from "lucide-react";
 
 /**
  * El icono de cada herramienta de `lib/dominio.ts`, por `href`, que es lo que la
@@ -10,6 +10,8 @@ export const ICONOS_HERRAMIENTA: Record<string, LucideIcon> = {
   "/cotizaciones": MessageSquareText,
   "/disenos": Box,
   "/almacen": Warehouse,
+  "/compras": ShoppingCart,
+  "/costos-precios": Calculator,
   "/metricas": ChartColumn,
   "/agente-whatsapp": BotMessageSquare,
   "/configuracion": Settings,
