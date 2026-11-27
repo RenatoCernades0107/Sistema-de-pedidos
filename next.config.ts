@@ -34,7 +34,7 @@ const CABECERAS_DE_SEGURIDAD = [
 const nextConfig: NextConfig = {
   // pdf.js lee los PDF que se adjuntan al chat de diseños (`lib/cad/adjuntos-servidor.ts`).
   // Se carga con el `import` de Node: empaquetado no encuentra su worker.
-  serverExternalPackages: ["pdfjs-dist"],
+  serverExternalPackages: ["pdfjs-dist", "@napi-rs/canvas"],
   headers() {
     return [{ source: "/:path*", headers: CABECERAS_DE_SEGURIDAD }];
   },
