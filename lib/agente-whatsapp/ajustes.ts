@@ -1,15 +1,15 @@
 /**
  * Lo que Administración ajusta del agente en `/agente-whatsapp` (pestaña
- * Ajustes): instrucciones extra, qué decir al pasar a un asesor y el contexto de
- * cada anuncio de Meta. Vive en la fila `agente_whatsapp` de `configuracion`.
+ * Ajustes): instrucciones extra y el contexto de cada anuncio de Meta. Vive en la
+ * fila `agente_whatsapp` de `configuracion`.
+ *
+ * Antes también guardaba el mensaje que decía al pasar a un asesor; desde que el
+ * agente calla al derivar ya no se usa, y si viene en datos viejos se ignora.
  */
 
 import { z } from "zod";
 
 export const CLAVE_AJUSTES_AGENTE = "agente_whatsapp";
-
-export const MENSAJE_DERIVACION_POR_DEFECTO =
-  "Te paso con un asesor para ayudarte con eso. En breve te escribe por aquí 🙌";
 
 export const esquemaAnuncio = z.object({
   sourceId: z
@@ -25,11 +25,6 @@ export type AnuncioConfigurado = z.infer<typeof esquemaAnuncio>;
 
 export const esquemaAjustesAgente = z.object({
   instrucciones: z.string().trim().max(4000, "Las instrucciones no pueden pasar de 4000 caracteres"),
-  mensajeDerivacion: z
-    .string()
-    .trim()
-    .min(1, "Escribe qué le dice el agente al pasar a un asesor")
-    .max(500, "El mensaje al pasar a un asesor no puede pasar de 500 caracteres"),
   anuncios: z
     .array(esquemaAnuncio)
     .max(50, "Como mucho 50 anuncios")
@@ -40,16 +35,13 @@ export type AjustesAgente = z.infer<typeof esquemaAjustesAgente>;
 
 export const AJUSTES_POR_DEFECTO: AjustesAgente = {
   instrucciones: "",
-  mensajeDerivacion: MENSAJE_DERIVACION_POR_DEFECTO,
   anuncios: [],
 };
 
 /** Lo guardado, o el defecto en lo que falte o no se entienda. */
 export function leerAjustesAgente(json: unknown): AjustesAgente {
   const fuente = json && typeof json === "object" ? (json as Record<string, unknown>) : {};
-  const forma = esquemaAjustesAgente.shape;
-  const instrucciones = forma.instrucciones.safeParse(fuente.instrucciones);
-  const mensaje = forma.mensajeDerivacion.safeParse(fuente.mensajeDerivacion);
+  const instrucciones = esquemaAjustesAgente.shape.instrucciones.safeParse(fuente.instrucciones);
   const anuncios = Array.isArray(fuente.anuncios)
     ? fuente.anuncios.flatMap((a) => {
         const r = esquemaAnuncio.safeParse(a);
@@ -58,7 +50,6 @@ export function leerAjustesAgente(json: unknown): AjustesAgente {
     : [];
   return {
     instrucciones: instrucciones.success ? instrucciones.data : "",
-    mensajeDerivacion: mensaje.success ? mensaje.data : MENSAJE_DERIVACION_POR_DEFECTO,
     anuncios: anuncios.filter((a, i) => anuncios.findIndex((b) => b.sourceId === a.sourceId) === i).slice(0, 50),
   };
 }
