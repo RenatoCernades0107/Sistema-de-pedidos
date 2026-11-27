@@ -33,7 +33,7 @@ import { hoy } from "./fecha";
 import { planificarImportacion, type CompraPorImportar, type OrdenOmitida } from "./compras-importar";
 import { cancelarOrdenCompra, crearOrdenCompra, recibirOrdenCompra, tipoDeCambioUsd } from "./odoo/almacenes";
 import { productosPorId } from "./odoo/catalogos";
-import { leerOrdenesDeCompra } from "./odoo/compras-importar";
+import { leerOrdenesDeCompra, nombresDeOrdenes } from "./odoo/compras-importar";
 import { origenDe } from "./odoo/pedidos-venta";
 import { ErrorOdoo, ODOO_NO_CONFIGURADO, odooConfigurado } from "./odoo/rpc";
 import { codigosDelCatalogo } from "./stock-servidor";
@@ -52,7 +52,7 @@ const num = (v: number | string | null) => (v === null ? null : Number(v));
 
 /* ── Leer ──────────────────────────────────────────────────────────────────── */
 
-const CAMPOS_RESUMEN = `id, codigo, tipo, estado, proveedor_nombre, documento_proveedor, moneda_mercaderia,
+const CAMPOS_RESUMEN = `id, codigo, tipo, estado, proveedor_nombre, documento_proveedor, odoo_orden_nombre, moneda_mercaderia,
   fecha_llegada_estimada, sincronizacion, error_sincronizacion, creado_en,
   almacen:almacenes ( nombre ),
   compras_lineas ( cantidad, precio_unitario )`;
@@ -64,6 +64,7 @@ type FilaResumen = {
   estado: string;
   proveedor_nombre: string;
   documento_proveedor: string | null;
+  odoo_orden_nombre: string | null;
   moneda_mercaderia: string;
   fecha_llegada_estimada: string | null;
   sincronizacion: Sincronizacion | null;
@@ -83,6 +84,7 @@ function deResumen(f: FilaResumen): CompraResumen {
     proveedor: f.proveedor_nombre,
     almacen: uno(f.almacen)?.nombre ?? "(almacén borrado)",
     documentoProveedor: f.documento_proveedor,
+    odooOrden: f.odoo_orden_nombre,
     monedaMercaderia: f.moneda_mercaderia as Moneda,
     totalMercaderia: Math.round(lineas.reduce((t, l) => t + l.cantidad * Number(l.precio_unitario), 0) * 100) / 100,
     items: lineas.length,
@@ -340,8 +342,12 @@ export async function llevarCompraAOdoo(id: string): Promise<{ ok: true } | { ok
   if (!c) return { ok: false, error: "Esa compra ya no existe." };
   if (c.sincronizacion === "sincronizada" && c.odoo_orden_id) return { ok: true };
 
-  const anotar = (cambios: { odoo_orden_id?: number; sincronizacion: "sincronizada" | "error"; error_sincronizacion: string | null }) =>
-    supabase.from("compras").update(cambios).eq("id", id);
+  const anotar = (cambios: {
+    odoo_orden_id?: number;
+    odoo_orden_nombre?: string | null;
+    sincronizacion: "sincronizada" | "error";
+    error_sincronizacion: string | null;
+  }) => supabase.from("compras").update(cambios).eq("id", id);
   if (!odooConfigurado()) {
     await anotar({ sincronizacion: "error", error_sincronizacion: ODOO_NO_CONFIGURADO });
     return { ok: false, error: ODOO_NO_CONFIGURADO };
@@ -358,7 +364,8 @@ export async function llevarCompraAOdoo(id: string): Promise<{ ok: true } | { ok
         .sort((a, b) => a.posicion - b.posicion)
         .map((l) => ({ productoId: l.producto_odoo_id, cantidad: l.cantidad, costo: Number(l.precio_unitario) })),
     });
-    await anotar({ odoo_orden_id: ordenId, sincronizacion: "sincronizada", error_sincronizacion: null });
+    const nombre = (await nombresDeOrdenes([ordenId]).catch(() => new Map<number, string>())).get(ordenId) ?? null;
+    await anotar({ odoo_orden_id: ordenId, odoo_orden_nombre: nombre, sincronizacion: "sincronizada", error_sincronizacion: null });
     return { ok: true };
   } catch (e) {
     const mensaje = mensajeOdoo(e, "llevar compra");
@@ -665,6 +672,7 @@ async function guardarTraida(c: CompraPorImportar): Promise<{ ok: true } | { ok:
       fecha_llegada_estimada: c.fechaLlegadaEstimada,
       nota: c.nota,
       odoo_orden_id: c.ordenId,
+      odoo_orden_nombre: c.ordenNombre,
       sincronizacion: "sincronizada",
       confirmada_en: c.confirmadaEn,
       creado_en: c.creadaEn,
@@ -716,6 +724,28 @@ async function guardarTraida(c: CompraPorImportar): Promise<{ ok: true } | { ok:
 }
 
 /**
+ * Las compras que ya tienen orden en Odoo pero no guardaron su número (P01727):
+ * las creadas desde la app antes de que se guardara. Es solo una etiqueta, así que
+ * si algo falla se sigue sin ella.
+ */
+async function completarNumerosDeOrden(): Promise<void> {
+  try {
+    const supabase = await clienteServidor();
+    const { data } = await supabase.from("compras").select("id, odoo_orden_id").not("odoo_orden_id", "is", null).is("odoo_orden_nombre", null);
+    if (!data?.length) return;
+    const nombres = await nombresDeOrdenes(data.map((c) => c.odoo_orden_id as number));
+    await Promise.all(
+      data.map(async (c) => {
+        const nombre = nombres.get(c.odoo_orden_id as number);
+        if (nombre) await supabase.from("compras").update({ odoo_orden_nombre: nombre }).eq("id", c.id);
+      }),
+    );
+  } catch (e) {
+    console.error("[compras] completar números de orden", e);
+  }
+}
+
+/**
  * Las órdenes de compra confirmadas que están en Odoo y no en la app. Con
  * `aplicar: false` solo dice cuáles entrarían y cuáles no (y por qué); con
  * `aplicar: true` las guarda. Repetirlo no duplica: lo que ya está se salta.
@@ -729,7 +759,7 @@ export async function traerComprasDeOdoo(opciones: { aplicar: boolean; desde: st
   let plan;
   let truncado: boolean;
   try {
-    const leidas = await leerOrdenesDeCompra((conocidas ?? []).map((c) => c.odoo_orden_id as number));
+    const leidas = await leerOrdenesDeCompra((conocidas ?? []).map((c) => c.odoo_orden_id as number), opciones.desde);
     truncado = leidas.truncado;
     const enDolares = leidas.ordenes.some((o) => o.moneda === "USD" && !o.tasaPorDolar);
     plan = planificarImportacion(leidas.ordenes, {
@@ -742,6 +772,7 @@ export async function traerComprasDeOdoo(opciones: { aplicar: boolean; desde: st
     return { ok: false, error: mensajeOdoo(e, "traer compras de Odoo") };
   }
 
+  await completarNumerosDeOrden();
   const base = { ok: true as const, omitidas: plan.omitidas, deLaApp: plan.deLaApp, truncado };
   if (!opciones.aplicar) {
     return { ...base, aplicado: false, porImportar: plan.porImportar.map(resumenTraida), fallidas: [], importadas: 0 };

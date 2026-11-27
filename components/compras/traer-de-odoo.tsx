@@ -79,7 +79,10 @@ export function TraerDeOdoo({ odooListo }: { odooListo: boolean }) {
           ) : (
             <div className="flex flex-col gap-4">
               {revision.truncado && (
-                <p className="text-sm">Hay más órdenes de las que se leyeron. Usa “desde” para traerlas por tramos.</p>
+                <p className="text-sm">
+                  Hay más órdenes de las que caben en una sola lectura: se leyeron las más recientes. Cuando las traigas,
+                  vuelve a pulsar para ver las siguientes, o usa “desde” para acotar.
+                </p>
               )}
 
               <section>
@@ -103,6 +106,12 @@ export function TraerDeOdoo({ odooListo }: { odooListo: boolean }) {
                   </ul>
                 )}
               </section>
+
+              {revision.deLaApp > 0 && (
+                <p className="text-muted-foreground text-xs">
+                  {revision.deLaApp} orden(es) de Odoo salieron de la propia app y no se tocan.
+                </p>
+              )}
 
               {revision.fallidas.length > 0 && (
                 <section>

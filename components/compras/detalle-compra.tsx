@@ -115,10 +115,10 @@ export function DetalleCompra({
         <EditorCompra compra={compra} almacenes={almacenes} productos={productos} tcSugerido={tcSugerido} odooListo={odooListo} />
       ) : (
         <div className="flex max-w-5xl flex-col gap-4">
-          <Seccion n={1} titulo="Pedido y recepción" nota={compra.odooOrdenId ? `Orden de compra en Odoo #${compra.odooOrdenId}` : undefined}>
+          <Seccion n={1} titulo="Pedido y recepción" nota={compra.odooOrden ? `Orden de compra en Odoo ${compra.odooOrden}` : compra.odooOrdenId ? `Orden de compra en Odoo (id ${compra.odooOrdenId})` : undefined}>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4">
               <Par t="Llega a" v={compra.almacen} />
-              <Par t="Proforma" v={compra.documentoProveedor ?? "—"} />
+              <Par t="Doc. del proveedor" v={compra.documentoProveedor ?? "—"} />
               <Par
                 t="Mercadería"
                 v={`${montoEn(compra.totalMercaderia, compra.monedaMercaderia)}${compra.tcMercaderia ? ` · TC ${compra.tcMercaderia}` : ""}`}

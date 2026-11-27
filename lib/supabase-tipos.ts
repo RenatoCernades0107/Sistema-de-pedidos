@@ -796,6 +796,7 @@ export type Database = {
           moneda_mercaderia: string
           nota: string | null
           odoo_orden_id: number | null
+          odoo_orden_nombre: string | null
           proveedor_nombre: string
           proveedor_odoo_id: number
           sincronizacion: Database["public"]["Enums"]["sincronizacion_odoo"] | null
@@ -824,6 +825,7 @@ export type Database = {
           moneda_mercaderia?: string
           nota?: string | null
           odoo_orden_id?: number | null
+          odoo_orden_nombre?: string | null
           proveedor_nombre: string
           proveedor_odoo_id: number
           sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"] | null
@@ -852,6 +854,7 @@ export type Database = {
           moneda_mercaderia?: string
           nota?: string | null
           odoo_orden_id?: number | null
+          odoo_orden_nombre?: string | null
           proveedor_nombre?: string
           proveedor_odoo_id?: number
           sincronizacion?: Database["public"]["Enums"]["sincronizacion_odoo"] | null

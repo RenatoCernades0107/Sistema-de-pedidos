@@ -38,7 +38,7 @@ export function ListaCompras({ compras, odooListo }: { compras: CompraResumen[];
     return compras.filter(
       (c) =>
         (!estados || estados.includes(c.estado)) &&
-        coincide(`${c.codigo} ${c.proveedor} ${c.documentoProveedor ?? ""} ${c.almacen}`, consulta),
+        coincide(`${c.codigo} ${c.odooOrden ?? ""} ${c.proveedor} ${c.documentoProveedor ?? ""} ${c.almacen}`, consulta),
     );
   }, [compras, filtro, consulta]);
 
@@ -72,7 +72,7 @@ export function ListaCompras({ compras, odooListo }: { compras: CompraResumen[];
           <Input
             value={consulta}
             onChange={(e) => setConsulta(e.target.value)}
-            placeholder="Código, proveedor o proforma…"
+            placeholder="Código, orden de Odoo, proveedor o factura…"
             aria-label="Filtrar compras"
             className="pl-8"
           />
@@ -117,6 +117,7 @@ export function ListaCompras({ compras, odooListo }: { compras: CompraResumen[];
                       {c.sincronizacion && c.sincronizacion !== "sincronizada" && (
                         <EstadoSincronizacion estado={c.sincronizacion} className="ml-2" />
                       )}
+                      {c.odooOrden && <p className="text-muted-foreground text-xs">Odoo {c.odooOrden}</p>}
                     </td>
                     <td className="max-w-72 px-4 py-2.5">
                       <p className="truncate">{c.proveedor}</p>
@@ -141,6 +142,7 @@ export function ListaCompras({ compras, odooListo }: { compras: CompraResumen[];
                 <Link href={enlace(c)} className="bg-card hover:bg-muted/40 flex flex-col gap-1 rounded-xl border p-3">
                   <span className="flex flex-wrap items-center gap-2">
                     <span className="text-primary text-sm font-medium">{c.codigo}</span>
+                    {c.odooOrden && <span className="text-muted-foreground text-xs">Odoo {c.odooOrden}</span>}
                     <EstadoCompraBadge estado={c.estado} />
                     <span className="text-muted-foreground ml-auto text-xs">{TIPOS_COMPRA[c.tipo]}</span>
                   </span>

@@ -254,7 +254,10 @@ export interface CompraResumen {
   estado: EstadoCompra;
   proveedor: string;
   almacen: string;
+  /** La factura o proforma del proveedor. */
   documentoProveedor: string | null;
+  /** El número de la orden en Odoo ("P01727"), cuando ya se conoce. */
+  odooOrden: string | null;
   monedaMercaderia: Moneda;
   /** Cantidad × precio, en la moneda de la mercadería. */
   totalMercaderia: number;
