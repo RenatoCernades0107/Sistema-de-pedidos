@@ -369,12 +369,17 @@ function NuevaPlancha({ materiales, alCerrar }: { materiales: string[]; alCerrar
     rotable: true,
   });
   const [guardando, iniciar] = useTransition();
+  const [porConfirmar, setPorConfirmar] = useState<string[] | null>(null);
   const poner = (cambios: Partial<typeof v>) => setV((p) => ({ ...p, ...cambios }));
 
-  const crear = () =>
+  const crear = (confirmarNuevo = false) =>
     iniciar(async () => {
-      const r = await crearGrupoPlancha(v);
+      const r = await crearGrupoPlancha({ ...v, confirmarNuevo });
       if (!r.ok) {
+        if (r.requiereConfirmacion) {
+          setPorConfirmar(r.requiereConfirmacion);
+          return;
+        }
         toast.error("No se creó la plancha", { description: r.error });
         return;
       }
@@ -384,6 +389,7 @@ function NuevaPlancha({ materiales, alCerrar }: { materiales: string[]; alCerrar
     });
 
   return (
+    <>
     <Dialog open onOpenChange={(abierto) => !abierto && alCerrar()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
@@ -433,11 +439,44 @@ function NuevaPlancha({ materiales, alCerrar }: { materiales: string[]; alCerrar
 
         <DialogFooter>
           <DialogClose render={<Button variant="outline" type="button" />}>Cancelar</DialogClose>
-          <Button onClick={crear} disabled={guardando}>
+          <Button onClick={() => crear()} disabled={guardando}>
             {guardando ? "Creando…" : "Agregar al catálogo"}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {porConfirmar && (
+      <Dialog open onOpenChange={(abierto) => !abierto && setPorConfirmar(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Vas a crear una categoría nueva</DialogTitle>
+            <DialogDescription>
+              Esto no existe todavía en el catálogo. Revisa que no sea un error de escritura.
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="list-disc space-y-1 pl-5 text-sm font-medium">
+            {porConfirmar.map((n) => (
+              <li key={n}>{n}</li>
+            ))}
+          </ul>
+          <DialogFooter>
+            <Button variant="outline" type="button" onClick={() => setPorConfirmar(null)}>
+              Volver y corregir
+            </Button>
+            <Button
+              disabled={guardando}
+              onClick={() => {
+                setPorConfirmar(null);
+                crear(true);
+              }}
+            >
+              Sí, crear nueva
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    )}
+    </>
   );
 }
