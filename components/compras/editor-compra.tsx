@@ -17,6 +17,10 @@ import {
 } from "@/lib/compras";
 import type { Incoterm, Moneda, TipoCompra } from "@/lib/costeo";
 import { montoEn } from "@/lib/formato";
+import { compraTieneContenido, resumenDeCompra } from "@/lib/borradores-compra";
+import type { BorradorAbierto, DatosBorradorCompra } from "@/lib/borradores";
+import { useBorrador } from "@/lib/use-borrador";
+import { IndicadorBorrador } from "@/components/borradores/lista-borradores";
 import type { ClienteOdoo } from "@/lib/odoo/tipos";
 import { ComboBusqueda, type Opcion } from "@/components/cotizaciones/combo-busqueda";
 import type { Ingresable } from "@/lib/inventario";
@@ -60,31 +64,35 @@ export function EditorCompra({
   productos,
   tcSugerido,
   odooListo,
+  borrador = null,
 }: {
   compra: CompraDetalle | null;
   almacenes: Almacen[];
   productos: Ingresable[];
   tcSugerido: number | null;
   odooListo: boolean;
+  /** El borrador del formulario que se retoma (solo en una compra nueva). */
+  borrador?: BorradorAbierto<DatosBorradorCompra> | null;
 }) {
   const router = useRouter();
-  const [tipo, setTipo] = useState<TipoCompra>(compra?.tipo ?? "nacional");
+  const previo = compra ? null : (borrador?.datos ?? null);
+  const [tipo, setTipo] = useState<TipoCompra>(compra?.tipo ?? previo?.tipo ?? "nacional");
   const [proveedor, setProveedor] = useState<ClienteOdoo | null>(
-    compra ? ({ id: compra.proveedorId, nombre: compra.proveedor, documento: null } as ClienteOdoo) : null,
+    compra ? ({ id: compra.proveedorId, nombre: compra.proveedor, documento: null } as ClienteOdoo) : (previo?.proveedor ?? null),
   );
-  const [almacenId, setAlmacenId] = useState<string | null>(compra?.almacenId ?? null);
-  const [documento, setDocumento] = useState(compra?.documentoProveedor ?? "");
-  const [moneda, setMoneda] = useState<Moneda>(compra?.monedaMercaderia ?? "PEN");
-  const [tcMerc, setTcMerc] = useState(texto(compra?.tcMercaderia ?? tcSugerido));
-  const [tcGastos, setTcGastos] = useState(texto(compra?.tcGastos ?? tcSugerido));
-  const [incoterm, setIncoterm] = useState<Incoterm | null>(compra?.incoterm ?? null);
-  const [condicion, setCondicion] = useState<CondicionPago>(compra?.condicionPago ?? "contado");
-  const [dias, setDias] = useState(texto(compra?.diasCredito ?? null));
-  const [embarque, setEmbarque] = useState(compra?.fechaEmbarque ?? "");
-  const [llegada, setLlegada] = useState(compra?.fechaLlegadaEstimada ?? "");
-  const [nota, setNota] = useState(compra?.nota ?? "");
+  const [almacenId, setAlmacenId] = useState<string | null>(compra?.almacenId ?? previo?.almacenId ?? null);
+  const [documento, setDocumento] = useState(compra?.documentoProveedor ?? previo?.documento ?? "");
+  const [moneda, setMoneda] = useState<Moneda>(compra?.monedaMercaderia ?? previo?.moneda ?? "PEN");
+  const [tcMerc, setTcMerc] = useState(previo?.tcMerc ?? texto(compra?.tcMercaderia ?? tcSugerido));
+  const [tcGastos, setTcGastos] = useState(previo?.tcGastos ?? texto(compra?.tcGastos ?? tcSugerido));
+  const [incoterm, setIncoterm] = useState<Incoterm | null>(compra?.incoterm ?? previo?.incoterm ?? null);
+  const [condicion, setCondicion] = useState<CondicionPago>(compra?.condicionPago ?? previo?.condicion ?? "contado");
+  const [dias, setDias] = useState(compra ? texto(compra.diasCredito) : (previo?.dias ?? ""));
+  const [embarque, setEmbarque] = useState(compra?.fechaEmbarque ?? previo?.embarque ?? "");
+  const [llegada, setLlegada] = useState(compra?.fechaLlegadaEstimada ?? previo?.llegada ?? "");
+  const [nota, setNota] = useState(compra?.nota ?? previo?.nota ?? "");
   const [filas, setFilas] = useState<Fila[]>(
-    (compra?.lineas ?? []).map((l) => ({
+    previo ? previo.filas : (compra?.lineas ?? []).map((l) => ({
       productoId: l.productoId,
       codigo: l.codigo ?? "",
       titulo: productos.find((p) => p.productoId === l.productoId)?.titulo ?? l.nombre,
@@ -94,6 +102,7 @@ export function EditorCompra({
       total: texto(l.totalProveedor),
     })),
   );
+  const [guardada, setGuardada] = useState(false);
   const [consulta, setConsulta] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pendiente, iniciar] = useTransition();
@@ -137,6 +146,41 @@ export function EditorCompra({
   const cambiar = (i: number, cambios: Partial<Fila>) => {
     setFilas((fs) => fs.map((f, j) => (j === i ? { ...f, ...cambios } : f)));
     setError(null);
+  };
+
+  // Una compra nueva a medio llenar se guarda como borrador del formulario (no es
+  // la pre-compra: esa exige todo válido). Editar una ya guardada no lo usa.
+  const datosBorrador: DatosBorradorCompra = {
+    version: 1,
+    tipo,
+    proveedor,
+    almacenId,
+    documento,
+    moneda,
+    tcMerc,
+    tcGastos,
+    incoterm,
+    condicion,
+    dias,
+    embarque,
+    llegada,
+    nota,
+    filas,
+  };
+  const hayContenido = compraTieneContenido(datosBorrador);
+  const autoguardado = useBorrador({
+    tipo: "compra",
+    idInicial: borrador?.id ?? null,
+    datos: datosBorrador,
+    resumen: resumenDeCompra(datosBorrador),
+    conContenido: hayContenido,
+    activo: !compra && !guardada,
+  });
+
+  const guardarBorrador = async () => {
+    const ok = await autoguardado.guardarAhora();
+    if (ok) toast.success("Borrador guardado", { description: "Lo retomas desde Compras. Se borra solo a las 48 h sin abrirlo." });
+    else toast.error("No se pudo guardar el borrador");
   };
 
   const total = filas.reduce((t, f) => t + (leerNumero(f.cantidad) ?? 0) * (leerNumero(f.precio) ?? 0), 0);
@@ -189,6 +233,11 @@ export function EditorCompra({
     iniciar(async () => {
       const r = await acciones.guardarCompra(datos);
       if (!r.ok) return setError(r.error);
+      if (!compra) {
+        // Ya es una pre-compra: el borrador sobra.
+        setGuardada(true);
+        await autoguardado.terminar();
+      }
       if (!confirmar) {
         toast.success(`${r.codigo} guardada`, { description: "Sigue como pre-compra: la puedes corregir mientras negocias." });
         if (!compra) router.push(`/compras/${r.codigo}`);
@@ -353,6 +402,12 @@ export function EditorCompra({
         </p>
       )}
       <div className="flex flex-wrap items-center justify-end gap-2">
+        {!compra && <IndicadorBorrador estado={autoguardado.estado} />}
+        {!compra && hayContenido && (
+          <Button type="button" variant="outline" onClick={() => void guardarBorrador()} disabled={pendiente || autoguardado.estado === "guardando"}>
+            Guardar borrador
+          </Button>
+        )}
         <Button variant={compra ? "outline" : "default"} onClick={() => guardar(false)} disabled={pendiente}>
           {pendiente ? "Guardando…" : "Guardar pre-compra"}
         </Button>

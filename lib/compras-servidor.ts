@@ -10,6 +10,7 @@
 import { cache } from "react";
 import { cargarAlmacenes, odooDeAlmacenId } from "./almacenes-servidor";
 import {
+  ESTADOS_COMPRA,
   desgloseUnitario,
   estadoPorRecepcion,
   gastoParaCosteo,
@@ -30,10 +31,10 @@ import {
 import { liquidar, type ConceptoGasto, type Incoterm, type Moneda, type Reparto, type TipoCompra, type TipoManoObra } from "./costeo";
 import { mensajeDeError } from "./errores";
 import { hoy } from "./fecha";
-import { planificarImportacion, type CompraPorImportar, type OrdenOmitida } from "./compras-importar";
+import { PREFIJO_ORIGEN_APP, esOrdenDeCompraDeApp, planificarImportacion, type CompraPorImportar, type ContextoImportacion, type OrdenOmitida } from "./compras-importar";
 import { cancelarOrdenCompra, crearOrdenCompra, recibirOrdenCompra, tipoDeCambioUsd } from "./odoo/almacenes";
 import { productosPorId } from "./odoo/catalogos";
-import { leerOrdenesDeCompra, nombresDeOrdenes } from "./odoo/compras-importar";
+import { buscarOrdenDeCompra, leerOrden, leerOrdenesDeCompra, nombresDeOrdenes } from "./odoo/compras-importar";
 import { origenDe } from "./odoo/pedidos-venta";
 import { ErrorOdoo, ODOO_NO_CONFIGURADO, odooConfigurado } from "./odoo/rpc";
 import { codigosDelCatalogo } from "./stock-servidor";
@@ -622,6 +623,16 @@ export interface CompraTraida {
   fecha: string;
 }
 
+/** Una orden que la app creó en Odoo pero cuya compra no la tiene enlazada. */
+export interface OrdenDeLaApp {
+  orden: string;
+  proveedor: string;
+  /** "CMP-00012", si el origen lo dice. */
+  compra: string | null;
+  /** enlazaria / enlazada: se unió a su compra. otra: esa compra ya tiene otra orden. sin_compra: no hay compra con ese código. */
+  situacion: "enlazaria" | "enlazada" | "otra" | "sin_compra";
+}
+
 export type ResultadoImportacion =
   | {
       ok: true;
@@ -632,8 +643,8 @@ export type ResultadoImportacion =
       /** Las que no se pudieron guardar (solo al aplicar). */
       fallidas: { orden: string; error: string }[];
       importadas: number;
-      /** Las órdenes de Odoo que nacieron en la app: no se tocan. */
-      deLaApp: number;
+      /** Las órdenes de Odoo que creó la propia app, y qué pasa con su compra. */
+      deLaApp: OrdenDeLaApp[];
       /** Había más órdenes de las que se leyeron. */
       truncado: boolean;
     }
@@ -761,19 +772,14 @@ export async function traerComprasDeOdoo(opciones: { aplicar: boolean; desde: st
   try {
     const leidas = await leerOrdenesDeCompra((conocidas ?? []).map((c) => c.odoo_orden_id as number), opciones.desde);
     truncado = leidas.truncado;
-    const enDolares = leidas.ordenes.some((o) => o.moneda === "USD" && !o.tasaPorDolar);
-    plan = planificarImportacion(leidas.ordenes, {
-      almacenes: (await cargarAlmacenes()).filter((a) => a.activo),
-      catalogo: await codigosDelCatalogo(),
-      tcActual: enDolares ? (await tipoDeCambioSugerido()).tc : null,
-      desde: opciones.desde,
-    });
+    plan = planificarImportacion(leidas.ordenes, await contextoImportacion(leidas.ordenes.some((o) => o.moneda === "USD" && !o.tasaPorDolar)));
   } catch (e) {
     return { ok: false, error: mensajeOdoo(e, "traer compras de Odoo") };
   }
 
   await completarNumerosDeOrden();
-  const base = { ok: true as const, omitidas: plan.omitidas, deLaApp: plan.deLaApp, truncado };
+  const deLaApp = await enlazarOrdenesDeLaApp(plan.deLaApp, opciones.aplicar);
+  const base = { ok: true as const, omitidas: plan.omitidas, deLaApp, truncado };
   if (!opciones.aplicar) {
     return { ...base, aplicado: false, porImportar: plan.porImportar.map(resumenTraida), fallidas: [], importadas: 0 };
   }
@@ -792,4 +798,95 @@ export async function traerComprasDeOdoo(opciones: { aplicar: boolean; desde: st
     fallidas,
     importadas,
   };
+}
+
+/** Lo que `planificarImportacion` necesita saber de la app. */
+async function contextoImportacion(hayDolares: boolean): Promise<ContextoImportacion> {
+  return {
+    almacenes: (await cargarAlmacenes()).filter((a) => a.activo),
+    catalogo: await codigosDelCatalogo(),
+    tcActual: hayDolares ? (await tipoDeCambioSugerido()).tc : null,
+  };
+}
+
+/**
+ * Las órdenes que la app creó en Odoo ("App Plexiacril CMP-00012") y que aparecen
+ * porque su compra no guardó el id (se creó la orden y algo falló antes de anotarlo).
+ * Con `aplicar`, se enlazan a su compra; si no, solo se dice qué pasaría.
+ */
+async function enlazarOrdenesDeLaApp(ordenes: { ordenId: number; ordenNombre: string; proveedor: string; origen: string }[], aplicar: boolean): Promise<OrdenDeLaApp[]> {
+  if (ordenes.length === 0) return [];
+  const supabase = await clienteServidor();
+  const codigoDe = (origen: string) => origen.slice(PREFIJO_ORIGEN_APP.length).trim();
+  const codigos = ordenes.map((o) => codigoDe(o.origen)).filter((c) => /^CMP-\d+$/.test(c));
+  const { data } = codigos.length
+    ? await supabase.from("compras").select("id, codigo, odoo_orden_id").in("codigo", codigos)
+    : { data: [] };
+  const resultado: OrdenDeLaApp[] = [];
+  for (const o of ordenes) {
+    const codigo = codigoDe(o.origen);
+    const compra = (data ?? []).find((c) => c.codigo === codigo);
+    const base = { orden: o.ordenNombre, proveedor: o.proveedor, compra: compra?.codigo ?? (/^CMP-\d+$/.test(codigo) ? codigo : null) };
+    if (!compra) resultado.push({ ...base, situacion: "sin_compra" });
+    else if (compra.odoo_orden_id) resultado.push({ ...base, situacion: "otra" });
+    else if (!aplicar) resultado.push({ ...base, situacion: "enlazaria" });
+    else {
+      const { error } = await supabase
+        .from("compras")
+        .update({ odoo_orden_id: o.ordenId, odoo_orden_nombre: o.ordenNombre, sincronizacion: "sincronizada", error_sincronizacion: null })
+        .eq("id", compra.id)
+        .is("odoo_orden_id", null);
+      resultado.push({ ...base, situacion: error ? "otra" : "enlazada" });
+    }
+  }
+  return resultado;
+}
+
+/**
+ * Por qué una orden (P01726) entra o no entra al traer de Odoo: lo dice en una
+ * frase, mirando la orden tal como la ve el usuario de la integración.
+ */
+export async function explicarOrdenDeOdoo(numero: string, desde: string | null): Promise<{ ok: true; veredicto: string } | { ok: false; error: string }> {
+  if (!odooConfigurado()) return { ok: false, error: ODOO_NO_CONFIGURADO };
+  const supabase = await clienteServidor();
+  try {
+    const [vista] = await buscarOrdenDeCompra(numero);
+    if (!vista) {
+      const { data: propia } = await supabase.from("compras").select("codigo").ilike("odoo_orden_nombre", numero.trim()).maybeSingle();
+      return {
+        ok: true,
+        veredicto: propia
+          ? `Ya está en la app como ${propia.codigo}.`
+          : `Odoo no le muestra la orden ${numero.trim()} al usuario de la integración (ODOO_USERNAME). En Odoo existe, pero ese usuario no la ve: revisa su compañía y sus permisos de Compras (que no sea "solo mis documentos").`,
+      };
+    }
+    const { data: enApp } = await supabase.from("compras").select("codigo, estado").eq("odoo_orden_id", vista.id).maybeSingle();
+    if (enApp) return { ok: true, veredicto: `Ya está en la app como ${enApp.codigo} (${ESTADOS_COMPRA[enApp.estado as EstadoCompra] ?? enApp.estado}).` };
+    if (vista.estado !== "purchase" && vista.estado !== "done") {
+      const nombre: Record<string, string> = { draft: "solicitud de presupuesto (borrador)", sent: "solicitud enviada", "to approve": "por aprobar", cancel: "cancelada" };
+      return { ok: true, veredicto: `En Odoo está como ${nombre[vista.estado ?? ""] ?? vista.estado ?? "sin estado"}. Solo se traen las órdenes confirmadas.` };
+    }
+    // La importación deja pasar la orden si CUALQUIERA de sus dos fechas es de «desde» en adelante.
+    const fechas = [vista.confirmadaEn, vista.fechaPedido].filter((f): f is string => !!f).map((f) => f.slice(0, 10));
+    if (desde && fechas.length && fechas.every((f) => f < desde)) {
+      return { ok: true, veredicto: `Su fecha de confirmación (${fechas[0]}) es anterior a «desde» (${desde}).` };
+    }
+    const orden = await leerOrden(vista.id);
+    if (!orden) return { ok: true, veredicto: "Odoo no devolvió el detalle de la orden." };
+    if (esOrdenDeCompraDeApp(orden.origen)) {
+      const [r] = await enlazarOrdenesDeLaApp([{ ordenId: orden.id, ordenNombre: orden.nombre, proveedor: orden.proveedorNombre, origen: orden.origen }], false);
+      const dicho = {
+        enlazaria: `La creó la app (${r.compra}) pero esa compra no tiene enlazada la orden. Pulsa «Traer» para enlazarla.`,
+        enlazada: `La creó la app (${r.compra}).`,
+        otra: `La creó la app (${r.compra}), pero esa compra ya está enlazada a otra orden de Odoo.`,
+        sin_compra: `La creó la app (origen «${orden.origen}»), pero no hay una compra con ese código.`,
+      } as const;
+      return { ok: true, veredicto: dicho[r.situacion] };
+    }
+    const plan = planificarImportacion([orden], await contextoImportacion(orden.moneda === "USD" && !orden.tasaPorDolar));
+    if (plan.porImportar.length) return { ok: true, veredicto: `Entraría como compra (${plan.porImportar[0].estado.replace("_", " ")}). Si no la ves en la lista, revisa que «desde» no la deje fuera.` };
+    return { ok: true, veredicto: `Se queda fuera: ${plan.omitidas[0]?.motivo ?? "no cumple las condiciones."}` };
+  } catch (e) {
+    return { ok: false, error: mensajeOdoo(e, "explicar orden de Odoo") };
+  }
 }

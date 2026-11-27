@@ -9,6 +9,7 @@ import type { Almacen } from "@/lib/almacenes";
 import {
   CONDICIONES_PAGO,
   TIPOS_COMPRA,
+  codigoVisible,
   descuadre,
   vencimientoCredito,
   type CompraDetalle,
@@ -64,7 +65,7 @@ export function DetalleCompra({
       const r = await acciones.anularCompra(compra.id);
       setAnulando(false);
       if (!r.ok) return void toast.error(r.error);
-      toast.success(`${compra.codigo} anulada`);
+      toast.success(`${codigoVisible(compra)} anulada`);
     });
 
   const reintentar = () =>
@@ -86,8 +87,8 @@ export function DetalleCompra({
             {compra.sincronizacion && compra.sincronizacion !== "sincronizada" && <EstadoSincronizacion estado={compra.sincronizacion} />}
           </>
         }
-        titulo={`${compra.codigo} · ${compra.proveedor}`}
-        subtitulo={`Creada ${diaMesTexto(momentoEnLima(compra.creadoEn), true)}${compra.creadoPor ? ` por ${compra.creadoPor}` : ""}`}
+        titulo={`${codigoVisible(compra)} · ${compra.proveedor}`}
+        subtitulo={`${compra.odooOrden ? `${compra.codigo} · ` : ""}Creada ${diaMesTexto(momentoEnLima(compra.creadoEn), true)}${compra.creadoPor ? ` por ${compra.creadoPor}` : ""}`}
         className="max-w-5xl"
         lateral={
           anulable && (
@@ -212,7 +213,7 @@ export function DetalleCompra({
       <AlertDialog open={anulando} onOpenChange={setAnulando}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>¿Anular {compra.codigo}?</AlertDialogTitle>
+            <AlertDialogTitle>¿Anular {codigoVisible(compra)}?</AlertDialogTitle>
             <AlertDialogDescription>
               {compra.odooOrdenId ? "La orden de compra también se cancela en Odoo. " : ""}No se puede deshacer.
             </AlertDialogDescription>
