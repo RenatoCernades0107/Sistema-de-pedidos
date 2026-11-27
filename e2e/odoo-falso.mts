@@ -820,7 +820,8 @@ export async function crearOdooFalso(
         const dominio = (args[0] as unknown[]) ?? [];
         const offset = Number(kwargs.offset ?? 0);
         const limite = kwargs.limit ? Number(kwargs.limit) : undefined;
-        const filtrados = deModelo().filter(conActivos(modelo, dominio)).sort((a, b) => a.id - b.id);
+        const sentido = String(kwargs.order ?? "").trim() === "id desc" ? -1 : 1;
+        const filtrados = deModelo().filter(conActivos(modelo, dominio)).sort((a, b) => sentido * (a.id - b.id));
         return filtrados
           .slice(offset, limite ? offset + limite : undefined)
           .map((r) => limpiar(elegir(r, kwargs.fields)));
