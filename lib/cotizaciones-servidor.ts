@@ -548,6 +548,47 @@ export async function sincronizarCambiosConOdoo(id: string): Promise<ResultadoSi
   }
 }
 
+/**
+ * Vuelve a escribir en la cotización de Odoo las líneas que tiene la app, sin
+ * cambiar nada de lo cotizado: sirve para traer al día una que se creó con otra
+ * forma de mandar las líneas (los cortes que iban como "Corte a medida" en m²),
+ * o una que alguien tocó en Odoo. Vale también para una enviada, porque lo que
+ * ve el cliente no cambia; no para una que ya es pedido de venta en Odoo.
+ */
+export async function refrescarEnOdoo(id: string): Promise<ResultadoSincronizacion> {
+  const c = await leerCotizacion(id);
+  if (!c) return { ok: false, error: "La cotización ya no existe." };
+  if (c.estado === "reemplazada") return { ok: false, error: "La reemplaza una versión nueva: refresca esa." };
+  if (!c.odooOrderId || c.sincronizacion !== "sincronizada") {
+    return c.estado === "borrador" ? sincronizarConOdoo(id) : { ok: false, error: "Todavía no está en Odoo." };
+  }
+
+  const orderId = c.odooOrderId;
+  try {
+    const venta = await alDia(async () => {
+      const piezas = await productosPieza(c.lineas);
+      return actualizarPedidoDeVenta(orderId, {
+        clienteId: c.cliente.id,
+        lineas: c.lineas.flatMap((l) => lineasParaOdoo(l, piezas.get(l.posicion))),
+      });
+    });
+    const supabase = await clienteServidor();
+    await supabase
+      .from("cotizaciones")
+      .update({
+        odoo_order_name: venta.orderName,
+        monto_sin_impuestos: venta.montoSinImpuestos,
+        monto_impuestos: venta.montoImpuestos,
+        monto_total: venta.montoTotal,
+      })
+      .eq("id", id);
+    return { ok: true, orderName: venta.orderName };
+  } catch (e) {
+    if (!(e instanceof ErrorOdoo)) console.error("[cotizaciones] refrescar en Odoo", e);
+    return { ok: false, error: e instanceof ErrorOdoo ? e.message : "Algo falló al refrescar la cotización en Odoo." };
+  }
+}
+
 export type ResultadoEnvio =
   | {
       ok: true;
