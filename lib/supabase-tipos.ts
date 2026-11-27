@@ -143,28 +143,47 @@ export type Database = {
         Row: {
           actualizado_en: string
           anuncio: Json | null
+          atencion_desde: string | null
+          atendida_por: string | null
           creado_en: string
           creado_por: string
+          estado: string
           id: string
+          motivo_atencion: string | null
           titulo: string
         }
         Insert: {
           actualizado_en?: string
           anuncio?: Json | null
+          atencion_desde?: string | null
+          atendida_por?: string | null
           creado_en?: string
           creado_por?: string
+          estado?: string
           id?: string
+          motivo_atencion?: string | null
           titulo?: string
         }
         Update: {
           actualizado_en?: string
           anuncio?: Json | null
+          atencion_desde?: string | null
+          atendida_por?: string | null
           creado_en?: string
           creado_por?: string
+          estado?: string
           id?: string
+          motivo_atencion?: string | null
           titulo?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "agente_pruebas_atendida_por_fkey"
+            columns: ["atendida_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "agente_pruebas_creado_por_fkey"
             columns: ["creado_por"]
@@ -177,6 +196,7 @@ export type Database = {
       agente_pruebas_mensajes: {
         Row: {
           adjuntos: Json | null
+          autor_id: string | null
           contenido: string
           creado_en: string
           derivado: boolean
@@ -187,6 +207,7 @@ export type Database = {
         }
         Insert: {
           adjuntos?: Json | null
+          autor_id?: string | null
           contenido?: string
           creado_en?: string
           derivado?: boolean
@@ -197,6 +218,7 @@ export type Database = {
         }
         Update: {
           adjuntos?: Json | null
+          autor_id?: string | null
           contenido?: string
           creado_en?: string
           derivado?: boolean
@@ -206,6 +228,13 @@ export type Database = {
           traza?: Json | null
         }
         Relationships: [
+          {
+            foreignKeyName: "agente_pruebas_mensajes_autor_id_fkey"
+            columns: ["autor_id"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "agente_pruebas_mensajes_prueba_id_fkey"
             columns: ["prueba_id"]
@@ -363,6 +392,34 @@ export type Database = {
           tipo?: string
         }
         Relationships: []
+      }
+      bases_mes: {
+        Row: {
+          actualizado_en: string
+          calculado_en: string | null
+          costo_ventas_manual: number | null
+          costo_ventas_odoo: number | null
+          mes: string
+          nota: string | null
+        }
+        Insert: {
+          actualizado_en?: string
+          calculado_en?: string | null
+          costo_ventas_manual?: number | null
+          costo_ventas_odoo?: number | null
+          mes: string
+          nota?: string | null
+        }
+        Update: {
+          actualizado_en?: string
+          calculado_en?: string | null
+          costo_ventas_manual?: number | null
+          costo_ventas_odoo?: number | null
+          mes?: string
+          nota?: string | null
+        }
+        Relationships: [
+        ]
       }
       borradores: {
         Row: {
@@ -596,6 +653,7 @@ export type Database = {
         Row: {
           codigo: string | null
           costo_base: number | null
+          factor: number | null
           creado_en: string
           creado_por: string | null
           id: string
@@ -604,10 +662,12 @@ export type Database = {
           precio_anterior: number | null
           precio_nuevo: number
           producto_odoo_id: number
+          segundo_costo: number | null
         }
         Insert: {
           codigo?: string | null
           costo_base?: number | null
+          factor?: number | null
           creado_en?: string
           creado_por?: string | null
           id?: string
@@ -616,10 +676,12 @@ export type Database = {
           precio_anterior?: number | null
           precio_nuevo: number
           producto_odoo_id: number
+          segundo_costo?: number | null
         }
         Update: {
           codigo?: string | null
           costo_base?: number | null
+          factor?: number | null
           creado_en?: string
           creado_por?: string | null
           id?: string
@@ -628,6 +690,7 @@ export type Database = {
           precio_anterior?: number | null
           precio_nuevo?: number
           producto_odoo_id?: number
+          segundo_costo?: number | null
         }
         Relationships: [
           {
@@ -1755,6 +1818,35 @@ export type Database = {
           },
         ]
       }
+      factores_plancha: {
+        Row: {
+          actualizado_en: string
+          actualizado_por: string | null
+          codigo_odoo: string
+          factor: number
+        }
+        Insert: {
+          actualizado_en?: string
+          actualizado_por?: string | null
+          codigo_odoo: string
+          factor: number
+        }
+        Update: {
+          actualizado_en?: string
+          actualizado_por?: string | null
+          codigo_odoo?: string
+          factor?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "factores_plancha_actualizado_por_fkey"
+            columns: ["actualizado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       faltantes_stock: {
         Row: {
           almacen_id: string
@@ -1890,6 +1982,44 @@ export type Database = {
             columns: ["grupo_id"]
             isOneToOne: false
             referencedRelation: "grupos_plancha"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gastos_operativos: {
+        Row: {
+          concepto: string
+          creado_en: string
+          creado_por: string | null
+          descripcion: string | null
+          id: string
+          mes: string
+          monto: number
+        }
+        Insert: {
+          concepto: string
+          creado_en?: string
+          creado_por?: string | null
+          descripcion?: string | null
+          id?: string
+          mes: string
+          monto: number
+        }
+        Update: {
+          concepto?: string
+          creado_en?: string
+          creado_por?: string | null
+          descripcion?: string | null
+          id?: string
+          mes?: string
+          monto?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gastos_operativos_creado_por_fkey"
+            columns: ["creado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
             referencedColumns: ["id"]
           },
         ]
@@ -2154,35 +2284,6 @@ export type Database = {
           {
             foreignKeyName: "logs_auditoria_usuario_id_fkey"
             columns: ["usuario_id"]
-            isOneToOne: false
-            referencedRelation: "usuarios"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      margenes_plancha: {
-        Row: {
-          actualizado_en: string
-          actualizado_por: string | null
-          codigo_odoo: string
-          margen_pct: number
-        }
-        Insert: {
-          actualizado_en?: string
-          actualizado_por?: string | null
-          codigo_odoo: string
-          margen_pct: number
-        }
-        Update: {
-          actualizado_en?: string
-          actualizado_por?: string | null
-          codigo_odoo?: string
-          margen_pct?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "margenes_plancha_actualizado_por_fkey"
-            columns: ["actualizado_por"]
             isOneToOne: false
             referencedRelation: "usuarios"
             referencedColumns: ["id"]
@@ -3795,6 +3896,8 @@ export type Database = {
       }
     }
     Functions: {
+      atiende_conversaciones: { Args: never; Returns: boolean }
+      prueba_de_ruta_adjunto: { Args: { p_ruta: string }; Returns: string }
       buscar_fragmentos_agente: {
         Args: {
           p_embedding?: string | null

@@ -356,6 +356,12 @@ export interface PermisosRol {
    * su base de conocimiento (catálogos, fichas, fotos) y sus ajustes.
    */
   usarAgenteWhatsapp: boolean;
+  /**
+   * Atender las conversaciones del agente de WhatsApp en `/conversaciones`: ver las
+   * que necesitan a un humano, responder como asesor, devolverlas al agente o
+   * cerrarlas. Como `atiende_conversaciones()` en la base.
+   */
+  atenderConversaciones: boolean;
 }
 
 export const ROLES: Record<Rol, PermisosRol> = {
@@ -390,6 +396,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     usarChat: true,
     usarCad: true,
     usarAgenteWhatsapp: true,
+    atenderConversaciones: true,
   },
   logistica: {
     nombre: "Logística",
@@ -423,6 +430,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     usarChat: true,
     usarCad: true,
     usarAgenteWhatsapp: false,
+    atenderConversaciones: false,
   },
   operaciones: {
     nombre: "Operaciones",
@@ -456,6 +464,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     usarChat: true,
     usarCad: true,
     usarAgenteWhatsapp: false,
+    atenderConversaciones: false,
   },
   ventas: {
     nombre: "Ventas",
@@ -490,6 +499,7 @@ export const ROLES: Record<Rol, PermisosRol> = {
     usarChat: true,
     usarCad: true,
     usarAgenteWhatsapp: false,
+    atenderConversaciones: true,
   },
 };
 
@@ -707,6 +717,12 @@ export const HERRAMIENTAS: ConfigHerramienta[] = [
     grupo: "principal",
   },
   { titulo: "Chat", href: "/chat", permiso: "usarChat", grupo: "principal" },
+  {
+    titulo: "Conversaciones",
+    href: "/conversaciones",
+    permiso: "atenderConversaciones",
+    grupo: "principal",
+  },
   { titulo: "Diseños", href: "/disenos", permiso: "usarCad", grupo: "taller" },
   {
     titulo: "Almacén",

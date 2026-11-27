@@ -16,12 +16,14 @@ const HACE = [
   "Atiende a quien llega desde un anuncio de Meta, con el contexto de cada campaña.",
   "Informa sobre productos y servicios con los catálogos y fichas técnicas, y envía fotos y PDF.",
   "Da la dirección, el horario y las formas de pago (cuentas vigentes que salen en el PDF).",
+  "Lee las fotos y PDF que envía el cliente.",
 ];
 
 const NO_HACE = [
   "Cotizar cortes a medida.",
   "Cotizar productos terminados.",
   "Tomar el pedido y registrarlo en el sistema.",
+  "Responder lo que no está en sus datos (stock, plazos, descuentos, reclamos…).",
 ];
 
 /** Lo que Administración ajusta del agente, y qué hace y qué no hace todavía. */
@@ -68,13 +70,6 @@ export function AjustesAgenteForm({ ajustes }: { ajustes: AjustesAgente }) {
                 rows={6}
                 value={valores.instrucciones}
                 onChange={(e) => setValores((v) => ({ ...v, instrucciones: e.target.value }))}
-              />
-            </Campo>
-            <Campo label="Qué dice al pasar a un asesor" ayuda="Cuando le piden algo que todavía no hace, o no sabe la respuesta.">
-              <Textarea
-                rows={2}
-                value={valores.mensajeDerivacion}
-                onChange={(e) => setValores((v) => ({ ...v, mensajeDerivacion: e.target.value }))}
               />
             </Campo>
           </div>
@@ -173,7 +168,10 @@ export function AjustesAgenteForm({ ajustes }: { ajustes: AjustesAgente }) {
                 </li>
               ))}
             </ul>
-            <p className="text-muted-foreground mt-2 text-xs">Para esto pasa la conversación a un asesor.</p>
+            <p className="text-muted-foreground mt-2 text-xs">
+              En esos casos no responde nada: la conversación queda en Conversaciones como «Necesita atención» para
+              que la atienda una persona.
+            </p>
           </div>
         </div>
       </aside>

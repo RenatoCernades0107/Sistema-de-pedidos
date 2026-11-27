@@ -4,6 +4,8 @@
  * estos términos.
  */
 
+import type { AdjuntoCad } from "@/lib/cad/adjuntos";
+
 export const TIPOS_DOCUMENTO = {
   catalogo: "Catálogo",
   ficha_tecnica: "Ficha técnica",
@@ -69,11 +71,24 @@ export type MensajeAgente =
   | { tipo: "texto"; texto: string }
   | { tipo: "archivo"; adjunto: AdjuntoAgente; texto?: string };
 
+/**
+ * Un archivo que adjuntó el cliente (foto, plano, comprobante). Misma forma que
+ * los adjuntos del chat de diseños (`AdjuntoCad`): `<conversación>/<uuid>.<ext>`
+ * en el bucket `agente_adjuntos`.
+ */
+export type AdjuntoCliente = AdjuntoCad;
+
+export const BUCKET_ADJUNTOS_CLIENTE = "agente_adjuntos";
+
 /** Un turno ya ocurrido de la conversación. */
 export interface TurnoHistorial {
-  rol: "cliente" | "agente";
+  /** `asesor`: lo escribió una persona del equipo desde /conversaciones. */
+  rol: "cliente" | "agente" | "asesor";
   contenido: string;
+  /** Lo que envió el agente (documentos de la base de conocimiento). */
   adjuntos?: AdjuntoAgente[];
+  /** Lo que adjuntó el cliente. */
+  adjuntosCliente?: AdjuntoCliente[];
 }
 
 /** Una herramienta que usó el agente para responder, para el panel "¿Por qué respondió esto?". */
@@ -90,7 +105,10 @@ export interface PasoTraza {
 export interface RespuestaAgente {
   mensajes: MensajeAgente[];
   traza: PasoTraza[];
-  /** Si pidió que siga un asesor humano. */
+  /**
+   * Si la pasó a un asesor humano. Entonces `mensajes` va vacío: el agente no le
+   * dice nada al cliente y la conversación espera a una persona.
+   */
   derivado: boolean;
   /** El motivo, cuando derivó. */
   motivoDerivacion?: string;

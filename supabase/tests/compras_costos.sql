@@ -1,4 +1,5 @@
--- Verificación de la migración 20261218000100 (compras y costos).
+-- Verificación de las migraciones 20261218000100 (compras y costos) y
+-- 20261220000100 (segundo costeo: factores, gastos de operar y base del mes).
 --
 --   npx supabase db query --linked -f supabase/tests/compras_costos.sql
 --
@@ -15,7 +16,8 @@ declare
   t text;
 begin
   foreach t in array array['compras', 'compras_lineas', 'compras_gastos', 'compras_recepciones',
-                           'compras_recepciones_lineas', 'costos_historial', 'margenes_plancha', 'cambios_precio'] loop
+                           'compras_recepciones_lineas', 'costos_historial', 'factores_plancha', 'cambios_precio',
+                           'gastos_operativos', 'bases_mes'] loop
     if exists (select 1 from pg_class where relname = t and relnamespace = 'public'::regnamespace and not relrowsecurity) then
       raise exception 'FALLO: falta RLS en %', t;
     end if;
@@ -95,12 +97,13 @@ begin
   end if;
 
   -- Los márgenes y el historial de precios son de Administración.
-  if exists (select 1 from public.margenes_plancha) or exists (select 1 from public.cambios_precio) then
-    raise exception 'FALLO: Logística ve márgenes o cambios de precio';
+  if exists (select 1 from public.factores_plancha) or exists (select 1 from public.cambios_precio)
+     or exists (select 1 from public.gastos_operativos) or exists (select 1 from public.bases_mes) then
+    raise exception 'FALLO: Logística ve factores, precios o gastos de operar';
   end if;
   begin
-    insert into public.margenes_plancha (codigo_odoo, margen_pct) values ('X', 10);
-    raise exception 'FALLO: Logística escribió un margen';
+    insert into public.factores_plancha (codigo_odoo, factor) values ('X', 1.3);
+    raise exception 'FALLO: Logística escribió un factor';
   exception when insufficient_privilege then null;
   end;
 end $$;
@@ -142,12 +145,20 @@ begin
     raise notice 'No hay nadie de Administración: se salta su parte';
     return;
   end if;
-  insert into public.margenes_plancha (codigo_odoo, margen_pct) values ('PRUEBA-MARGEN', 35);
+  insert into public.factores_plancha (codigo_odoo, factor) values ('PRUEBA-FACTOR', 1.35);
+  insert into public.gastos_operativos (mes, concepto, monto) values ('2026-11-01', 'administrativos', 12000);
+  insert into public.bases_mes (mes, costo_ventas_odoo) values ('2026-11-01', 150000)
+    on conflict (mes) do update set costo_ventas_odoo = excluded.costo_ventas_odoo;
+  begin
+    insert into public.gastos_operativos (mes, concepto, monto) values ('2026-11-15', 'administrativos', 1);
+    raise exception 'FALLO: aceptó un mes que no empieza el día 1';
+  exception when check_violation then null;
+  end;
   insert into public.cambios_precio (producto_odoo_id, nombre, precio_anterior, precio_nuevo, costo_base, margen_pct)
   values (10, 'PLANCHA A', 100, 120, 70, 30);
   begin
-    insert into public.margenes_plancha (codigo_odoo, margen_pct) values ('PRUEBA-MARGEN-2', 100);
-    raise exception 'FALLO: aceptó un margen de 100%%';
+    insert into public.factores_plancha (codigo_odoo, factor) values ('PRUEBA-FACTOR-2', 0.9);
+    raise exception 'FALLO: aceptó un factor menor que 1';
   exception when check_violation then null;
   end;
 end $$;

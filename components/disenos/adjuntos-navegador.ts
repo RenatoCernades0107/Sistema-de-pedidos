@@ -103,8 +103,13 @@ async function achicar(archivo: File): Promise<{ blob: Blob; mime: TipoAdjunto }
  * Sube los archivos a la carpeta del diseño y devuelve lo que la ruta del chat
  * espera. Si uno falla, rechaza con un mensaje para la persona.
  */
-export async function subirAdjuntos(disenoId: string, locales: AdjuntoLocal[]): Promise<AdjuntoCad[]> {
-  const storage = clienteNavegador().storage.from(BUCKET_CAD_ADJUNTOS);
+export async function subirAdjuntos(
+  disenoId: string,
+  locales: AdjuntoLocal[],
+  /** Por defecto, el de diseños; el agente de WhatsApp sube a `agente_adjuntos`, con la misma forma de ruta. */
+  bucket: string = BUCKET_CAD_ADJUNTOS,
+): Promise<AdjuntoCad[]> {
+  const storage = clienteNavegador().storage.from(bucket);
   return Promise.all(
     locales.map(async ({ archivo }): Promise<AdjuntoCad> => {
       const { blob, mime } = await achicar(archivo);

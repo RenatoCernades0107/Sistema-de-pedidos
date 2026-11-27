@@ -11,7 +11,7 @@
 
 import { refresh } from "next/cache";
 import { z } from "zod";
-import { esquemaCompra, esquemaGastos } from "@/lib/compras";
+import { esquemaCompra } from "@/lib/compras";
 import * as compras from "@/lib/compras-servidor";
 import { ROLES } from "@/lib/dominio";
 import { buscarClientes } from "@/lib/odoo/catalogos";
@@ -57,18 +57,6 @@ export async function reintentarCompra(entrada: unknown) {
 
 export async function anularCompra(entrada: unknown) {
   return con(id, entrada, compras.anularCompra);
-}
-
-export async function guardarGastos(entrada: unknown) {
-  return con(esquemaGastos, entrada, compras.guardarGastos);
-}
-
-export async function liquidarCompra(entrada: unknown) {
-  return con(id, entrada, compras.liquidarCompra);
-}
-
-export async function reabrirLiquidacion(entrada: unknown) {
-  return con(id, entrada, compras.reabrirLiquidacion);
 }
 
 const esquemaTraer = z.object({
