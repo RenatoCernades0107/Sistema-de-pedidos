@@ -35,6 +35,13 @@ const nextConfig: NextConfig = {
   // pdf.js lee los PDF que se adjuntan al chat de diseños (`lib/cad/adjuntos-servidor.ts`).
   // Se carga con el `import` de Node: empaquetado no encuentra su worker.
   serverExternalPackages: ["pdfjs-dist"],
+  // Caché de navegación del cliente: volver a una vista visitada en los últimos
+  // 30 s no pide nada al servidor. Las Server Actions que llaman a `refresh()`
+  // (todas las escrituras) la invalidan, así que lo que cada quien cambia se ve
+  // al momento; lo ajeno puede tardar hasta 30 s. Ver docs de `staleTimes`.
+  experimental: {
+    staleTimes: { dynamic: 30, static: 180 },
+  },
   headers() {
     return [{ source: "/:path*", headers: CABECERAS_DE_SEGURIDAD }];
   },

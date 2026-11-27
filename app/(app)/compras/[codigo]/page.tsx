@@ -10,9 +10,13 @@ import { datosDelEditor } from "../datos";
 export default async function Page({ params }: PageProps<"/compras/[codigo]">) {
   const perfil = await exigirCompras();
   const { codigo } = await params;
-  const compra = await cargarCompra(decodeURIComponent(codigo));
+  // La compra (Supabase) y los datos del editor (Odoo) no dependen entre sí:
+  // se piden a la vez en vez de uno tras otro.
+  const [compra, { almacenes, productos, tcSugerido }] = await Promise.all([
+    cargarCompra(decodeURIComponent(codigo)),
+    datosDelEditor(),
+  ]);
   if (!compra) notFound();
-  const { almacenes, productos, tcSugerido } = await datosDelEditor();
   return (
     <DetalleCompra
       compra={compra}
