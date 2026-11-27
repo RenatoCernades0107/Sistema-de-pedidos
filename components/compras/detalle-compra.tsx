@@ -12,6 +12,7 @@ import {
   codigoVisible,
   descuadre,
   vencimientoCredito,
+  sePuedeCorregir,
   type CompraDetalle,
 } from "@/lib/compras";
 import { momentoEnLima } from "@/lib/fecha";
@@ -31,6 +32,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { CorregirCompra } from "./corregir-compra";
 import { EditorCompra } from "./editor-compra";
 import { EstadoCompraBadge } from "./estado-compra";
 
@@ -91,11 +93,16 @@ export function DetalleCompra({
         subtitulo={`${compra.odooOrden ? `${compra.codigo} · ` : ""}Creada ${diaMesTexto(momentoEnLima(compra.creadoEn), true)}${compra.creadoPor ? ` por ${compra.creadoPor}` : ""}`}
         className="max-w-5xl"
         lateral={
-          anulable && (
-            <Button variant="outline" className="gap-1.5" onClick={() => setAnulando(true)} disabled={pendiente}>
-              <Ban className="size-4" />
-              Anular
-            </Button>
+          (anulable || sePuedeCorregir(compra.estado)) && (
+            <div className="flex gap-2">
+              {sePuedeCorregir(compra.estado) && <CorregirCompra compra={compra} />}
+              {anulable && (
+                <Button variant="outline" className="gap-1.5" onClick={() => setAnulando(true)} disabled={pendiente}>
+                  <Ban className="size-4" />
+                  Anular
+                </Button>
+              )}
+            </div>
           )
         }
       />
