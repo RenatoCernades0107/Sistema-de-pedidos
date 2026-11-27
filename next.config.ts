@@ -35,6 +35,18 @@ const nextConfig: NextConfig = {
   // pdf.js lee los PDF que se adjuntan al chat de diseños (`lib/cad/adjuntos-servidor.ts`).
   // Se carga con el `import` de Node: empaquetado no encuentra su worker.
   serverExternalPackages: ["pdfjs-dist", "@napi-rs/canvas"],
+  // pdf.js carga su worker, sus fuentes y sus cmaps con `import()`/lecturas que el
+  // trazado de Vercel no ve: sin esto el PDF no se lee en producción ("Setting up
+  // fake worker failed: Cannot find module …/pdf.worker.mjs"). El canvas nativo,
+  // por si acaso, para que viaje con su binario.
+  outputFileTracingIncludes: {
+    "/api/**": [
+      "./node_modules/pdfjs-dist/legacy/build/**/*",
+      "./node_modules/pdfjs-dist/cmaps/**/*",
+      "./node_modules/pdfjs-dist/standard_fonts/**/*",
+      "./node_modules/@napi-rs/canvas*/**/*",
+    ],
+  },
   headers() {
     return [{ source: "/:path*", headers: CABECERAS_DE_SEGURIDAD }];
   },
