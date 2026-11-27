@@ -10,8 +10,8 @@ import { Conversaciones } from "@/components/agente-whatsapp/conversaciones";
  * Las conversaciones del agente de WhatsApp que atiende una persona. El agente
  * solo responde lo que sabe; lo demás llega aquí como "Necesita atención".
  *
- * Por ahora son las del área de pruebas (/agente-whatsapp); cuando se conecte un
- * número de WhatsApp, las reales llegan a esta misma bandeja.
+ * Llegan las reales de WhatsApp (por el webhook de Kapso) y las del área de
+ * pruebas (/agente-whatsapp), en la misma bandeja.
  */
 export default async function Page({ searchParams }: PageProps<"/conversaciones">) {
   const perfil = await exigirConversaciones();
@@ -29,16 +29,15 @@ export default async function Page({ searchParams }: PageProps<"/conversaciones"
         <p className="text-muted-foreground mt-0.5 text-sm">
           El agente de WhatsApp solo responde lo que sabe. Lo que no (cortes, pedidos, pagos, reclamos…) queda aquí
           como «Necesita atención» para que lo atienda una persona.
-          {ROLES[perfil.rol].usarAgenteWhatsapp && (
-            <>
-              {" "}
-              Por ahora son las conversaciones del{" "}
-              <Link href="/agente-whatsapp" className="text-primary underline-offset-4 hover:underline">
-                área de pruebas
-              </Link>
-              .
-            </>
+          {" "}Llegan aquí las de WhatsApp y las del{" "}
+          {ROLES[perfil.rol].usarAgenteWhatsapp ? (
+            <Link href="/agente-whatsapp" className="text-primary underline-offset-4 hover:underline">
+              área de pruebas
+            </Link>
+          ) : (
+            "área de pruebas"
           )}
+          .
         </p>
       </header>
       <Conversaciones

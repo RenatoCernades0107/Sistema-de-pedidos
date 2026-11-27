@@ -195,8 +195,9 @@ export function Conversaciones({
                   </span>
                 </span>
                 <span className="text-muted-foreground line-clamp-1 text-xs">{vistaPreviaMensaje(c.ultimoMensaje)}</span>
-                {(c.motivoAtencion || c.anuncio) && (
+                {(c.motivoAtencion || c.anuncio || c.canal === "prueba") && (
                   <span className="flex flex-wrap items-center gap-1.5">
+                    {c.canal === "prueba" && <span className="text-muted-foreground text-[11px]">Prueba</span>}
                     {c.motivoAtencion && (
                       <span className="inline-flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-400">
                         <Headset className="size-3" aria-hidden />
@@ -239,7 +240,7 @@ export function Conversaciones({
                   <span className="text-muted-foreground">Motivo: {conversacion.motivoAtencion}</span>
                 )}
                 <Badge variant="outline" className="h-5 text-[10px]">
-                  Prueba
+                  {conversacion.canal === "whatsapp" ? `WhatsApp · ${conversacion.telefono ?? ""}` : "Prueba"}
                 </Badge>
               </p>
             </div>

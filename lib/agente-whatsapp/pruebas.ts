@@ -7,6 +7,7 @@
 import { deAdjuntos } from "@/lib/cad/adjuntos";
 import type { Json } from "@/lib/supabase-tipos";
 import { leerEstado, type EstadoConversacion } from "./estado";
+import { leerAdjuntosWhatsapp } from "./webhook";
 import {
   esMimeDocumento,
   esTipoDocumento,
@@ -22,8 +23,13 @@ export interface AdjuntoPrueba extends AdjuntoAgente {
   url?: string;
 }
 
-/** Un archivo que adjuntó el cliente, con (al leerlo) su enlace temporal. */
-export interface AdjuntoClientePrueba extends AdjuntoCliente {
+/**
+ * Un archivo que adjuntó el cliente, con (al leerlo) su enlace. Los del área de
+ * pruebas están en el bucket `agente_adjuntos` (`ruta`); los que llegaron por
+ * WhatsApp, en Kapso, y se ven por /api/whatsapp/media (ya traen `url`).
+ */
+export interface AdjuntoClientePrueba extends Omit<AdjuntoCliente, "mime"> {
+  mime: string;
   url?: string;
 }
 
@@ -35,7 +41,7 @@ export interface MensajePrueba {
   contenido: string;
   /** Lo que envió el agente. */
   adjuntos: AdjuntoPrueba[];
-  /** Lo que adjuntó el cliente. */
+  /** Lo que adjuntó el cliente (o el asesor desde la app del celular). */
   adjuntosCliente: AdjuntoClientePrueba[];
   traza: PasoTraza[];
   /** Un mensaje del agente con `derivado` y sin contenido es la nota "pasó a un asesor". */
@@ -46,9 +52,15 @@ export interface MensajePrueba {
   creadoEn: string;
 }
 
+export type CanalConversacion = "prueba" | "whatsapp";
+
 export interface PruebaResumen {
   id: string;
   titulo: string;
+  canal: CanalConversacion;
+  /** El número del cliente, en las de WhatsApp. */
+  telefono: string | null;
+  contactoNombre: string | null;
   anuncio: Anuncio | null;
   actualizadoEn: string;
   estado: EstadoConversacion;
@@ -120,13 +132,23 @@ export function mensajeDeFila(f: {
   creado_en: string;
 }): MensajePrueba {
   const rol = leerRol(f.rol);
+  // Los que llegaron por WhatsApp se ven por la ruta que los baja de Kapso.
+  const deWhatsapp = leerAdjuntosWhatsapp(f.adjuntos).map(
+    (a, i): AdjuntoClientePrueba => ({
+      ruta: `whatsapp:${i}`,
+      nombre: a.nombre,
+      mime: a.mime,
+      tamano: a.tamano,
+      url: `/api/whatsapp/media/${f.id}/${i}`,
+    }),
+  );
   return {
     id: f.id,
     rol,
     contenido: f.contenido,
     // La columna `adjuntos` guarda lo del agente o lo del cliente, según quién escribió.
     adjuntos: rol === "agente" ? leerAdjuntos(f.adjuntos) : [],
-    adjuntosCliente: rol === "cliente" ? deAdjuntos(f.adjuntos) : [],
+    adjuntosCliente: rol === "cliente" ? [...deAdjuntos(f.adjuntos), ...deWhatsapp] : rol === "asesor" ? deWhatsapp : [],
     traza: leerTraza(f.traza),
     derivado: f.derivado,
     autorId: f.autor_id ?? null,
@@ -137,6 +159,9 @@ export function mensajeDeFila(f: {
 export function resumenDeFila(p: {
   id: string;
   titulo: string;
+  canal?: string;
+  telefono?: string | null;
+  contacto_nombre?: string | null;
   anuncio: Json | null;
   actualizado_en: string;
   estado: string;
@@ -146,6 +171,9 @@ export function resumenDeFila(p: {
   return {
     id: p.id,
     titulo: p.titulo,
+    canal: p.canal === "whatsapp" ? "whatsapp" : "prueba",
+    telefono: p.telefono ?? null,
+    contactoNombre: p.contacto_nombre ?? null,
     anuncio: leerAnuncio(p.anuncio),
     actualizadoEn: p.actualizado_en,
     estado: leerEstado(p.estado),

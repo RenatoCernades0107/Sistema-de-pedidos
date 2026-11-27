@@ -28,6 +28,12 @@ const ABIERTAS = ["/c", "/seguimiento"];
  */
 const ENLACES_AUTH = ["/auth"];
 
+/**
+ * Los webhooks de servicios externos (Kapso, para WhatsApp). Llegan sin sesión y
+ * se autorizan solos, con la firma del servicio: ver su route handler.
+ */
+const WEBHOOKS = ["/api/whatsapp/webhook"];
+
 export async function proxy(request: NextRequest) {
   let respuesta = NextResponse.next({ request });
 
@@ -64,7 +70,7 @@ export async function proxy(request: NextRequest) {
 
   const ruta = request.nextUrl.pathname;
   const esPublica = PUBLICAS.some((p) => ruta === p || ruta.startsWith(`${p}/`));
-  const esAbierta = [...ABIERTAS, ...ENLACES_AUTH].some(
+  const esAbierta = [...ABIERTAS, ...ENLACES_AUTH, ...WEBHOOKS].some(
     (p) => ruta === p || ruta.startsWith(`${p}/`),
   );
 

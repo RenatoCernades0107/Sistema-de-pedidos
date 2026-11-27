@@ -145,11 +145,15 @@ export type Database = {
           anuncio: Json | null
           atencion_desde: string | null
           atendida_por: string | null
+          canal: string
+          contacto_nombre: string | null
           creado_en: string
-          creado_por: string
+          creado_por: string | null
           estado: string
           id: string
           motivo_atencion: string | null
+          phone_number_id: string | null
+          telefono: string | null
           titulo: string
         }
         Insert: {
@@ -157,11 +161,15 @@ export type Database = {
           anuncio?: Json | null
           atencion_desde?: string | null
           atendida_por?: string | null
+          canal?: string
+          contacto_nombre?: string | null
           creado_en?: string
           creado_por?: string
           estado?: string
           id?: string
           motivo_atencion?: string | null
+          phone_number_id?: string | null
+          telefono?: string | null
           titulo?: string
         }
         Update: {
@@ -169,11 +177,15 @@ export type Database = {
           anuncio?: Json | null
           atencion_desde?: string | null
           atendida_por?: string | null
+          canal?: string
+          contacto_nombre?: string | null
           creado_en?: string
           creado_por?: string
           estado?: string
           id?: string
           motivo_atencion?: string | null
+          phone_number_id?: string | null
+          telefono?: string | null
           titulo?: string
         }
         Relationships: [
@@ -204,6 +216,7 @@ export type Database = {
           prueba_id: string
           rol: string
           traza: Json | null
+          wamid: string | null
         }
         Insert: {
           adjuntos?: Json | null
@@ -215,6 +228,7 @@ export type Database = {
           prueba_id: string
           rol: string
           traza?: Json | null
+          wamid?: string | null
         }
         Update: {
           adjuntos?: Json | null
@@ -226,6 +240,7 @@ export type Database = {
           prueba_id?: string
           rol?: string
           traza?: Json | null
+          wamid?: string | null
         }
         Relationships: [
           {
@@ -3896,6 +3911,62 @@ export type Database = {
       }
     }
     Functions: {
+      wa_buscar_fragmentos: {
+        Args: {
+          p_clave: string
+          p_embedding?: string | null
+          p_limite?: number
+          p_modelo?: string | null
+          p_texto: string
+        }
+        Returns: {
+          contenido: string
+          documento_enviable: boolean
+          documento_id: string
+          documento_nombre: string
+          documento_tipo: string
+          fragmento_id: string
+          pagina: number | null
+          puntaje: number
+        }[]
+      }
+      wa_catalogo: { Args: { p_clave: string }; Returns: Json }
+      wa_contexto: { Args: { p_clave: string }; Returns: Json }
+      wa_guardar_respuesta: {
+        Args: {
+          p_adjuntos: Json | null
+          p_clave: string
+          p_contenido: string
+          p_conversacion: string
+          p_derivado: boolean
+          p_motivo: string | null
+          p_traza: Json | null
+        }
+        Returns: boolean
+      }
+      wa_historial: {
+        Args: { p_clave: string; p_conversacion: string }
+        Returns: { adjuntos: Json | null; contenido: string; creado_en: string; rol: string }[]
+      }
+      wa_pedir_atencion: {
+        Args: { p_clave: string; p_conversacion: string; p_motivo: string }
+        Returns: undefined
+      }
+      wa_recibir_mensaje: {
+        Args: {
+          p_adjuntos: Json | null
+          p_anuncio: Json | null
+          p_clave: string
+          p_contacto: string | null
+          p_contenido: string
+          p_creado_en?: string
+          p_phone_number_id: string
+          p_rol: string
+          p_telefono: string
+          p_wamid: string | null
+        }
+        Returns: { anuncio: Json | null; conversacion_id: string; duplicado: boolean; estado: string }[]
+      }
       atiende_conversaciones: { Args: never; Returns: boolean }
       prueba_de_ruta_adjunto: { Args: { p_ruta: string }; Returns: string }
       buscar_fragmentos_agente: {

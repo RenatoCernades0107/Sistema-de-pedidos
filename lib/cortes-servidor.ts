@@ -32,7 +32,7 @@ export const cargarConfigCortes = cache(async (): Promise<ConfigCortes> => {
   return leerConfigCortes(data?.valor ?? null);
 });
 
-interface FilaGrupo {
+export interface FilaGrupo {
   id: string;
   material: string;
   variante: string;
@@ -61,7 +61,7 @@ const deFormato = (f: FilaGrupo["formatos_plancha"][number]): FormatoPlancha => 
   activo: f.activo,
 });
 
-const deGrupo = (g: FilaGrupo): GrupoPlancha => ({
+export const deGrupo = (g: FilaGrupo): GrupoPlancha => ({
   id: g.id,
   material: g.material,
   variante: g.variante,
