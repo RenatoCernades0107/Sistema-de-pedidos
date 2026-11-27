@@ -80,12 +80,13 @@ describe("planificarImportacion", () => {
     expect(c.lineas).toEqual([{ productoId: 20, codigo: "F7E024", nombre: "A", cantidad: 40, precio: 175, recibida: 10 }]);
   });
 
-  it("ignora lo que la app misma creó en Odoo y lo anterior a 'desde'", () => {
-    const plan = planificarImportacion(
-      [orden({ origen: "App Plexiacril CMP-00001" }), orden({ id: 8, fechaPedido: "2026-01-02 10:00:00" })],
-      { ...ctx, desde: "2026-06-01" },
-    );
-    expect(plan).toEqual({ porImportar: [], omitidas: [], deLaApp: 1 });
+  it("no importa lo que la app misma creó en Odoo, pero dice cuál es y de qué compra", () => {
+    const plan = planificarImportacion([orden({ origen: "App Plexiacril CMP-00001" })], ctx);
+    expect(plan).toEqual({
+      porImportar: [],
+      omitidas: [],
+      deLaApp: [{ ordenId: 7, ordenNombre: "P00007", proveedor: "Andina SAC", origen: "App Plexiacril CMP-00001" }],
+    });
   });
 
   it.each([

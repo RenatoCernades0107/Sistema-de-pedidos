@@ -89,8 +89,11 @@ export interface OrdenOmitida {
 export interface PlanImportacion {
   porImportar: CompraPorImportar[];
   omitidas: OrdenOmitida[];
-  /** Las que nacieron en la app (su origen es el de la app): ya están, por otro camino. */
-  deLaApp: number;
+  /**
+   * Las que nacieron en la app (su origen es el de la app, "App Plexiacril CMP-00012") y
+   * que la app no tiene enlazadas: la orden se creó en Odoo pero la compra no guardó su id.
+   */
+  deLaApp: { ordenId: number; ordenNombre: string; proveedor: string; origen: string }[];
 }
 
 export interface ContextoImportacion {
@@ -100,8 +103,6 @@ export interface ContextoImportacion {
   catalogo: Set<string>;
   /** El tipo de cambio de hoy, para las órdenes en dólares que no traen el suyo. */
   tcActual: number | null;
-  /** Solo las pedidas desde este día (YYYY-MM-DD). */
-  desde?: string | null;
 }
 
 const MAX_UNIDADES = 99_999;
@@ -112,14 +113,13 @@ export const instanteDeOdoo = (v: string): string => `${v.replace(" ", "T")}Z`;
 const r6 = (n: number) => Math.round(n * 1_000_000) / 1_000_000;
 
 export function planificarImportacion(ordenes: OrdenOdoo[], ctx: ContextoImportacion): PlanImportacion {
-  const plan: PlanImportacion = { porImportar: [], omitidas: [], deLaApp: 0 };
+  const plan: PlanImportacion = { porImportar: [], omitidas: [], deLaApp: [] };
 
   for (const o of ordenes) {
     if (o.origen?.startsWith(PREFIJO_ORIGEN_APP)) {
-      plan.deLaApp++;
+      plan.deLaApp.push({ ordenId: o.id, ordenNombre: o.nombre, proveedor: o.proveedorNombre, origen: o.origen });
       continue;
     }
-    if (ctx.desde && (o.fechaPedido ?? "").slice(0, 10) < ctx.desde) continue;
 
     const omitir = (motivo: string) =>
       void plan.omitidas.push({ ordenId: o.id, ordenNombre: o.nombre, proveedor: o.proveedorNombre, motivo });
