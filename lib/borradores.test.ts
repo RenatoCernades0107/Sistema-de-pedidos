@@ -11,6 +11,13 @@ import {
   type DatosBorradorPedido,
 } from "./borradores";
 import { compraTieneContenido, resumenDeCompra } from "./borradores-compra";
+import {
+  corteCambiado,
+  estadoInicialCorte,
+  type BorradorCorte,
+  type BorradorDiseno,
+  type BorradorTerminado,
+} from "./borradores-editores";
 import type { Linea } from "./lineas-cotizacion";
 
 const producto: Linea = {
@@ -184,5 +191,138 @@ describe("borrador de compra", () => {
     const base = { id: null, cotizacionId: null, datos: {}, resumen: { cliente: null, productos: 0, total: 0, moneda: "PEN" } };
     expect(esquemaGuardarBorrador.safeParse({ ...base, tipo: "compra" }).success).toBe(true);
     expect(rutaDeBorrador({ id: "x", tipo: "compra", cotizacionId: null })).toBe("/compras/nueva?borrador=x");
+  });
+});
+
+describe("editor de corte o de producto terminado a medio armar", () => {
+  const corteEnCurso: BorradorCorte = {
+    tipo: "corte",
+    clave: null,
+    grupoId: "g1",
+    modalidad: "manual",
+    lugar: "tienda",
+    filas: [
+      { ancho: "10", alto: "20", cantidad: "3" },
+      { ancho: "15,5", alto: "", cantidad: "" },
+    ],
+    eleccion: { tipo: "sobrante", codigo: "S-01" },
+    permitidos: ["F1"],
+    ignorarStock: true,
+  };
+  const terminadoEnCurso: BorradorTerminado = {
+    tipo: "terminado",
+    clave: "t1",
+    estandar: false,
+    tipoCodigo: "CAJ",
+    productoCodigo: null,
+    nombre: "Caja a medida",
+    medidaId: "otra",
+    medidas: { m1: "10", m2: "", m3: "", diametro: "", altura: "", letras: "" },
+    grupoId: "g2",
+    opciones: [3],
+    texto: "",
+    notas: "con tapa",
+    areaManual: "",
+    accesorios: [{ productoId: 9, codigo: "BIS", nombre: "Bisagra", unidad: "Unidades", cantidad: 2, precio: 1.5 }],
+    cantidad: "4",
+    precio: "",
+    reservar: false,
+    eleccion: null,
+  };
+  const disenoEnCurso: BorradorDiseno = {
+    tipo: "diseno",
+    disenoId: "2b1f0f4e-3f7a-4a51-9a55-1f0e8f2f6c11",
+    nuevo: true,
+    clave: null,
+    productoCodigo: "CAJ-001",
+    cantidad: "2",
+    precio: "35",
+  };
+  const cotizacion: DatosBorradorCotizacion = {
+    version: 1,
+    canal: "tienda",
+    cliente,
+    lineas: [producto],
+    notas: "",
+    disenosDeLinea: {},
+  };
+
+  it("viaja dentro del borrador del formulario y vuelve igual (los tres editores)", () => {
+    for (const editor of [corteEnCurso, terminadoEnCurso, disenoEnCurso]) {
+      const d = { ...cotizacion, editor };
+      expect(leerDatos("cotizacion", JSON.parse(JSON.stringify(d)))).toEqual(d);
+    }
+    const pedido: DatosBorradorPedido = {
+      version: 1,
+      cliente: null,
+      lineas: [],
+      campos: {},
+      indicaciones: {},
+      conObservaciones: false,
+      disenosDeLinea: {},
+      archivosOmitidos: [],
+      editor: corteEnCurso,
+    };
+    expect(leerDatos("pedido", JSON.parse(JSON.stringify(pedido)))).toEqual(pedido);
+  });
+
+  it("un borrador de antes (sin editor) o con el editor cerrado se sigue leyendo", () => {
+    expect(leerDatos("cotizacion", cotizacion)).toEqual(cotizacion);
+    expect(leerDatos("cotizacion", { ...cotizacion, editor: null })).toEqual({ ...cotizacion, editor: null });
+  });
+
+  it("rechaza un editor con otra forma", () => {
+    expect(leerDatos("cotizacion", { ...cotizacion, editor: { ...corteEnCurso, modalidad: "agua" } })).toBeNull();
+    expect(leerDatos("cotizacion", { ...cotizacion, editor: { ...disenoEnCurso, disenoId: "x" } })).toBeNull();
+    expect(leerDatos("cotizacion", { ...cotizacion, editor: { tipo: "otro" } })).toBeNull();
+  });
+
+  it("el resumen dice qué quedó a medio armar", () => {
+    expect(resumenDe(cliente, [producto], corteEnCurso)).toEqual({
+      cliente: "Juan Pérez",
+      productos: 1,
+      total: 240,
+      enCurso: "corte",
+    });
+    expect(resumenDe(null, [], terminadoEnCurso).enCurso).toBe("terminado");
+    expect(resumenDe(null, [], disenoEnCurso).enCurso).toBe("terminado");
+    expect(resumenDe(null, [], null)).not.toHaveProperty("enCurso");
+    const base = { id: null, tipo: "cotizacion", cotizacionId: null, datos: {} };
+    expect(esquemaGuardarBorrador.safeParse({ ...base, resumen: { cliente: null, productos: 0, total: 0, enCurso: "corte" } }).success).toBe(true);
+    expect(esquemaGuardarBorrador.safeParse({ ...base, resumen: { cliente: null, productos: 0, total: 0, enCurso: "otro" } }).success).toBe(false);
+  });
+
+  it("el editor de corte arranca con el borrador; si no, con la línea; si no, vacío", () => {
+    expect(estadoInicialCorte(null)).toEqual({
+      grupoId: null,
+      modalidad: "laser",
+      lugar: "tienda",
+      filas: [{ ancho: "", alto: "", cantidad: "" }],
+      eleccion: null,
+      permitidos: null,
+      ignorarStock: false,
+    });
+    const linea = {
+      grupoId: "g",
+      modalidad: "laser" as const,
+      lugar: "taller" as const,
+      piezas: [{ ancho: 10, alto: 20, cantidad: 3 }],
+      eleccion: null,
+      formatosPermitidos: null,
+    };
+    expect(estadoInicialCorte(linea).filas).toEqual([{ ancho: "10", alto: "20", cantidad: "3" }]);
+    expect({ tipo: "corte", clave: null, ...estadoInicialCorte(linea, corteEnCurso) }).toEqual(corteEnCurso);
+    // Sin filas, al menos una vacía para escribir.
+    expect(estadoInicialCorte(null, { ...corteEnCurso, filas: [] }).filas).toEqual([{ ancho: "", alto: "", cantidad: "" }]);
+  });
+
+  it("el corte cuenta como cambiado (y va al borrador) solo si hay algo que perder", () => {
+    const vacio = estadoInicialCorte(null);
+    expect(corteCambiado(vacio, vacio)).toBe(false);
+    // Una fila vacía de más no es contenido; ignorar el stock tampoco.
+    expect(corteCambiado({ ...vacio, filas: [...vacio.filas, { ancho: "", alto: "", cantidad: "" }], ignorarStock: true }, vacio)).toBe(false);
+    expect(corteCambiado({ ...vacio, grupoId: "g" }, vacio)).toBe(true);
+    expect(corteCambiado({ ...vacio, filas: [{ ancho: "5", alto: "", cantidad: "" }] }, vacio)).toBe(true);
+    expect(corteCambiado({ ...vacio, eleccion: { tipo: "formato", codigo: "F1" } }, vacio)).toBe(true);
   });
 });

@@ -2,10 +2,13 @@ import { z } from "zod";
 import type { Canal } from "@/lib/cotizaciones";
 import type { ClienteOdoo, ContactoOdoo } from "@/lib/odoo/tipos";
 import { totalReferencial, type Linea } from "@/lib/lineas-cotizacion";
+import { claseEnCurso, esquemaEditorEnCurso, type ClaseEnCurso, type EditorEnCurso } from "@/lib/borradores-editores";
 
 /**
  * Borradores de "Nuevo pedido" y "Nueva cotización": el formulario entero, que
- * se guarda solo mientras se llena y se retoma desde la lista.
+ * se guarda solo mientras se llena y se retoma desde la lista. Incluye el
+ * editor de corte a medida o de producto terminado que haya quedado abierto a
+ * medias (`editor`): al retomar, se vuelve a abrir como estaba.
  *
  * Vencen a las 48 h sin abrirlos ni editarlos (la base renueva el plazo en
  * cada guardado o apertura) y solo los ve quien los creó (RLS).
@@ -26,6 +29,8 @@ export interface ResumenBorrador {
   total: number;
   /** Solo en compras: la moneda en que está el total (si no, soles). */
   moneda?: "PEN" | "USD";
+  /** Un corte o un producto terminado que quedó a medio armar en su editor. */
+  enCurso?: ClaseEnCurso;
 }
 
 export interface DatosBorradorCotizacion {
@@ -38,6 +43,8 @@ export interface DatosBorradorCotizacion {
   notas: string;
   /** El diseño CAD de cada línea de producto terminado, por clave: para volver a abrirlo. */
   disenosDeLinea: Record<string, string>;
+  /** El editor de corte o de producto terminado que quedó abierto a medias. */
+  editor?: EditorEnCurso | null;
 }
 
 export interface DatosBorradorPedido {
@@ -53,6 +60,8 @@ export interface DatosBorradorPedido {
   disenosDeLinea: Record<string, string>;
   /** Los archivos que tenía adjuntos: no se guardan, se avisa al retomar. */
   archivosOmitidos: string[];
+  /** El editor de corte o de producto terminado que quedó abierto a medias. */
+  editor?: EditorEnCurso | null;
 }
 
 /** Un ítem del editor de compra tal como se escribe (todo texto). */
@@ -128,6 +137,7 @@ export const esquemaDatosCotizacion = z.object({
   lineas: z.array(esquemaLinea).max(500),
   notas: z.string().max(2000),
   disenosDeLinea: esquemaClaves,
+  editor: esquemaEditorEnCurso.nullish(),
 });
 
 export const esquemaDatosPedido = z.object({
@@ -140,6 +150,7 @@ export const esquemaDatosPedido = z.object({
   conObservaciones: z.boolean(),
   disenosDeLinea: esquemaClaves,
   archivosOmitidos: z.array(z.string().max(300)).max(200),
+  editor: esquemaEditorEnCurso.nullish(),
 });
 
 const texto = (max: number) => z.string().max(max);
@@ -179,6 +190,7 @@ export const esquemaResumen = z.object({
   productos: z.number().int().min(0),
   total: z.number().finite(),
   moneda: z.enum(["PEN", "USD"]).optional(),
+  enCurso: z.enum(["corte", "terminado"]).optional(),
 });
 
 export const esquemaGuardarBorrador = z.object({
@@ -202,8 +214,18 @@ export function leerDatos(tipo: TipoBorrador, datos: unknown): DatosBorrador | n
 
 /* ── Resumen y plazos ──────────────────────────────────────────────────────── */
 
-export function resumenDe(cliente: { nombre: string } | null, lineas: Linea[]): ResumenBorrador {
-  return { cliente: cliente?.nombre ?? null, productos: lineas.length, total: totalReferencial(lineas) };
+export function resumenDe(
+  cliente: { nombre: string } | null,
+  lineas: Linea[],
+  editor: EditorEnCurso | null = null,
+): ResumenBorrador {
+  const enCurso = claseEnCurso(editor);
+  return {
+    cliente: cliente?.nombre ?? null,
+    productos: lineas.length,
+    total: totalReferencial(lineas),
+    ...(enCurso ? { enCurso } : {}),
+  };
 }
 
 /** Horas enteras que le quedan (redondeando hacia arriba; 0 si ya venció). */

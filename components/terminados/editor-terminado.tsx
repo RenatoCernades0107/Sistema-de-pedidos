@@ -54,6 +54,7 @@ import { BuscarAccesorio } from "@/components/cotizaciones/buscar-accesorio";
 import { SelectorMaterialPasos } from "@/components/cortes/selector-material-pasos";
 import { Button } from "@/components/ui/button";
 import { useCerrarConAviso } from "@/components/ui/confirmar-descarte";
+import type { BorradorTerminado } from "@/lib/borradores-editores";
 import { Campo, Opciones } from "@/components/ui/campo";
 import {
   Dialog,
@@ -100,6 +101,51 @@ function aMedidas(t: TextoMedidas): Medidas {
     if (n) salida[k] = k === "letras" ? Math.floor(n) : n;
   }
   return salida;
+}
+
+/** Lo que se elige o escribe en el editor (sin la plancha elegida, que va aparte). */
+type ValoresTerminado = Omit<BorradorTerminado, "tipo" | "clave" | "eleccion" | "medidas"> & { medidas: TextoMedidas };
+
+/** Cómo abre el editor: con la línea que se edita, o vacío. */
+function valoresAlAbrir(inicial: LineaTerminado | null): ValoresTerminado {
+  return {
+    estandar: inicial ? !!inicial.productoCodigo : true,
+    tipoCodigo: inicial?.tipoCodigo ?? null,
+    productoCodigo: inicial?.productoCodigo ?? null,
+    nombre: inicial && !inicial.productoCodigo ? inicial.nombre : "",
+    medidaId: inicial ? OTRA_MEDIDA : null,
+    medidas: inicial ? aTexto(inicial.medidas) : SIN_MEDIDAS,
+    grupoId: inicial?.grupoId ?? null,
+    opciones: inicial?.opciones ?? [],
+    texto: inicial?.texto ?? "",
+    notas: inicial?.notas ?? "",
+    areaManual: texto(inicial?.areaManualM2),
+    accesorios: inicial?.accesorios ?? [],
+    cantidad: inicial ? String(inicial.cantidad) : "1",
+    precio: inicial && inicial.precioUnitario !== inicial.calculo.precioSugerido ? String(inicial.precioUnitario) : "",
+    reservar: inicial?.reservar ?? false,
+  };
+}
+
+/** Lo que quedó en un borrador, como valores del editor. */
+function valoresDeBorrador(b: BorradorTerminado): ValoresTerminado {
+  return {
+    estandar: b.estandar,
+    tipoCodigo: b.tipoCodigo,
+    productoCodigo: b.productoCodigo,
+    nombre: b.nombre,
+    medidaId: b.medidaId,
+    medidas: { ...SIN_MEDIDAS, ...b.medidas },
+    grupoId: b.grupoId,
+    opciones: b.opciones,
+    texto: b.texto,
+    notas: b.notas,
+    areaManual: b.areaManual,
+    accesorios: b.accesorios,
+    cantidad: b.cantidad,
+    precio: b.precio,
+    reservar: b.reservar,
+  };
 }
 
 /** Las medidas de una fila del catálogo, en los campos que usa la forma del producto. */
@@ -193,6 +239,8 @@ export function EditorTerminado({
   planchas,
   configCortes,
   inicial,
+  borrador = null,
+  alCambiarBorrador,
   alGuardar,
   alCerrar,
 }: {
@@ -202,33 +250,38 @@ export function EditorTerminado({
   configCortes: ConfigCortes;
   /** El que se está editando; `null` para uno nuevo. */
   inicial: LineaTerminado | null;
+  /** Lo que quedó a medias en un borrador del formulario: el editor arranca así. */
+  borrador?: BorradorTerminado | null;
+  /** Lo elegido o escrito hasta ahora, para el borrador; `null` si no hay nada que perder. */
+  alCambiarBorrador?: (borrador: BorradorTerminado | null) => void;
   alGuardar: (terminado: TerminadoNuevo) => void;
   alCerrar: () => void;
 }) {
-  const [estandar, setEstandar] = useState(inicial ? !!inicial.productoCodigo : true);
-  const [tipoCodigo, setTipoCodigo] = useState<string | null>(inicial?.tipoCodigo ?? null);
-  const [productoCodigo, setProductoCodigo] = useState<string | null>(inicial?.productoCodigo ?? null);
+  /** Cómo abrió (la línea o vacío) y cómo arranca (eso, o lo del borrador). */
+  const [alAbrir] = useState(() => valoresAlAbrir(inicial));
+  const [arranque] = useState(() => (borrador ? valoresDeBorrador(borrador) : alAbrir));
+  const [estandar, setEstandar] = useState(arranque.estandar);
+  const [tipoCodigo, setTipoCodigo] = useState<string | null>(arranque.tipoCodigo);
+  const [productoCodigo, setProductoCodigo] = useState<string | null>(arranque.productoCodigo);
   const [buscado, setBuscado] = useState("");
-  const [nombre, setNombre] = useState(inicial && !inicial.productoCodigo ? inicial.nombre : "");
-  const [medidaId, setMedidaId] = useState<string | null>(inicial ? OTRA_MEDIDA : null);
-  const [medidas, setMedidas] = useState<TextoMedidas>(inicial ? aTexto(inicial.medidas) : SIN_MEDIDAS);
-  const [grupoId, setGrupoId] = useState<string | null>(inicial?.grupoId ?? null);
-  const [opciones, setOpciones] = useState<number[]>(inicial?.opciones ?? []);
-  const [textoPedido, setTextoPedido] = useState(inicial?.texto ?? "");
-  const [notas, setNotas] = useState(inicial?.notas ?? "");
-  const [areaManual, setAreaManual] = useState(texto(inicial?.areaManualM2));
-  const [accesorios, setAccesorios] = useState<Accesorio[]>(inicial?.accesorios ?? []);
-  const [cantidad, setCantidad] = useState(inicial ? String(inicial.cantidad) : "1");
+  const [nombre, setNombre] = useState(arranque.nombre);
+  const [medidaId, setMedidaId] = useState<string | null>(arranque.medidaId);
+  const [medidas, setMedidas] = useState<TextoMedidas>(arranque.medidas);
+  const [grupoId, setGrupoId] = useState<string | null>(arranque.grupoId);
+  const [opciones, setOpciones] = useState<number[]>(arranque.opciones);
+  const [textoPedido, setTextoPedido] = useState(arranque.texto);
+  const [notas, setNotas] = useState(arranque.notas);
+  const [areaManual, setAreaManual] = useState(arranque.areaManual);
+  const [accesorios, setAccesorios] = useState<Accesorio[]>(arranque.accesorios);
+  const [cantidad, setCantidad] = useState(arranque.cantidad);
   /** El precio escrito a mano. Vacío: vale el sugerido. */
-  const [precio, setPrecio] = useState(
-    inicial && inicial.precioUnitario !== inicial.calculo.precioSugerido ? String(inicial.precioUnitario) : "",
-  );
-  const [reservar, setReservar] = useState(inicial?.reservar ?? false);
+  const [precio, setPrecio] = useState(arranque.precio);
+  const [reservar, setReservar] = useState(arranque.reservar);
   const [buscandoAccesorio, setBuscandoAccesorio] = useState(false);
   const [porCategoria, setPorCategoria] = useState(false);
 
   /* Lo elegido o escrito, para saber si cerrar pierde algo: se compara con cómo abrió. */
-  const foto = JSON.stringify([
+  const valores: ValoresTerminado = {
     estandar,
     tipoCodigo,
     productoCodigo,
@@ -237,15 +290,16 @@ export function EditorTerminado({
     medidas,
     grupoId,
     opciones,
-    textoPedido,
+    texto: textoPedido,
     notas,
     areaManual,
     accesorios,
     cantidad,
     precio,
     reservar,
-  ]);
-  const [fotoInicial] = useState(foto);
+  };
+  const foto = JSON.stringify(valores);
+  const [fotoInicial] = useState(() => JSON.stringify(alAbrir));
 
   const producto = estandar ? (catalogo.productos.find((p) => p.codigo === productoCodigo) ?? null) : null;
   const tipo = catalogo.tipos.find((t) => t.codigo === (producto?.tipo ?? tipoCodigo)) ?? null;
@@ -256,8 +310,8 @@ export function EditorTerminado({
   const { precios, sobrantes: sobrantesPorLugar, error: errorPrecios } = usePrecios(grupoId);
   /** La plancha o el sobrante elegidos a mano, para el material en que se eligieron. */
   const [eleccionDe, setEleccionDe] = useState<{ grupoId: string | null; eleccion: EleccionPlancha | null }>({
-    grupoId: inicial?.grupoId ?? null,
-    eleccion: inicial?.eleccion ?? null,
+    grupoId: arranque.grupoId,
+    eleccion: borrador ? borrador.eleccion : (inicial?.eleccion ?? null),
   });
   const eleccion = eleccionDe.grupoId === grupoId ? eleccionDe.eleccion : null;
   const setEleccion = useCallback((e: EleccionPlancha | null) => setEleccionDe({ grupoId, eleccion: e }), [grupoId]);
@@ -1000,6 +1054,18 @@ export function EditorTerminado({
   );
 
   const sucio = foto !== fotoInicial || JSON.stringify(eleccionDe.eleccion) !== JSON.stringify(inicial?.eleccion ?? null);
+
+  /* Lo mismo que se perdería al cerrar es lo que se lleva el borrador del formulario. */
+  const enBorrador = sucio ? JSON.stringify([valores, eleccion]) : null;
+  const reportar = useRef(alCambiarBorrador);
+  useEffect(() => {
+    reportar.current = alCambiarBorrador;
+  });
+  useEffect(() => {
+    if (!enBorrador) return reportar.current?.(null);
+    const [v, e] = JSON.parse(enBorrador) as [ValoresTerminado, EleccionPlancha | null];
+    reportar.current?.({ tipo: "terminado", clave: inicial?.clave ?? null, ...v, eleccion: e });
+  }, [enBorrador, inicial?.clave]);
   const { pedirCierre, dialogo } = useCerrarConAviso(sucio, alCerrar, {
     titulo: inicial ? "¿Descartar los cambios del producto?" : "¿Descartar este producto?",
     descripcion: inicial

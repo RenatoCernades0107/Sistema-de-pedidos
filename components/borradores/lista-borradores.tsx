@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { eliminarBorrador } from "@/app/(app)/borradores/acciones";
 import { HORAS_BORRADOR, haceCuanto, horasRestantes, rutaDeBorrador, type BorradorListado } from "@/lib/borradores";
 import { money, montoEn } from "@/lib/formato";
+import { TEXTO_EN_CURSO } from "@/lib/borradores-editores";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -73,6 +74,9 @@ export function ListaBorradores({ borradores, nombre }: { borradores: BorradorLi
                       {" · "}
                       <span className="tnum">{b.resumen.moneda ? montoEn(b.resumen.total, b.resumen.moneda) : money(b.resumen.total)}</span>
                     </>
+                  )}
+                  {b.resumen.enCurso && (
+                    <span data-testid="borrador-en-curso">{` · con ${TEXTO_EN_CURSO[b.resumen.enCurso]}`}</span>
                   )}
                   {" · editado "}
                   {haceCuanto(b.actualizadoEn)}
