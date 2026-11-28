@@ -13,11 +13,11 @@ import { BuscarPlancha } from "./buscar-plancha";
 const RUTA = "/api/cotizaciones/buscar/productos";
 
 /**
- * Cómo se agregan productos a una cotización o un pedido: el buscador de Odoo a
- * todo el ancho (así sus resultados tienen sitio para el nombre, también en un
- * celular) y, debajo, los atajos por propiedades —Buscar plancha, Buscar
- * accesorio— y lo que pase la pantalla en `acciones` (corte a medida, producto
- * terminado).
+ * Cómo se agregan productos a una cotización o un pedido: arriba los atajos por
+ * propiedades —Buscar plancha, Buscar accesorio— y lo que pase la pantalla en
+ * `acciones` (corte a medida, producto terminado); debajo, el buscador de Odoo
+ * a todo el ancho (así sus resultados tienen sitio para el nombre, también en
+ * un celular).
  */
 export function BarraAgregar({
   alAgregar,
@@ -43,7 +43,6 @@ export function BarraAgregar({
 
   return (
     <div className={cn("flex flex-col gap-2", className)}>
-      <BuscadorProducto alAgregar={alAgregar} inputRef={inputRef} ruta={ruta} sinPrecio={sinPrecio} etiqueta={etiqueta} />
       <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
         <Button
           type="button"
@@ -62,6 +61,9 @@ export function BarraAgregar({
         </Button>
         {acciones}
       </div>
+      {/* Debajo de los atajos: así su lista de resultados se abre hacia las
+          líneas y no tapa los botones. */}
+      <BuscadorProducto alAgregar={alAgregar} inputRef={inputRef} ruta={ruta} sinPrecio={sinPrecio} etiqueta={etiqueta} />
 
       <BuscarPlancha
         abierto={buscando === "plancha"}

@@ -40,6 +40,7 @@ import { Seccion } from "@/components/ui/seccion";
 import { useAvisoSalida } from "@/lib/use-aviso-salida";
 import { useBorrador } from "@/lib/use-borrador";
 import { resumenDe, type BorradorAbierto, type DatosBorradorPedido } from "@/lib/borradores";
+import type { BorradorCorte } from "@/lib/borradores-editores";
 import { IndicadorBorrador } from "@/components/borradores/lista-borradores";
 import { Input } from "@/components/ui/input";
 import { Campo, Opciones } from "@/components/ui/campo";
@@ -164,7 +165,18 @@ export function NuevoPedidoForm({
   const [cliente, setCliente] = useState<ClienteOdoo | null>(previo?.cliente ?? null);
   const [contacto, setContacto] = useState<ContactoOdoo | null>(previo?.contacto ?? null);
   const [lineas, setLineas] = useState<Linea[]>(previo?.lineas ?? []);
-  const [corte, setCorte] = useState<{ clave: string | null } | null>(null);
+  const [corte, setCorte] = useState<{ clave: string | null; borrador?: BorradorCorte } | null>(() =>
+    // Si el borrador quedó con un corte a medio armar, el editor vuelve a abrir así.
+    previo?.editor?.tipo === "corte" ? { clave: previo.editor.clave, borrador: previo.editor } : null,
+  );
+  /** Lo que lleva armado el editor de corte, para el borrador; `null` si no hay nada que perder. */
+  const [corteEnCurso, setCorteEnCurso] = useState<BorradorCorte | null>(
+    previo?.editor?.tipo === "corte" ? previo.editor : null,
+  );
+  const cerrarCorte = () => {
+    setCorte(null);
+    setCorteEnCurso(null);
+  };
   const [resaltada, setResaltada] = useState<string | null>(null);
   const [errorLineas, setErrorLineas] = useState<string | null>(null);
 
@@ -287,6 +299,7 @@ export function NuevoPedidoForm({
     diseno,
     cliente: cliente?.nombre,
     enlazadas: previo?.disenosDeLinea,
+    retomar: previo?.editor?.tipo === "corte" ? null : previo?.editor,
   });
 
   const elegirCliente = (c: ClienteOdoo | null, ct: ContactoOdoo | null = null) => {
@@ -360,6 +373,7 @@ export function NuevoPedidoForm({
   /* Mientras se llena, todo (menos los archivos) queda guardado como borrador;
      solo lo ve quien lo crea. */
   const campos = form.watch();
+  const editorEnCurso = corteEnCurso ?? terminadosCad.enCurso;
   const autoguardado = useBorrador({
     tipo: "pedido",
     idInicial: borrador?.id ?? null,
@@ -377,10 +391,12 @@ export function NuevoPedidoForm({
       ),
       // Hasta que se adjunte algo, se sigue avisando de los que tenía.
       archivosOmitidos: hayArchivos ? nombresArchivos : (previo?.archivosOmitidos ?? []),
+      // El corte o el producto terminado que se está armando, si cerrarlo perdería algo.
+      editor: editorEnCurso,
     },
     resumen: desdeCotizacion
       ? { cliente: desdeCotizacion.cliente.nombre, productos: desdeCotizacion.lineas.length, total: desdeCotizacion.total }
-      : resumenDe(cliente, lineas),
+      : resumenDe(cliente, lineas, editorEnCurso),
     conContenido:
       !!borrador ||
       !!cliente ||
@@ -388,7 +404,8 @@ export function NuevoPedidoForm({
       hayArchivos ||
       conObservaciones ||
       Object.values(indicaciones).some((t) => t.trim()) ||
-      form.formState.isDirty,
+      form.formState.isDirty ||
+      !!editorEnCurso,
     activo: !registrado,
   });
 
@@ -1170,11 +1187,13 @@ export function NuevoPedidoForm({
           catalogo={catalogo}
           config={config}
           inicial={lineas.filter(esCorte).find((l) => l.clave === corte.clave) ?? null}
-          alCerrar={() => setCorte(null)}
+          borrador={corte.borrador}
+          alCambiarBorrador={setCorteEnCurso}
+          alCerrar={cerrarCorte}
           alGuardar={(nuevo) => {
             const { lineas: siguientes, clave } = ponerCorte(lineas, nuevo);
             ponerLineas(siguientes);
-            setCorte(null);
+            cerrarCorte();
             marcar(clave);
             requestAnimationFrame(() => buscadorProducto.current?.focus());
           }}

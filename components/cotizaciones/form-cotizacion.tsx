@@ -39,6 +39,7 @@ import { Campo, Opciones } from "@/components/ui/campo";
 import { Seccion } from "@/components/ui/seccion";
 import { useBorrador } from "@/lib/use-borrador";
 import { resumenDe, type BorradorAbierto, type DatosBorradorCotizacion } from "@/lib/borradores";
+import type { BorradorCorte } from "@/lib/borradores-editores";
 import { IndicadorBorrador } from "@/components/borradores/lista-borradores";
 import { Textarea } from "@/components/ui/textarea";
 import { BuscadorCliente } from "./buscador-cliente";
@@ -106,7 +107,18 @@ export function FormCotizacion({
   /** Cortes y productos terminados que ya tenía la cotización y se dejan como están. */
   const [conservadas, setConservadas] = useState<LineaGuardada[]>(edicion?.conservadas ?? []);
   /** El editor de corte: cerrado, abierto para uno nuevo, o editando el de esa clave. */
-  const [corte, setCorte] = useState<{ clave: string | null } | null>(null);
+  const [corte, setCorte] = useState<{ clave: string | null; borrador?: BorradorCorte } | null>(() =>
+    // Si el borrador quedó con un corte a medio armar, el editor vuelve a abrir así.
+    previo?.editor?.tipo === "corte" ? { clave: previo.editor.clave, borrador: previo.editor } : null,
+  );
+  /** Lo que lleva armado el editor de corte, para el borrador; `null` si no hay nada que perder. */
+  const [corteEnCurso, setCorteEnCurso] = useState<BorradorCorte | null>(
+    previo?.editor?.tipo === "corte" ? previo.editor : null,
+  );
+  const cerrarCorte = () => {
+    setCorte(null);
+    setCorteEnCurso(null);
+  };
   const [notas, setNotas] = useState(edicion?.notas ?? previo?.notas ?? "");
   const [resaltada, setResaltada] = useState<string | null>(null);
   const [pendiente, iniciar] = useTransition();
@@ -143,6 +155,7 @@ export function FormCotizacion({
       ...previo?.disenosDeLinea,
       ...(arranque && lineaInicial ? { [arranque.clave]: lineaInicial.disenoId } : {}),
     },
+    retomar: previo?.editor?.tipo === "corte" ? null : previo?.editor,
   });
 
   const elegirCliente = (c: ClienteOdoo | null, ct: ContactoOdoo | null = null) => {
@@ -179,6 +192,7 @@ export function FormCotizacion({
   const problemaLineas = conservadas.length > 0 && lineas.length === 0 ? null : problemaDeLineas(lineas);
   const problema = !cliente ? "Elige el cliente." : problemaLineas;
 
+  const editorEnCurso = corteEnCurso ?? terminadosCad.enCurso;
   // Mientras se llena, todo queda guardado como borrador (solo lo ve quien lo crea).
   const autoguardado = useBorrador({
     tipo: "cotizacion",
@@ -194,9 +208,11 @@ export function FormCotizacion({
       disenosDeLinea: Object.fromEntries(
         Object.entries(terminadosCad.disenosDeLinea).filter(([clave]) => lineas.some((l) => l.clave === clave)),
       ),
+      // El corte o el producto terminado que se está armando, si cerrarlo perdería algo.
+      editor: editorEnCurso,
     },
-    resumen: resumenDe(cliente, lineas),
-    conContenido: !!cliente || lineas.length > 0 || notas.trim() !== "",
+    resumen: resumenDe(cliente, lineas, editorEnCurso),
+    conContenido: !!cliente || lineas.length > 0 || notas.trim() !== "" || !!editorEnCurso,
     // Editar una cotización no es llenar una nueva: no hay borrador que guardar.
     activo: !creada && !edicion,
   });
@@ -427,11 +443,13 @@ export function FormCotizacion({
           catalogo={catalogo}
           config={config}
           inicial={lineas.filter(esCorte).find((l) => l.clave === corte.clave) ?? null}
-          alCerrar={() => setCorte(null)}
+          borrador={corte.borrador}
+          alCambiarBorrador={setCorteEnCurso}
+          alCerrar={cerrarCorte}
           alGuardar={(nuevo) => {
             const { lineas: siguientes, clave } = ponerCorte(lineas, nuevo);
             setLineas(siguientes);
-            setCorte(null);
+            cerrarCorte();
             marcar(clave);
             // De vuelta al buscador: lo siguiente es otro producto o crear.
             requestAnimationFrame(() => buscadorProducto.current?.focus());

@@ -9,6 +9,7 @@ import { nombreArchivo } from "@/lib/cad/esquema";
 import { PLANTILLA_LIBRE } from "@/lib/cad/tipos";
 import { Button } from "@/components/ui/button";
 import { colorDe, espesorTexto, type GrupoPlancha } from "@/lib/cortes/catalogo";
+import { porPrioridadDeColor } from "@/lib/cortes/seleccion-material";
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useDiseno } from "./diseno-contexto";
@@ -150,7 +151,7 @@ export function PanelPlanchas() {
   const materiales = useMemo(() => unicos(catalogo.map((g) => g.material)), [catalogo]);
   const elegidoMaterial = grupo?.material ?? null;
   const colores = useMemo(
-    () => unicos(catalogo.filter((g) => g.material === elegidoMaterial).map(colorDe)),
+    () => unicos(catalogo.filter((g) => g.material === elegidoMaterial).map(colorDe)).sort(porPrioridadDeColor),
     [catalogo, elegidoMaterial],
   );
   const elegidoColor = grupo ? colorDe(grupo) : null;

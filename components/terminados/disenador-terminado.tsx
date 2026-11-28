@@ -20,6 +20,7 @@ import type { MaterialDiseno, ParametrosCad, PlantillaCad, ResultadoGeneracion }
 import type { GrupoPlancha } from "@/lib/cortes/catalogo";
 import { momentoEnLima } from "@/lib/fecha";
 import { money } from "@/lib/formato";
+import type { BorradorDiseno } from "@/lib/borradores-editores";
 import type { LineaTerminado } from "@/lib/lineas-cotizacion";
 import {
   medidasDe,
@@ -84,6 +85,8 @@ export function DisenadorTerminado({
   terminados,
   linea,
   cliente,
+  retomado = null,
+  alCambiarBorrador,
   alCerrar,
   alAgregar,
 }: {
@@ -103,6 +106,10 @@ export function DisenadorTerminado({
   /** La línea que se edita, si es una edición. */
   linea: LineaTerminado | null;
   cliente?: string | null;
+  /** Se retoma de un borrador del formulario: el producto, la cantidad y el precio que tenía. */
+  retomado?: Pick<BorradorDiseno, "productoCodigo" | "cantidad" | "precio"> | null;
+  /** Lo armado hasta ahora, para el borrador; `null` si no hay nada que perder. */
+  alCambiarBorrador?: (borrador: BorradorDiseno | null) => void;
   alCerrar: () => void;
   alAgregar: (terminado: TerminadoDeDiseno) => void;
 }) {
@@ -115,7 +122,9 @@ export function DisenadorTerminado({
     };
   }, []);
 
-  const [productoCodigo, setProductoCodigo] = useState<string | null>(linea?.productoCodigo ?? null);
+  const [productoCodigo, setProductoCodigo] = useState<string | null>(
+    retomado ? retomado.productoCodigo : (linea?.productoCodigo ?? null),
+  );
 
   return createPortal(
     <div
@@ -142,6 +151,8 @@ export function DisenadorTerminado({
           cliente={cliente}
           productoCodigo={productoCodigo}
           setProductoCodigo={setProductoCodigo}
+          retomado={retomado}
+          alCambiarBorrador={alCambiarBorrador}
           alCerrar={alCerrar}
           alAgregar={alAgregar}
         />
@@ -160,6 +171,8 @@ function Contenido({
   cliente,
   productoCodigo,
   setProductoCodigo,
+  retomado,
+  alCambiarBorrador,
   alCerrar,
   alAgregar,
 }: {
@@ -171,6 +184,8 @@ function Contenido({
   cliente?: string | null;
   productoCodigo: string | null;
   setProductoCodigo: (c: string | null) => void;
+  retomado: Pick<BorradorDiseno, "productoCodigo" | "cantidad" | "precio"> | null;
+  alCambiarBorrador?: (borrador: BorradorDiseno | null) => void;
   alCerrar: () => void;
   alAgregar: (terminado: TerminadoDeDiseno) => void;
 }) {
@@ -180,7 +195,11 @@ function Contenido({
      una versión guardada desde aquí, la cantidad o el precio), se pregunta antes. */
   const [alAbrir] = useState(() => ({ plantilla, versionVigente, productoCodigo, material: JSON.stringify(material) }));
   const [pieCambiado, setPieCambiado] = useState(false);
+  /** La cantidad y el precio del pie, tal como se escriben: para el borrador. */
+  const [pie, setPie] = useState<{ cantidad: string; precio: string } | null>(null);
   const cambiado =
+    // Lo retomado de un borrador ya es trabajo hecho: cerrar pregunta antes.
+    !!retomado ||
     pieCambiado ||
     plantilla !== alAbrir.plantilla ||
     versionVigente !== alAbrir.versionVigente ||
@@ -195,9 +214,26 @@ function Contenido({
     (plantilla ? (terminados.productos.find((p) => p.activo && p.plantillaCad === plantilla) ?? null) : null);
   const nombre = producto?.nombre ?? plantillas.find((p) => p.codigo === plantilla)?.nombre ?? linea?.nombre ?? null;
 
+  /* Lo mismo que se perdería al cancelar es lo que se lleva el borrador del formulario.
+     El diseño en sí ya se guarda solo: aquí van cuál es, el producto y el pie. */
+  const porPerder = cambiado || (nuevo && !!resultado);
+  // Hasta que el pie diga su cantidad y precio no se informa nada (ni que no hay nada).
+  const enBorrador = !pie ? undefined : porPerder ? JSON.stringify([productoCodigo, pie.cantidad, pie.precio]) : null;
+  const reportar = useRef(alCambiarBorrador);
+  useEffect(() => {
+    reportar.current = alCambiarBorrador;
+  });
+  const clave = linea?.clave ?? null;
+  useEffect(() => {
+    if (enBorrador === undefined) return;
+    if (enBorrador === null) return reportar.current?.(null);
+    const [codigo, cantidad, precio] = JSON.parse(enBorrador) as [string | null, string, string];
+    reportar.current?.({ tipo: "diseno", disenoId, nuevo, clave, productoCodigo: codigo, cantidad, precio });
+  }, [enBorrador, disenoId, nuevo, clave]);
+
   /** Cancelar: un diseño recién creado se borra; si ya se eligió o cambió algo, se pregunta antes. */
   const cancelar = () => {
-    if (cambiado || (nuevo && resultado)) return setConfirmando(true);
+    if (porPerder) return setConfirmando(true);
     descartar();
   };
   const descartar = () => {
@@ -254,9 +290,11 @@ function Contenido({
             producto={producto}
             factor={terminados.tipos.find((t) => t.codigo === producto?.tipo)?.factor ?? 1}
             nombre={nombre}
+            inicial={retomado}
             alCancelar={cancelar}
             alAgregar={alAgregar}
             alCambiar={setPieCambiado}
+            alEscribir={setPie}
           />
         }
       />
@@ -701,9 +739,11 @@ function PieTerminado({
   producto,
   factor,
   nombre,
+  inicial,
   alCancelar,
   alAgregar,
   alCambiar,
+  alEscribir,
 }: {
   disenoId: string;
   nuevo: boolean;
@@ -711,20 +751,28 @@ function PieTerminado({
   producto: ProductoEstandar | null;
   factor: number;
   nombre: string | null;
+  /** La cantidad y el precio retomados de un borrador. */
+  inicial: { cantidad: string; precio: string } | null;
   alCancelar: () => void;
   alAgregar: (terminado: TerminadoDeDiseno) => void;
   /** Si la cantidad o el precio ya no son los de la apertura. */
   alCambiar: (cambiado: boolean) => void;
+  /** La cantidad y el precio tal como se escriben. */
+  alEscribir: (pie: { cantidad: string; precio: string }) => void;
 }) {
   const { cargando, esperarGuardado, catalogo, setUnidades } = useDiseno();
   const costo = useCostoDiseno();
   const bloqueo = useBloqueoDiseno();
-  const [cantidad, setCantidad] = useState(linea ? String(linea.cantidad) : "1");
-  const [precio, setPrecio] = useState(linea ? String(linea.precioUnitario) : "");
+  const [alAbrir] = useState({
+    cantidad: linea ? String(linea.cantidad) : "1",
+    precio: linea ? String(linea.precioUnitario) : "",
+  });
+  const [cantidad, setCantidad] = useState(inicial?.cantidad ?? alAbrir.cantidad);
+  const [precio, setPrecio] = useState(inicial?.precio ?? alAbrir.precio);
   const [agregando, setAgregando] = useState(false);
-  const [alAbrir] = useState({ cantidad, precio });
   const pieCambiado = cantidad !== alAbrir.cantidad || precio !== alAbrir.precio;
   useEffect(() => alCambiar(pieCambiado), [pieCambiado, alCambiar]);
+  useEffect(() => alEscribir({ cantidad, precio }), [cantidad, precio, alEscribir]);
 
   const unidades = Math.floor(Number(cantidad) || 0);
   // Planchas, DXF y costo se acomodan para el lote: un poco después de teclear,
