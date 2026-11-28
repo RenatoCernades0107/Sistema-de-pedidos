@@ -16,6 +16,7 @@ import { colorDe, type GrupoPlancha } from "@/lib/cortes/catalogo";
 import type { ConfigCortes } from "@/lib/cortes/config";
 import { LUGARES_CORTE, lugarDeCorte, planchasPorFormato, planchasTexto, type LugarCorte } from "@/lib/cortes/guardado";
 import { contenedoresDe } from "@/lib/sobrantes";
+import { corteCambiado, estadoInicialCorte, type BorradorCorte } from "@/lib/borradores-editores";
 import { money } from "@/lib/formato";
 import type { LineaCorte } from "@/lib/lineas-cotizacion";
 import { cn } from "@/lib/utils";
@@ -116,11 +117,16 @@ export function usePrecios(grupoId: string | null) {
  * de ese material. De ahí salen los tres más convenientes, y solo por esos se le
  * pregunta a Odoo si hay stock —una vez, por los tres—. Queda elegido el más
  * pequeño que tenga planchas suficientes.
+ *
+ * Lo que se lleva armado viaja al borrador del formulario (`alCambiarBorrador`):
+ * si se sale a mitad, al retomar el borrador el editor abre como quedó.
  */
 export function EditorCorte({
   catalogo,
   config,
   inicial,
+  borrador = null,
+  alCambiarBorrador,
   alGuardar,
   alCerrar,
 }: {
@@ -128,28 +134,31 @@ export function EditorCorte({
   config: ConfigCortes;
   /** El corte que se está editando; `null` para uno nuevo. */
   inicial: LineaCorte | null;
+  /** Lo que quedó a medias en un borrador: el editor arranca así. */
+  borrador?: BorradorCorte | null;
+  /** Lo armado hasta ahora, para el borrador; `null` si no hay nada que perder. */
+  alCambiarBorrador?: (borrador: BorradorCorte | null) => void;
   alGuardar: (corte: CorteNuevo) => void;
   alCerrar: () => void;
 }) {
-  const [grupoId, setGrupoId] = useState<string | null>(inicial?.grupoId ?? null);
-  const [modalidad, setModalidad] = useState<Modalidad>(inicial?.modalidad ?? "laser");
+  /** Cómo abrió (la línea o vacío) y cómo arranca (eso, o lo del borrador). */
+  const [alAbrir] = useState(() => estadoInicialCorte(inicial));
+  const [arranque] = useState(() => estadoInicialCorte(inicial, borrador));
+  const [grupoId, setGrupoId] = useState<string | null>(arranque.grupoId);
+  const [modalidad, setModalidad] = useState<Modalidad>(arranque.modalidad);
   /** Dónde se hace un corte manual. El láser va siempre al taller. */
-  const [lugarManual, setLugarManual] = useState<LugarCorte>(inicial?.lugar ?? "tienda");
+  const [lugarManual, setLugarManual] = useState<LugarCorte>(arranque.lugar);
   const lugar = lugarDeCorte({ modalidad, lugar: lugarManual });
-  const [filas, setFilas] = useState<FilaPieza[]>(() =>
-    inicial
-      ? inicial.piezas.map((p) => ({ ancho: String(p.ancho), alto: String(p.alto), cantidad: String(p.cantidad) }))
-      : [FILA_VACIA],
-  );
+  const [filas, setFilas] = useState<FilaPieza[]>(arranque.filas);
   /** La plancha o el sobrante que eligió la persona. Mientras sea `null`, manda la sugerencia. */
-  const [eleccion, setEleccion] = useState<EleccionPlancha | null>(inicial?.eleccion ?? null);
+  const [eleccion, setEleccion] = useState<EleccionPlancha | null>(arranque.eleccion);
   /**
    * Los formatos con que puede calcular el optimizador, por código. `null`:
    * todos los del material (lo normal). Se fija al marcar o desmarcar alguno.
    */
-  const [permitidos, setPermitidos] = useState<string[] | null>(inicial?.formatosPermitidos ?? null);
+  const [permitidos, setPermitidos] = useState<string[] | null>(arranque.permitidos);
   /** Sugerir la mejor opción aunque haya que comprar planchas: el stock solo se avisa. */
-  const [ignorarStock, setIgnorarStock] = useState(false);
+  const [ignorarStock, setIgnorarStock] = useState(arranque.ignorarStock);
 
   const anchos = useRef(new Map<number, HTMLInputElement>());
   /**
@@ -307,15 +316,20 @@ export function EditorCorte({
   };
 
   /* Cerrar con medidas escritas o el material cambiado pregunta antes: se perdería. */
-  const [filasIniciales] = useState(filas);
-  const sucio =
-    grupoId !== (inicial?.grupoId ?? null) ||
-    modalidad !== (inicial?.modalidad ?? "laser") ||
-    lugarManual !== (inicial?.lugar ?? "tienda") ||
-    JSON.stringify(eleccion) !== JSON.stringify(inicial?.eleccion ?? null) ||
-    JSON.stringify(permitidos) !== JSON.stringify(inicial?.formatosPermitidos ?? null) ||
-    JSON.stringify(filas.filter((f) => f.ancho || f.alto || f.cantidad)) !==
-      JSON.stringify(filasIniciales.filter((f) => f.ancho || f.alto || f.cantidad));
+  const actual = { grupoId, modalidad, lugar: lugarManual, filas, eleccion, permitidos, ignorarStock };
+  const sucio = corteCambiado(actual, alAbrir);
+
+  /* Lo mismo que se perdería al cerrar es lo que se lleva el borrador del formulario. */
+  const enBorrador = sucio ? JSON.stringify(actual) : null;
+  const reportar = useRef(alCambiarBorrador);
+  useEffect(() => {
+    reportar.current = alCambiarBorrador;
+  });
+  useEffect(() => {
+    reportar.current?.(
+      enBorrador ? { tipo: "corte", clave: inicial?.clave ?? null, ...(JSON.parse(enBorrador) as typeof actual) } : null,
+    );
+  }, [enBorrador, inicial?.clave]);
   const { pedirCierre, dialogo } = useCerrarConAviso(sucio, alCerrar, {
     titulo: inicial ? "¿Descartar los cambios del corte?" : "¿Descartar este corte?",
     descripcion: inicial
