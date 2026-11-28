@@ -21,11 +21,25 @@ import {
 import { planchasNuevas, planchasPorFormato } from "@/lib/cortes/guardado";
 import { money } from "@/lib/formato";
 import { cn } from "@/lib/utils";
+import { Checkbox } from "@/components/ui/checkbox";
 
 /* ── Stock ─────────────────────────────────────────────────────────────────── */
 
 type Stock = Record<string, number | null>;
 type PorAlmacen = RespuestaStock["porAlmacen"];
+
+/**
+ * Las planchas que faltan en el almacén para cortar un cálculo, por formato:
+ * las que hay que comprar. Un formato cuyo stock Odoo no lleva no se cuenta.
+ */
+export function faltantesDeStock(c: CalculoCorte, stock: Stock) {
+  return planchasPorFormato(c).flatMap(({ formato: f, cantidad }) => {
+    const hay = stock[f.codigo];
+    if (typeof hay !== "number" || hay >= cantidad) return [];
+    const disponible = Math.max(0, hay);
+    return [{ codigo: f.codigo, ancho: f.ancho, alto: f.alto, hay: disponible, necesita: cantidad, faltan: cantidad - disponible }];
+  });
+}
 
 /**
  * El stock de unos formatos, en una sola consulta a Odoo. Espera a que se deje
@@ -94,6 +108,8 @@ export function OpcionesPlancha({
   validando,
   falloStock,
   importe = "total",
+  ignorarStock = false,
+  alIgnorarStock,
 }: {
   /** Todos los formatos del material, ya calculados. */
   formatos: CalculoCorte[];
@@ -110,6 +126,9 @@ export function OpcionesPlancha({
   falloStock: boolean;
   /** Qué precio se enseña: el del corte entero o solo el de la plancha (en un terminado). */
   importe?: Importe;
+  /** Sugerir sin mirar el stock. Sin `alIgnorarStock` no se ofrece la casilla. */
+  ignorarStock?: boolean;
+  alIgnorarStock?: (v: boolean) => void;
 }) {
   const hayDe = (codigo: string) => (stock ? (stock[codigo] ?? null) : validando ? undefined : null);
 
@@ -136,6 +155,12 @@ export function OpcionesPlancha({
               ? "No se pudo validar el stock en Odoo. Puedes elegir igual."
               : "Elige la sugerencia, otro formato o un sobrante según el stock y el desperdicio."}
         </p>
+        {alIgnorarStock && (
+          <label className="ml-auto flex cursor-pointer items-center gap-2 text-xs">
+            <Checkbox checked={ignorarStock} onCheckedChange={(v) => alIgnorarStock(v === true)} />
+            Calcular sin limitar al stock
+          </label>
+        )}
       </div>
 
       <ul className="grid gap-2 sm:grid-cols-3" aria-label="Formatos de plancha">
@@ -271,7 +296,7 @@ function TarjetaSugerida({
         </>
       ) : (
         <span className="text-muted-foreground text-xs">
-          {validando ? "Buscando la mejor con stock…" : "Ningún formato tiene stock suficiente: elige uno."}
+          {validando ? "Buscando la mejor con stock…" : "Ningún formato sirve para estas piezas."}
         </span>
       )}
     </button>
@@ -440,7 +465,9 @@ export function LineaStock({
       ) : (
         <>
           <CircleAlert className="text-destructive size-3.5" />
-          <span className="text-destructive font-medium">{hay <= 0 ? "Sin stock" : `Solo hay ${hay}`}</span>
+          <span className="text-destructive font-medium">
+            {hay <= 0 ? "Sin stock" : `Solo hay ${hay}`} · comprar {necesita - Math.max(0, hay)}
+          </span>
         </>
       )}
     </span>

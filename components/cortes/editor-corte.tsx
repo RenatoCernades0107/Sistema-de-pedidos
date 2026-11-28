@@ -31,7 +31,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useCerrarConAviso } from "@/components/ui/confirmar-descarte";
-import { OpcionesPlancha, useStock, type OpcionSobrante } from "./opciones-plancha";
+import { OpcionesPlancha, faltantesDeStock, useStock, type OpcionSobrante } from "./opciones-plancha";
 import { SelectorMaterialPasos } from "./selector-material-pasos";
 import { PlanosPaginados } from "./planos-paginados";
 
@@ -142,6 +142,8 @@ export function EditorCorte({
   );
   /** La plancha o el sobrante que eligió la persona. Mientras sea `null`, manda la sugerencia. */
   const [eleccion, setEleccion] = useState<EleccionPlancha | null>(inicial?.eleccion ?? null);
+  /** Sugerir la mejor opción aunque haya que comprar planchas: el stock solo se avisa. */
+  const [ignorarStock, setIgnorarStock] = useState(false);
 
   const anchos = useRef(new Map<number, HTMLInputElement>());
   /**
@@ -209,14 +211,29 @@ export function EditorCorte({
       const hay = stock?.[formato.codigo];
       return typeof hay === "number" && hay >= cantidad;
     });
-  // Sin respuesta de Odoo no se sugiere nada: la sugerencia es "el mejor con stock".
-  const sugerido = stock ? (calculos.find((c) => !c.problema && alcanza(c)) ?? null) : null;
+  /*
+   * La sugerencia es la mejor que sale del stock. Si ninguna alcanza (o Odoo no
+   * contesta), la mejor igual: se avisa cuántas planchas hay que comprar, pero
+   * no se pierde la venta. Con `ignorarStock`, la mejor sin mirar el stock.
+   * Mientras se valida el stock no se sugiere nada, salvo si se ignora.
+   */
+  const mejor = calculos.find((c) => !c.problema) ?? null;
+  const sugerido = ignorarStock
+    ? mejor
+    : stock
+      ? (calculos.find((c) => !c.problema && alcanza(c)) ?? mejor)
+      : falloStock
+        ? mejor
+        : null;
   const elegido =
     eleccion === null
       ? sugerido
       : eleccion.tipo === "formato"
         ? (porFormato.find((c) => c.formato.codigo === eleccion.codigo) ?? null)
         : (opcionesSobrante.find((o) => o.codigo === eleccion.codigo)?.calculo ?? null);
+
+  /** Lo que falta en el almacén para cortar lo elegido, por formato. Sin dato de Odoo, nada. */
+  const porComprar = elegido && stock ? faltantesDeStock(elegido, stock) : [];
 
   const sinOdoo = grupo && precios ? grupo.formatos.filter((f) => !precios[f.codigo]) : [];
   const listo = !!grupo && !!elegido && !elegido.problema;
@@ -466,6 +483,11 @@ export function EditorCorte({
                     porAlmacen={porAlmacen}
                     validando={validando}
                     falloStock={falloStock}
+                    ignorarStock={ignorarStock}
+                    alIgnorarStock={(v) => {
+                      setIgnorarStock(v);
+                      setEleccion(null);
+                    }}
                   />
                   {sinOdoo.length > 0 && (
                     <p className="text-muted-foreground text-xs">
@@ -486,6 +508,18 @@ export function EditorCorte({
                       </div>
                     ))}
                   </dl>
+                  {porComprar.length > 0 && (
+                    <p role="status" className="text-st-observado bg-st-observado-soft rounded-lg px-3 py-2 text-xs">
+                      <span className="font-medium">Hay que comprar </span>
+                      {porComprar
+                        .map(
+                          (f) =>
+                            `${f.faltan} ${f.faltan === 1 ? "plancha" : "planchas"} ${f.codigo} (${f.ancho}×${f.alto}; hay ${f.hay}, se necesitan ${f.necesita})`,
+                        )
+                        .join(" y ")}
+                      .
+                    </p>
+                  )}
                   {elegido.planchas.some((p) => p.origen.tipo === "sobrante") && (
                     <p className="text-muted-foreground text-xs">
                       El precio es el de planchas nuevas; el corte sale en parte de sobrantes del almacén, que quedan

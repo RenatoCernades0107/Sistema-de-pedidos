@@ -517,6 +517,14 @@ test("el formato más chico sin stock no se sugiere, pero se puede elegir; un co
   await expect(formatos.getByRole("button", { name: /122×183/ })).toBeDisabled();
   await expect(formatos.getByRole("button", { name: /122×183/ })).toContainText("no cabe");
 
+  // Sin limitar al stock, la sugerencia es la mejor aunque haya que comprar, y lo avisa.
+  const sinLimite = page.getByLabel("Calcular sin limitar al stock");
+  await sinLimite.check();
+  await expect(page.getByTestId("opcion-sugerida")).toContainText("150×300");
+  await expect(page.getByText(/Hay que comprar 1 plancha/)).toBeVisible();
+  await sinLimite.uncheck();
+  await expect(page.getByTestId("opcion-sugerida")).toContainText("205×305");
+
   // Quien cotiza sabe que mañana llega mercadería: la elige igual.
   await barata.click();
   await expect(barata).toHaveAttribute("aria-pressed", "true");
