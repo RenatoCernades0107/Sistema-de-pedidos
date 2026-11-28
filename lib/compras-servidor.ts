@@ -105,12 +105,8 @@ export async function cargarCompras(limite = 200): Promise<CompraResumen[]> {
   return (data ?? []).map((f) => deResumen(f as FilaResumen));
 }
 
-export const cargarCompra = cache(async (codigo: string): Promise<CompraDetalle | null> => {
-  const supabase = await clienteServidor();
-  const { data: f, error } = await supabase
-    .from("compras")
-    .select(
-      `${CAMPOS_RESUMEN}, proveedor_odoo_id, almacen_id, tc_mercaderia, tc_gastos, incoterm, condicion_pago, dias_credito,
+const SELECT_DETALLE =
+  `${CAMPOS_RESUMEN}, proveedor_odoo_id, almacen_id, tc_mercaderia, tc_gastos, incoterm, condicion_pago, dias_credito,
        fecha_embarque, nota, odoo_orden_id, confirmada_en, liquidada_en,
        creador:usuarios!compras_creado_por_fkey ( nombre ),
        liquidador:usuarios!compras_liquidada_por_fkey ( nombre ),
@@ -118,12 +114,15 @@ export const cargarCompra = cache(async (codigo: string): Promise<CompraDetalle 
        compras_gastos ( concepto, descripcion, moneda, monto, reparto, tipo_mano_obra, personas, horas, tarifa, fecha_pago, documento, creado_en ),
        compras_recepciones ( id, creado_en, nota, sincronizacion, error_sincronizacion,
          creador:usuarios!compras_recepciones_creado_por_fkey ( nombre ),
-         compras_recepciones_lineas ( posicion, cantidad ) )`,
-    )
-    .eq("codigo", codigo)
-    .maybeSingle();
-  if (error) throw new Error(`No se pudo leer la compra: ${error.message}`);
-  if (!f) return null;
+         compras_recepciones_lineas ( posicion, cantidad ) )`;
+
+/** Solo para sacar el tipo de la fila: Supabase lo infiere del texto del select. */
+const consultaDetalle = (supabase: Awaited<ReturnType<typeof clienteServidor>>) =>
+  supabase.from("compras").select(SELECT_DETALLE);
+type FilaDetalle = NonNullable<Awaited<ReturnType<typeof consultaDetalle>>["data"]>[number];
+
+/** La fila de `compras` con su detalle (líneas, gastos, recepciones) ya con la forma de la UI. */
+function armarDetalle(f: FilaDetalle): CompraDetalle {
   return {
     ...deResumen(f as unknown as FilaResumen),
     proveedorId: f.proveedor_odoo_id,
@@ -180,19 +179,25 @@ export const cargarCompra = cache(async (codigo: string): Promise<CompraDetalle 
         lineas: (r.compras_recepciones_lineas ?? []).map((l) => ({ posicion: l.posicion, cantidad: l.cantidad })),
       })),
   };
+}
+
+export const cargarCompra = cache(async (codigo: string): Promise<CompraDetalle | null> => {
+  const supabase = await clienteServidor();
+  const { data: f, error } = await consultaDetalle(supabase).eq("codigo", codigo).maybeSingle();
+  if (error) throw new Error(`No se pudo leer la compra: ${error.message}`);
+  if (!f) return null;
+  return armarDetalle(f);
 });
 
 /** Las compras confirmadas a las que les falta llegar algo: lo que Almacén puede recibir. */
 export async function comprasPorRecibir(): Promise<CompraDetalle[]> {
   const supabase = await clienteServidor();
-  const { data, error } = await supabase
-    .from("compras")
-    .select("codigo")
+  // Una sola consulta con el detalle de todas, no una por compra.
+  const { data, error } = await consultaDetalle(supabase)
     .in("estado", ["confirmada", "recibida_parcial"])
     .order("fecha_llegada_estimada", { ascending: true, nullsFirst: false });
   if (error) throw new Error(`No se pudieron leer las compras por recibir: ${error.message}`);
-  const detalles = await Promise.all((data ?? []).map((c) => cargarCompra(c.codigo)));
-  return detalles.filter((c): c is CompraDetalle => c !== null);
+  return (data ?? []).map(armarDetalle);
 }
 
 /** La tarifa por hora de cada tipo de mano de obra (Configuración → Costos y precios). */

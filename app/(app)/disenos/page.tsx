@@ -1,4 +1,5 @@
 import { exigirCad } from "@/lib/sesion";
+import { medir } from "@/lib/tiempos";
 import { listarDisenos } from "@/lib/cad/disenos-servidor";
 import { listarProyectos } from "@/lib/cad/proyectos-servidor";
 import { listarPlantillas } from "@/lib/cad/motor";
@@ -13,9 +14,9 @@ import { ListaDisenos } from "@/components/disenos/lista-disenos";
 export default async function Page() {
   await exigirCad();
   const [disenos, proyectos, plantillas] = await Promise.all([
-    listarDisenos({ soloSueltos: true }),
-    listarProyectos(),
-    listarPlantillas().catch((): PlantillaCad[] => []),
+    medir("disenos.lista", () => listarDisenos({ soloSueltos: true })),
+    medir("disenos.proyectos", listarProyectos),
+    medir("disenos.plantillas", listarPlantillas).catch((): PlantillaCad[] => []),
   ]);
   return <ListaDisenos disenos={disenos} proyectos={proyectos} plantillas={plantillas} />;
 }

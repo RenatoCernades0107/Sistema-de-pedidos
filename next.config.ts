@@ -35,6 +35,13 @@ const nextConfig: NextConfig = {
   // pdf.js lee los PDF que se adjuntan al chat de diseños (`lib/cad/adjuntos-servidor.ts`).
   // Se carga con el `import` de Node: empaquetado no encuentra su worker.
   serverExternalPackages: ["pdfjs-dist", "@napi-rs/canvas"],
+  // Caché de navegación del cliente: volver a una vista visitada en los últimos
+  // 30 s no pide nada al servidor. Las Server Actions que llaman a `refresh()`
+  // (todas las escrituras) la invalidan, así que lo que cada quien cambia se ve
+  // al momento; lo ajeno puede tardar hasta 30 s. Ver docs de `staleTimes`.
+  experimental: {
+    staleTimes: { dynamic: 30, static: 180 },
+  },
   // pdf.js carga su worker, sus fuentes y sus cmaps con `import()`/lecturas que el
   // trazado de Vercel no ve: sin esto el PDF no se lee en producción ("Setting up
   // fake worker failed: Cannot find module …/pdf.worker.mjs"). El canvas nativo,

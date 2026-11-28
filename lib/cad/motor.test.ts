@@ -59,7 +59,14 @@ describe("transporte", () => {
     expect(url).toBe("http://motor.test/plantillas");
     expect(metodo).toBe("GET");
     expect(cabeceras["X-API-Key"]).toBe("clave-secreta");
-    expect(cache).toBe("no-store");
+    // Las plantillas casi no cambian: se cachean. Lo demás (ver el test de abajo) no.
+    expect(cache).toBe("force-cache");
+  });
+
+  it("no cachea lo que no son las plantillas", async () => {
+    fetchFalso.mockResolvedValue(respuesta({}));
+    await obtenerPlantilla("caja");
+    expect(llamada().cache).toBe("no-store");
   });
 
   it("sin clave no manda la cabecera (motor local)", async () => {
