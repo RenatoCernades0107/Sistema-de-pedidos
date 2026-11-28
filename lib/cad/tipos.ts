@@ -91,6 +91,9 @@ export type ResultadoGeneracion = {
 
 export type OpcionesDxf = { kerf_mm?: number; separacion_mm?: number };
 
+/** Solo algunas copias de un despiece: `{ id de pieza: [copias, de 1 a la cantidad] }`. */
+export type CopiasSolo = Record<string, number[]>;
+
 /** Un diseño guardado, con su versión vigente. */
 export type DisenoCad = {
   id: string;

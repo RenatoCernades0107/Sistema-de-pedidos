@@ -12,6 +12,7 @@ import {
   quitarDisenoDeProyecto,
   renombrarProyectoAccion,
 } from "@/app/(app)/disenos/acciones";
+import { CorteConjunto } from "@/components/disenos/corte-conjunto";
 import { textoDeResumen, type EstadoDiseno, type ResumenProyecto } from "@/lib/cad/proyectos";
 import type { DisenoCad, PlantillaCad } from "@/lib/cad/tipos";
 import {
@@ -268,6 +269,8 @@ export function VistaProyecto({
           })}
         </ul>
       )}
+
+      {disenos.length > 0 && <CorteConjunto proyectoId={proyecto.id} nombreProyecto={proyecto.nombre} />}
 
       <div className="mt-8 border-t pt-4">
         <AlertDialog>

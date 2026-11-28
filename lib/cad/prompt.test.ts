@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { PROMPT_DISENO_LIBRE, PROMPT_SIN_DISENO_LIBRE, contextoDisenoActual, promptDeTurno } from "./prompt";
 
+describe("materiales fuera del catálogo", () => {
+  it("el prompt explica el corte aparte", () => {
+    const p = promptDeTurno(null);
+    expect(p).toContain("corte_aparte");
+    expect(p).toContain("MDF");
+  });
+});
+
 describe("planos con varios productos", () => {
   it("el prompt base manda proponerlo, esperar la aceptación y usar la herramienta una vez", () => {
     for (const libre of [false, true]) {

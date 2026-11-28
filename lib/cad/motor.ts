@@ -13,6 +13,7 @@
 
 import { medir } from "../tiempos";
 import type {
+  CopiasSolo,
   OpcionesDxf,
   OpcionesDxfPlanchas,
   ParametrosCad,
@@ -188,10 +189,12 @@ export async function exportarDxf(
   plantilla: string,
   parametros: ParametrosCad,
   opciones?: OpcionesDxf,
+  /** Solo estas copias (`{ id de pieza: [copias] }`): lo que se corta aparte. Sin él, todo el despiece. */
+  solo?: CopiasSolo,
 ): Promise<ArrayBuffer> {
   const res = await peticion(
     "/dxf",
-    post({ plantilla, parametros, ...(opciones ? { opciones } : {}) }),
+    post({ plantilla, parametros, ...(opciones ? { opciones } : {}), ...(solo && Object.keys(solo).length ? { solo } : {}) }),
   );
   return res.arrayBuffer();
 }

@@ -41,6 +41,7 @@ import type { Json } from "@/lib/supabase-tipos";
 import { disenoParaCotizar, type DisenoCotizable } from "@/lib/cad/cotizar-servidor";
 import { cargarCatalogoPlanchas } from "@/lib/cortes-servidor";
 import { esquemaNombreProyecto } from "@/lib/cad/proyectos";
+import { calcularCorteProyecto, type CorteProyectoVista } from "@/lib/cad/proyecto-corte-servidor";
 import {
   aprobarProyecto,
   crearProyecto,
@@ -422,4 +423,16 @@ export async function quitarDisenoDeProyecto(disenoId: string): Promise<void> {
 export async function aprobarProyectoAccion(proyectoId: string): Promise<number> {
   await exigirAdmin();
   return aprobarProyecto(validar(esquemaIdProyecto, proyectoId));
+}
+
+/**
+ * El corte conjunto del proyecto: las piezas de todos sus diseños acomodadas juntas en
+ * las planchas del catálogo. Regenera cada diseño (unos segundos), así que se pide a
+ * demanda. Los archivos se bajan por `/api/cad/dxf-proyecto` y `/api/cad/dxf-suelto`.
+ */
+export async function calcularCorteProyectoAccion(proyectoId: string): Promise<CorteProyectoVista> {
+  await exigirCad();
+  const corte = await calcularCorteProyecto(validar(esquemaIdProyecto, proyectoId));
+  if (!corte) throw new Error("El proyecto ya no está disponible. Recarga la página.");
+  return corte.vista;
 }

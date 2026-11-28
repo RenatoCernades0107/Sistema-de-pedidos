@@ -10,7 +10,7 @@
  */
 
 import type { ContornosSandbox } from "./contornos";
-import type { ErrorCodigoLibre, OpcionesDxfPlanchas, PlanchaAcomodadaCad, ResultadoLibre } from "./tipos";
+import type { CopiasSolo, ErrorCodigoLibre, OpcionesDxfPlanchas, PlanchaAcomodadaCad, ResultadoLibre } from "./tipos";
 
 export class ErrorSandboxCad extends Error {
   /** `codigo_invalido` (el código del LLM falló), `no_configurado`, `sin_conexion`… */
@@ -162,8 +162,18 @@ export async function exportarDxfLibre(
   codigo: string,
   opciones?: { kerf_mm?: number; separacion_mm?: number },
   contornos?: ContornosSandbox,
+  /** Solo estas copias (`{ id de pieza: [copias] }`): lo que se corta aparte. Sin él, todas. */
+  solo?: CopiasSolo,
 ): Promise<ArrayBuffer> {
-  const res = await peticion("/dxf", post({ codigo, ...(opciones ? { opciones } : {}), ...conContornos(contornos) }));
+  const res = await peticion(
+    "/dxf",
+    post({
+      codigo,
+      ...(opciones ? { opciones } : {}),
+      ...conContornos(contornos),
+      ...(solo && Object.keys(solo).length ? { solo } : {}),
+    }),
+  );
   return res.arrayBuffer();
 }
 
@@ -182,6 +192,35 @@ export async function exportarDxfPlanchasLibre(
     "/dxf/planchas",
     post({ codigo, planchas, ...(opciones ? { opciones } : {}), ...conContornos(contornos) }),
   );
+  return res.arrayBuffer();
+}
+
+/** Un diseño de un proyecto para el DXF conjunto: su código libre (con sus contornos) o una plantilla. */
+export type DisenoDeProyecto = {
+  /** La referencia corta con la que se prefijan sus piezas (`d1`): la misma de las planchas. */
+  ref: string;
+  nombre?: string;
+} & (
+  | { codigo: string; contornos?: ContornosSandbox }
+  | { plantilla: string; parametros: Record<string, number | boolean | string> }
+);
+
+/**
+ * El DXF por planchas de un proyecto: varios diseños acomodados juntos. Los ids de pieza de
+ * `planchas` llevan el prefijo del diseño (`d2__lateral`); la validación es parcial (lo que se
+ * corta aparte no va en ninguna plancha). Un acomodo que no cuadra llega como `acomodo_invalido`.
+ */
+export async function exportarDxfProyecto(
+  disenos: DisenoDeProyecto[],
+  planchas: PlanchaAcomodadaCad[],
+  opciones?: { kerf_mm?: number },
+): Promise<ArrayBuffer> {
+  const cuerpo = disenos.map((d) => {
+    if (!("codigo" in d)) return d;
+    const { contornos, ...resto } = d;
+    return { ...resto, ...conContornos(contornos) };
+  });
+  const res = await peticion("/dxf/proyecto", post({ disenos: cuerpo, planchas, ...(opciones ? { opciones } : {}) }));
   return res.arrayBuffer();
 }
 

@@ -303,3 +303,51 @@ describe("lote de unidades", () => {
     expect(cinco.total / 5).toBeLessThanOrEqual(uno.total + 1e-9);
   });
 });
+
+describe("corte aparte (material fuera del catálogo)", () => {
+  const MDF = { material: "MDF 12 mm", variante: "", detalle: "", color: null, corteAparte: true as const };
+
+  it("una copia de corte aparte no tiene plancha ni da problema, aunque el catálogo no tenga ese material", () => {
+    const r = planchasDelDiseno({
+      catalogo: CATALOGO,
+      porDefecto: CRISTAL_3,
+      porCopia: { lateral_1: MDF },
+      parametros: {},
+      piezas: PIEZAS.filter((p) => p.id !== "lateral__5mm"),
+      corte: CORTE,
+    });
+    expect(r.problemas).toEqual([]);
+    const lateral = r.copias.find((c) => c.nodo === "lateral_1");
+    expect(lateral).toMatchObject({ grupo: null, propio: true });
+    // El resto del diseño se acomoda como siempre, sin la copia de corte aparte.
+    expect(r.grupos).toHaveLength(1);
+    expect(r.grupos[0].piezas.map((p) => p.id)).toEqual(["base"]);
+  });
+
+  it("un nombre que sí existe en el catálogo, marcado como corte aparte, tampoco va a plancha", () => {
+    const igual = { ...materialDeGrupo(CATALOGO[0]), corteAparte: true as const };
+    const [c] = resolverCopias([pieza("base", 1, 3)], CRISTAL_3, { base: igual }, CATALOGO);
+    expect(c.grupo).toBeNull();
+  });
+
+  it("sin la marca, un material que el catálogo no tiene sigue siendo un problema", () => {
+    const sinMarca = { material: "MDF 12 mm", variante: "", detalle: "", color: null };
+    const r = planchasDelDiseno({
+      catalogo: CATALOGO,
+      porDefecto: CRISTAL_3,
+      porCopia: { base: sinMarca },
+      parametros: {},
+      piezas: [pieza("base", 1, 3)],
+      corte: CORTE,
+    });
+    expect(r.problemas.join(" ")).toMatch(/catálogo no tiene/);
+  });
+
+  it("lo guardado con la marca se lee; lo viejo, sin ella, también", () => {
+    const leido = leerMateriales({ porCopia: { a: MDF, b: materialDeGrupo(CATALOGO[0]) } });
+    expect(leido.a.corteAparte).toBe(true);
+    expect(leido.b.corteAparte).toBeUndefined();
+    // Una marca que no sea `true` se descarta junto con la entrada.
+    expect(leerMateriales({ porCopia: { a: { ...MDF, corteAparte: false } } })).toEqual({});
+  });
+});

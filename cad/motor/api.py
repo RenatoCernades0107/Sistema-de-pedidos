@@ -35,6 +35,7 @@ from .exportar import (
     validar_planchas,
 )
 from .plantillas import describir, listar, obtener
+from .proyecto import seleccionar_copias
 from .plantillas.base import Diseno, ErrorParametros
 from .validacion import validar
 
@@ -66,6 +67,8 @@ class OpcionesDxf(BaseModel):
 
 class SolicitudDxf(Solicitud):
     opciones: OpcionesDxf = Field(default_factory=OpcionesDxf)
+    #: Solo estas copias (`{id de pieza: [copias]}`): lo que se corta aparte, el MDF. Sin él, todo.
+    solo: dict[str, list[int]] | None = Field(default=None, max_length=200)
 
 
 class EntradaPiezaPlancha(BaseModel):
@@ -255,6 +258,11 @@ def generar(solicitud: Solicitud) -> dict[str, Any]:
 @app.post("/dxf", dependencies=protegido)
 def dxf(solicitud: SolicitudDxf) -> Response:
     diseno = _disenar(solicitud)
+    if solicitud.solo:
+        try:
+            diseno = seleccionar_copias(diseno, solicitud.solo)
+        except ValueError as e:
+            raise _error(422, "parametros_invalidos", str(e), errores=[{"campo": "solo", "mensaje": str(e)}]) from e
     contenido = _geometria(
         exportar_dxf,
         diseno,

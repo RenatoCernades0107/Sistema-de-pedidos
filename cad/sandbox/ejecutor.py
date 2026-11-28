@@ -124,12 +124,64 @@ def ejecutar(
     rechazo = revisar(codigo)
     if rechazo is not None:
         return Resultado(False, {"ok": False, "error": rechazo.como_dict()})
+    return _correr(
+        {"codigo": codigo, "modo": modo, "opciones": opciones or {}, "contornos": contornos or {}},
+        limites or Limites(),
+    )
 
-    limites = limites or Limites()
+
+#: Cuántos diseños puede traer un proyecto.
+MAX_DISENOS_PROYECTO = 10
+
+
+def limites_de_proyecto(n_disenos: int, base: Limites | None = None) -> Limites:
+    """
+    Los límites para un proyecto de `n_disenos` diseños: se construyen todos en un mismo
+    proceso hijo, así que el tiempo y la CPU crecen con ellos (1 + 0.5 por diseño, tope 6×).
+    La memoria y el archivo no cambian: el hijo la reutiliza.
+    """
+    b = base or Limites()
+    factor = min(6.0, 1 + 0.5 * max(1, n_disenos))
+    return Limites(
+        tiempo_s=int(b.tiempo_s * factor),
+        cpu_s=int(b.cpu_s * factor),
+        memoria_mb=b.memoria_mb,
+        archivo_mb=b.archivo_mb,
+    )
+
+
+def ejecutar_proyecto(
+    disenos: list[dict[str, Any]],
+    opciones: dict[str, Any] | None = None,
+    limites: Limites | None = None,
+) -> Resultado:
+    """
+    El DXF por planchas de un proyecto: construye cada diseño (`codigo` + `contornos`, o
+    `plantilla` + `parametros`) en un solo hijo aislado, los une y dibuja las planchas.
+    Nunca lanza por culpa del código de un diseño.
+    """
+    for d in disenos:
+        if d.get("codigo"):
+            rechazo = revisar(str(d["codigo"]))
+            if rechazo is not None:
+                error = rechazo.como_dict()
+                error["diseno"] = str(d.get("ref") or "")
+                error["mensaje"] = f"En «{d.get('nombre') or d.get('ref')}»: {error.get('mensaje', '')}"[:2000]
+                return Resultado(False, {"ok": False, "error": error})
+    return _correr(
+        {"modo": "dxf_proyecto", "opciones": opciones or {}, "disenos": disenos},
+        limites or limites_de_proyecto(len(disenos)),
+    )
+
+
+def _correr(entrada: dict[str, Any], limites: Limites) -> Resultado:
+    """Lanza el hijo con esta `entrada.json` y lee lo que deja."""
+    modo = str(entrada.get("modo") or "generar")
+    codigo = str(entrada.get("codigo") or "")
     dir_trabajo = tempfile.mkdtemp(prefix="cad-libre-")
     try:
         with open(os.path.join(dir_trabajo, "entrada.json"), "w", encoding="utf-8") as f:
-            json.dump({"codigo": codigo, "modo": modo, "opciones": opciones or {}, "contornos": contornos or {}}, f)
+            json.dump(entrada, f)
         ruta_salida = os.path.join(dir_trabajo, "consola.txt")
         with open(ruta_salida, "wb") as consola:
             # En Linux (Lambda/Docker) el hijo lleva límites de CPU/memoria/archivo (rlimit).
@@ -182,7 +234,7 @@ def ejecutar(
             return Resultado(False, {"ok": False, "error": {"tipo": "salida", "mensaje": "Resultado ilegible."}})
         binario = None
         ruta_bin = os.path.join(dir_trabajo, "salida.bin")
-        if datos.get("ok") and modo in ("dxf", "dxf_planchas", "step"):
+        if datos.get("ok") and modo in ("dxf", "dxf_planchas", "dxf_proyecto", "step"):
             if not os.path.exists(ruta_bin) or os.path.getsize(ruta_bin) > MAX_SALIDA_BIN:
                 return Resultado(False, {"ok": False, "error": {"tipo": "salida", "mensaje": "Falta el archivo exportado."}})
             with open(ruta_bin, "rb") as f:
