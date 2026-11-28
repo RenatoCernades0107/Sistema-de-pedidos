@@ -170,6 +170,16 @@ seguridad y despliegue en `cad/sandbox/README.md`). Cabecera `X-API-Key` si
 `CAD_SANDBOX_API_KEY` está definida. Ejecuta código build123d del LLM que asigna
 `piezas = [pieza(...), ...]` (módulo `diseno`, sobre `motor/plantillas/base.py`).
 
+- Todo lo que recibe `codigo` (`/ejecutar`, `/dxf`, `/dxf/planchas`, `/step`, `/render` con código)
+  acepta también `contornos?: { <nombre>: { ancho_mm, alto_mm, trazos: [d, …] } }`: logos
+  extraídos de un PDF (`lib/pdf-vector.ts`), en mm, origen abajo a la izquierda, Y hacia arriba;
+  cada `d` es un trazo de SVG cerrado con `M`, `L`, `C` y `Z`. Hasta 20 contornos, 5000 trazos
+  cada uno y 2 000 000 de caracteres en total por contorno. El código los pide con
+  `from diseno import caras_de_contorno, medidas_de_contorno`: `caras_de_contorno(nombre)` →
+  lista de `Face` planas en mm, de izquierda a derecha (un trazo dentro de otro es un agujero;
+  par-impar), con las curvas Bézier originales. Un nombre inexistente es un error de ejecución
+  que lista los disponibles. La app los guarda en `cad_contornos` y los manda con cada llamada:
+  el sandbox no conserva nada entre ejecuciones.
 - `POST /ejecutar {codigo}` → lo de `/generar` sin `plantilla`/`parametros`:
   `{ codigo, nombre, dimensiones, glb_base64, piezas, validaciones, salida }`.
 - `POST /dxf {codigo, opciones?: {kerf_mm, separacion_mm}}` → `application/dxf`.

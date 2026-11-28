@@ -9,6 +9,7 @@ import {
   ajustarInventario,
   ajustarPorDiferencia,
   asegurarAlmacen,
+  crearOrdenCompra,
   darDeBaja,
   movimientosDeProducto,
   asegurarTransito,
@@ -16,7 +17,10 @@ import {
   ingresarCompra,
   leerAlmacen,
   recibirDeTransito,
+  recibirOrdenCompra,
+  salidasAClientes,
   stockPorAlmacen,
+  tipoDeCambioUsd,
 } from "./almacenes";
 import { crearLoteSobrante } from "./sobrantes";
 import { almacenDeVenta, cambiarAlmacenDeVenta, confirmarPedidoDeVenta, crearPedidoDeVenta } from "./pedidos-venta";
@@ -67,6 +71,81 @@ async function crearRecepcionSuelta(almacen: Awaited<ReturnType<typeof asegurarA
   await ejecutar("stock.picking", "button_validate", [[picking]], { context: { skip_backorder: true } });
   return picking;
 }
+
+describe("compra en dos pasos: la orden y lo que llega", () => {
+  it("confirma la orden en dólares sin recibir, y Almacén recibe por partes", async () => {
+    const taller = await asegurarAlmacen({ nombre: "Católica", codigo: "CAT" });
+    const orden = {
+      almacen: taller,
+      proveedorId: 2,
+      origen: "App Plexiacril CMP-00001",
+      documento: "PI-2026-77",
+      moneda: "USD" as const,
+      fechaPrevista: "2026-12-20",
+      lineas: [
+        { productoId: 20, cantidad: 10, costo: 95.5 },
+        { productoId: 21, cantidad: 4, costo: 40 },
+      ],
+    };
+    const id = await crearOrdenCompra(orden);
+    expect(await crearOrdenCompra(orden)).toBe(id);
+
+    let { compras, pickings } = odoo.estado();
+    expect(compras).toHaveLength(1);
+    expect(compras[0]).toMatchObject({ state: "purchase", currency_id: [2, expect.anything()], date_planned: "2026-12-20 12:00:00" });
+    expect(compras[0].lineas.map((l) => l.qty_received)).toEqual([0, 0]);
+    expect(pickings).toEqual([expect.objectContaining({ state: "assigned" })]);
+
+    // Llega una parte: queda otra recepción con lo que falta.
+    const r1 = await recibirOrdenCompra(id, [
+      { productoId: 20, cantidad: 6, recibidoAntes: 0 },
+      { productoId: 21, cantidad: 0, recibidoAntes: 0 },
+    ]);
+    ({ compras, pickings } = odoo.estado());
+    expect(compras[0].lineas.map((l) => l.qty_received)).toEqual([6, 0]);
+    expect(pickings.map((p) => p.state)).toEqual(["done", "assigned"]);
+
+    // Reintentar lo mismo no recibe dos veces.
+    expect(await recibirOrdenCompra(id, [{ productoId: 20, cantidad: 6, recibidoAntes: 0 }])).toBe(r1);
+    expect(odoo.estado().compras[0].lineas.map((l) => l.qty_received)).toEqual([6, 0]);
+
+    // Llega el resto.
+    await recibirOrdenCompra(id, [
+      { productoId: 20, cantidad: 4, recibidoAntes: 6 },
+      { productoId: 21, cantidad: 4, recibidoAntes: 0 },
+    ]);
+    ({ compras, pickings } = odoo.estado());
+    expect(compras[0].lineas.map((l) => l.qty_received)).toEqual([10, 4]);
+    expect(pickings.every((p) => p.state === "done")).toBe(true);
+  });
+
+  it("el tipo de cambio sale de la tasa del dólar en Odoo", async () => {
+    expect(await tipoDeCambioUsd()).toBe(3.75);
+  });
+});
+
+describe("salidasAClientes", () => {
+  /** Mueve `cantidad` de un producto entre dos ubicaciones y lo valida. */
+  async function mover(producto: number, desde: number, hacia: number, cantidad: number) {
+    const picking = await ejecutar<number>("stock.picking", "create", [{ picking_type_id: 4, partner_id: 1, origin: "prueba", location_id: desde, location_dest_id: hacia }]);
+    const mov = await ejecutar<number>("stock.move", "create", [
+      { picking_id: picking, product_id: producto, product_uom_qty: cantidad, product_uom: 1, location_id: desde, location_dest_id: hacia, name: "x" },
+    ]);
+    await ejecutar("stock.picking", "action_confirm", [[picking]]);
+    await ejecutar("stock.move", "write", [[mov], { quantity: cantidad, picked: true }]);
+    await ejecutar("stock.picking", "button_validate", [[picking]], { context: { skip_backorder: true } });
+  }
+
+  it("suma lo que salió a clientes en el período, menos lo devuelto", async () => {
+    await mover(20, 8, 9, 3); // venta
+    await mover(21, 8, 9, 2); // venta
+    await mover(20, 9, 8, 1); // devolución
+    await mover(23, 8, 10, 4); // a producción: no es venta
+    const r = await salidasAClientes("2000-01-01 00:00:00", "2100-01-01 00:00:00");
+    expect(Object.fromEntries(r)).toEqual({ 20: 2, 21: 2 });
+    expect((await salidasAClientes("2100-01-01 00:00:00", "2100-02-01 00:00:00")).size).toBe(0);
+  });
+});
 
 describe("compra, ajuste y stock por almacén", () => {
   it("una compra es una orden de compra de Odoo, recibida por completo, y no se duplica al reintentar", async () => {

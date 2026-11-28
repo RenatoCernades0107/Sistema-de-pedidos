@@ -138,3 +138,68 @@ def test_dxf_planchas_codigo_invalido_y_cuerpo():
     assert r.status_code == 422 and r.json()["detail"]["codigo"] == "codigo_invalido"
     r = cliente.post("/dxf/planchas", json={"codigo": SOPORTE, "planchas": []})
     assert r.status_code == 422 and r.json()["detail"]["codigo"] == "parametros_invalidos"
+
+
+# ── Contornos (logos) guardados con el diseño ───────────────────────────────
+
+#: Un marco de 100 × 100 con un agujero de 50 × 50 y, dentro del agujero, una isla de 20 × 20.
+LOGO = {
+    "ancho_mm": 100,
+    "alto_mm": 100,
+    "trazos": [
+        "M 0 0 L 100 0 L 100 100 L 0 100 Z",
+        "M 25 25 L 25 75 L 75 75 L 75 25 Z",
+        "M 40 40 L 60 40 L 60 60 L 40 60 Z",
+    ],
+}
+
+CODIGO_LOGO = """
+from diseno import pieza, caras_de_contorno, medidas_de_contorno
+
+ancho, alto = medidas_de_contorno("logo")
+caras = caras_de_contorno("logo")
+piezas = [pieza(f"frente_{i}", "Frente", c, 3) for i, c in enumerate(caras, 1)]
+nombre = "Logo"
+print(f"{ancho}x{alto} caras={len(caras)}")
+"""
+
+
+def test_codigo_con_contorno():
+    r = cliente.post("/ejecutar", json={"codigo": CODIGO_LOGO, "contornos": {"logo": LOGO}})
+    assert r.status_code == 200, r.text
+    datos = r.json()
+    assert "100.0x100.0 caras=2" in datos["salida"]
+    # El marco con su agujero (7500 mm²) y la isla (400 mm²), de izquierda a derecha.
+    areas = sorted(round(p["area_mm2"]) for p in datos["piezas"])
+    assert areas == [400, 7500]
+
+
+def test_contorno_que_no_existe_explica_cuales_hay():
+    r = cliente.post("/ejecutar", json={"codigo": CODIGO_LOGO, "contornos": {"otro": LOGO}})
+    assert r.status_code == 422
+    assert "otro" in r.text and "logo" in r.text
+
+
+def test_contornos_invalidos_se_rechazan():
+    # Sin trazos, ancho 0 y demasiados contornos.
+    for contornos in (
+        {"logo": {**LOGO, "trazos": []}},
+        {"logo": {**LOGO, "ancho_mm": 0}},
+        {f"c{i}": LOGO for i in range(21)},
+    ):
+        r = cliente.post("/ejecutar", json={"codigo": CODIGO_LOGO, "contornos": contornos})
+        assert r.status_code == 422, contornos
+
+
+def test_dxf_con_contorno_trae_las_curvas():
+    arco = {"ancho_mm": 100, "alto_mm": 50, "trazos": ["M 0 0 C 0 66.6667 100 66.6667 100 0 Z"]}
+    codigo = (
+        "from diseno import pieza, caras_de_contorno\n"
+        "piezas = [pieza('arco', 'Arco', caras_de_contorno('arco')[0], 3)]\n"
+        "nombre = 'Arco'\n"
+    )
+    r = cliente.post("/dxf", json={"codigo": codigo, "contornos": {"arco": arco}})
+    assert r.status_code == 200, r.text
+    # Una curva real en el DXF (spline o arcos), no solo rectas.
+    texto = r.content.decode("latin-1", errors="replace")
+    assert "SPLINE" in texto or "ARC" in texto

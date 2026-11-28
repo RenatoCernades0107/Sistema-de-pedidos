@@ -27,6 +27,9 @@ Dos scripts, los dos pensados para correr contra el proyecto de Supabase en la n
   y rol, la cascada al borrar un diseño y que desde `20261129000300` los otros roles
   también ven y editan (pero no borran el diseño de otra persona ni aprueban un
   diseño libre). Tampoco necesita las cuentas del seed, y termina en `ROLLBACK`.
+- **`cad_contornos.sql`** — verifica la migración `20261225000100`: los contornos vectoriales (logos)
+  de los diseños libres. Solo inserción, nombre único por diseño, checks de nombre, medidas y
+  trazos, `creado_por` firmado por la sesión y cascada al borrar el diseño. Termina en `ROLLBACK`.
 - **`cad_versiones.sql`** — verifica la migración `20261129000300`: restaurar una versión
   (numera, copia, `origen`/`restaurada_de`, la aprobación de un libre solo con el mismo
   código), el nombre de una versión, el autor firmado por la sesión y el aviso

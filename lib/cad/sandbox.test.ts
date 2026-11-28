@@ -83,6 +83,30 @@ describe("transporte", () => {
     expect(r.codigo).toBe("x");
   });
 
+  it("los contornos (logos) van con cada llamada que manda el código, y sin ellos el cuerpo no cambia", async () => {
+    const logo = { ancho_mm: 100, alto_mm: 50, trazos: ["M 0 0 L 1 0 Z"] };
+    fetchFalso.mockImplementation(async () => respuesta({}));
+    await ejecutarCodigo("piezas = []");
+    expect(llamada(0).cuerpo).toEqual({ codigo: "piezas = []" });
+    await ejecutarCodigo("piezas = []", {});
+    expect(llamada(1).cuerpo).toEqual({ codigo: "piezas = []" });
+    await ejecutarCodigo("piezas = []", { logo });
+    expect(llamada(2).cuerpo).toEqual({ codigo: "piezas = []", contornos: { logo } });
+    await exportarDxfLibre("c", { kerf_mm: 0.1 }, { logo });
+    expect(llamada(3).cuerpo).toEqual({ codigo: "c", opciones: { kerf_mm: 0.1 }, contornos: { logo } });
+    await exportarDxfPlanchasLibre("c", [], undefined, { logo });
+    expect(llamada(4).cuerpo.contornos).toEqual({ logo });
+  });
+
+  it("el render por código manda los contornos; por GLB no", async () => {
+    const logo = { ancho_mm: 100, alto_mm: 50, trazos: ["M 0 0 L 1 0 Z"] };
+    fetchFalso.mockImplementation(async () => respuesta({ png_base64: "AAAA" }));
+    await renderizar({ codigo: "c", contornos: { logo } });
+    expect(llamada(0).cuerpo).toEqual({ codigo: "c", contornos: { logo } });
+    await renderizar({ glb_base64: "Z2xi" });
+    expect(llamada(1).cuerpo).toEqual({ glb_base64: "Z2xi" });
+  });
+
   it("un 422 trae el error estructurado del código", async () => {
     fetchFalso.mockResolvedValue(
       respuesta(

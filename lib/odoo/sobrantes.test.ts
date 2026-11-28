@@ -46,9 +46,10 @@ describe("crearLoteSobrante", () => {
     const e = odoo.estado();
 
     const producto = e.productos.find((p) => p.default_code === "SOB-F7E024");
-    expect(producto?.name).toBe("SOBRANTE ACRILICO ECO CRISTAL 3MM");
+    // En Odoo se llama Pieza y se vende: un corte que la usa la cobra tal cual.
+    expect(producto?.name).toBe("PIEZA ACRILICO ECO CRISTAL 3MM");
     const alta = e.llamadas.find((l) => l.modelo === "product.template" && l.metodo === "create");
-    expect(alta?.args[0]).toMatchObject({ tracking: "lot", sale_ok: false, purchase_ok: false, type: "product" });
+    expect(alta?.args[0]).toMatchObject({ tracking: "lot", sale_ok: true, purchase_ok: false, type: "product" });
 
     const campos = e.llamadas.filter((l) => l.modelo === "ir.model.fields" && l.metodo === "create");
     expect(campos.map((l) => (l.args[0] as { name: string }).name)).toEqual(["x_largo", "x_ancho"]);
@@ -92,6 +93,20 @@ describe("crearLoteSobrante", () => {
     const id = await productoSobrante(material);
     reiniciarCacheOdoo();
     expect(await productoSobrante(material)).toBe(id);
+  });
+
+  it("uno de antes, llamado Sobrante y sin vender, se pone al día una vez", async () => {
+    const id = await productoSobrante(material);
+    const producto = odoo.estado().productos.find((p) => p.id === id)!;
+    Object.assign(producto, { name: "SOBRANTE ACRILICO ECO CRISTAL 3MM", sale_ok: false });
+    reiniciarCacheOdoo();
+    expect(await productoSobrante(material)).toBe(id);
+    expect(odoo.estado().productos.find((p) => p.id === id)).toMatchObject({ name: "PIEZA ACRILICO ECO CRISTAL 3MM", sale_ok: true });
+    const escrituras = () => odoo.estado().llamadas.filter((l) => l.modelo === "product.template" && l.metodo === "write");
+    expect(escrituras()).toHaveLength(1);
+    reiniciarCacheOdoo();
+    await productoSobrante(material);
+    expect(escrituras()).toHaveLength(1);
   });
 });
 

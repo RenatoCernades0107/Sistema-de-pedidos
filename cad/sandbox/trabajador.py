@@ -2,7 +2,8 @@
 Proceso hijo que ejecuta un diseño libre. Lo lanza `ejecutor.py`, nunca la API.
 
 Entrada: `entrada.json` en el directorio actual (temporal) con
-`{"codigo": str, "modo": "generar"|"dxf"|"dxf_planchas"|"step", "opciones": {...}}`.
+`{"codigo": str, "modo": "generar"|"dxf"|"dxf_planchas"|"step", "opciones": {...},
+"contornos": {nombre: {ancho_mm, alto_mm, trazos}}}`.
 Salida: `resultado.json` (y `salida.bin` para dxf/dxf_planchas/step) en el mismo
 directorio. En `dxf_planchas`, `opciones` trae `kerf_mm` y `planchas` (el acomodo,
 con la forma de `/dxf/planchas` del motor).
@@ -52,6 +53,7 @@ def main() -> int:
     codigo: str = entrada["codigo"]
     modo: str = entrada.get("modo", "generar")
     opciones: dict = entrada.get("opciones") or {}
+    contornos: dict = entrada.get("contornos") or {}
 
     # 2. Imports pesados, antes de restringir nada.
     import base64
@@ -74,6 +76,10 @@ def main() -> int:
 
     import diseno as modulo_diseno
     from verificador import revisar
+
+    # Los logos del diseño: quedan en el módulo `diseno` (el código del usuario no
+    # puede tocar nombres con guion bajo; solo los pide con `caras_de_contorno`).
+    modulo_diseno._fijar_contornos(contornos)
 
     dir_trabajo = os.path.realpath(os.getcwd())
     _instalar_gancho(dir_trabajo)

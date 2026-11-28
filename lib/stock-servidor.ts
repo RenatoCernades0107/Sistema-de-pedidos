@@ -273,7 +273,7 @@ export async function cargarIngresos(limite = 60): Promise<IngresoResumen[]> {
 }
 
 /** Los códigos que se pueden ingresar: las planchas del catálogo y los accesorios. */
-async function codigosDelCatalogo(): Promise<Set<string>> {
+export async function codigosDelCatalogo(): Promise<Set<string>> {
   const [catalogo, accesorios] = await Promise.all([cargarCatalogoPlanchas(), cargarAccesorios()]);
   return new Set([...catalogo.flatMap((g) => g.formatos.map((f) => f.codigo)), ...accesorios.map((a) => a.codigo_odoo)]);
 }

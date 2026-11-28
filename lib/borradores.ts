@@ -15,7 +15,7 @@ import { totalReferencial, type Linea } from "@/lib/lineas-cotizacion";
  * todo como siempre.
  */
 
-export type TipoBorrador = "pedido" | "cotizacion";
+export type TipoBorrador = "pedido" | "cotizacion" | "compra";
 
 export const HORAS_BORRADOR = 48;
 
@@ -24,6 +24,8 @@ export interface ResumenBorrador {
   cliente: string | null;
   productos: number;
   total: number;
+  /** Solo en compras: la moneda en que está el total (si no, soles). */
+  moneda?: "PEN" | "USD";
 }
 
 export interface DatosBorradorCotizacion {
@@ -53,7 +55,37 @@ export interface DatosBorradorPedido {
   archivosOmitidos: string[];
 }
 
-export type DatosBorrador = DatosBorradorCotizacion | DatosBorradorPedido;
+/** Un ítem del editor de compra tal como se escribe (todo texto). */
+export interface FilaBorradorCompra {
+  productoId: number;
+  codigo: string;
+  titulo: string;
+  cantidad: string;
+  kilos: string;
+  precio: string;
+  total: string;
+}
+
+/** El editor de "Nueva compra" a medio llenar: tal cual está en pantalla, sin validar. */
+export interface DatosBorradorCompra {
+  version: 1;
+  tipo: "nacional" | "importacion";
+  proveedor: ClienteOdoo | null;
+  almacenId: string | null;
+  documento: string;
+  moneda: "PEN" | "USD";
+  tcMerc: string;
+  tcGastos: string;
+  incoterm: "FOB" | "CIF" | null;
+  condicion: "contado" | "contra_entrega" | "adelantado" | "credito";
+  dias: string;
+  embarque: string;
+  llegada: string;
+  nota: string;
+  filas: FilaBorradorCompra[];
+}
+
+export type DatosBorrador = DatosBorradorCotizacion | DatosBorradorPedido | DatosBorradorCompra;
 
 /** Un borrador de la lista. */
 export interface BorradorListado {
@@ -110,15 +142,48 @@ export const esquemaDatosPedido = z.object({
   archivosOmitidos: z.array(z.string().max(300)).max(200),
 });
 
+const texto = (max: number) => z.string().max(max);
+
+export const esquemaDatosCompra = z.object({
+  version: z.literal(1),
+  tipo: z.enum(["nacional", "importacion"]),
+  proveedor: esquemaCliente,
+  almacenId: z.string().max(60).nullable(),
+  documento: texto(200),
+  moneda: z.enum(["PEN", "USD"]),
+  tcMerc: texto(40),
+  tcGastos: texto(40),
+  incoterm: z.enum(["FOB", "CIF"]).nullable(),
+  condicion: z.enum(["contado", "contra_entrega", "adelantado", "credito"]),
+  dias: texto(40),
+  embarque: texto(20),
+  llegada: texto(20),
+  nota: texto(2000),
+  filas: z
+    .array(
+      z.object({
+        productoId: z.number().int(),
+        codigo: texto(100),
+        titulo: texto(300),
+        cantidad: texto(40),
+        kilos: texto(40),
+        precio: texto(40),
+        total: texto(40),
+      }),
+    )
+    .max(500),
+});
+
 export const esquemaResumen = z.object({
   cliente: z.string().max(300).nullable(),
   productos: z.number().int().min(0),
   total: z.number().finite(),
+  moneda: z.enum(["PEN", "USD"]).optional(),
 });
 
 export const esquemaGuardarBorrador = z.object({
   id: z.uuid().nullable(),
-  tipo: z.enum(["pedido", "cotizacion"]),
+  tipo: z.enum(["pedido", "cotizacion", "compra"]),
   cotizacionId: z.uuid().nullable(),
   datos: z.unknown(),
   resumen: esquemaResumen,
@@ -127,9 +192,11 @@ export const esquemaGuardarBorrador = z.object({
 /** Los datos de un borrador, si tienen la forma de su tipo. */
 export function leerDatos(tipo: "cotizacion", datos: unknown): DatosBorradorCotizacion | null;
 export function leerDatos(tipo: "pedido", datos: unknown): DatosBorradorPedido | null;
+export function leerDatos(tipo: "compra", datos: unknown): DatosBorradorCompra | null;
 export function leerDatos(tipo: TipoBorrador, datos: unknown): DatosBorrador | null;
 export function leerDatos(tipo: TipoBorrador, datos: unknown): DatosBorrador | null {
-  const r = (tipo === "pedido" ? esquemaDatosPedido : esquemaDatosCotizacion).safeParse(datos);
+  const esquema = tipo === "pedido" ? esquemaDatosPedido : tipo === "compra" ? esquemaDatosCompra : esquemaDatosCotizacion;
+  const r = esquema.safeParse(datos);
   return r.success ? (r.data as unknown as DatosBorrador) : null;
 }
 
@@ -159,6 +226,7 @@ export function haceCuanto(fecha: string, ahora: number = Date.now()): string {
 /** Dónde se retoma un borrador. */
 export function rutaDeBorrador(b: Pick<BorradorListado, "id" | "tipo" | "cotizacionId">): string {
   if (b.tipo === "cotizacion") return `/cotizaciones/nueva?borrador=${b.id}`;
+  if (b.tipo === "compra") return `/compras/nueva?borrador=${b.id}`;
   const desde = b.cotizacionId ? `cotizacion=${b.cotizacionId}&` : "";
   return `/pedidos/nuevo?${desde}borrador=${b.id}`;
 }

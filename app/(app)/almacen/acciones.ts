@@ -37,9 +37,7 @@ import { productosDeLotes } from "@/lib/odoo/sobrantes";
 import { clienteServidor } from "@/lib/supabase-servidor";
 import { despacharNotificaciones } from "../notificaciones-acciones";
 import * as transferencias from "@/lib/transferencias-servidor";
-import { buscarClientes } from "@/lib/odoo/catalogos";
 import { ErrorOdoo } from "@/lib/odoo/rpc";
-import type { ClienteOdoo } from "@/lib/odoo/tipos";
 import { exigirSesion } from "@/lib/sesion";
 import {
   llevarAOdoo,
@@ -49,6 +47,8 @@ import {
   type ResumenSincronizacion,
 } from "@/lib/sobrantes-servidor";
 import * as stock from "@/lib/stock-servidor";
+import { esquemaRecepcion } from "@/lib/compras";
+import * as compras from "@/lib/compras-servidor";
 
 const esquemaKardex = zod.object({
   productoId: zod.number().int().positive().nullable(),
@@ -109,17 +109,19 @@ export async function reintentarIngreso(id: unknown): Promise<ResultadoAlmacen> 
   return r;
 }
 
-/** Los proveedores (contactos de Odoo) para una compra. */
-export async function buscarProveedores(q: unknown): Promise<{ ok: true; proveedores: ClienteOdoo[] } | { ok: false; error: string }> {
+/* ── Recibir una compra (orden de compra confirmada en /compras) ─────────── */
+
+export async function recibirCompra(entrada: unknown) {
+  return con("gestionarStock", esquemaRecepcion, entrada, compras.recibirCompra);
+}
+
+export async function reintentarRecepcion(id: unknown): Promise<ResultadoAlmacen> {
   const no = await puede("gestionarStock");
-  if (no) return no as { ok: false; error: string };
-  if (typeof q !== "string" || q.trim().length < 2) return { ok: true, proveedores: [] };
-  try {
-    const r = await buscarClientes(q.trim().slice(0, 80));
-    return { ok: true, proveedores: r.resultados.map((x) => x.item) };
-  } catch (e) {
-    return { ok: false, error: e instanceof ErrorOdoo ? e.message : "No se pudo buscar en Odoo." };
-  }
+  if (no) return no;
+  if (typeof id !== "string" || !id) return { ok: false, error: "Falta la recepción." };
+  const r = await compras.llevarRecepcionAOdoo(id);
+  refresh();
+  return r;
 }
 
 /* ── Productos y precios ───────────────────────────────────────────────────── */

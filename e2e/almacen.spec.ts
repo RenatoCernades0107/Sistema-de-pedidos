@@ -1,6 +1,7 @@
 /**
- * La pantalla del almacén: Logística ingresa una compra y un ajuste (en Odoo,
- * una recepción y un inventario en el almacén elegido); solo Administración
+ * La pantalla del almacén: Logística registra una compra en /compras y Almacén
+ * la recibe por partes (en Odoo, la orden de compra y sus recepciones), y un
+ * ajuste (un inventario en el almacén elegido); solo Administración
  * cambia precios; se crean planchas y accesorios con el código que sigue en su
  * serie; y el taller lo ve todo sin poder cambiarlo.
  *
@@ -18,6 +19,7 @@ interface Estado {
   productos: (Registro & { default_code: string | false; lst_price: number; __stock?: Record<number, number> })[];
   almacenes: (Registro & { code: string; lot_stock_id: [number, string] })[];
   pickings: (Registro & { movimientos: Registro[] })[];
+  compras: (Registro & { origin: string | false; lineas: Registro[] })[];
 }
 const estado = async () => (await (await fetch(`${ODOO}/__estado`)).json()) as Estado;
 const ubicacionDe = async (codigo: string) => (await estado()).almacenes.find((a) => a.code === codigo)!.lot_stock_id[0];
@@ -30,6 +32,8 @@ async function limpiar() {
   const supabase = await sesionDe("administracion");
   // El que crea la prueba: la lista de la empresa llega hasta ACC056.
   await supabase.from("accesorios").delete().eq("codigo_odoo", "ACC057");
+  // Las compras no se borran (son un registro): las de prueba que quedaron abiertas se anulan.
+  await supabase.from("compras").update({ estado: "anulada" }).like("nota", "E2E%").in("estado", ["borrador", "confirmada", "recibida_parcial"]);
   const { data: grupos } = await supabase.from("grupos_plancha").select("id").like("detalle", "E2E%");
   for (const g of grupos ?? []) await supabase.from("grupos_plancha").delete().eq("id", g.id);
 }
@@ -58,33 +62,62 @@ async function agregarProducto(page: Page, dialogo: ReturnType<Page["getByRole"]
   return dialogo.getByRole("list", { name: "Productos del ingreso" }).getByRole("listitem").filter({ hasText: codigo });
 }
 
-test("Logística ingresa una compra: en Odoo es una recepción en ese almacén, con proveedor y costo", async ({ page }) => {
+test("Logística registra una compra, la confirma y Almacén la recibe por partes: en Odoo, la orden y sus recepciones", async ({ page }) => {
   await entrar(page, "logistica");
   await page.goto("/almacen");
   await expect(page.getByRole("heading", { name: "Almacén" })).toBeVisible();
   // Al entrar quien gestiona el stock, los almacenes se crean en Odoo.
   await expect.poll(async () => (await estado()).almacenes.map((a) => a.code).sort()).toEqual(["AND", "CAT", "ESM", "WH"]);
 
-  await page.getByRole("button", { name: "Ingresar stock" }).click();
-  const dialogo = page.getByRole("dialog", { name: "Ingresar stock" });
-  await elegir(page, dialogo, "Almacén", "Católica (taller)");
-  await dialogo.getByLabel("Buscar proveedor").fill("andina");
-  await dialogo.getByRole("option", { name: /E2E Corporación Andina SAC/ }).click();
-  await dialogo.getByLabel("Guía o factura").fill("F001-E2E");
-  const fila = await agregarProducto(page, dialogo, "F7E024");
-  await fila.getByLabel("Llegaron").fill("4");
-  await fila.getByLabel("Costo c/u (S/)").fill("150");
-  await dialogo.getByLabel("Nota").fill("E2E compra");
-  await dialogo.getByRole("button", { name: "Registrar compra" }).click();
-  await expect(dialogo).toBeHidden();
-  await expect(page.getByText(/^ING-\d+ registrado$/)).toBeVisible();
+  // La pre-compra, en Compras.
+  await page.goto("/compras/nueva");
+  await elegir(page, page.locator("main"), "Almacén", "Católica (taller)");
+  await page.getByLabel("Buscar proveedor").fill("andina");
+  await page.getByRole("option", { name: /E2E Corporación Andina SAC/ }).click();
+  await page.getByLabel("Proforma").fill("F001-E2E");
+  await page.getByLabel("Buscar plancha o accesorio").fill("F7E024");
+  await page.getByLabel("Buscar plancha o accesorio").press("Enter");
+  const item = page.getByRole("list", { name: "Ítems de la compra" }).getByRole("listitem").filter({ hasText: "F7E024" });
+  await item.getByLabel("Cantidad").fill("4");
+  await item.getByLabel("Kilos (del ítem)").fill("60");
+  await item.getByLabel("Precio unit. (S/)").fill("150");
+  await page.getByLabel("Nota").fill("E2E compra");
+  await page.getByRole("button", { name: "Guardar pre-compra" }).click();
+  await page.waitForURL(/\/compras\/CMP-\d+$/);
+  const codigo = page.url().split("/").at(-1)!;
+  // Todavía no es nada en Odoo.
+  expect((await estado()).compras.filter((c) => c.origin === `App Plexiacril ${codigo}`)).toHaveLength(0);
 
-  const recepcion = (await estado()).pickings.at(-1)!;
-  expect(recepcion).toMatchObject({ picking_type_code: "incoming", state: "done", partner_id: [2, ""], partner_ref: "F001-E2E" });
-  expect(recepcion.movimientos).toEqual([expect.objectContaining({ product_uom_qty: 4, price_unit: 150 })]);
+  await page.getByRole("button", { name: "Guardar y confirmar orden de compra" }).click();
+  await expect(page.getByText(`${codigo} confirmada`)).toBeVisible();
+  const orden = (await estado()).compras.find((c) => c.origin === `App Plexiacril ${codigo}`)!;
+  expect(orden).toMatchObject({ state: "purchase", partner_id: [2, expect.anything()], partner_ref: "F001-E2E" });
+  expect(orden.lineas).toEqual([expect.objectContaining({ product_qty: 4, price_unit: 150, qty_received: 0 })]);
+  expect(await stockEn("F7E024", "CAT")).toBe(0);
+
+  // Llega una parte…
+  await page.goto("/almacen");
+  const recibir = async (cuantas: string) => {
+    await page.getByRole("button", { name: /Recibir compra/ }).click();
+    const dialogo = page.getByRole("dialog", { name: "Recibir compra" });
+    await elegir(page, dialogo, "Compra", codigo);
+    await dialogo.getByRole("list", { name: "Ítems de la compra" }).getByRole("listitem").filter({ hasText: "F7E024" }).getByLabel("Llegaron").fill(cuantas);
+    await dialogo.getByRole("button", { name: "Recibir", exact: true }).click();
+    await expect(dialogo).toBeHidden();
+  };
+  await recibir("3");
+  expect(await stockEn("F7E024", "CAT")).toBe(3);
+  // …y después el resto: la compra queda recibida y lista para liquidar.
+  await recibir("1");
   expect(await stockEn("F7E024", "CAT")).toBe(4);
+  const final = (await estado()).compras.find((c) => c.origin === `App Plexiacril ${codigo}`)!;
+  expect(final.lineas).toEqual([expect.objectContaining({ qty_received: 4 })]);
+
+  await page.goto(`/compras/${codigo}`);
+  await expect(page.getByText("Recibida", { exact: true }).first()).toBeVisible();
 
   // Y en la tabla, en la columna de Católica.
+  await page.goto("/almacen");
   await page.getByLabel("Buscar plancha").fill("F7E024");
   const enTabla = page.getByRole("row").filter({ hasText: "F7E024" });
   const encabezados = await page.getByRole("row").first().getByRole("columnheader").allTextContents();
@@ -94,9 +127,8 @@ test("Logística ingresa una compra: en Odoo es una recepción en ese almacén, 
 test("un ajuste deja lo contado, y el ingreso queda con lo que había antes", async ({ page }) => {
   await entrar(page, "logistica");
   await page.goto("/almacen");
-  await page.getByRole("button", { name: "Ingresar stock" }).click();
-  const dialogo = page.getByRole("dialog", { name: "Ingresar stock" });
-  await dialogo.getByRole("button", { name: "Ajuste de inventario" }).click();
+  await page.getByRole("button", { name: "Ajustar inventario" }).click();
+  const dialogo = page.getByRole("dialog", { name: "Ajustar inventario" });
   await elegir(page, dialogo, "Almacén", "Católica (taller)");
   const fila = await agregarProducto(page, dialogo, "F7E024");
   await expect(fila.getByText("Hoy hay 4 en este almacén")).toBeVisible();
@@ -182,7 +214,8 @@ test("el taller ve el almacén, sin precios y sin poder cambiarlo", async ({ pag
   await page.getByLabel("Buscar plancha").fill("F7E024");
   await expect(page.getByRole("row").filter({ hasText: "F7E024" })).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "Precio" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Ingresar stock" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Ajustar inventario" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Recibir compra/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Nuevo producto" })).toHaveCount(0);
   await expect(page.getByRole("tab", { name: "Ingresos" })).toHaveCount(0);
 });

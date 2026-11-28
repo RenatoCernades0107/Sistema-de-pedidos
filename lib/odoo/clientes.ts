@@ -34,6 +34,14 @@ const CAMPOS = [
 
 type Fila = Record<string, unknown>;
 
+/**
+ * "Número de documento": lo agrega el módulo de facturación electrónica peruana
+ * del Odoo de Plexiacril (no es de Odoo estándar). La pantalla de Odoo lo llena
+ * al escribir el RUC/DNI, pero por la API hay que mandarlo: un cliente sin él se
+ * guarda bien, pero el Punto de Venta se queda cargando al facturarle.
+ */
+const CAMPO_NUMERO_DOC = "doc_number";
+
 export function deCliente(f: Fila): ClienteOdoo {
   return {
     id: f.id as number,
@@ -130,17 +138,28 @@ export async function leerCliente(id: number): Promise<ClienteOdoo | null> {
   return filas[0] ? deCliente(filas[0]) : null;
 }
 
-/** El cliente que ya tiene ese RUC/DNI, si hay. Con y sin el prefijo de país. */
+/**
+ * El cliente que ya tiene ese RUC/DNI, si hay. Con y sin el prefijo de país.
+ *
+ * Hay RUC repetidos en Odoo: una copia que creó la app sin `doc_number` (y con
+ * la que el Punto de Venta no factura) y la que alguien rehízo después desde
+ * Odoo. Se prefiere la que tiene `doc_number`, y entre iguales la empresa antes
+ * que sus personas de contacto, que heredan el mismo RUC.
+ */
 export async function buscarPorDocumento(documento: string): Promise<ClienteOdoo | null> {
   const d = soloDigitos(documento);
   if (!d) return null;
+  const fields = await campos();
+  const conNumeroDoc = (await camposExistentes(MODELO, [CAMPO_NUMERO_DOC])).length > 0;
   const filas = await ejecutar<Fila[]>(
     MODELO,
     "search_read",
     [[["vat", "in", [d, `PE${d}`]]]],
-    { fields: await campos(), limit: 1 },
+    { fields: conNumeroDoc ? [...fields, CAMPO_NUMERO_DOC] : fields, limit: 10, order: "id" },
   );
-  return filas[0] ? deCliente(filas[0]) : null;
+  const puntaje = (f: Fila) => (texto(f[CAMPO_NUMERO_DOC]) ? 2 : 0) + (idDe(f.parent_id) ? 0 : 1);
+  const mejor = filas.reduce<Fila | null>((a, f) => (!a || puntaje(f) > puntaje(a) ? f : a), null);
+  return mejor ? deCliente(mejor) : null;
 }
 
 /* ── Contactos de una empresa ──────────────────────────────────────────────── */
@@ -291,7 +310,11 @@ export async function crearCliente(datos: DatosClienteNuevo): Promise<ClienteCre
     if (existente) return { cliente: existente, existia: true };
   }
 
-  const [pais, tipoDoc] = await Promise.all([idPeru(), tipo ? tipoDocumentoOdoo(tipo) : null]);
+  const [pais, tipoDoc, conNumeroDoc] = await Promise.all([
+    idPeru(),
+    tipo ? tipoDocumentoOdoo(tipo) : null,
+    datos.documento ? camposExistentes(MODELO, [CAMPO_NUMERO_DOC]).then((c) => c.length > 0) : false,
+  ]);
 
   // RUC 20: persona jurídica. Un RUC 10 es una persona con negocio.
   const esEmpresa = tipo === "RUC" && datos.documento!.startsWith("20");
@@ -301,6 +324,7 @@ export async function crearCliente(datos: DatosClienteNuevo): Promise<ClienteCre
     is_company: esEmpresa,
   };
   if (datos.documento) valores.vat = datos.documento;
+  if (datos.documento && conNumeroDoc) valores[CAMPO_NUMERO_DOC] = datos.documento;
   if (datos.direccion) valores.street = datos.direccion;
   // Con contacto, el teléfono y el correo son de la persona: la empresa no los lleva.
   if (datos.telefono && !contacto) valores.phone = datos.telefono;

@@ -7,7 +7,7 @@ import { FilePen, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { eliminarBorrador } from "@/app/(app)/borradores/acciones";
 import { HORAS_BORRADOR, haceCuanto, horasRestantes, rutaDeBorrador, type BorradorListado } from "@/lib/borradores";
-import { money } from "@/lib/formato";
+import { money, montoEn } from "@/lib/formato";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -24,7 +24,7 @@ import {
  * Los pedidos o cotizaciones a medio llenar de quien mira: retomarlos o
  * eliminarlos. Se borran solos a las 48 h sin abrirlos ni editarlos.
  */
-export function ListaBorradores({ borradores, nombre }: { borradores: BorradorListado[]; nombre: "pedido" | "cotización" }) {
+export function ListaBorradores({ borradores, nombre }: { borradores: BorradorListado[]; nombre: "pedido" | "cotización" | "compra" }) {
   const router = useRouter();
   const [porEliminar, setPorEliminar] = useState<BorradorListado | null>(null);
   const [eliminando, iniciar] = useTransition();
@@ -64,14 +64,14 @@ export function ListaBorradores({ borradores, nombre }: { borradores: BorradorLi
             <li key={b.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2" data-testid="borrador">
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">
-                  {b.resumen.cliente ?? <span className="text-muted-foreground">Sin cliente</span>}
+                  {b.resumen.cliente ?? <span className="text-muted-foreground">{nombre === "compra" ? "Sin proveedor" : "Sin cliente"}</span>}
                 </p>
                 <p className="text-muted-foreground text-xs">
-                  {b.resumen.productos} {b.resumen.productos === 1 ? "producto" : "productos"}
+                  {b.resumen.productos} {nombre === "compra" ? (b.resumen.productos === 1 ? "ítem" : "ítems") : b.resumen.productos === 1 ? "producto" : "productos"}
                   {b.resumen.productos > 0 && (
                     <>
                       {" · "}
-                      <span className="tnum">{money(b.resumen.total)}</span>
+                      <span className="tnum">{b.resumen.moneda ? montoEn(b.resumen.total, b.resumen.moneda) : money(b.resumen.total)}</span>
                     </>
                   )}
                   {" · editado "}
@@ -104,8 +104,9 @@ export function ListaBorradores({ borradores, nombre }: { borradores: BorradorLi
           <AlertDialogHeader>
             <AlertDialogTitle>¿Eliminar este borrador?</AlertDialogTitle>
             <AlertDialogDescription>
-              Se pierde lo que se había llenado de {nombre === "pedido" ? "este pedido" : "esta cotización"}
-              {porEliminar?.resumen.cliente ? ` para ${porEliminar.resumen.cliente}` : ""}. No se puede deshacer.
+              Se pierde lo que se había llenado de{" "}
+              {nombre === "pedido" ? "este pedido" : nombre === "compra" ? "esta compra" : "esta cotización"}
+              {porEliminar?.resumen.cliente ? (nombre === "compra" ? ` a ${porEliminar.resumen.cliente}` : ` para ${porEliminar.resumen.cliente}`) : ""}. No se puede deshacer.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -36,7 +36,7 @@ export async function notaDePrecios(): Promise<string | undefined> {
 }
 
 /** Una vez por respuesta: si falla, el siguiente intento vuelve a probar. */
-function unaVez<T>(cargar: () => Promise<T>): () => Promise<T> {
+export function unaVez<T>(cargar: () => Promise<T>): () => Promise<T> {
   let promesa: Promise<T> | null = null;
   return () => {
     promesa ??= cargar().catch((e) => {

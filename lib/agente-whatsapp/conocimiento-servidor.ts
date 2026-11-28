@@ -124,7 +124,7 @@ export async function enlacesDeDocumentos(ids: string[], segundos = 3600): Promi
  * Los vectores de los textos con el primer modelo que responda. `null` si
  * ninguno respondió (o no hay clave): se busca solo por palabras.
  */
-async function vectorizar(
+export async function vectorizar(
   textos: string[],
 ): Promise<{ vectores: number[][]; modelo: string } | { vectores: null; error: string }> {
   if (!agenteConfigurado()) return { vectores: null, error: "falta la clave del agente" };
@@ -309,18 +309,18 @@ export async function procesarDocumento(id: string): Promise<ResultadoProceso> {
 
 /* ── Buscar ────────────────────────────────────────────────────────────────── */
 
-/** Los fragmentos más relevantes para la consulta (vector + palabras). */
-export async function buscarEnConocimiento(consulta: string, limite = 6): Promise<FragmentoEncontrado[]> {
-  const vector = await vectorizar([consulta.slice(0, 2000)]);
-  const supabase = await clienteServidor();
-  const { data, error } = await supabase.rpc("buscar_fragmentos_agente", {
-    p_texto: consulta,
-    p_embedding: vector.vectores ? JSON.stringify(vector.vectores[0]) : null,
-    p_modelo: vector.vectores ? vector.modelo : null,
-    p_limite: limite,
-  });
-  if (error) throw new Error(`No se pudo buscar en los documentos: ${error.message}`);
-  return (data ?? []).map((f) => ({
+type FilaFragmento = {
+  documento_id: string;
+  documento_nombre: string;
+  documento_tipo: string;
+  documento_enviable: boolean;
+  pagina: number | null;
+  contenido: string;
+};
+
+/** Las filas de `buscar_fragmentos_agente` / `wa_buscar_fragmentos`, como las lee el agente. */
+export function fragmentosDeFilas(filas: FilaFragmento[]): FragmentoEncontrado[] {
+  return filas.map((f) => ({
     documentoId: f.documento_id,
     documento: f.documento_nombre,
     tipo: esTipoDocumento(f.documento_tipo) ? f.documento_tipo : "otro",
@@ -328,4 +328,21 @@ export async function buscarEnConocimiento(consulta: string, limite = 6): Promis
     contenido: f.contenido,
     enviable: f.documento_enviable,
   }));
+}
+
+/** El vector de la consulta (si algún modelo responde), para pasarlo a la búsqueda. */
+export async function vectorDeConsulta(consulta: string): Promise<{ p_embedding: string | null; p_modelo: string | null }> {
+  const vector = await vectorizar([consulta.slice(0, 2000)]);
+  return vector.vectores
+    ? { p_embedding: JSON.stringify(vector.vectores[0]), p_modelo: vector.modelo }
+    : { p_embedding: null, p_modelo: null };
+}
+
+/** Los fragmentos más relevantes para la consulta (vector + palabras). */
+export async function buscarEnConocimiento(consulta: string, limite = 6): Promise<FragmentoEncontrado[]> {
+  const vector = await vectorDeConsulta(consulta);
+  const supabase = await clienteServidor();
+  const { data, error } = await supabase.rpc("buscar_fragmentos_agente", { p_texto: consulta, ...vector, p_limite: limite });
+  if (error) throw new Error(`No se pudo buscar en los documentos: ${error.message}`);
+  return fragmentosDeFilas(data ?? []);
 }

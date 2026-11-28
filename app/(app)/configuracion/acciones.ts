@@ -14,6 +14,7 @@ import { exigirAdmin } from "@/lib/sesion";
 import { clienteServidor } from "@/lib/supabase-servidor";
 import { ERROR_SIN_FILAS, mensajeDeError } from "@/lib/errores";
 import { CLAVE_CONFIG_CORTES, cargarCatalogoPlanchas } from "@/lib/cortes-servidor";
+import { compactar } from "@/lib/busqueda-inteligente";
 import { esquemaConfigCortes } from "@/lib/cortes/config";
 import { CLAVE_CONFIG_TERMINADOS } from "@/lib/terminados-servidor";
 import { esquemaConfigTerminados } from "@/lib/terminados/config";
@@ -165,17 +166,49 @@ const esquemaNuevoGrupo = z.object({
   codigo,
   anchoCm: medida,
   largoCm: medida,
+  /** El admin confirmó que sí quiere crear un material, color o espesor que no existe. */
+  confirmarNuevo: z.boolean().optional(),
 });
+
+export type ResultadoCrearPlancha =
+  | { ok: true }
+  | { ok: false; error: string; requiereConfirmacion?: string[] };
 
 /**
  * Un material nuevo con su primer formato. Si el grupo ya existía (mismo
  * material, color y espesor), el formato se le agrega.
+ *
+ * "cristal" y "Cristal" son lo mismo: se usa la grafía que ya está en el
+ * catálogo. Un material, color o espesor que no existe solo se crea si el
+ * admin lo confirma.
  */
-export async function crearGrupoPlancha(entrada: unknown): Promise<Resultado> {
+export async function crearGrupoPlancha(entrada: unknown): Promise<ResultadoCrearPlancha> {
   await exigirAdmin();
   const datos = esquemaNuevoGrupo.safeParse(entrada);
   if (!datos.success) return falloDeEsquema(datos.error);
-  const v = datos.data;
+  const { confirmarNuevo, ...v } = datos.data;
+
+  const catalogo = await cargarCatalogoPlanchas();
+  const material = catalogo.find((g) => compactar(g.material) === compactar(v.material))?.material;
+  if (material) v.material = material;
+  const delMaterial = catalogo.filter((g) => g.material === v.material);
+
+  const color = delMaterial.find((g) => compactar(g.variante + g.detalle) === compactar(v.variante + v.detalle));
+  if (color) {
+    v.variante = color.variante;
+    v.detalle = color.detalle;
+  }
+
+  const nombreColor = [v.variante, v.detalle].filter(Boolean).join(" ") || "sin color";
+  const novedades: string[] = [];
+  if (!material) novedades.push(`Material nuevo: ${v.material}`);
+  else if (!color) novedades.push(`Color nuevo en ${v.material}: ${nombreColor}`);
+  else if (!delMaterial.some((g) => g.variante === v.variante && g.detalle === v.detalle && g.espesorMm === v.espesorMm))
+    novedades.push(`Espesor nuevo en ${v.material} ${nombreColor}: ${v.espesorMm} mm`);
+
+  if (novedades.length > 0 && !confirmarNuevo) {
+    return { ok: false, error: "Esto crea una categoría nueva.", requiereConfirmacion: novedades };
+  }
 
   const supabase = await clienteServidor();
   const { data: grupo, error } = await supabase

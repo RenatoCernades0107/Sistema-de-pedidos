@@ -8,7 +8,7 @@
  */
 
 import { z } from "zod";
-import { obtenerVersionLibre, obtenerVersionLibreNumero } from "@/lib/cad/libre-servidor";
+import { contornosDeDiseno, obtenerVersionLibre, obtenerVersionLibreNumero } from "@/lib/cad/libre-servidor";
 import { ErrorSandboxCad, ejecutarCodigo, sandboxConfigurado } from "@/lib/cad/sandbox";
 import { PLANTILLA_LIBRE } from "@/lib/cad/tipos";
 import { error, leerCuerpo, puertaCad } from "../respuesta";
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
         404,
       );
     }
-    const r = await ejecutarCodigo(libre.codigo);
+    const r = await ejecutarCodigo(libre.codigo, await contornosDeDiseno(disenoId));
     return Response.json({
       plantilla: PLANTILLA_LIBRE,
       version_plantilla: 1,

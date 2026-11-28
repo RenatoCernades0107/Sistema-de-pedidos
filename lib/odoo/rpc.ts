@@ -1,3 +1,4 @@
+import { medir } from "../tiempos";
 /**
  * La única costura con Odoo.
  *
@@ -110,7 +111,7 @@ async function llamar(
 ): Promise<unknown> {
   let res: Response;
   try {
-    res = await fetch(`${config.url}/jsonrpc`, {
+    res = await medir(`odoo.${service}.${method}`, () => fetch(`${config.url}/jsonrpc`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -121,7 +122,7 @@ async function llamar(
       }),
       cache: "no-store",
       signal: AbortSignal.timeout(TIEMPO_MAXIMO_MS),
-    });
+    }));
   } catch (e) {
     if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) {
       throw new ErrorOdoo("Odoo no respondió a tiempo. Intenta de nuevo.");

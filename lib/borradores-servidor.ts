@@ -4,6 +4,7 @@ import {
   leerDatos,
   type BorradorAbierto,
   type BorradorListado,
+  type DatosBorradorCompra,
   type DatosBorradorCotizacion,
   type DatosBorradorPedido,
   type TipoBorrador,
@@ -46,6 +47,7 @@ export async function cargarBorradores(tipo: TipoBorrador): Promise<BorradorList
  */
 export async function abrirBorrador(id: string, tipo: "cotizacion"): Promise<BorradorAbierto<DatosBorradorCotizacion> | null>;
 export async function abrirBorrador(id: string, tipo: "pedido"): Promise<BorradorAbierto<DatosBorradorPedido> | null>;
+export async function abrirBorrador(id: string, tipo: "compra"): Promise<BorradorAbierto<DatosBorradorCompra> | null>;
 export async function abrirBorrador(id: string, tipo: TipoBorrador): Promise<BorradorAbierto | null> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
   const supabase = await clienteServidor();

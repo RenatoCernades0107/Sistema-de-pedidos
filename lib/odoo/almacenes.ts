@@ -384,6 +384,220 @@ export async function ingresarCompra(c: Compra): Promise<number> {
   return pendiente.id as number;
 }
 
+/* ── Compras en dos pasos: la orden y, después, lo que llega ──────────────── */
+
+export interface OrdenDeCompra {
+  almacen: AlmacenOdoo;
+  proveedorId: number;
+  /** "App Plexiacril CMP-00001": reintentar no duplica. */
+  origen: string;
+  /** La proforma o cotización del proveedor. */
+  documento: string | null;
+  /** La moneda de los precios. PEN es la de la empresa: no se manda. */
+  moneda: "PEN" | "USD";
+  /** La llegada estimada (AAAA-MM-DD), si se sabe. */
+  fechaPrevista: string | null;
+  lineas: LineaDeIngreso[];
+}
+
+/** El id de una moneda activa en Odoo, o un error que dice cómo activarla. */
+async function monedaId(codigo: string): Promise<number> {
+  const [m] = await ejecutar<Fila[]>("res.currency", "search_read", [[["name", "=", codigo]]], {
+    fields: ["active"],
+    limit: 1,
+    context: { active_test: false },
+  });
+  if (!m || m.active === false) {
+    throw new ErrorOdoo(`La moneda ${codigo} no está activa en Odoo. Actívala en Contabilidad → Configuración → Monedas y reintenta.`);
+  }
+  return m.id as number;
+}
+
+/**
+ * Soles por dólar según Odoo (la tasa vigente de `res.currency`), o `null` si no
+ * hay tasa cargada. Odoo guarda `rate` como dólares por sol; desde la 14 también
+ * `inverse_rate`, que es lo que se quiere.
+ */
+export async function tipoDeCambioUsd(): Promise<number | null> {
+  const [m] = await ejecutar<Fila[]>("res.currency", "search_read", [[["name", "=", "USD"]]], {
+    fields: await camposExistentes("res.currency", ["rate", "inverse_rate"]),
+    limit: 1,
+  });
+  if (!m) return null;
+  const inversa = Number(m.inverse_rate);
+  const tasa = Number(m.rate);
+  // Una tasa de exactamente 1 es la que Odoo pone cuando no hay ninguna cargada.
+  const tc = inversa > 0 && inversa !== 1 ? inversa : tasa > 0 && tasa !== 1 ? 1 / tasa : null;
+  return tc ? Math.round(tc * 10_000) / 10_000 : null;
+}
+
+/**
+ * La orden de compra confirmada, SIN recibir: la mercadería todavía no llegó.
+ * Odoo le arma su recepción, que Almacén valida después (`recibirOrdenCompra`).
+ * Devuelve el id de la orden. Reintentar no duplica: se busca por el origen.
+ */
+export async function crearOrdenCompra(c: OrdenDeCompra): Promise<number> {
+  if (!c.almacen.recepcionId) throw new ErrorOdoo("El almacén no tiene operación de recepción en Odoo.");
+  if (!(await hayCompras())) {
+    throw new ErrorOdoo("Odoo no tiene instalada la app Compras. Instálala (Aplicaciones → Compras) y reintenta.");
+  }
+  const [previa] = await ejecutar<Fila[]>("purchase.order", "search_read", [[["origin", "=", c.origen], ["state", "!=", "cancel"]]], {
+    fields: ["state"],
+    limit: 1,
+  });
+
+  let ordenId = previa?.id as number | undefined;
+  if (!ordenId) {
+    const lineas = c.lineas.filter((l) => l.cantidad > 0);
+    if (lineas.length === 0) throw new ErrorOdoo("La compra no tiene nada que pedir.");
+    const opcionales = await camposExistentes("purchase.order", ["currency_id", "date_planned"]);
+    ordenId = await ejecutar<number>("purchase.order", "create", [
+      {
+        partner_id: c.proveedorId,
+        origin: c.origen,
+        picking_type_id: c.almacen.recepcionId,
+        ...(c.documento ? { partner_ref: c.documento } : {}),
+        ...(c.moneda !== "PEN" && opcionales.includes("currency_id") ? { currency_id: await monedaId(c.moneda) } : {}),
+        ...(c.fechaPrevista && opcionales.includes("date_planned") ? { date_planned: `${c.fechaPrevista} 12:00:00` } : {}),
+        order_line: await lineasDeCompra(lineas),
+      },
+    ]);
+  }
+  if (!previa || ["draft", "sent"].includes(texto(previa.state) ?? "")) {
+    await ejecutar("purchase.order", "button_confirm", [[ordenId]]);
+  }
+  const [orden] = await ejecutar<Fila[]>("purchase.order", "read", [[ordenId]], { fields: ["state"] });
+  if (!["purchase", "done"].includes(texto(orden?.state) ?? "")) {
+    throw new ErrorOdoo("La orden de compra espera aprobación en Odoo. Apruébala desde Compras y reintenta.");
+  }
+  return ordenId;
+}
+
+/** Cancela una orden de compra que todavía no recibió nada (una compra anulada). */
+export async function cancelarOrdenCompra(ordenId: number): Promise<void> {
+  const [orden] = await ejecutar<Fila[]>("purchase.order", "read", [[ordenId]], { fields: ["state"] });
+  if (!orden || texto(orden.state) === "cancel") return;
+  await ejecutar("purchase.order", "button_cancel", [[ordenId]]);
+}
+
+export interface LineaRecibida {
+  productoId: number;
+  /** Lo que llega ahora. */
+  cantidad: number;
+  /** Lo que ya se había recibido de este producto en recepciones anteriores. */
+  recibidoAntes: number;
+}
+
+/**
+ * Recibe lo que llegó de una orden de compra, aunque sea una parte: lo que falta
+ * queda en otra recepción (backorder) para la próxima vez. Devuelve el id de la
+ * recepción validada.
+ *
+ * Reintentar no duplica: si Odoo ya tiene recibido lo de antes más lo de ahora,
+ * no se vuelve a validar.
+ */
+export async function recibirOrdenCompra(ordenId: number, lineas: LineaRecibida[]): Promise<number> {
+  const [orden] = await ejecutar<Fila[]>("purchase.order", "read", [[ordenId]], { fields: ["state", "picking_ids", "order_line"] });
+  if (!orden) throw new ErrorOdoo("La orden de compra no existe en Odoo.");
+  if (!["purchase", "done"].includes(texto(orden.state) ?? "")) {
+    throw new ErrorOdoo("La orden de compra no está confirmada en Odoo.");
+  }
+
+  const lineasOdoo = await ejecutar<Fila[]>("purchase.order.line", "read", [(orden.order_line as number[]) ?? []], {
+    fields: ["product_id", "qty_received"],
+  });
+  const recibidoOdoo = new Map<number, number>();
+  for (const l of lineasOdoo) {
+    const p = idDe(l.product_id);
+    if (p) recibidoOdoo.set(p, (recibidoOdoo.get(p) ?? 0) + (Number(l.qty_received) || 0));
+  }
+  const recepciones = await ejecutar<Fila[]>("stock.picking", "read", [(orden.picking_ids as number[]) ?? []], {
+    fields: ["state"],
+  });
+  const ultimaHecha = () =>
+    recepciones.filter((r) => texto(r.state) === "done").reduce((m, r) => Math.max(m, r.id as number), 0);
+
+  const llegan = lineas.filter((l) => l.cantidad > 0);
+  if (llegan.length === 0) throw new ErrorOdoo("No hay nada que recibir.");
+  const yaEstaba = llegan.every((l) => (recibidoOdoo.get(l.productoId) ?? 0) >= l.recibidoAntes + l.cantidad);
+  if (yaEstaba && ultimaHecha()) return ultimaHecha();
+  const aMedias = llegan.some((l) => (recibidoOdoo.get(l.productoId) ?? 0) > l.recibidoAntes);
+  if (aMedias) {
+    throw new ErrorOdoo("En Odoo esta orden tiene recibido más de lo que la app sabe. Revisa sus recepciones en Odoo.");
+  }
+
+  const pendiente = recepciones.find((r) => !["done", "cancel"].includes(texto(r.state) ?? ""));
+  if (!pendiente) throw new ErrorOdoo("La orden de compra no tiene recepción pendiente en Odoo.");
+  const movs = await ejecutar<Fila[]>("stock.move", "search_read", [[["picking_id", "=", pendiente.id], ["state", "!=", "cancel"]]], {
+    fields: ["product_id", "product_uom_qty"],
+  });
+  const porProducto = new Map(llegan.map((l) => [l.productoId, l.cantidad]));
+  const cantidades = new Map<number, number>();
+  let completa = true;
+  for (const m of movs) {
+    const p = idDe(m.product_id) ?? 0;
+    const pedido = Number(m.product_uom_qty) || 0;
+    const llega = Math.min(porProducto.get(p) ?? 0, pedido);
+    porProducto.delete(p);
+    cantidades.set(m.id as number, llega);
+    if (llega < pedido) completa = false;
+  }
+  if (porProducto.size) throw new ErrorOdoo("Llegó un producto que la recepción de Odoo no espera.");
+  if (![...cantidades.values()].some((c) => c > 0)) throw new ErrorOdoo("No hay nada que recibir.");
+
+  const id = pendiente.id as number;
+  if (completa) {
+    await validarPicking(id, cantidades);
+    return id;
+  }
+  // Una parte: Odoo pide qué hacer con el resto. Se le dice que quede pendiente.
+  await ejecutar("stock.picking", "action_confirm", [[id]]);
+  const { picked, campoMov } = await campoCantidad();
+  for (const [moveId, cantidad] of cantidades) {
+    await ejecutar("stock.move", "write", [[moveId], { [campoMov]: cantidad, ...(picked ? { picked: cantidad > 0 } : {}) }]);
+  }
+  const r = await ejecutar<Fila | boolean>("stock.picking", "button_validate", [[id]], { context: { skip_immediate: true, skip_sms: true } });
+  if (esAsistente(r)) {
+    const accion = r as Fila;
+    if (texto(accion.res_model) !== "stock.backorder.confirmation") {
+      throw new ErrorOdoo("Odoo pidió confirmar algo más para validar la recepción. Valídala desde Odoo.");
+    }
+    const contexto = { ...((accion.context as Fila | undefined) ?? {}), button_validate_picking_ids: [id] };
+    const asistente = await ejecutar<number>("stock.backorder.confirmation", "create", [{ pick_ids: [[6, 0, [id]]] }], { context: contexto });
+    const r2 = await ejecutar("stock.backorder.confirmation", "process", [[asistente]], { context: contexto });
+    if (esAsistente(r2)) throw new ErrorOdoo("Odoo pidió confirmar algo más para validar la recepción. Valídala desde Odoo.");
+  }
+  return id;
+}
+
+/* ── Lo vendido en un período ──────────────────────────────────────────────── */
+
+/**
+ * Cuánto salió de cada producto hacia clientes entre `desde` (incluido) y
+ * `hasta` (excluido), menos lo que los clientes devolvieron. Es la cantidad del
+ * costo de ventas de un mes. Las fechas van como "AAAA-MM-DD HH:MM:SS" (UTC).
+ */
+export async function salidasAClientes(desde: string, hasta: string): Promise<Map<number, number>> {
+  const { campoMov } = await campoCantidad();
+  const leer = (lado: "location_dest_id" | "location_id") =>
+    ejecutar<Fila[]>(
+      "stock.move",
+      "search_read",
+      [[["state", "=", "done"], [`${lado}.usage`, "=", "customer"], ["date", ">=", desde], ["date", "<", hasta]]],
+      { fields: ["product_id", campoMov] },
+    );
+  const [salen, vuelven] = await Promise.all([leer("location_dest_id"), leer("location_id")]);
+  const neto = new Map<number, number>();
+  for (const [lista, signo] of [[salen, 1], [vuelven, -1]] as const) {
+    for (const m of lista) {
+      const p = idDe(m.product_id);
+      if (p) neto.set(p, (neto.get(p) ?? 0) + signo * (Number(m[campoMov]) || 0));
+    }
+  }
+  for (const [p, q] of neto) if (q <= 0) neto.delete(p);
+  return neto;
+}
+
 export interface Ajuste {
   ubicacionId: number;
   lineas: { productoId: number; cantidad: number }[];

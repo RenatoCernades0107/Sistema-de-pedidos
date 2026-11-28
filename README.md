@@ -201,6 +201,27 @@ E2E_URL=https://<dominio>.vercel.app npm run e2e
 El recorrido de punta a punta (cotización → pedido → estados → almacén, con quién hace cada paso)
 está en [`docs/flujo-app.svg`](docs/flujo-app.svg); se edita en [`docs/flujo-app.excalidraw`](docs/flujo-app.excalidraw)
 (excalidraw.com → *Abrir*, o la extensión de VS Code).
+El proceso de compras (nacional e importación, con sus costos) está en
+[`docs/proceso-compras.svg`](docs/proceso-compras.svg); se edita en [`docs/proceso-compras.excalidraw`](docs/proceso-compras.excalidraw).
+
+- **Compras** (`/compras`, Administración y Logística): pre-compra → confirmar (orden de compra en
+  Odoo, sin recibir) → Almacén la recibe por partes con *Recibir compra*. El costeo no se hace aquí.
+- **Costos y precios** (`/costos-precios`, Administración), en dos costeos y un factor:
+  - **1er costo** — botón *Costear*: se busca la orden y se cargan sus gastos (flete, DAM, aduana,
+    almacén, tráiler, mano de obra…). El reparto está en `lib/costeo.ts` (puro, con pruebas): la
+    mercadería va directa por ítem y cada gasto se reparte por valor o por kilos según lo que lo
+    genera; el IGV, el IPM y la percepción son crédito fiscal y no suben el costo. Cerrar el costeo
+    deja el costo de cada plancha en `costos_historial`.
+  - **2do costo** — pestaña *Gastos de operar*: los gastos administrativos, financieros, del almacén
+    propio y de ventas y despacho de cada mes, sobre el costo de lo vendido ese mes (calculado con
+    Odoo: lo que salió a clientes × su 1er costo, o escrito a mano). La tasa que vale junta los
+    últimos N meses: 2do costo = 1er costo × (1 + tasa).
+  - **Precio** = 2do costo × factor (general, por material o por plancha) + IGV. Los precios elegidos
+    se aplican en Odoo y quedan en `cambios_precio`.
+  - **Gráfico** (`lib/costos-grafico.ts`): costo y precio de una plancha, comparar el costo de
+    varias (por plancha, kg o m²) y el margen en el tiempo, filtrando material → color → espesor →
+    medida.
+  - Migraciones `20261218000100` y `20261220000100`; prueba en `supabase/tests/compras_costos.sql`.
 
 - `app/(app)/` — las vistas por rol. El layout carga los pedidos una vez y las cuatro páginas
   filtran sobre el mismo conjunto; `acciones.ts` son las Server Actions, el único camino de
@@ -381,23 +402,27 @@ está en [`docs/flujo-app.svg`](docs/flujo-app.svg); se edita en [`docs/flujo-ap
   Transferencias; se guarda en `cotizaciones.almacen_despacho_id`). Al pasar a **Listo** se
   dice a qué almacén se fue cada sobrante, en los cortes y en los productos terminados; la orden lleva
   un subproducto por almacén de destino.
-- **La producción con piloto** (`lib/odoo/produccion.ts`, `lib/produccion-servidor.ts`): encendido
-  para todos los materiales desde `20261205000100`, un corte se vende como *Corte a medida* de su material
-  (`CAM-<código>`, en m² de piezas) por el mismo importe que el cálculo por fracción; lo que el precio
-  por m² no cuadra al céntimo lo absorbe la línea del servicio. Al confirmar el pedido nace su orden
-  de fabricación, sin lista de materiales: consume las planchas nuevas del cálculo, produce los m² y
-  prevé los sobrantes (con su parte del costo por área). Al pasar a **Listo**, el diálogo propone los
-  pedazos que vuelven al almacén (las zonas libres que no son retazo); el taller los mide, les pone
-  ubicación, quita o agrega. Se guardan en `sobrantes` antes de ir a Odoo, la orden se cierra con lo
-  real (un lote por sobrante, con `x_largo` / `x_ancho`, en su almacén) y la entrega saca el corte terminado. Al
-  anular, la orden se cancela. Un sobrante nacido de un corte solo entra a Odoo al cerrar su orden:
-  *Sincronizar* no lo crea por su cuenta (lo pondría dos veces en el stock). Migración
-  `20261112000200`. Necesita en Odoo el módulo Fabricación y la unidad m².
+- **Los cortes con piloto en la venta** (`lineasParaOdoo` en `lib/cotizaciones-servidor.ts`,
+  `lib/produccion-servidor.ts`): encendido para todos los materiales desde `20261205000100`, un corte
+  se vende igual que sin piloto, con sus **planchas** (una línea por precio: entera, media, cuarto…) y
+  el servicio, para poder facturarlo. Cada sobrante del almacén que usa va como una línea propia del
+  producto *Pieza* de su material (`SOB-<código>`, en Odoo "PIEZA …", vendible y por lotes),
+  cantidad 1 al precio que se cobró. Al registrar el pedido el acomodo se rehace con los sobrantes
+  de ese momento; antes de confirmar, la venta de Odoo se pone al día con lo que de verdad se usa
+  (lo cobrado de más o de menos lo absorbe el servicio: el total es el cotizado). Los cortes ya no
+  tienen orden de fabricación. Al pasar a **Listo**, el diálogo propone los pedazos que vuelven al
+  almacén (las zonas libres que no son retazo); el taller los mide, les pone ubicación, quita o
+  agrega. Se guardan en `sobrantes` y entran a Odoo como un lote cada uno (con `x_largo` /
+  `x_ancho`, en su almacén); después la entrega saca las planchas usadas y cada pieza del almacén con
+  su lote exacto. Un sobrante nacido de un corte solo entra a Odoo al terminar su pedido:
+  *Sincronizar* no lo crea por su cuenta. Los cortes cotizados antes con *Corte a medida*
+  (`CAM-<código>`, en m²) conservan su orden de fabricación y se cierran como entonces
+  (`lib/odoo/produccion.ts`, migración `20261112000200`).
 - **El reuso de sobrantes** (piloto): el cálculo de un corte usa primero los sobrantes disponibles del
   material en el almacén donde se corta, del más chico al más grande y los estándar
   al final; el precio no cambia, es el de planchas nuevas. Al registrar el pedido, el acomodo se
   rehace con lo disponible en ese momento y esos sobrantes quedan reservados en la misma transacción
   (`reservar_sobrantes_de_corte()`, migración `20261112000300`; si otro pedido se lleva uno, se rehace
-  sin él). La orden de fabricación los consume por lote; al cerrarla quedan consumidos y, si el
-  pedido se anula, vuelven a estar disponibles. `pedido_id` dice de qué corte nació un sobrante;
+  sin él). La entrega de la venta los saca por lote; al terminar el pedido quedan consumidos y, si
+  el pedido se anula, vuelven a estar disponibles. `pedido_id` dice de qué corte nació un sobrante;
   `reserva_pedido_id`, quién lo tiene reservado o lo consumió.

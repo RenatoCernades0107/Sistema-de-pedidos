@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { medir } from "./lib/tiempos";
 
 /**
  * Refresca la sesión de Supabase en cada petición y hace el desvío obvio: sin
@@ -26,6 +27,12 @@ const ABIERTAS = ["/c", "/seguimiento"];
  * pasar, así que no son ni públicas como el login ni de las de arriba.
  */
 const ENLACES_AUTH = ["/auth"];
+
+/**
+ * Los webhooks de servicios externos (Kapso, para WhatsApp). Llegan sin sesión y
+ * se autorizan solos, con la firma del servicio: ver su route handler.
+ */
+const WEBHOOKS = ["/api/whatsapp/webhook"];
 
 export async function proxy(request: NextRequest) {
   let respuesta = NextResponse.next({ request });
@@ -54,13 +61,16 @@ export async function proxy(request: NextRequest) {
     },
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // `getClaims` verifica el JWT en local (con las claves de firma asimétricas de
+  // Supabase) y solo va a la red si el token caducó y hay que refrescarlo.
+  // `getUser` era una llamada a Auth en cada petición. Aquí basta: es la
+  // comprobación optimista; la autorización la hacen el layout y la RLS.
+  const { data: claims } = await medir("proxy.getClaims", () => supabase.auth.getClaims());
+  const user = claims?.claims ?? null;
 
   const ruta = request.nextUrl.pathname;
   const esPublica = PUBLICAS.some((p) => ruta === p || ruta.startsWith(`${p}/`));
-  const esAbierta = [...ABIERTAS, ...ENLACES_AUTH].some(
+  const esAbierta = [...ABIERTAS, ...ENLACES_AUTH, ...WEBHOOKS].some(
     (p) => ruta === p || ruta.startsWith(`${p}/`),
   );
 
