@@ -84,6 +84,24 @@ describe("crearProduccion", () => {
   });
 });
 
+describe("una orden con varios formatos", () => {
+  it("consume cada plancha de su producto, y al cerrar descuenta lo usado de cada una", async () => {
+    const mo = await crearProduccion({ ...nueva(), planchas: 2, otrasPlanchas: [{ productoId: 21, cantidad: 1 }] });
+    const [orden] = odoo.estado().producciones;
+    const crudos = orden.movimientos.filter((m) => m.name === "Planchas del corte");
+    expect(crudos.map((m) => [(m.product_id as [number, string])[0], m.product_uom_qty])).toEqual([
+      [20, 2],
+      [21, 1],
+    ]);
+
+    const antes20 = stock(20)!;
+    const antes21 = stock(21)!;
+    await cerrarProduccion(mo.id, { material, planchas: 4, planchasPorProducto: { 20: 3, 21: 1 }, sobrantes: [] });
+    expect(stock(20)).toBe(antes20 - 3);
+    expect(stock(21)).toBe(antes21 - 1);
+  });
+});
+
 describe("cerrarProduccion", () => {
   it("cierra con lo real: planchas usadas, m² producidos y un lote por sobrante con su medida", async () => {
     const mo = await crearProduccion(nueva());

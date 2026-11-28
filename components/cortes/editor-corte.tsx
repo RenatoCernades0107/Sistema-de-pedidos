@@ -203,10 +203,8 @@ export function EditorCorte({
   /** La sugerencia según la política de Configuración, con los sobrantes primero. */
   const calculos = useMemo(() => {
     if (!entrada || piezas.length === 0) return [];
-    // Mezclar formatos solo sin el piloto de sobrantes: su orden de fabricación lleva una sola plancha.
-    const mezclar = !grupo?.sobrantesActivo;
-    return compararFormatos(entrada, formatos, config, contenedoresDe(delAlmacen), undefined, mezclar);
-  }, [entrada, piezas, formatos, config, delAlmacen, grupo]);
+    return compararFormatos(entrada, formatos, config, contenedoresDe(delAlmacen), undefined, true);
+  }, [entrada, piezas, formatos, config, delAlmacen]);
 
   /** Cada formato, solo con planchas nuevas: lo que pasa si se elige ese. */
   const porFormato = useMemo(() => {

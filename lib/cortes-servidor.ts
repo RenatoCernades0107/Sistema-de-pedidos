@@ -186,7 +186,6 @@ export async function prepararCorte(
   if (linea.mezclaDesde) {
     // La sugerencia mezcla formatos: se rehace igual que en la pantalla, desde
     // el mismo formato y con todos los del material que Odoo vende.
-    if (grupo.sobrantesActivo) return fallo("Este material registra sobrantes: no se pueden mezclar formatos todavía.");
     if (eleccion) return fallo("Una mezcla de formatos es una sugerencia: no va con una plancha elegida a mano.");
     const precios = await preciosDeGrupo(grupo);
     // Solo los formatos que quien cotiza dejó usar, igual que en la pantalla.

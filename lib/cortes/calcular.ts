@@ -528,11 +528,14 @@ export function compararFormatos(
   config: ConfigCortes,
   sobrantes: Contenedor[] = [],
   criterio: CriterioFormato = config.sugerencia.politica,
-  /** Ofrecer también cortes que mezclan formatos (no con el piloto de sobrantes). */
+  /**
+   * Ofrecer también cortes que mezclan formatos. Una mezcla sale solo de
+   * planchas nuevas: con sobrantes en el almacén compite con los que los usan.
+   */
   mezclar = false,
 ): CalculoCorte[] {
   const calculos = formatos.map((f) => calcularCorte(entrada, f, config, sobrantes));
-  if (mezclar && sobrantes.length === 0) {
+  if (mezclar) {
     const vistas = new Set<string>();
     // Desde los dos mejores de un solo formato: desde los demás suele llegarse a
     // la misma mezcla, y cada una cuesta lo que varios cálculos.
