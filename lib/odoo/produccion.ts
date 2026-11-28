@@ -164,6 +164,11 @@ export interface ProduccionNueva {
   /** La plancha del formato elegido (`product.product`) y cuántas nuevas se abren. */
   planchaId: number;
   planchas: number;
+  /**
+   * Si el corte mezcla formatos: las planchas de los demás formatos, cada una
+   * con su producto. Cada una es un componente más de la orden.
+   */
+  otrasPlanchas?: { productoId: number; cantidad: number }[];
   /** Cuántos sobrantes se prevé que vuelvan al almacén, y su área (para repartir el costo). */
   sobrantesPrevistos: { areaM2: number }[];
   /** Los lotes de los sobrantes del almacén que el corte consume. */
@@ -231,6 +236,24 @@ async function crear(p: ProduccionNueva): Promise<ProduccionCreada> {
     },
     "Planchas del corte",
   );
+  // Las de los otros formatos, si el corte mezcla: un movimiento por producto.
+  const otrosCrudos = [];
+  for (const o of (p.otrasPlanchas ?? []).filter((x) => x.cantidad > 0 && x.productoId !== p.planchaId)) {
+    otrosCrudos.push([
+      0,
+      0,
+      await movimiento(
+        {
+          product_id: o.productoId,
+          product_uom_qty: o.cantidad,
+          product_uom: await uomDe(o.productoId),
+          location_id: deStock,
+          location_dest_id: origenProduccion,
+        },
+        "Planchas del corte",
+      ),
+    ]);
+  }
   const subproductos = p.sobrantesPrevistos.length
     ? [
         [
@@ -281,7 +304,7 @@ async function crear(p: ProduccionNueva): Promise<ProduccionCreada> {
       ...(p.donde.tipoOperacion ? { picking_type_id: p.donde.tipoOperacion } : {}),
       location_src_id: deStock,
       location_dest_id: p.donde.ubicacionDestino,
-      move_raw_ids: [...(p.planchas > 0 ? [[0, 0, crudo]] : []), ...crudoSobrantes],
+      move_raw_ids: [...(p.planchas > 0 ? [[0, 0, crudo]] : []), ...otrosCrudos, ...crudoSobrantes],
       ...(subproductos.length ? { move_byproduct_ids: subproductos } : {}),
     },
   ]);
@@ -314,6 +337,11 @@ export interface Cierre {
   material: MaterialDeSobrante;
   /** Las planchas nuevas que de verdad se usaron. */
   planchas: number;
+  /**
+   * Si el corte mezcla formatos: las usadas de cada producto de plancha. Manda
+   * sobre `planchas` para los productos que nombra.
+   */
+  planchasPorProducto?: Record<number, number>;
   /** Los lotes de los sobrantes del almacén que se consumieron. */
   consumidos?: number[];
   /** Los pedazos que de verdad se guardaron, con su medida real y su almacén. */
@@ -482,7 +510,8 @@ async function cerrar(id: number, c: Cierre): Promise<Map<string, number>> {
   for (const m of crudos) {
     const producto = idDe(m.product_id);
     if (producto !== sobranteId) {
-      await ejecutar("stock.move", "write", [[m.id], { [campoMov]: c.planchas, ...(picked ? { picked: c.planchas > 0 } : {}) }]);
+      const usadas = (producto !== null ? c.planchasPorProducto?.[producto] : undefined) ?? c.planchas;
+      await ejecutar("stock.move", "write", [[m.id], { [campoMov]: usadas, ...(picked ? { picked: usadas > 0 } : {}) }]);
       continue;
     }
     for (const lote of consumidos) {

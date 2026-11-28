@@ -460,9 +460,11 @@ describe("combinar formatos en un corte", () => {
     expect(compararFormatos(pedido, [F9, F7c], config).every((c) => c.formatos.length === 1)).toBe(true);
     const con = compararFormatos(pedido, [F9, F7c], config, [], "precio", true);
     expect(con[0].formatos.length).toBe(2);
-    // Con sobrantes del almacén (el piloto) no se mezcla.
+    // Con sobrantes del almacén (el piloto) también se ofrece, solo con planchas nuevas.
     const conSobrantes = compararFormatos(pedido, [F9, F7c], config, [{ id: "S1", ancho: 50, alto: 50 }], "precio", true);
-    expect(conSobrantes.every((c) => c.formatos.length === 1)).toBe(true);
+    const mezcla = conSobrantes.find((c) => c.formatos.length > 1)!;
+    expect(mezcla).toBeDefined();
+    expect(mezcla.planchas.every((p) => p.origen.tipo === "plancha")).toBe(true);
   });
 
   it("con la política de merma también decide la merma", () => {
