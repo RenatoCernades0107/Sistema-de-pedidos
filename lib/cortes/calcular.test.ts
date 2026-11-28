@@ -498,3 +498,21 @@ describe("formatos elegidos para optimizar", () => {
     }
   });
 });
+
+describe("mezcla con muchas planchas iguales", () => {
+  it("pasa al formato chico todas las planchas cuyas piezas entran, no solo unas pocas", () => {
+    // Las de 245 solo entran en 122×245; las otras dos, también en 122×183, que es más barata.
+    const pedido = corte([
+      [121, 164, 18],
+      [118, 245, 18],
+      [164, 103.7, 45],
+      [118, 245, 30],
+    ]);
+    const F9: FormatoCorte = { codigo: "F9", ancho: 122, alto: 245, precio: 520 };
+    const F7c: FormatoCorte = { codigo: "F7", ancho: 122, alto: 183, precio: 400 };
+    const m = calcularMezcla(pedido, F9, [F7c, F9], config)!;
+    const deF7 = m.planchas.filter((p) => p.origen.tipo === "plancha" && p.origen.formato === "F7").length;
+    expect(deF7).toBe(63);
+    expect(m.material).toBe(48 * 520 + 63 * 400);
+  });
+});
