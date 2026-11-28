@@ -288,6 +288,17 @@ describe("planchas por niveles", () => {
     expect(o[0].navegable).toEqual({ material: "Acrílico ECO", migas: ["Acrílico ECO"] });
   });
 
+  it("los colores de un material: Cristal, luego Blanco y el resto en el orden del catálogo", () => {
+    const c = [
+      grupo(G1, "Acrílico", "Negro", "", 3, []),
+      grupo(G2, "Acrílico", "Blanco", "Lechoso", 3, []),
+      grupo(G3, "Acrílico", "Colores", "Rojo", 3, []),
+      grupo(G4, "Acrílico", "Cristal", "", 3, []),
+    ];
+    const colores = opcionesDePlanchas(c, { material: "Acrílico", migas: ["Acrílico"] }, "");
+    expect(colores.map((x) => x.etiqueta)).toEqual(["Cristal", "Blanco lechoso", "Negro", "Colores rojo"]);
+  });
+
   it("material › color › espesor › formato", () => {
     const colores = opcionesDePlanchas(catalogo, { material: "Acrílico ECO", migas: ["Acrílico ECO"] }, "");
     expect(colores.map((x) => x.etiqueta)).toEqual(["Cristal", "Blanco lechoso"]);

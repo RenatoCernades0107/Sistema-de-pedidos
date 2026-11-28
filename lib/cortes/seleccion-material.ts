@@ -44,6 +44,26 @@ export interface OpcionEspesor {
 const mismo = (a: string, b: string) => normalizar(a) === normalizar(b);
 const alfabetico = (a: string, b: string) => a.localeCompare(b, "es");
 
+/**
+ * Qué tan arriba va un color en las listas: 0 Cristal (y "Cristal …"),
+ * 1 Blanco (y "Blanco lechoso", "Blanco …"), 2 todo lo demás.
+ */
+export function prioridadColor(color: string): number {
+  const c = normalizar(color).trim();
+  if (/^cristal\b/.test(c)) return 0;
+  if (/^blanco\b/.test(c)) return 1;
+  return 2;
+}
+
+/**
+ * Compara dos colores solo por su prioridad (Cristal, Blanco, el resto). Con
+ * un `sort` estable, los de igual prioridad conservan el orden que traían.
+ */
+export const porPrioridadDeColor = (a: string, b: string) => prioridadColor(a) - prioridadColor(b);
+
+/** Cristal primero, luego Blanco y luego el resto, cada bloque en orden alfabético. */
+export const compararColores = (a: string, b: string) => porPrioridadDeColor(a, b) || alfabetico(a, b);
+
 /** Los materiales del catálogo, sin repetir y en orden alfabético. */
 export function materialesDe(catalogo: readonly GrupoPlancha[]): OpcionMaterial[] {
   const porClave = new Map<string, { nombre: string; colores: Set<string> }>();
@@ -58,7 +78,7 @@ export function materialesDe(catalogo: readonly GrupoPlancha[]): OpcionMaterial[
     .sort((a, b) => alfabetico(a.nombre, b.nombre));
 }
 
-/** Los colores que tiene un material. */
+/** Los colores que tiene un material: Cristal, luego Blanco y luego el resto. */
 export function coloresDe(catalogo: readonly GrupoPlancha[], material: string | null): OpcionColor[] {
   if (!material) return [];
   const porClave = new Map<string, { nombre: string; espesores: Set<number> }>();
@@ -72,7 +92,7 @@ export function coloresDe(catalogo: readonly GrupoPlancha[], material: string | 
   }
   return [...porClave.values()]
     .map((f) => ({ nombre: f.nombre, espesores: f.espesores.size }))
-    .sort((a, b) => alfabetico(a.nombre, b.nombre));
+    .sort((a, b) => compararColores(a.nombre, b.nombre));
 }
 
 /** Los espesores de un material en un color, de menor a mayor, cada uno con su grupo. */

@@ -13,6 +13,7 @@
 
 import { compactar, normalizarTexto, SINONIMOS } from "@/lib/busqueda-inteligente";
 import { colorDe, espesorTexto, medidaDe, nombreDeGrupo, type GrupoPlancha } from "@/lib/cortes/catalogo";
+import { porPrioridadDeColor } from "@/lib/cortes/seleccion-material";
 import { recortar, type NivelReferencia, type OpcionReferencia, type ReferenciaNueva } from "./referencias";
 
 const LIMITE = 20;
@@ -88,10 +89,9 @@ const sinEspesores = (q: string) => q.replace(/\d+(?:[.,]\d+)?\s*(?:mm\b)?/gi, "
 /** Los materiales en el orden del catálogo, sin repetir. */
 const materialesDe = (catalogo: GrupoPlancha[]) => [...new Set(catalogo.map((g) => g.material))];
 
-/** Los colores de un material, en el orden del catálogo. */
-const coloresDe = (catalogo: GrupoPlancha[], material: string) => [
-  ...new Set(catalogo.filter((g) => g.material === material).map((g) => colorDe(g))),
-];
+/** Los colores de un material: Cristal, luego Blanco y el resto en el orden del catálogo. */
+const coloresDe = (catalogo: GrupoPlancha[], material: string) =>
+  [...new Set(catalogo.filter((g) => g.material === material).map((g) => colorDe(g)))].sort(porPrioridadDeColor);
 
 export interface ResultadoPlanchas {
   opciones: OpcionReferencia[];
