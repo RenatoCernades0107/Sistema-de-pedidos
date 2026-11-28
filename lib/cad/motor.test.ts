@@ -205,6 +205,14 @@ describe("exportaciones", () => {
     expect(llamada(1).cuerpo.opciones).toEqual({ kerf_mm: 0.1, separacion_mm: 5 });
   });
 
+  it("DXF: `solo` viaja únicamente si nombra alguna copia", async () => {
+    fetchFalso.mockImplementation(async () => new Response(bytes, { status: 200 }));
+    await exportarDxf("caja", {}, undefined, { base: [1] });
+    expect(llamada(0).cuerpo).toEqual({ plantilla: "caja", parametros: {}, solo: { base: [1] } });
+    await exportarDxf("caja", {}, undefined, {});
+    expect(llamada(1).cuerpo).toEqual({ plantilla: "caja", parametros: {} });
+  });
+
   it("STEP: devuelve los bytes", async () => {
     fetchFalso.mockImplementation(async () => new Response(bytes, { status: 200 }));
     const step = await exportarStep("caja", {});

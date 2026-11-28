@@ -3,6 +3,7 @@ import {
   esquemaNombreProyecto,
   estadoDeDiseno,
   mensajeInicialDeDiseno,
+  nombreSeguro,
   resumenDeProyecto,
   textoDeResumen,
 } from "./proyectos";
@@ -66,5 +67,18 @@ describe("mensajeInicialDeDiseno", () => {
     const t = mensajeInicialDeDiseno({ proyecto: "P", nombre: "A", descripcion: "  ", hermanos: ["A"] });
     expect(t).not.toMatch(/\n\n\n/);
     expect(t).not.toContain("otros diseños");
+  });
+});
+
+describe("nombreSeguro", () => {
+  it("deja un nombre de archivo sin tildes, espacios ni símbolos", () => {
+    expect(nombreSeguro("Hurley Trujillo")).toBe("hurley-trujillo");
+    expect(nombreSeguro("  Ñandú / «Logo» #2 ")).toBe("nandu-logo-2");
+  });
+
+  it("sin nada que conservar usa el respaldo, y recorta lo muy largo", () => {
+    expect(nombreSeguro("¡¡¡")).toBe("proyecto");
+    expect(nombreSeguro("", "diseno")).toBe("diseno");
+    expect(nombreSeguro("a".repeat(100)).length).toBe(60);
   });
 });

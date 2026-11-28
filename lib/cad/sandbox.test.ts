@@ -5,6 +5,7 @@ import {
   ejecutarCodigo,
   exportarDxfLibre,
   exportarDxfPlanchasLibre,
+  exportarDxfProyecto,
   leerReferencia,
   olvidarSaludSandbox,
   renderizar,
@@ -96,6 +97,57 @@ describe("transporte", () => {
     expect(llamada(3).cuerpo).toEqual({ codigo: "c", opciones: { kerf_mm: 0.1 }, contornos: { logo } });
     await exportarDxfPlanchasLibre("c", [], undefined, { logo });
     expect(llamada(4).cuerpo.contornos).toEqual({ logo });
+  });
+
+  it("el DXF suelto manda `solo` solo si nombra alguna copia", async () => {
+    fetchFalso.mockImplementation(async () => respuesta({}));
+    await exportarDxfLibre("c", undefined, undefined, { frente: [2, 3] });
+    expect(llamada(0).cuerpo).toEqual({ codigo: "c", solo: { frente: [2, 3] } });
+    await exportarDxfLibre("c", undefined, undefined, {});
+    expect(llamada(1).cuerpo).toEqual({ codigo: "c" });
+  });
+
+  it("el DXF de proyecto manda los diseños (código con sus contornos, o plantilla) y las planchas", async () => {
+    const logo = { ancho_mm: 100, alto_mm: 50, trazos: ["M 0 0 L 1 0 Z"] };
+    const plancha = { ancho_mm: 1220, alto_mm: 2440, piezas: [{ id: "d1__frente", indice: 1, x_mm: 10, y_mm: 10, rotada: false }] };
+    fetchFalso.mockImplementation(async () => new Response("0\nSECTION\n", { status: 200 }));
+    const dxf = await exportarDxfProyecto(
+      [
+        { ref: "d1", nombre: "Logo", codigo: "piezas = []", contornos: { logo } },
+        { ref: "d2", nombre: "Caja", plantilla: "caja", parametros: { largo: 150 } },
+      ],
+      [plancha],
+      { kerf_mm: 0.2 },
+    );
+    expect(dxf.byteLength).toBeGreaterThan(0);
+    const l = llamada(0);
+    expect(l.url).toBe("http://sandbox.test/dxf/proyecto");
+    expect(l.cuerpo).toEqual({
+      disenos: [
+        { ref: "d1", nombre: "Logo", codigo: "piezas = []", contornos: { logo } },
+        { ref: "d2", nombre: "Caja", plantilla: "caja", parametros: { largo: 150 } },
+      ],
+      planchas: [plancha],
+      opciones: { kerf_mm: 0.2 },
+    });
+  });
+
+  it("el DXF de proyecto no manda `contornos` vacíos", async () => {
+    fetchFalso.mockImplementation(async () => new Response("0\nSECTION\n", { status: 200 }));
+    await exportarDxfProyecto([{ ref: "d1", codigo: "piezas = []", contornos: {} }], []);
+    expect(llamada(0).cuerpo.disenos[0]).toEqual({ ref: "d1", codigo: "piezas = []" });
+  });
+
+  it("un acomodo inválido del proyecto trae sus errores", async () => {
+    fetchFalso.mockResolvedValue(
+      respuesta(
+        { detail: { codigo: "acomodo_invalido", mensaje: "No cuadra.", errores: [{ campo: "planchas.0", mensaje: "Se sale." }] } },
+        422,
+      ),
+    );
+    const e = await errorDe(exportarDxfProyecto([{ ref: "d1", codigo: "x" }], []));
+    expect(e).toMatchObject({ codigo: "acomodo_invalido", estado: 422 });
+    expect(e.errores).toEqual([{ campo: "planchas.0", mensaje: "Se sale." }]);
   });
 
   it("el render por código manda los contornos; por GLB no", async () => {

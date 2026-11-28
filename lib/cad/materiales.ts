@@ -86,10 +86,10 @@ export function mismoMaterial(a: MaterialRef, b: MaterialRef): boolean {
 }
 
 /** "Acrílico ECO · Rojo" (con el color elegido, si lo hay). */
-export const nombreMaterial = (m: MaterialRef) => `${m.material} · ${m.color ?? colorDe(m)}`;
+export const nombreMaterial = (m: MaterialRef) => (m.corteAparte ? m.material : `${m.material} · ${m.color ?? colorDe(m)}`);
 
 /** El color que se ve: el elegido o el del grupo. */
-export const colorDeMaterial = (m: MaterialRef) => m.color ?? colorDe(m);
+export const colorDeMaterial = (m: MaterialRef) => (m.corteAparte ? "" : (m.color ?? colorDe(m)));
 
 const mismoEspesor = (a: number, b: number) => Math.abs(a - b) < 1e-6;
 

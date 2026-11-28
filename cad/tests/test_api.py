@@ -165,6 +165,22 @@ def test_422_cuerpo_mal_formado(sin_clave, cuerpo, campo):
     assert campo in [e["campo"] for e in detalle["errores"]]
 
 
+def test_dxf_con_solo_dibuja_nada_mas_las_copias_pedidas(sin_clave):
+    base = {"plantilla": "caja", "parametros": {}}
+    todo = cliente.post("/dxf", json=base)
+    una = cliente.post("/dxf", json={**base, "solo": {"base": [1]}})
+    assert todo.status_code == 200 and una.status_code == 200, una.text
+    assert len(una.content) < len(todo.content)
+
+
+def test_dxf_con_solo_invalido_es_422(sin_clave):
+    for solo, texto in (({"fantasma": [1]}, "fantasma"), ({"base": [9]}, "no existe la 9"), ({"base": []}, "Ninguna|No quedó")):
+        r = cliente.post("/dxf", json={"plantilla": "caja", "parametros": {}, "solo": solo})
+        assert r.status_code == 422, (solo, r.text)
+        assert r.json()["detail"]["codigo"] == "parametros_invalidos"
+        assert any(__import__("re").search(texto, e["mensaje"]) for e in r.json()["detail"]["errores"]), r.text
+
+
 def test_422_opciones_dxf_invalidas(sin_clave):
     r = cliente.post("/dxf", json={**CAJA, "opciones": {"kerf_mm": -1}})
     assert r.status_code == 422

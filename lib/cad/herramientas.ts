@@ -300,7 +300,9 @@ export const HERRAMIENTAS_CAD: HerramientaLlm[] = [
       "Espesor y material son independientes: cambia solo lo que se pida. Las copias se nombran por su nodo (`nodos` en el despiece, " +
       "o el `nodo` de una cara señalada): `base`, `lateral_1`, `lateral_2`. El espesor regenera el diseño (la copia crece hacia fuera; " +
       "las uniones con las piezas vecinas no se reajustan). El material es material y color sin espesor: la plancha sale del catálogo " +
-      "con ese material y el espesor de la pieza. Con null, la copia vuelve al espesor o al material del diseño. Guarda una versión nueva.",
+      "con ese material y el espesor de la pieza. Con null, la copia vuelve al espesor o al material del diseño. Guarda una versión nueva. " +
+      "Si algo se corta en un material que NO está en el catálogo de planchas (MDF, por ejemplo), usa `corte_aparte: true` con el nombre libre del material " +
+      "(«MDF 12 mm»): esa copia no se acomoda en planchas ni da error, y se baja aparte como DXF suelto.",
     parametros: {
       type: "object",
       properties: {
@@ -319,6 +321,11 @@ export const HERRAMIENTAS_CAD: HerramientaLlm[] = [
           properties: {
             material: { type: "string", description: 'El material: "acrílico eco".' },
             color: { type: "string", description: 'El color o acabado: "rojo", "cristal".' },
+            corte_aparte: {
+              type: "boolean",
+              description:
+                "true: el material no está en el catálogo de planchas (MDF…). Va sin plancha, como corte suelto; `material` es su nombre libre y no se usa `color`.",
+            },
           },
           required: ["material"],
           additionalProperties: false,
@@ -520,7 +527,12 @@ const esquemaCambiarPiezas = z.object({
   nodos: z.array(z.string().trim().regex(/^[a-z0-9_]{1,56}$/)).min(1).max(200),
   espesor_mm: z.number().min(ESPESOR_MIN_MM).max(ESPESOR_MAX_MM).nullable().optional(),
   material: z
-    .object({ material: z.string().trim().min(1).max(80), color: z.string().trim().max(80).optional() })
+    .object({
+      material: z.string().trim().min(1).max(80),
+      color: z.string().trim().max(80).optional(),
+      /** Un material que no está en el catálogo (MDF…): no va en planchas, se baja como corte suelto. */
+      corte_aparte: z.boolean().optional(),
+    })
     .nullable()
     .optional(),
 });
@@ -1094,7 +1106,10 @@ async function cambiarPiezas(args: unknown, deps: DependenciasCad): Promise<Resu
   const catalogo = await deps.cargarPlanchas();
   let ref: ReturnType<typeof materialDeGrupo> | null | undefined = undefined;
   if (pedidoMaterial === null) ref = null;
-  else if (pedidoMaterial) {
+  else if (pedidoMaterial?.corte_aparte) {
+    // No se busca en el catálogo: es justo lo que el catálogo no tiene.
+    ref = { material: pedidoMaterial.material, variante: "", detalle: "", color: null, corteAparte: true };
+  } else if (pedidoMaterial) {
     const r = resolverMaterial(catalogo, pedidoMaterial);
     if ("candidatos" in r) {
       return fallo(

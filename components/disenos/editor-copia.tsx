@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { useDiseno } from "./diseno-contexto";
+import { CorteAparte } from "./corte-aparte";
 import { SelectorMaterial } from "./selector-material";
 
 /**
@@ -288,6 +289,7 @@ function TarjetaCopia({
             }
           />
         )}
+        <CorteAparte material={material} deshabilitado={ocupado} alElegir={(m) => void hacer(() => alCambiarMaterial(nodos, m))} />
         {!materialPropio && (
           <p className="text-muted-foreground text-xs break-words">
             {material ? `Del diseño: ${nombreMaterial(material)}.` : "El diseño todavía no tiene material."}

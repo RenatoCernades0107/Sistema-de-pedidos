@@ -906,6 +906,35 @@ describe("espesor y material por copia", () => {
     expect(r.diseno?.materiales).toEqual(guardado.materiales);
   });
 
+  it("cambiar_piezas con corte_aparte guarda un material fuera del catálogo, sin buscarlo ni dar error", async () => {
+    const deps = dependencias({
+      obtenerDisenoActual: vi.fn(async () => ({ ...ACTUAL, parametros: { largo: 200 } })),
+      obtenerMaterial: vi.fn(async () => ({ grupoPlanchaId: "eco-cristal-3", color: null })),
+      obtenerMaterialesPorCopia: vi.fn(async () => ({})),
+    });
+    const r = await ejecutarHerramienta(
+      "cambiar_piezas",
+      { nodos: ["lado_2"], material: { material: "MDF 12 mm", corte_aparte: true } },
+      deps,
+    );
+    expect(r.ok).toBe(true);
+    const guardado = vi.mocked(deps.guardarVersion).mock.calls[0][0];
+    expect(guardado.materiales).toEqual({
+      lado_2: { material: "MDF 12 mm", variante: "", detalle: "", color: null, corteAparte: true },
+    });
+    // El resto del diseño sigue en su plancha; la copia de corte aparte no aparece en ningún grupo.
+    expect(guardado.acomodo?.grupos.map((g) => g.grupoPlanchaId)).toEqual(["eco-cristal-3"]);
+    const datos = leer(r.contenido);
+    expect(datos.materiales_por_copia).toEqual({ lado_2: "MDF 12 mm" });
+    expect(JSON.stringify(datos)).not.toMatch(/catálogo no tiene/);
+  });
+
+  it("cambiar_piezas con corte_aparte: null o sin nombre no inventa nada", async () => {
+    const deps = dependencias({ obtenerDisenoActual: vi.fn(async () => ({ ...ACTUAL, parametros: { largo: 200 } })) });
+    const r = await ejecutarHerramienta("cambiar_piezas", { nodos: ["lado_2"], material: { corte_aparte: true } }, deps);
+    expect(leer(r.contenido).error.codigo).toBe("argumentos_invalidos");
+  });
+
   it("cambiar_piezas rechaza nodos que no existen", async () => {
     const deps = dependencias({ obtenerDisenoActual: vi.fn(async () => ACTUAL) });
     const r = await ejecutarHerramienta("cambiar_piezas", { nodos: ["tapa"], espesor_mm: 4 }, deps);

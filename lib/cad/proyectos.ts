@@ -82,3 +82,16 @@ export function mensajeInicialDeDiseno(entrada: { proyecto: string; nombre: stri
 /** La respuesta que se deja guardada tras el mensaje inicial, para que el historial alterne usuario y asistente. */
 export const RESPUESTA_INICIAL_DE_DISENO =
   "Listo, tengo el contexto de este diseño y el plano. Dime cómo seguimos, o te propongo cómo armarlo.";
+
+/** «hurley-trujillo»: el texto como parte de un nombre de archivo (sin tildes, espacios ni símbolos). */
+export function nombreSeguro(texto: string, respaldo = "proyecto"): string {
+  const t = texto
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60)
+    .replace(/-+$/g, "");
+  return t || respaldo;
+}
