@@ -29,6 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { useCerrarConAviso } from "@/components/ui/confirmar-descarte";
 import { OpcionesPlancha, faltantesDeStock, useStock, type OpcionSobrante } from "./opciones-plancha";
@@ -142,6 +143,11 @@ export function EditorCorte({
   );
   /** La plancha o el sobrante que eligió la persona. Mientras sea `null`, manda la sugerencia. */
   const [eleccion, setEleccion] = useState<EleccionPlancha | null>(inicial?.eleccion ?? null);
+  /**
+   * Los formatos con que puede calcular el optimizador, por código. `null`:
+   * todos los del material (lo normal). Se fija al marcar o desmarcar alguno.
+   */
+  const [permitidos, setPermitidos] = useState<string[] | null>(inicial?.formatosPermitidos ?? null);
   /** Sugerir la mejor opción aunque haya que comprar planchas: el stock solo se avisa. */
   const [ignorarStock, setIgnorarStock] = useState(false);
 
@@ -160,7 +166,8 @@ export function EditorCorte({
     () => (grupo ? { piezas, espesorMm: grupo.espesorMm, modalidad, rotable: grupo.rotable } : null),
     [grupo, piezas, modalidad],
   );
-  const formatos = useMemo(
+  /** Todos los formatos del material que Odoo vende. */
+  const todosLosFormatos = useMemo(
     () =>
       grupo && precios
         ? grupo.formatos
@@ -169,6 +176,24 @@ export function EditorCorte({
         : [],
     [grupo, precios],
   );
+  /** Los que se dejan usar al optimizador: solo con ellos se calcula y se combina. */
+  const formatos = useMemo(() => {
+    if (!permitidos) return todosLosFormatos;
+    const elegidos = todosLosFormatos.filter((f) => permitidos.includes(f.codigo));
+    // Si ninguno de los marcados existe ya (otro material, salió del catálogo), todos.
+    return elegidos.length > 0 ? elegidos : todosLosFormatos;
+  }, [todosLosFormatos, permitidos]);
+  const usaTodos = formatos.length === todosLosFormatos.length;
+
+  const cambiarPermitido = (codigo: string, usar: boolean) => {
+    const actuales = formatos.map((f) => f.codigo);
+    const nuevos = usar ? [...actuales, codigo] : actuales.filter((c) => c !== codigo);
+    if (nuevos.length === 0) return;
+    // Todos marcados es lo mismo que no limitar: así un formato nuevo del catálogo entra solo.
+    setPermitidos(nuevos.length === todosLosFormatos.length ? null : nuevos);
+    // Un formato elegido a mano que se desmarca deja de valer: vuelve a la sugerencia.
+    if (!usar && eleccion?.tipo === "formato" && eleccion.codigo === codigo) setEleccion(null);
+  };
   // Los sobrantes del almacén donde se corta.
   const delAlmacen = useMemo(
     () => (grupo?.sobrantesActivo ? sobrantes[lugar] : []),
@@ -241,6 +266,7 @@ export function EditorCorte({
   const elegirGrupo = (g: GrupoPlancha) => {
     setGrupoId(g.id);
     setEleccion(null);
+    setPermitidos(null);
     // Con el material elegido, lo siguiente son las medidas.
     porEnfocar.current = 0;
   };
@@ -277,6 +303,7 @@ export function EditorCorte({
       lugar,
       piezas,
       eleccion,
+      formatosPermitidos: usaTodos ? null : formatos.map((f) => f.codigo),
       calculo: elegido,
     });
   };
@@ -288,6 +315,7 @@ export function EditorCorte({
     modalidad !== (inicial?.modalidad ?? "laser") ||
     lugarManual !== (inicial?.lugar ?? "tienda") ||
     JSON.stringify(eleccion) !== JSON.stringify(inicial?.eleccion ?? null) ||
+    JSON.stringify(permitidos) !== JSON.stringify(inicial?.formatosPermitidos ?? null) ||
     JSON.stringify(filas.filter((f) => f.ancho || f.alto || f.cantidad)) !==
       JSON.stringify(filasIniciales.filter((f) => f.ancho || f.alto || f.cantidad));
   const { pedirCierre, dialogo } = useCerrarConAviso(sucio, alCerrar, {
@@ -468,6 +496,36 @@ export function EditorCorte({
                 <p role="alert" className="text-destructive text-sm">
                   Ninguna plancha de este material existe en Odoo con su código. Revisa el catálogo en Configuración.
                 </p>
+              )}
+
+              {todosLosFormatos.length > 1 && piezas.length > 0 && (
+                <fieldset className="flex flex-col gap-1.5">
+                  <legend className="text-xs font-medium">
+                    Formatos a usar{" "}
+                    <span className="text-muted-foreground font-normal">
+                      · el optimizador calcula y combina solo con los marcados
+                    </span>
+                  </legend>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1.5" data-testid="formatos-permitidos">
+                    {todosLosFormatos.map((f) => {
+                      const marcado = formatos.some((x) => x.codigo === f.codigo);
+                      return (
+                        <label key={f.codigo} className="flex cursor-pointer items-center gap-2 text-xs">
+                          <Checkbox
+                            checked={marcado}
+                            // El último marcado no se desmarca: sin formatos no hay cálculo.
+                            disabled={marcado && formatos.length === 1}
+                            onCheckedChange={(v) => cambiarPermitido(f.codigo, v === true)}
+                          />
+                          <span className="tnum">
+                            {f.ancho}×{f.alto}
+                          </span>
+                          <span className="text-muted-foreground font-mono">{f.codigo}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </fieldset>
               )}
 
               {porFormato.length > 0 && (

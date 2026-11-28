@@ -102,6 +102,8 @@ export interface CorteGuardado {
    * sugerencia: al reservar se usan los sobrantes que haya.
    */
   eleccion?: EleccionPlancha | null;
+  /** Los formatos que se dejaron usar al optimizador; ausente: todos los del material. */
+  formatosPermitidos?: string[] | null;
 }
 
 /** Los datos del corte que no salen del cálculo. */
@@ -117,6 +119,7 @@ export interface DatosCorte {
   servicio: CorteGuardado["servicio"];
   sobrantes: boolean;
   eleccion?: EleccionPlancha | null;
+  formatosPermitidos?: string[] | null;
 }
 
 const redondear = (n: number, decimales: number) => {
@@ -161,6 +164,7 @@ export function guardarCorte(datos: DatosCorte, calculo: CalculoCorte): CorteGua
     servicio: datos.servicio,
     sobrantes: datos.sobrantes,
     eleccion: datos.eleccion ?? null,
+    ...(datos.formatosPermitidos?.length && { formatosPermitidos: datos.formatosPermitidos }),
   };
 }
 
@@ -243,6 +247,7 @@ const esquema = z.object({
   servicio: z.object({ productoId: numero, codigo: z.string(), nombre: z.string() }),
   sobrantes: z.boolean().catch(false),
   eleccion: esquemaEleccion,
+  formatosPermitidos: z.array(z.string()).nullable().optional().catch(undefined),
 }) satisfies z.ZodType<CorteGuardado>;
 
 /** El corte de una línea, o `null` si la línea no es un corte o el JSON no se entiende. */

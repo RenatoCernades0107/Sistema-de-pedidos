@@ -607,6 +607,11 @@ export const esquemaLineaCorte = z.object({
    * del material. `null`: un solo formato.
    */
   mezclaDesde: z.string().trim().min(1).max(40).nullable().optional(),
+  /**
+   * Los formatos con que se dejó calcular (y combinar) al optimizador. El
+   * servidor rehace la mezcla solo con ellos. `null`: todos los del material.
+   */
+  formatosPermitidos: z.array(z.string().trim().min(1).max(40)).min(1).max(40).nullable().optional(),
   /** La plancha o el sobrante elegidos a mano. `null`: la sugerencia. */
   eleccion: esquemaEleccionPlancha,
   /**

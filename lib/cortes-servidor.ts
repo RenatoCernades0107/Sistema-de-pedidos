@@ -160,6 +160,9 @@ export async function prepararCorte(
 
   const formato = grupo.formatos.find((f) => f.codigo === linea.formatoCodigo && f.activo);
   if (!formato) return fallo(`El formato ${linea.formatoCodigo} ya no está disponible para ese material.`);
+  if (linea.formatosPermitidos?.length && !linea.formatosPermitidos.includes(formato.codigo)) {
+    return fallo(`El formato ${formato.codigo} no está entre los formatos marcados para este corte.`);
+  }
 
   const codigoServicio = config.servicios[linea.modalidad];
   const productos = await productosPorCodigo([formato.codigo, codigoServicio]);
@@ -186,8 +189,10 @@ export async function prepararCorte(
     if (grupo.sobrantesActivo) return fallo("Este material registra sobrantes: no se pueden mezclar formatos todavía.");
     if (eleccion) return fallo("Una mezcla de formatos es una sugerencia: no va con una plancha elegida a mano.");
     const precios = await preciosDeGrupo(grupo);
+    // Solo los formatos que quien cotiza dejó usar, igual que en la pantalla.
+    const permitidos = linea.formatosPermitidos?.length ? new Set(linea.formatosPermitidos) : null;
     const todos = grupo.formatos
-      .filter((f) => f.activo && precios.has(f.codigo))
+      .filter((f) => f.activo && precios.has(f.codigo) && (!permitidos || permitidos.has(f.codigo)))
       .map((f) => ({ codigo: f.codigo, ancho: f.anchoCm, alto: f.largoCm, precio: precios.get(f.codigo)!.precio }));
     const base = todos.find((f) => f.codigo === linea.mezclaDesde);
     if (!base) return fallo(`El formato ${linea.mezclaDesde} ya no está disponible para ese material.`);
@@ -242,6 +247,7 @@ export async function prepararCorte(
       servicio: { productoId: servicio.id, codigo: codigoServicio, nombre: servicio.nombre },
       sobrantes: grupo.sobrantesActivo,
       eleccion,
+      formatosPermitidos: linea.formatosPermitidos ?? null,
     },
     calculo,
   );

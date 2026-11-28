@@ -65,6 +65,15 @@ describe("el corte que se guarda", () => {
     expect(leerCorte({ ...corte, planchas: "tres" })).toBeNull();
   });
 
+  it("guarda los formatos que se dejaron usar; sin limitar, no guarda nada", () => {
+    expect(corte.formatosPermitidos).toBeUndefined();
+    const limitado = guardarCorte({ ...datos, formatosPermitidos: ["F7E024", "F9"] }, calculo);
+    expect(limitado.formatosPermitidos).toEqual(["F7E024", "F9"]);
+    expect(leerCorte(JSON.parse(JSON.stringify(limitado)))?.formatosPermitidos).toEqual(["F7E024", "F9"]);
+    // Uno que no se entiende no tumba el corte.
+    expect(leerCorte({ ...JSON.parse(JSON.stringify(corte)), formatosPermitidos: "F9" })).not.toBeNull();
+  });
+
   it("un corte guardado antes de los sobrantes se lee con el piloto apagado", () => {
     const viejo = JSON.parse(JSON.stringify(corte));
     delete viejo.sobrantes;

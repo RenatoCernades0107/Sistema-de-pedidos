@@ -470,3 +470,31 @@ describe("combinar formatos en un corte", () => {
     expect(mezcla.desperdicioPct).toBeLessThan(calcularCorte(pedido, F9, config).desperdicioPct);
   });
 });
+
+describe("formatos elegidos para optimizar", () => {
+  const F9: FormatoCorte = { codigo: "F9", ancho: 122, alto: 244, precio: 300 };
+  const F8: FormatoCorte = { codigo: "F8", ancho: 158, alto: 249, precio: 380 };
+  const F7c: FormatoCorte = { codigo: "F7", ancho: 122, alto: 183, precio: 230 };
+  const pedido = corte(
+    [
+      [138.5, 62.5, 1], [137, 14, 1], [137.2, 60.2, 1], [137.5, 14, 2], [178, 25, 1], [186.5, 61, 1],
+      [176.5, 25, 1], [176.5, 32.5, 1], [187, 61, 1], [137.5, 14, 2], [137.5, 65, 1],
+    ],
+    { espesorMm: 4 },
+  );
+
+  it("solo se calcula y se combina con los formatos que se pasan", () => {
+    const todos = compararFormatos(pedido, [F9, F8, F7c], config, [], "precio", true);
+    const soloDos = compararFormatos(pedido, [F9, F8], config, [], "precio", true);
+    expect(todos.length).toBeGreaterThan(soloDos.length);
+    for (const c of soloDos) {
+      for (const f of c.formatos) expect(["F9", "F8"]).toContain(f.codigo);
+    }
+    // La mezcla del servidor, rehecha con los mismos formatos, da lo mismo.
+    const mezcla = soloDos.find((c) => c.formatos.length > 1);
+    if (mezcla) {
+      const deNuevo = calcularMezcla(pedido, [F9, F8].find((f) => f.codigo === mezcla.mezclaDesde)!, [F9, F8], config);
+      expect(deNuevo?.total).toBe(mezcla.total);
+    }
+  });
+});
