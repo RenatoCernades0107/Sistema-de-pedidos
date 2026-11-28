@@ -7,14 +7,18 @@ vi.mock("./rpc", async (original) => ({
   ...(await original<typeof import("./rpc")>()),
   ejecutar: (...a: unknown[]) => ejecutar(...a),
   modeloExiste: (...a: unknown[]) => modeloExiste(...a),
-  camposExistentes: async (_m: string, deseados: string[]) => deseados,
+  camposExistentes: async (_m: string, deseados: string[]) => deseados.filter((c) => !camposAusentes.has(c)),
 }));
 
-import { contactosDeEmpresa, crearCliente, crearContacto } from "./clientes";
+/** Campos que el Odoo de la prueba no tiene. */
+const camposAusentes = new Set<string>();
+
+import { buscarPorDocumento, contactosDeEmpresa, crearCliente, crearContacto } from "./clientes";
 
 const fila = { id: 99, name: "renato", vat: "71737658" };
 
 beforeEach(() => {
+  camposAusentes.clear();
   ejecutar.mockReset();
   modeloExiste.mockReset();
   ejecutar.mockImplementation(async (modelo: string, metodo: string) => {
@@ -37,6 +41,27 @@ describe("crearCliente sin la localización latinoamericana", () => {
   it("un RUC se valida como siempre", async () => {
     await crearCliente({ nombre: "Empresa", documento: "20512345671", telefono: null, email: null });
     expect(crear()[3]).toEqual({});
+  });
+});
+
+describe("crearCliente y el número de documento de la facturación peruana", () => {
+  beforeEach(() => modeloExiste.mockResolvedValue(false));
+
+  // Sin `doc_number`, el Punto de Venta se queda cargando al facturarle (S04820).
+  it("el RUC va también a doc_number cuando el Odoo tiene ese campo", async () => {
+    await crearCliente({ nombre: "CISIL S.A.", documento: "20537589834", telefono: null, email: null });
+    expect(crear()[2][0]).toMatchObject({ vat: "20537589834", doc_number: "20537589834" });
+  });
+
+  it("en un Odoo sin ese campo no se manda", async () => {
+    camposAusentes.add("doc_number");
+    await crearCliente({ nombre: "CISIL S.A.", documento: "20537589834", telefono: null, email: null });
+    expect(crear()[2][0]).not.toHaveProperty("doc_number");
+  });
+
+  it("sin documento no se manda", async () => {
+    await crearCliente({ nombre: "Sin documento", documento: null, telefono: null, email: null });
+    expect(crear()[2][0]).not.toHaveProperty("doc_number");
   });
 });
 
@@ -129,5 +154,20 @@ describe("contactos de una empresa", () => {
     const c = await crearContacto(2, { nombre: " Ana ", telefono: null, email: null });
     expect(crear()[2][0]).toEqual({ name: "Ana", parent_id: 2, type: "contact", is_company: false });
     expect(c).toMatchObject({ id: 8, empresaId: 2, nombre: "Ana", telefono: null });
+  });
+});
+
+describe("buscarPorDocumento con RUC repetidos", () => {
+  it("prefiere la copia con doc_number y la empresa antes que su contacto", async () => {
+    ejecutar.mockImplementation(async (_m: string, metodo: string) =>
+      metodo === "search_read"
+        ? [
+            { id: 18184, name: "CONACE (copia rota)", vat: "20601690102", doc_number: false, parent_id: false },
+            { id: 18185, name: "Rony", vat: "20601690102", doc_number: "20601690102", parent_id: [18186, "CONACE"] },
+            { id: 18186, name: "CONACE", vat: "20601690102", doc_number: "20601690102", parent_id: false },
+          ]
+        : [],
+    );
+    expect((await buscarPorDocumento("20601690102"))?.id).toBe(18186);
   });
 });

@@ -56,6 +56,11 @@ export interface LineaCorte {
   /** La plancha o el sobrante que eligió a mano quien cotiza; `null`: la sugerencia. */
   eleccion?: EleccionPlancha | null;
   /**
+   * Los formatos con que puede calcular el optimizador (y combinarlos), por
+   * código. `null`/ausente: todos los del material.
+   */
+  formatosPermitidos?: string[] | null;
+  /**
    * El cálculo sobre el formato elegido. Es lo que se enseña mientras se arma;
    * al guardar, el servidor lo rehace con sus propios precios.
    */

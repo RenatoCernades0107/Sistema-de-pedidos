@@ -919,3 +919,136 @@ describe("espesor y material por copia", () => {
     expect(leer(r.contenido).error.codigo).toBe("nada_que_cambiar");
   });
 });
+
+describe("extraer_contorno_pdf", () => {
+  const args = {
+    adjunto: "plano.pdf",
+    pagina: 1,
+    region: { x0: 0.1, y0: 0.2, x1: 0.5, y1: 0.4 },
+    nombre: "hurley",
+    ancho_mm: 3470,
+  };
+  const bien = { ok: true as const, anchoMm: 3470, altoMm: 830, trazos: 2, segmentos: 120, previsualizacion: "data:image/png;base64,iVBOR" };
+
+  it("pasa la petición a quien extrae, devuelve la medida y la imagen, y dice cómo usarlo", async () => {
+    const extraerContorno = vi.fn(async () => bien);
+    const r = await ejecutarHerramienta("extraer_contorno_pdf", args, dependencias({ libre: depsLibre({ extraerContorno }) }));
+    expect(r.ok).toBe(true);
+    expect(extraerContorno).toHaveBeenCalledWith({
+      adjunto: "plano.pdf",
+      pagina: 1,
+      region: args.region,
+      nombre: "hurley",
+      anchoMm: 3470,
+      incluirTrazos: undefined,
+    });
+    expect(r.imagenes).toEqual([bien.previsualizacion]);
+    const datos = leer(r.contenido);
+    expect(datos).toMatchObject({ nombre: "hurley", ancho_mm: 3470, alto_mm: 830 });
+    expect(datos.uso).toContain('caras_de_contorno("hurley")');
+    expect(r.contenido).not.toContain("iVBOR");
+    expect(r.resumen).toContain("3470");
+  });
+
+  it("un fallo de la extracción vuelve como resultado para que el modelo lo corrija", async () => {
+    const extraerContorno = vi.fn(async () => ({ ok: false as const, codigo: "contorno_no_encontrado", mensaje: "No hay relleno vectorial." }));
+    const r = await ejecutarHerramienta("extraer_contorno_pdf", args, dependencias({ libre: depsLibre({ extraerContorno }) }));
+    expect(r.ok).toBe(false);
+    expect(leer(r.contenido).error).toMatchObject({ codigo: "contorno_no_encontrado", mensaje: "No hay relleno vectorial." });
+  });
+
+  it("rechaza argumentos inválidos sin extraer nada", async () => {
+    const extraerContorno = vi.fn(async () => bien);
+    const deps = dependencias({ libre: depsLibre({ extraerContorno }) });
+    for (const malos of [
+      { ...args, nombre: "Con Espacios" },
+      { ...args, region: { x0: 0.5, y0: 0.2, x1: 0.1, y1: 0.4 } },
+      { ...args, region: { x0: 0, y0: 0, x1: 1.5, y1: 1 } },
+      { ...args, ancho_mm: 0 },
+      { ...args, pagina: 0 },
+    ]) {
+      const r = await ejecutarHerramienta("extraer_contorno_pdf", malos, deps);
+      expect(r.ok).toBe(false);
+      expect(leer(r.contenido).error.codigo).toBe("argumentos_invalidos");
+    }
+    expect(extraerContorno).not.toHaveBeenCalled();
+  });
+
+  it("sin diseño libre no existe, y sin quien extraiga dice que no está disponible", async () => {
+    const sin = await ejecutarHerramienta("extraer_contorno_pdf", args, dependencias());
+    expect(leer(sin.contenido).error.codigo).toBe("diseno_libre_no_disponible");
+    const r = await ejecutarHerramienta("extraer_contorno_pdf", args, dependencias({ libre: depsLibre() }));
+    expect(leer(r.contenido).error.codigo).toBe("no_disponible");
+  });
+});
+
+describe("crear_disenos_en_proyecto", () => {
+  const args = {
+    proyecto: "Hurley Trujillo",
+    disenos: [
+      { nombre: "Logo fachada", descripcion: "347 × 83 cm, acrílico blanco de 3 mm." },
+      { nombre: "Fitting room", descripcion: "125 × 50 cm, acrílico negro de 3 mm." },
+    ],
+  };
+  const hecho = {
+    proyecto: { id: "p1", nombre: "Hurley Trujillo", creado: true },
+    disenos: [
+      { id: "d1", nombre: "Logo fachada", ruta: "/disenos/d1", adjuntosCopiados: 1 },
+      { id: "d2", nombre: "Fitting room", ruta: "/disenos/d2", adjuntosCopiados: 1 },
+    ],
+    adjuntosFallidos: [] as string[],
+  };
+
+  it("se ofrece siempre (no necesita el sandbox)", () => {
+    expect(herramientasDisponibles(false).map((h) => h.nombre)).toContain("crear_disenos_en_proyecto");
+  });
+
+  it("pasa los diseños a quien los crea y le dice al modelo cómo llegar a ellos", async () => {
+    const crear = vi.fn(async () => hecho);
+    const r = await ejecutarHerramienta("crear_disenos_en_proyecto", args, dependencias({ crearDisenosEnProyecto: crear }));
+    expect(r.ok).toBe(true);
+    expect(crear).toHaveBeenCalledWith(args);
+    const datos = leer(r.contenido);
+    expect(datos).toMatchObject({ proyecto: "Hurley Trujillo", proyecto_nuevo: true });
+    expect(datos.disenos).toEqual([
+      { nombre: "Logo fachada", ruta: "/disenos/d1", archivos_copiados: 1 },
+      { nombre: "Fitting room", ruta: "/disenos/d2", archivos_copiados: 1 },
+    ]);
+    expect(datos.nota).toMatch(/No se generó ninguna geometría/);
+    expect(datos.no_se_pudieron_copiar).toBeUndefined();
+    expect(r.resumen).toBe("2 diseños creados en «Hurley Trujillo»");
+  });
+
+  it("avisa de los archivos que no se pudieron copiar", async () => {
+    const crear = vi.fn(async () => ({ ...hecho, adjuntosFallidos: ["plano.pdf"] }));
+    const r = await ejecutarHerramienta("crear_disenos_en_proyecto", args, dependencias({ crearDisenosEnProyecto: crear }));
+    expect(leer(r.contenido).no_se_pudieron_copiar).toEqual(["plano.pdf"]);
+  });
+
+  it("rechaza argumentos inválidos y nombres repetidos sin crear nada", async () => {
+    const crear = vi.fn(async () => hecho);
+    const deps = dependencias({ crearDisenosEnProyecto: crear });
+    for (const malos of [
+      {},
+      { disenos: [] },
+      { disenos: Array.from({ length: 11 }, (_, i) => ({ nombre: `d${i}`, descripcion: "" })) },
+      { disenos: [{ nombre: "  ", descripcion: "x" }] },
+      { disenos: [{ nombre: "A", descripcion: "x".repeat(2001) }] },
+    ]) {
+      const r = await ejecutarHerramienta("crear_disenos_en_proyecto", malos, deps);
+      expect(leer(r.contenido).error.codigo).toBe("argumentos_invalidos");
+    }
+    const repetidos = await ejecutarHerramienta(
+      "crear_disenos_en_proyecto",
+      { disenos: [{ nombre: "Logo", descripcion: "a" }, { nombre: "logo", descripcion: "b" }] },
+      deps,
+    );
+    expect(leer(repetidos.contenido).error.codigo).toBe("nombres_repetidos");
+    expect(crear).not.toHaveBeenCalled();
+  });
+
+  it("sin quien lo cree dice que no está disponible", async () => {
+    const r = await ejecutarHerramienta("crear_disenos_en_proyecto", args, dependencias());
+    expect(leer(r.contenido).error.codigo).toBe("no_disponible");
+  });
+});

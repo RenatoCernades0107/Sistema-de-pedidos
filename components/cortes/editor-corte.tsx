@@ -16,6 +16,7 @@ import { colorDe, type GrupoPlancha } from "@/lib/cortes/catalogo";
 import type { ConfigCortes } from "@/lib/cortes/config";
 import { LUGARES_CORTE, lugarDeCorte, planchasPorFormato, planchasTexto, type LugarCorte } from "@/lib/cortes/guardado";
 import { contenedoresDe } from "@/lib/sobrantes";
+import { corteCambiado, estadoInicialCorte, type BorradorCorte } from "@/lib/borradores-editores";
 import { money } from "@/lib/formato";
 import type { LineaCorte } from "@/lib/lineas-cotizacion";
 import { cn } from "@/lib/utils";
@@ -29,9 +30,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { useCerrarConAviso } from "@/components/ui/confirmar-descarte";
-import { OpcionesPlancha, useStock, type OpcionSobrante } from "./opciones-plancha";
+import { OpcionesPlancha, faltantesDeStock, useStock, type OpcionSobrante } from "./opciones-plancha";
 import { SelectorMaterialPasos } from "./selector-material-pasos";
 import { PlanosPaginados } from "./planos-paginados";
 
@@ -115,11 +117,16 @@ export function usePrecios(grupoId: string | null) {
  * de ese material. De ahí salen los tres más convenientes, y solo por esos se le
  * pregunta a Odoo si hay stock —una vez, por los tres—. Queda elegido el más
  * pequeño que tenga planchas suficientes.
+ *
+ * Lo que se lleva armado viaja al borrador del formulario (`alCambiarBorrador`):
+ * si se sale a mitad, al retomar el borrador el editor abre como quedó.
  */
 export function EditorCorte({
   catalogo,
   config,
   inicial,
+  borrador = null,
+  alCambiarBorrador,
   alGuardar,
   alCerrar,
 }: {
@@ -127,21 +134,31 @@ export function EditorCorte({
   config: ConfigCortes;
   /** El corte que se está editando; `null` para uno nuevo. */
   inicial: LineaCorte | null;
+  /** Lo que quedó a medias en un borrador: el editor arranca así. */
+  borrador?: BorradorCorte | null;
+  /** Lo armado hasta ahora, para el borrador; `null` si no hay nada que perder. */
+  alCambiarBorrador?: (borrador: BorradorCorte | null) => void;
   alGuardar: (corte: CorteNuevo) => void;
   alCerrar: () => void;
 }) {
-  const [grupoId, setGrupoId] = useState<string | null>(inicial?.grupoId ?? null);
-  const [modalidad, setModalidad] = useState<Modalidad>(inicial?.modalidad ?? "laser");
+  /** Cómo abrió (la línea o vacío) y cómo arranca (eso, o lo del borrador). */
+  const [alAbrir] = useState(() => estadoInicialCorte(inicial));
+  const [arranque] = useState(() => estadoInicialCorte(inicial, borrador));
+  const [grupoId, setGrupoId] = useState<string | null>(arranque.grupoId);
+  const [modalidad, setModalidad] = useState<Modalidad>(arranque.modalidad);
   /** Dónde se hace un corte manual. El láser va siempre al taller. */
-  const [lugarManual, setLugarManual] = useState<LugarCorte>(inicial?.lugar ?? "tienda");
+  const [lugarManual, setLugarManual] = useState<LugarCorte>(arranque.lugar);
   const lugar = lugarDeCorte({ modalidad, lugar: lugarManual });
-  const [filas, setFilas] = useState<FilaPieza[]>(() =>
-    inicial
-      ? inicial.piezas.map((p) => ({ ancho: String(p.ancho), alto: String(p.alto), cantidad: String(p.cantidad) }))
-      : [FILA_VACIA],
-  );
+  const [filas, setFilas] = useState<FilaPieza[]>(arranque.filas);
   /** La plancha o el sobrante que eligió la persona. Mientras sea `null`, manda la sugerencia. */
-  const [eleccion, setEleccion] = useState<EleccionPlancha | null>(inicial?.eleccion ?? null);
+  const [eleccion, setEleccion] = useState<EleccionPlancha | null>(arranque.eleccion);
+  /**
+   * Los formatos con que puede calcular el optimizador, por código. `null`:
+   * todos los del material (lo normal). Se fija al marcar o desmarcar alguno.
+   */
+  const [permitidos, setPermitidos] = useState<string[] | null>(arranque.permitidos);
+  /** Sugerir la mejor opción aunque haya que comprar planchas: el stock solo se avisa. */
+  const [ignorarStock, setIgnorarStock] = useState(arranque.ignorarStock);
 
   const anchos = useRef(new Map<number, HTMLInputElement>());
   /**
@@ -158,7 +175,8 @@ export function EditorCorte({
     () => (grupo ? { piezas, espesorMm: grupo.espesorMm, modalidad, rotable: grupo.rotable } : null),
     [grupo, piezas, modalidad],
   );
-  const formatos = useMemo(
+  /** Todos los formatos del material que Odoo vende. */
+  const todosLosFormatos = useMemo(
     () =>
       grupo && precios
         ? grupo.formatos
@@ -167,6 +185,24 @@ export function EditorCorte({
         : [],
     [grupo, precios],
   );
+  /** Los que se dejan usar al optimizador: solo con ellos se calcula y se combina. */
+  const formatos = useMemo(() => {
+    if (!permitidos) return todosLosFormatos;
+    const elegidos = todosLosFormatos.filter((f) => permitidos.includes(f.codigo));
+    // Si ninguno de los marcados existe ya (otro material, salió del catálogo), todos.
+    return elegidos.length > 0 ? elegidos : todosLosFormatos;
+  }, [todosLosFormatos, permitidos]);
+  const usaTodos = formatos.length === todosLosFormatos.length;
+
+  const cambiarPermitido = (codigo: string, usar: boolean) => {
+    const actuales = formatos.map((f) => f.codigo);
+    const nuevos = usar ? [...actuales, codigo] : actuales.filter((c) => c !== codigo);
+    if (nuevos.length === 0) return;
+    // Todos marcados es lo mismo que no limitar: así un formato nuevo del catálogo entra solo.
+    setPermitidos(nuevos.length === todosLosFormatos.length ? null : nuevos);
+    // Un formato elegido a mano que se desmarca deja de valer: vuelve a la sugerencia.
+    if (!usar && eleccion?.tipo === "formato" && eleccion.codigo === codigo) setEleccion(null);
+  };
   // Los sobrantes del almacén donde se corta.
   const delAlmacen = useMemo(
     () => (grupo?.sobrantesActivo ? sobrantes[lugar] : []),
@@ -176,10 +212,8 @@ export function EditorCorte({
   /** La sugerencia según la política de Configuración, con los sobrantes primero. */
   const calculos = useMemo(() => {
     if (!entrada || piezas.length === 0) return [];
-    // Mezclar formatos solo sin el piloto de sobrantes: su orden de fabricación lleva una sola plancha.
-    const mezclar = !grupo?.sobrantesActivo;
-    return compararFormatos(entrada, formatos, config, contenedoresDe(delAlmacen), undefined, mezclar);
-  }, [entrada, piezas, formatos, config, delAlmacen, grupo]);
+    return compararFormatos(entrada, formatos, config, contenedoresDe(delAlmacen), undefined, true);
+  }, [entrada, piezas, formatos, config, delAlmacen]);
 
   /** Cada formato, solo con planchas nuevas: lo que pasa si se elige ese. */
   const porFormato = useMemo(() => {
@@ -209,8 +243,20 @@ export function EditorCorte({
       const hay = stock?.[formato.codigo];
       return typeof hay === "number" && hay >= cantidad;
     });
-  // Sin respuesta de Odoo no se sugiere nada: la sugerencia es "el mejor con stock".
-  const sugerido = stock ? (calculos.find((c) => !c.problema && alcanza(c)) ?? null) : null;
+  /*
+   * La sugerencia es la mejor que sale del stock. Si ninguna alcanza (o Odoo no
+   * contesta), la mejor igual: se avisa cuántas planchas hay que comprar, pero
+   * no se pierde la venta. Con `ignorarStock`, la mejor sin mirar el stock.
+   * Mientras se valida el stock no se sugiere nada, salvo si se ignora.
+   */
+  const mejor = calculos.find((c) => !c.problema) ?? null;
+  const sugerido = ignorarStock
+    ? mejor
+    : stock
+      ? (calculos.find((c) => !c.problema && alcanza(c)) ?? mejor)
+      : falloStock
+        ? mejor
+        : null;
   const elegido =
     eleccion === null
       ? sugerido
@@ -218,12 +264,16 @@ export function EditorCorte({
         ? (porFormato.find((c) => c.formato.codigo === eleccion.codigo) ?? null)
         : (opcionesSobrante.find((o) => o.codigo === eleccion.codigo)?.calculo ?? null);
 
+  /** Lo que falta en el almacén para cortar lo elegido, por formato. Sin dato de Odoo, nada. */
+  const porComprar = elegido && stock ? faltantesDeStock(elegido, stock) : [];
+
   const sinOdoo = grupo && precios ? grupo.formatos.filter((f) => !precios[f.codigo]) : [];
   const listo = !!grupo && !!elegido && !elegido.problema;
 
   const elegirGrupo = (g: GrupoPlancha) => {
     setGrupoId(g.id);
     setEleccion(null);
+    setPermitidos(null);
     // Con el material elegido, lo siguiente son las medidas.
     porEnfocar.current = 0;
   };
@@ -260,19 +310,26 @@ export function EditorCorte({
       lugar,
       piezas,
       eleccion,
+      formatosPermitidos: usaTodos ? null : formatos.map((f) => f.codigo),
       calculo: elegido,
     });
   };
 
   /* Cerrar con medidas escritas o el material cambiado pregunta antes: se perdería. */
-  const [filasIniciales] = useState(filas);
-  const sucio =
-    grupoId !== (inicial?.grupoId ?? null) ||
-    modalidad !== (inicial?.modalidad ?? "laser") ||
-    lugarManual !== (inicial?.lugar ?? "tienda") ||
-    JSON.stringify(eleccion) !== JSON.stringify(inicial?.eleccion ?? null) ||
-    JSON.stringify(filas.filter((f) => f.ancho || f.alto || f.cantidad)) !==
-      JSON.stringify(filasIniciales.filter((f) => f.ancho || f.alto || f.cantidad));
+  const actual = { grupoId, modalidad, lugar: lugarManual, filas, eleccion, permitidos, ignorarStock };
+  const sucio = corteCambiado(actual, alAbrir);
+
+  /* Lo mismo que se perdería al cerrar es lo que se lleva el borrador del formulario. */
+  const enBorrador = sucio ? JSON.stringify(actual) : null;
+  const reportar = useRef(alCambiarBorrador);
+  useEffect(() => {
+    reportar.current = alCambiarBorrador;
+  });
+  useEffect(() => {
+    reportar.current?.(
+      enBorrador ? { tipo: "corte", clave: inicial?.clave ?? null, ...(JSON.parse(enBorrador) as typeof actual) } : null,
+    );
+  }, [enBorrador, inicial?.clave]);
   const { pedirCierre, dialogo } = useCerrarConAviso(sucio, alCerrar, {
     titulo: inicial ? "¿Descartar los cambios del corte?" : "¿Descartar este corte?",
     descripcion: inicial
@@ -453,6 +510,36 @@ export function EditorCorte({
                 </p>
               )}
 
+              {todosLosFormatos.length > 1 && piezas.length > 0 && (
+                <fieldset className="flex flex-col gap-1.5">
+                  <legend className="text-xs font-medium">
+                    Formatos a usar{" "}
+                    <span className="text-muted-foreground font-normal">
+                      · el optimizador calcula y combina solo con los marcados
+                    </span>
+                  </legend>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1.5" data-testid="formatos-permitidos">
+                    {todosLosFormatos.map((f) => {
+                      const marcado = formatos.some((x) => x.codigo === f.codigo);
+                      return (
+                        <label key={f.codigo} className="flex cursor-pointer items-center gap-2 text-xs">
+                          <Checkbox
+                            checked={marcado}
+                            // El último marcado no se desmarca: sin formatos no hay cálculo.
+                            disabled={marcado && formatos.length === 1}
+                            onCheckedChange={(v) => cambiarPermitido(f.codigo, v === true)}
+                          />
+                          <span className="tnum">
+                            {f.ancho}×{f.alto}
+                          </span>
+                          <span className="text-muted-foreground font-mono">{f.codigo}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </fieldset>
+              )}
+
               {porFormato.length > 0 && (
                 <div className="flex flex-col gap-2">
                   <OpcionesPlancha
@@ -466,6 +553,11 @@ export function EditorCorte({
                     porAlmacen={porAlmacen}
                     validando={validando}
                     falloStock={falloStock}
+                    ignorarStock={ignorarStock}
+                    alIgnorarStock={(v) => {
+                      setIgnorarStock(v);
+                      setEleccion(null);
+                    }}
                   />
                   {sinOdoo.length > 0 && (
                     <p className="text-muted-foreground text-xs">
@@ -486,6 +578,18 @@ export function EditorCorte({
                       </div>
                     ))}
                   </dl>
+                  {porComprar.length > 0 && (
+                    <p role="status" className="text-st-observado bg-st-observado-soft rounded-lg px-3 py-2 text-xs">
+                      <span className="font-medium">Hay que comprar </span>
+                      {porComprar
+                        .map(
+                          (f) =>
+                            `${f.faltan} ${f.faltan === 1 ? "plancha" : "planchas"} ${f.codigo} (${f.ancho}×${f.alto}; hay ${f.hay}, se necesitan ${f.necesita})`,
+                        )
+                        .join(" y ")}
+                      .
+                    </p>
+                  )}
                   {elegido.planchas.some((p) => p.origen.tipo === "sobrante") && (
                     <p className="text-muted-foreground text-xs">
                       El precio es el de planchas nuevas; el corte sale en parte de sobrantes del almacén, que quedan

@@ -17,6 +17,7 @@ import { exigirAdmin, exigirCad } from "@/lib/sesion";
 import { clienteServidor } from "@/lib/supabase-servidor";
 import { mensajeDeError } from "@/lib/errores";
 import {
+  crearDisenoEnProyecto,
   crearOReusarBorrador,
   firmasDesde,
   guardarVersionDiseno,
@@ -39,6 +40,14 @@ import { PLANTILLA_LIBRE, type MaterialDiseno, type ParametrosCad, type VersionL
 import type { Json } from "@/lib/supabase-tipos";
 import { disenoParaCotizar, type DisenoCotizable } from "@/lib/cad/cotizar-servidor";
 import { cargarCatalogoPlanchas } from "@/lib/cortes-servidor";
+import { esquemaNombreProyecto } from "@/lib/cad/proyectos";
+import {
+  aprobarProyecto,
+  crearProyecto,
+  eliminarProyecto,
+  quitarDeProyecto,
+  renombrarProyecto,
+} from "@/lib/cad/proyectos-servidor";
 
 const ERROR_SIN_DISENO = "El diseño ya no está disponible. Recarga la página.";
 
@@ -369,4 +378,48 @@ export async function revisarCambiosAjenos(
     actual: versionActual(firmas)?.version ?? desde,
     ajena: ajena ? { version: ajena.version, autorNombre: ajena.autorNombre } : null,
   };
+}
+
+
+/* ── Proyectos: varios diseños de un mismo trabajo ───────────────────────────── */
+
+const esquemaIdProyecto = z.uuid("El proyecto no es válido.");
+
+/** Un proyecto vacío; los diseños se le agregan después (a mano o desde el chat). */
+export async function crearProyectoAccion(nombre: string): Promise<{ id: string }> {
+  await exigirCad();
+  return crearProyecto(validar(esquemaNombreProyecto, nombre));
+}
+
+export async function renombrarProyectoAccion(proyectoId: string, nombre: string): Promise<void> {
+  await exigirCad();
+  await renombrarProyecto(validar(esquemaIdProyecto, proyectoId), validar(esquemaNombreProyecto, nombre));
+}
+
+/** Borra el proyecto; sus diseños quedan sueltos. Solo quien lo creó o Administración (la base lo comprueba). */
+export async function eliminarProyectoAccion(proyectoId: string): Promise<void> {
+  await exigirCad();
+  await eliminarProyecto(validar(esquemaIdProyecto, proyectoId));
+}
+
+/** Un diseño vacío al final del proyecto; devuelve su id para abrirlo. */
+export async function agregarDisenoAProyecto(proyectoId: string): Promise<{ id: string }> {
+  await exigirCad();
+  const { id } = await crearDisenoEnProyecto(validar(esquemaIdProyecto, proyectoId));
+  return { id };
+}
+
+/** Saca un diseño de su proyecto (queda suelto). */
+export async function quitarDisenoDeProyecto(disenoId: string): Promise<void> {
+  await exigirCad();
+  await quitarDeProyecto(validar(esquemaId, disenoId));
+}
+
+/**
+ * Aprueba de una vez los diseños personalizados en borrador del proyecto. Solo
+ * Administración; la base lo vuelve a comprobar (`aprobar_proyecto`). Devuelve cuántos aprobó.
+ */
+export async function aprobarProyectoAccion(proyectoId: string): Promise<number> {
+  await exigirAdmin();
+  return aprobarProyecto(validar(esquemaIdProyecto, proyectoId));
 }

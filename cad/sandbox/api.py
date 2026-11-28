@@ -23,7 +23,7 @@ import structlog
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.concurrency import run_in_threadpool
 
 from motor import bitacora
@@ -44,10 +44,38 @@ RAIZ_REFERENCIAS = (Path(__file__).resolve().parent.parent / "skills" / "vibecad
 EXTENSIONES_REFERENCIA = {".md", ".py"}
 
 
+#: Cuántos contornos (logos) puede traer una solicitud y cuánto pesa cada uno.
+MAX_CONTORNOS = 20
+MAX_TRAZOS_CONTORNO = 5000
+MAX_CARACTERES_TRAZO = 2_000_000
+
+
+class EntradaContorno(BaseModel):
+    """Un logo sacado de un PDF: trazos `d` de SVG (M, L, C, Z) en mm, Y hacia arriba."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    ancho_mm: float = Field(gt=0, le=100000)
+    alto_mm: float = Field(gt=0, le=100000)
+    trazos: list[str] = Field(min_length=1, max_length=MAX_TRAZOS_CONTORNO)
+
+    @field_validator("trazos")
+    @classmethod
+    def _acotar(cls, trazos: list[str]) -> list[str]:
+        if sum(len(t) for t in trazos) > MAX_CARACTERES_TRAZO:
+            raise ValueError("Los trazos del contorno pesan demasiado.")
+        return trazos
+
+
 class SolicitudCodigo(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     codigo: str = Field(min_length=1, max_length=MAX_CARACTERES)
+    #: Los logos del diseño, por nombre (`caras_de_contorno("hurley")`). Opcional.
+    contornos: dict[str, EntradaContorno] = Field(default_factory=dict, max_length=MAX_CONTORNOS)
+
+    def datos_contornos(self) -> dict[str, Any]:
+        return {n: c.model_dump() for n, c in self.contornos.items()}
 
 
 class OpcionesDxf(BaseModel):
@@ -103,6 +131,10 @@ class SolicitudRender(BaseModel):
 
     glb_base64: str | None = Field(default=None, max_length=60 * 1024 * 1024)
     codigo: str | None = Field(default=None, max_length=MAX_CARACTERES)
+    contornos: dict[str, EntradaContorno] = Field(default_factory=dict, max_length=MAX_CONTORNOS)
+
+    def datos_contornos(self) -> dict[str, Any]:
+        return {n: c.model_dump() for n, c in self.contornos.items()}
 
 
 def _error(estado: int, codigo: str, mensaje: str, **extra: Any) -> HTTPException:
@@ -165,7 +197,7 @@ def salud() -> dict[str, Any]:
 
 @app.post("/ejecutar", dependencies=protegido)
 async def ejecutar_codigo(solicitud: SolicitudCodigo) -> dict[str, Any]:
-    r = await run_in_threadpool(ejecutar, solicitud.codigo, "generar")
+    r = await run_in_threadpool(ejecutar, solicitud.codigo, "generar", None, None, solicitud.datos_contornos())
     if not r.ok:
         raise _error_codigo(r.datos, solicitud.codigo)
     d = r.datos
@@ -182,7 +214,7 @@ async def ejecutar_codigo(solicitud: SolicitudCodigo) -> dict[str, Any]:
 
 @app.post("/dxf", dependencies=protegido)
 async def dxf(solicitud: SolicitudDxf) -> Response:
-    r = await run_in_threadpool(ejecutar, solicitud.codigo, "dxf", solicitud.opciones.model_dump())
+    r = await run_in_threadpool(ejecutar, solicitud.codigo, "dxf", solicitud.opciones.model_dump(), None, solicitud.datos_contornos())
     if not r.ok or r.binario is None:
         raise _error_codigo(r.datos, solicitud.codigo)
     return Response(
@@ -200,7 +232,7 @@ async def dxf_planchas(solicitud: SolicitudDxfPlanchas) -> Response:
         "unidades": solicitud.opciones.unidades,
         "planchas": [p.model_dump() for p in solicitud.planchas],
     }
-    r = await run_in_threadpool(ejecutar, solicitud.codigo, "dxf_planchas", opciones)
+    r = await run_in_threadpool(ejecutar, solicitud.codigo, "dxf_planchas", opciones, None, solicitud.datos_contornos())
     if not r.ok and isinstance(r.datos.get("acomodo"), dict):
         acomodo = r.datos["acomodo"]
         raise _error(
@@ -220,7 +252,7 @@ async def dxf_planchas(solicitud: SolicitudDxfPlanchas) -> Response:
 
 @app.post("/step", dependencies=protegido)
 async def step(solicitud: SolicitudCodigo) -> Response:
-    r = await run_in_threadpool(ejecutar, solicitud.codigo, "step")
+    r = await run_in_threadpool(ejecutar, solicitud.codigo, "step", None, None, solicitud.datos_contornos())
     if not r.ok or r.binario is None:
         raise _error_codigo(r.datos, solicitud.codigo)
     return Response(
@@ -238,7 +270,7 @@ async def render(solicitud: SolicitudRender) -> dict[str, Any]:
         except (binascii.Error, ValueError) as e:
             raise _error(422, "parametros_invalidos", "glb_base64 no es base64 válido.") from e
     elif solicitud.codigo:
-        r = await run_in_threadpool(ejecutar, solicitud.codigo, "generar")
+        r = await run_in_threadpool(ejecutar, solicitud.codigo, "generar", None, None, solicitud.datos_contornos())
         if not r.ok:
             raise _error_codigo(r.datos, solicitud.codigo)
         glb = base64.b64decode(r.datos["glb_base64"])

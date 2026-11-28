@@ -17,6 +17,7 @@ import { leerMateriales, type MaterialesPorCopia } from "./materiales";
 import type { Json } from "@/lib/supabase-tipos";
 import { esquemaReferenciaCara, type ReferenciaCara } from "./caras";
 import type { DisenoCad, MaterialDiseno, ParametrosCad } from "./tipos";
+import { estadoDeDiseno } from "./proyectos";
 import { NOMBRE_POR_DEFECTO } from "./titulo";
 import { urlMiniatura } from "./miniatura-url";
 import type { FirmaVersion, OrigenHistorial, VersionHistorial } from "./historial";
@@ -93,6 +94,7 @@ export function deReferencias(valor: Json | null): ReferenciaCara[] {
 interface FilaDiseno {
   id: string;
   nombre: string;
+  proyecto_id: string | null;
   version_actual: number;
   creado_en: string;
   actualizado_en: string;
@@ -105,12 +107,14 @@ interface FilaVersion {
   version_plantilla: number | null;
   parametros: Json;
   origen: string;
+  estado: string;
   creado_en: string;
   miniatura_path: string | null;
 }
 
-const COLUMNAS_DISENO = "id, nombre, version_actual, creado_en, actualizado_en";
-const COLUMNAS_VERSION = "diseno_id, version, plantilla, version_plantilla, parametros, origen, creado_en, miniatura_path";
+const COLUMNAS_DISENO = "id, nombre, proyecto_id, version_actual, creado_en, actualizado_en";
+const COLUMNAS_VERSION =
+  "diseno_id, version, plantilla, version_plantilla, parametros, origen, estado, creado_en, miniatura_path";
 
 const deDiseno = (d: FilaDiseno, v: FilaVersion | undefined): DisenoCad => ({
   id: d.id,
@@ -120,6 +124,8 @@ const deDiseno = (d: FilaDiseno, v: FilaVersion | undefined): DisenoCad => ({
   parametros: deParametros(v?.parametros),
   version: v ? v.version : 0,
   miniatura: urlMiniatura(v?.miniatura_path),
+  proyecto_id: d.proyecto_id,
+  estado: estadoDeDiseno(v ? { plantilla: v.plantilla, estado: v.estado } : null),
   creado_en: d.creado_en,
   actualizado_en: d.actualizado_en,
 });
@@ -149,6 +155,8 @@ export async function crearOReusarBorrador(usuarioId: string): Promise<{ id: str
     .select("id, nombre, creado_en")
     .eq("creado_por", usuarioId)
     .eq("version_actual", 0)
+    // Los de un proyecto no se reutilizan: pertenecen a su proyecto.
+    .is("proyecto_id", null)
     .order("creado_en", { ascending: false });
   if (error) throw new Error(mensajeDeError(error));
 
@@ -171,6 +179,30 @@ export async function crearOReusarBorrador(usuarioId: string): Promise<{ id: str
 }
 
 /**
+ * Un diseño nuevo dentro de un proyecto, al final. Siempre crea uno: los
+ * borradores sueltos que reutiliza `crearOReusarBorrador` no son de un proyecto.
+ */
+export async function crearDisenoEnProyecto(proyectoId: string, nombre?: string): Promise<{ id: string; orden: number }> {
+  const supabase = await clienteServidor();
+  const { data: ultimo, error } = await supabase
+    .from("cad_disenos")
+    .select("orden")
+    .eq("proyecto_id", proyectoId)
+    .order("orden", { ascending: false, nullsFirst: false })
+    .limit(1);
+  if (error) throw new Error(mensajeDeError(error));
+  const orden = (ultimo?.[0]?.orden ?? 0) + 1;
+  const { data, error: errorCrear } = await supabase
+    .from("cad_disenos")
+    .insert({ proyecto_id: proyectoId, orden, ...(nombre?.trim() ? { nombre: nombre.trim().slice(0, 120) } : {}) })
+    .select("id")
+    .single();
+  if (errorCrear) throw new Error(mensajeDeError(errorCrear));
+  return { id: data.id, orden };
+}
+
+/**
+ * Pone `nombre` solo si el diseño sigue con el nombre por defecto/**
  * Pone `nombre` solo si el diseño sigue con el nombre por defecto: así no se
  * pisa uno que la persona ya cambió a mano. Devuelve si lo cambió.
  */
@@ -188,22 +220,37 @@ export async function renombrarSiPorDefecto(disenoId: string, nombre: string): P
   return (data?.length ?? 0) > 0;
 }
 
-/** Todos los diseños, el tocado más recientemente primero. */
-export async function listarDisenos(): Promise<DisenoCad[]> {
+/**
+ * Los diseños, el tocado más recientemente primero. Con `proyectoId` solo los de
+ * ese proyecto, en su orden; con `soloSueltos`, solo los que no están en uno (la
+ * lista de /disenos los muestra aparte, dentro de su proyecto); con
+ * `soloEnProyectos`, solo los que sí (para contar los de cada proyecto).
+ */
+export async function listarDisenos(
+  opciones: { proyectoId?: string; soloSueltos?: boolean; soloEnProyectos?: boolean } = {},
+): Promise<DisenoCad[]> {
   const supabase = await clienteServidor();
-  const { data, error } = await supabase
-    .from("cad_disenos")
-    .select(COLUMNAS_DISENO)
-    .order("actualizado_en", { ascending: false });
+  let consulta = supabase.from("cad_disenos").select(COLUMNAS_DISENO);
+  if (opciones.proyectoId) {
+    consulta = consulta.eq("proyecto_id", opciones.proyectoId).order("orden", { ascending: true, nullsFirst: false });
+  } else {
+    if (opciones.soloSueltos) consulta = consulta.is("proyecto_id", null);
+    if (opciones.soloEnProyectos) consulta = consulta.not("proyecto_id", "is", null);
+    consulta = consulta.order("actualizado_en", { ascending: false });
+  }
+  const { data, error } = await consulta;
   if (error) throw new Error(`No se pudieron leer los diseños: ${error.message}`);
   let disenos = data;
   if (!disenos || disenos.length === 0) return [];
 
   // Los que no tienen versión ni conversación son borradores sin tocar: no se
-  // listan, como un chat de Claude que todavía no tiene mensajes.
-  const sinVersion = disenos.filter((d) => d.version_actual === 0).map((d) => d.id);
-  const conMensajes = await idsConMensajes(sinVersion);
-  disenos = disenos.filter((d) => d.version_actual > 0 || conMensajes.has(d.id));
+  // listan, como un chat de Claude que todavía no tiene mensajes. Dentro de un
+  // proyecto sí: alguien lo agregó a propósito y tiene que poder abrirlo.
+  if (!opciones.proyectoId && !opciones.soloEnProyectos) {
+    const sinVersion = disenos.filter((d) => d.version_actual === 0).map((d) => d.id);
+    const conMensajes = await idsConMensajes(sinVersion);
+    disenos = disenos.filter((d) => d.version_actual > 0 || conMensajes.has(d.id));
+  }
   if (disenos.length === 0) return [];
 
   // Las versiones vigentes en una sola consulta. Se filtra por los números que

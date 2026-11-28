@@ -5,6 +5,8 @@
  * centímetros: quien cruza la frontera convierte.
  */
 
+import type { EstadoDiseno } from "./proyectos";
+
 export type FamiliaCad =
   | "anforas"
   | "cajas"
@@ -98,6 +100,10 @@ export type DisenoCad = {
   version: number;
   /** La foto PNG de la versión vigente (URL pública). `null` si todavía no tiene. */
   miniatura: string | null;
+  /** El proyecto al que pertenece (`lib/cad/proyectos.ts`); `null` si es un diseño suelto. */
+  proyecto_id: string | null;
+  /** Si está listo para producción: de plantilla, personalizado aprobado o en borrador, o aún vacío. */
+  estado: EstadoDiseno;
   creado_en: string;
   actualizado_en: string;
 };

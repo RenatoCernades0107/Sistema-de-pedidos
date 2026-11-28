@@ -460,13 +460,61 @@ describe("combinar formatos en un corte", () => {
     expect(compararFormatos(pedido, [F9, F7c], config).every((c) => c.formatos.length === 1)).toBe(true);
     const con = compararFormatos(pedido, [F9, F7c], config, [], "precio", true);
     expect(con[0].formatos.length).toBe(2);
-    // Con sobrantes del almacén (el piloto) no se mezcla.
+    // Con sobrantes del almacén (el piloto) también se ofrece, solo con planchas nuevas.
     const conSobrantes = compararFormatos(pedido, [F9, F7c], config, [{ id: "S1", ancho: 50, alto: 50 }], "precio", true);
-    expect(conSobrantes.every((c) => c.formatos.length === 1)).toBe(true);
+    const mezcla = conSobrantes.find((c) => c.formatos.length > 1)!;
+    expect(mezcla).toBeDefined();
+    expect(mezcla.planchas.every((p) => p.origen.tipo === "plancha")).toBe(true);
   });
 
   it("con la política de merma también decide la merma", () => {
     const mezcla = calcularMezcla(pedido, F9, [F9, F7c], config, "merma")!;
     expect(mezcla.desperdicioPct).toBeLessThan(calcularCorte(pedido, F9, config).desperdicioPct);
+  });
+});
+
+describe("formatos elegidos para optimizar", () => {
+  const F9: FormatoCorte = { codigo: "F9", ancho: 122, alto: 244, precio: 300 };
+  const F8: FormatoCorte = { codigo: "F8", ancho: 158, alto: 249, precio: 380 };
+  const F7c: FormatoCorte = { codigo: "F7", ancho: 122, alto: 183, precio: 230 };
+  const pedido = corte(
+    [
+      [138.5, 62.5, 1], [137, 14, 1], [137.2, 60.2, 1], [137.5, 14, 2], [178, 25, 1], [186.5, 61, 1],
+      [176.5, 25, 1], [176.5, 32.5, 1], [187, 61, 1], [137.5, 14, 2], [137.5, 65, 1],
+    ],
+    { espesorMm: 4 },
+  );
+
+  it("solo se calcula y se combina con los formatos que se pasan", () => {
+    const todos = compararFormatos(pedido, [F9, F8, F7c], config, [], "precio", true);
+    const soloDos = compararFormatos(pedido, [F9, F8], config, [], "precio", true);
+    expect(todos.length).toBeGreaterThan(soloDos.length);
+    for (const c of soloDos) {
+      for (const f of c.formatos) expect(["F9", "F8"]).toContain(f.codigo);
+    }
+    // La mezcla del servidor, rehecha con los mismos formatos, da lo mismo.
+    const mezcla = soloDos.find((c) => c.formatos.length > 1);
+    if (mezcla) {
+      const deNuevo = calcularMezcla(pedido, [F9, F8].find((f) => f.codigo === mezcla.mezclaDesde)!, [F9, F8], config);
+      expect(deNuevo?.total).toBe(mezcla.total);
+    }
+  });
+});
+
+describe("mezcla con muchas planchas iguales", () => {
+  it("pasa al formato chico todas las planchas cuyas piezas entran, no solo unas pocas", () => {
+    // Las de 245 solo entran en 122×245; las otras dos, también en 122×183, que es más barata.
+    const pedido = corte([
+      [121, 164, 18],
+      [118, 245, 18],
+      [164, 103.7, 45],
+      [118, 245, 30],
+    ]);
+    const F9: FormatoCorte = { codigo: "F9", ancho: 122, alto: 245, precio: 520 };
+    const F7c: FormatoCorte = { codigo: "F7", ancho: 122, alto: 183, precio: 400 };
+    const m = calcularMezcla(pedido, F9, [F7c, F9], config)!;
+    const deF7 = m.planchas.filter((p) => p.origen.tipo === "plancha" && p.origen.formato === "F7").length;
+    expect(deF7).toBe(63);
+    expect(m.material).toBe(48 * 520 + 63 * 400);
   });
 });

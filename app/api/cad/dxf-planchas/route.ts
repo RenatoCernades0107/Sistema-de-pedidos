@@ -9,7 +9,7 @@
 
 import { z } from "zod";
 import { nombreArchivo } from "@/lib/cad/esquema";
-import { obtenerVersionLibre } from "@/lib/cad/libre-servidor";
+import { contornosDeDiseno, obtenerVersionLibre } from "@/lib/cad/libre-servidor";
 import { exportarDxfPlanchas } from "@/lib/cad/motor";
 import { ErrorSandboxCad, exportarDxfPlanchasLibre, sandboxConfigurado } from "@/lib/cad/sandbox";
 import { archivo, cuerpoDxfPlanchas, error, errorDeMotor, leerCuerpo, puertaCad } from "../respuesta";
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
           codigo: "sin_aprobar",
         });
       }
-      const dxf = await exportarDxfPlanchasLibre(libre.codigo, planchas, opciones);
+      const dxf = await exportarDxfPlanchasLibre(libre.codigo, planchas, opciones, await contornosDeDiseno(disenoId));
       return archivo(dxf, "application/dxf", `diseno-personalizado-v${libre.version}-planchas.dxf`);
     } catch (e) {
       if (e instanceof ErrorSandboxCad) {

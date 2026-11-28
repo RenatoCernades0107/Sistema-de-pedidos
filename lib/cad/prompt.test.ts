@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { PROMPT_DISENO_LIBRE, PROMPT_SIN_DISENO_LIBRE, contextoDisenoActual, promptDeTurno } from "./prompt";
 
+describe("planos con varios productos", () => {
+  it("el prompt base manda proponerlo, esperar la aceptación y usar la herramienta una vez", () => {
+    for (const libre of [false, true]) {
+      const p = promptDeTurno(null, { disenoLibre: libre });
+      expect(p).toContain("crear_disenos_en_proyecto");
+      expect(p).toContain("espera a que la persona acepte");
+    }
+  });
+});
+
 describe("prompt del diseño libre", () => {
   it("sin la bandera dice que no está disponible y no explica el sandbox", () => {
     const p = promptDeTurno(null);
@@ -11,7 +21,7 @@ describe("prompt del diseño libre", () => {
   it("con la bandera explica el contrato, el ciclo y la aprobación", () => {
     const p = promptDeTurno(null, { disenoLibre: true });
     expect(p).toContain(PROMPT_DISENO_LIBRE);
-    for (const clave of ["piezas = [", "ver_render", "BORRADOR", "kerf", "build123d.exporters", "uvx"]) {
+    for (const clave of ["piezas = [", "ver_render", "BORRADOR", "kerf", "build123d.exporters", "uvx", "extraer_contorno_pdf", "caras_de_contorno"]) {
       expect(p).toContain(clave);
     }
     expect(p).not.toMatch(/\$\{/);

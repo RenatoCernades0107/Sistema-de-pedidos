@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { ChevronsUpDown } from "lucide-react";
 import { colorDeMaterial, grupoPara, mismoMaterial, nombreMaterial, type MaterialRef } from "@/lib/cad/materiales";
 import { espesorTexto, type GrupoPlancha } from "@/lib/cortes/catalogo";
+import { compararColores } from "@/lib/cortes/seleccion-material";
 import { coincide, normalizar } from "@/lib/busqueda";
 import { cn } from "@/lib/utils";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -65,7 +66,7 @@ export function SelectorMaterial({
       }
     }
     const lista = [...porNombre.values()];
-    for (const t of lista) t.opciones.sort((a, b) => a.color.localeCompare(b.color, "es"));
+    for (const t of lista) t.opciones.sort((a, b) => compararColores(a.color, b.color));
     return lista.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
   }, [materiales, espesorMm]);
 

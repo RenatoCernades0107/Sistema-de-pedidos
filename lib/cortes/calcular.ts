@@ -13,7 +13,7 @@ import { cobrarPlancha, opcionesDeCobro, type PlanchaCobrada } from "./cobro";
 import { tiempoLaser, type PiezaPedida } from "./laser";
 import { mensajeSinPrecioManual, tarifaManual } from "./manual";
 import { cortesManuales, largoTotal } from "./metros";
-import { empaquetar, piezasDe, type Contenedor, type Origen, type Pieza, type PlanchaCortada, type ResultadoCorte } from "./optimizador";
+import { empaquetar, entraSola, piezasDe, type Contenedor, type Origen, type Pieza, type PlanchaCortada, type ResultadoCorte } from "./optimizador";
 
 export type { PiezaPedida } from "./laser";
 
@@ -437,7 +437,8 @@ export function calcularMezcla(
   let actual = inicial;
   let puntos = puntaje(actual);
 
-  for (let vuelta = 0; vuelta < 8; vuelta++) {
+  // Cada vuelta acepta solo lo que mejora, así que termina; el tope es por si acaso.
+  for (let vuelta = 0; vuelta < 40; vuelta++) {
     // Las menos usadas primero; a igual uso, la última abierta.
     const orden = actual.planchas
       .map((p, i) => ({ p, i }))
@@ -448,18 +449,35 @@ export function calcularMezcla(
       const pt = puntaje(r);
       if (mejora(pt, mejor ? mejor.puntos : puntos, politica)) mejor = { r, puntos: pt };
     };
-
-    for (const k of [1, 2]) {
-      if (orden.length < k) break;
-      const victimas = new Set(orden.slice(0, k).map((x) => x.i));
+    /** Rehace las planchas `victimas` en planchas nuevas de `en` (o de cada formato). */
+    const rehacer = (victimas: Set<number>, en: FormatoCorte[] = formatos) => {
+      if (victimas.size === 0) return;
       const resto = actual.planchas.filter((_, i) => !victimas.has(i));
       const sueltas = actual.planchas.filter((_, i) => victimas.has(i)).flatMap((p) => piezasDe(p, originales));
-
-      // En planchas nuevas de cada formato, cobradas con sus fracciones.
-      for (const f of formatos) {
+      // Cobradas cada una con las fracciones de su formato.
+      for (const f of en) {
         const r = empaquetarEn(f, sueltas);
         considerar({ planchas: [...resto, ...r.planchas], noCaben: r.noCaben });
       }
+    };
+
+    // Las k menos usadas, de a pocas.
+    for (const k of [1, 2, 4, 8, 16]) {
+      if (orden.length < k) break;
+      rehacer(new Set(orden.slice(0, k).map((x) => x.i)));
+    }
+    // Y de una vez, todas las planchas de otro formato cuyas piezas entran en
+    // este: con muchas planchas iguales, moverlas de a pocas no llega nunca.
+    for (const f of formatos) {
+      const entran = new Set<number>();
+      actual.planchas.forEach((p, i) => {
+        if (formatoDe(formatos, p).codigo === f.codigo) return;
+        const caben = piezasDe(p, originales).every((x) =>
+          entraSola(x, f.ancho - 2 * margen, f.alto - 2 * margen, entrada.rotable),
+        );
+        if (caben) entran.add(i);
+      });
+      rehacer(entran, [f]);
     }
 
     if (!mejor) break;
@@ -510,14 +528,19 @@ export function compararFormatos(
   config: ConfigCortes,
   sobrantes: Contenedor[] = [],
   criterio: CriterioFormato = config.sugerencia.politica,
-  /** Ofrecer también cortes que mezclan formatos (no con el piloto de sobrantes). */
+  /**
+   * Ofrecer también cortes que mezclan formatos. Una mezcla sale solo de
+   * planchas nuevas: con sobrantes en el almacén compite con los que los usan.
+   */
   mezclar = false,
 ): CalculoCorte[] {
   const calculos = formatos.map((f) => calcularCorte(entrada, f, config, sobrantes));
-  if (mezclar && sobrantes.length === 0) {
+  if (mezclar) {
     const vistas = new Set<string>();
-    for (const c of calculos) {
-      if (c.problema) continue;
+    // Desde los dos mejores de un solo formato: desde los demás suele llegarse a
+    // la misma mezcla, y cada una cuesta lo que varios cálculos.
+    const bases = ordenarCalculos(calculos.filter((c) => !c.problema), criterio).slice(0, 2);
+    for (const c of bases) {
       const m = calcularMezcla(entrada, c.formato, formatos, config, criterio);
       // Dos bases pueden llegar a la misma mezcla: se ofrece una vez.
       const firma = m && `${m.planchas.map((p) => formatoDe(m.formatos, p).codigo).sort().join(",")}|${m.total}`;

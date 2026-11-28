@@ -9,6 +9,7 @@
  * configurado (`CAD_SANDBOX_BASE_URL`): ver `disenoLibreActivo`.
  */
 
+import type { ContornosSandbox } from "./contornos";
 import type { ErrorCodigoLibre, OpcionesDxfPlanchas, PlanchaAcomodadaCad, ResultadoLibre } from "./tipos";
 
 export class ErrorSandboxCad extends Error {
@@ -144,16 +145,25 @@ async function json<T>(res: Response): Promise<T> {
 
 const post = (cuerpo: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(cuerpo) });
 
+/**
+ * Los logos del diseño (`lib/cad/contornos.ts`) van con CADA llamada que manda el
+ * código: el sandbox no guarda nada entre ejecuciones. Sin ninguno, el cuerpo no
+ * cambia (y un sandbox viejo, que ignora campos que no conoce, sigue sirviendo).
+ */
+const conContornos = (contornos?: ContornosSandbox): { contornos?: ContornosSandbox } =>
+  contornos && Object.keys(contornos).length > 0 ? { contornos } : {};
+
 /** Ejecuta el código. Un error del código llega como `ErrorSandboxCad` con `errorCodigo`. */
-export async function ejecutarCodigo(codigo: string): Promise<ResultadoLibre> {
-  return json<ResultadoLibre>(await peticion("/ejecutar", post({ codigo })));
+export async function ejecutarCodigo(codigo: string, contornos?: ContornosSandbox): Promise<ResultadoLibre> {
+  return json<ResultadoLibre>(await peticion("/ejecutar", post({ codigo, ...conContornos(contornos) })));
 }
 
 export async function exportarDxfLibre(
   codigo: string,
   opciones?: { kerf_mm?: number; separacion_mm?: number },
+  contornos?: ContornosSandbox,
 ): Promise<ArrayBuffer> {
-  const res = await peticion("/dxf", post({ codigo, ...(opciones ? { opciones } : {}) }));
+  const res = await peticion("/dxf", post({ codigo, ...(opciones ? { opciones } : {}), ...conContornos(contornos) }));
   return res.arrayBuffer();
 }
 
@@ -166,18 +176,25 @@ export async function exportarDxfPlanchasLibre(
   codigo: string,
   planchas: PlanchaAcomodadaCad[],
   opciones?: OpcionesDxfPlanchas,
+  contornos?: ContornosSandbox,
 ): Promise<ArrayBuffer> {
-  const res = await peticion("/dxf/planchas", post({ codigo, planchas, ...(opciones ? { opciones } : {}) }));
+  const res = await peticion(
+    "/dxf/planchas",
+    post({ codigo, planchas, ...(opciones ? { opciones } : {}), ...conContornos(contornos) }),
+  );
   return res.arrayBuffer();
 }
 
-export async function exportarStepLibre(codigo: string): Promise<ArrayBuffer> {
-  return (await peticion("/step", post({ codigo }))).arrayBuffer();
+export async function exportarStepLibre(codigo: string, contornos?: ContornosSandbox): Promise<ArrayBuffer> {
+  return (await peticion("/step", post({ codigo, ...conContornos(contornos) }))).arrayBuffer();
 }
 
 /** PNG 2×2 (isométrica, frente, planta, lateral) como `data:` URL. */
-export async function renderizar(entrada: { glb_base64: string } | { codigo: string }): Promise<string> {
-  const r = await json<{ png_base64?: unknown }>(await peticion("/render", post(entrada)));
+export async function renderizar(
+  entrada: { glb_base64: string } | { codigo: string; contornos?: ContornosSandbox },
+): Promise<string> {
+  const cuerpo = "codigo" in entrada ? { codigo: entrada.codigo, ...conContornos(entrada.contornos) } : entrada;
+  const r = await json<{ png_base64?: unknown }>(await peticion("/render", post(cuerpo)));
   if (typeof r.png_base64 !== "string" || !r.png_base64) {
     throw new ErrorSandboxCad("El sandbox CAD no devolvió la imagen.", "respuesta", 502);
   }

@@ -3,6 +3,7 @@ import type { FormatoPlancha, GrupoPlancha } from "./catalogo";
 import {
   SIN_SELECCION,
   coloresDe,
+  compararColores,
   completarSeleccion,
   elegirColor,
   elegirEspesor,
@@ -10,6 +11,8 @@ import {
   espesoresDe,
   materialesDe,
   pasoPendiente,
+  porPrioridadDeColor,
+  prioridadColor,
   resolverGrupo,
   seleccionDe,
 } from "./seleccion-material";
@@ -63,7 +66,7 @@ describe("materialesDe", () => {
 
 describe("coloresDe", () => {
   it("solo ofrece los colores del material elegido", () => {
-    expect(coloresDe(catalogo, "Acrílico ECO").map((c) => c.nombre)).toEqual(["Blanco lechoso", "Cristal", "Negro"]);
+    expect(coloresDe(catalogo, "Acrílico ECO").map((c) => c.nombre)).toEqual(["Cristal", "Blanco lechoso", "Negro"]);
     expect(coloresDe(catalogo, "Espejo").map((c) => c.nombre)).toEqual(["Dorado"]);
   });
 
@@ -74,6 +77,53 @@ describe("coloresDe", () => {
   it("sin material no hay colores", () => {
     expect(coloresDe(catalogo, null)).toEqual([]);
     expect(coloresDe(catalogo, "Inexistente")).toEqual([]);
+  });
+});
+
+describe("orden de colores", () => {
+  it("pone Cristal primero, luego Blanco y el resto en orden alfabético", () => {
+    const c = ["Negro", "Colores rojo", "Blanco lechoso", "Espejo dorado", "Cristal", "Blanco", "Ámbar"].map((v) =>
+      grupo("Acrílico", v, "", 3),
+    );
+    expect(coloresDe(c, "Acrílico").map((x) => x.nombre)).toEqual([
+      "Cristal",
+      "Blanco",
+      "Blanco lechoso",
+      "Ámbar",
+      "Colores rojo",
+      "Espejo dorado",
+      "Negro",
+    ]);
+  });
+
+  it("agrupa las variantes que empiezan por Cristal o Blanco, sin importar mayúsculas ni tildes", () => {
+    expect(prioridadColor("Cristal")).toBe(0);
+    expect(prioridadColor("cristal mate")).toBe(0);
+    expect(prioridadColor("Blanco")).toBe(1);
+    expect(prioridadColor("BLANCO lechoso")).toBe(1);
+    expect(prioridadColor("Mate cristal")).toBe(2);
+    expect(prioridadColor("Cristalino")).toBe(2);
+    expect(prioridadColor("Negro")).toBe(2);
+  });
+
+  it("compararColores ordena alfabéticamente dentro de cada bloque", () => {
+    expect(["Cristal mate", "Negro", "Blanco perla", "Cristal", "Blanco"].sort(compararColores)).toEqual([
+      "Cristal",
+      "Cristal mate",
+      "Blanco",
+      "Blanco perla",
+      "Negro",
+    ]);
+  });
+
+  it("porPrioridadDeColor conserva el orden previo del resto", () => {
+    expect(["Rojo", "Blanco", "Azul", "Cristal", "Verde"].sort(porPrioridadDeColor)).toEqual([
+      "Cristal",
+      "Blanco",
+      "Rojo",
+      "Azul",
+      "Verde",
+    ]);
   });
 });
 

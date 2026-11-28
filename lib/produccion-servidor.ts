@@ -45,7 +45,7 @@ import { almacenDeVenta, origenDe } from "./odoo/pedidos-venta";
 import { crearLoteSobrante, productoSobrante } from "./odoo/sobrantes";
 import type { PiezaDeEntrega } from "./odoo/entregas";
 import { ErrorOdoo } from "./odoo/rpc";
-import type { LineaDePedido } from "./pedido-lineas";
+import { planchasPorFormatoDe, type LineaDePedido } from "./pedido-lineas";
 import {
   areaPiezasM2,
   contenedoresDe,
@@ -109,6 +109,8 @@ async function asegurarProduccion(
   orderId: number | null,
   l: { posicion: number; productoId: number; corte: CorteGuardado | null; produccionId: number | null },
 ): Promise<number> {
+  // Si el corte mezcla formatos, cada formato con su plancha; el de la línea es el principal.
+  const porFormato = planchasPorFormatoDe({ ...l, planchasUsadasPorFormato: null });
   if (l.produccionId) return l.produccionId;
   const corte = l.corte!;
   const grupo = await cargarGrupoPlancha(corte.grupoId);
@@ -121,7 +123,14 @@ async function asegurarProduccion(
     material,
     areaM2: areaPiezasM2(corte.piezas),
     planchaId: l.productoId,
-    planchas: planchasNuevas(corte),
+    planchas: porFormato
+      ? (porFormato.find((f) => f.productoId === l.productoId)?.calculadas ?? 0)
+      : planchasNuevas(corte),
+    ...(porFormato && {
+      otrasPlanchas: porFormato
+        .filter((f) => f.productoId !== l.productoId)
+        .map((f) => ({ productoId: f.productoId, cantidad: f.calculadas })),
+    }),
     sobrantesPrevistos: sobrantesDeCorte(corte, retazo).map((s) => ({ areaM2: (s.largo * s.ancho) / 10000 })),
     consumidos: await lotesConsumidos(corte),
     donde: await dondeProducir(lugarDeCorte(corte), orderId),
@@ -158,6 +167,9 @@ export async function reservarSobrantes(
 
   for (const l of lineas.filter(conPiloto)) {
     const corte = l.corte!;
+    // Un corte que mezcla formatos sale solo de planchas nuevas: su acomodo se
+    // queda como se cotizó y no reserva sobrantes.
+    if ((corte.formatos?.length ?? 0) > 1) continue;
     const grupo = await cargarGrupoPlancha(corte.grupoId);
     if (!grupo) continue;
     // Solo los sobrantes del almacén donde se corta.
@@ -451,10 +463,13 @@ export async function cerrarCortesDePedido(
       if (!material) throw new ErrorOdoo("El material del corte ya no tiene planchas en el catálogo.");
 
       const { filas, reales } = await sobrantesParaOdoo(pedido.id, l.posicion, "corte");
+      const porFormato = planchasPorFormatoDe(l);
       const lotes = await cerrarProduccion(moId, {
         material,
         consumidos: await lotesConsumidos(l.corte!),
         planchas: l.planchasUsadas ?? planchasNuevas(l.corte!),
+        // Si mezcla formatos, lo usado de cada uno va a su producto.
+        ...(porFormato && { planchasPorProducto: Object.fromEntries(porFormato.map((f) => [f.productoId, f.usadas])) }),
         sobrantes: reales,
       });
       await anotarLotes(filas, lotes);

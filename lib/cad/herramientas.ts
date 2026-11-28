@@ -24,6 +24,8 @@ import { colorDe, espesorTexto, type GrupoPlancha } from "@/lib/cortes/catalogo"
 import type { ConfigCortes } from "@/lib/cortes/config";
 import type { HerramientaLlm } from "@/lib/llm/inferhub";
 import { PARAMETRO_ESPESOR, type ResultadoAcomodo } from "./acomodo";
+import { NOMBRE_CONTORNO } from "./contornos";
+import { MAX_DISENOS_POR_LLAMADA } from "./proyectos";
 import { costoDiseno } from "./costo";
 import { conEspesor, conservarEspesores, espesoresDe, ESPESOR_MAX_MM, ESPESOR_MIN_MM } from "./espesores";
 import {
@@ -101,9 +103,32 @@ export interface DependenciasCad {
    * Administración: sin ella, `ver_costo` no da montos.
    */
   cargarPrecios?(codigos: string[]): Promise<Record<string, number>>;
+  /**
+   * Crea diseños dentro de un proyecto (`lib/cad/proyectos-servidor.ts`), con los
+   * archivos de la conversación copiados. Sin ella, `crear_disenos_en_proyecto`
+   * no está disponible.
+   */
+  crearDisenosEnProyecto?(entrada: {
+    proyecto?: string;
+    disenos: { nombre: string; descripcion: string }[];
+    /** Nombres de archivo a copiar; sin ellos, todos los de la conversación. */
+    adjuntos?: string[];
+  }): Promise<ResultadoCrearDisenos>;
   /** Solo si el diseño libre está activo (`CAD_DISENO_LIBRE=1` y sandbox configurado). */
   libre?: DependenciasLibre;
 }
+
+/** Lo que devuelve crear diseños en un proyecto. */
+export type ResultadoCrearDisenos = {
+  proyecto: { id: string; nombre: string; creado: boolean };
+  disenos: { id: string; nombre: string; ruta: string; adjuntosCopiados: number }[];
+  adjuntosFallidos: string[];
+};
+
+/** Lo que devuelve la extracción de un contorno: la medida y una previsualización (`data:` PNG), o por qué no se pudo. */
+export type ResultadoExtraerContorno =
+  | { ok: true; anchoMm: number; altoMm: number; trazos: number; segmentos: number; previsualizacion: string }
+  | { ok: false; codigo: string; mensaje: string };
 
 /** Diseño libre: el sandbox (`lib/cad/sandbox.ts`) y la persistencia de versiones libres. */
 export interface DependenciasLibre {
@@ -123,6 +148,19 @@ export interface DependenciasLibre {
   ): Promise<{ version: number }>;
   /** El render 2×2 del diseño vigente (libre o de plantilla), como `data:` URL. */
   renderizarActual(): Promise<string>;
+  /**
+   * Saca el contorno vectorial de una región de un PDF adjunto y lo guarda con el
+   * diseño (`lib/cad/contornos-servidor.ts`). Sin ella, `extraer_contorno_pdf` no
+   * está disponible.
+   */
+  extraerContorno?(peticion: {
+    adjunto: string;
+    pagina: number;
+    region: { x0: number; y0: number; x1: number; y1: number };
+    nombre: string;
+    anchoMm: number;
+    incluirTrazos?: boolean;
+  }): Promise<ResultadoExtraerContorno>;
   listarReferencias(): Promise<{ nombre: string; bytes: number }[]>;
   leerReferencia(nombre: string): Promise<string | null>;
   /** Cuántas veces se ejecutó código en este turno; lo lleva quien arma las dependencias. */
@@ -165,6 +203,7 @@ export const NOMBRES_HERRAMIENTA = [
   "elegir_material",
   "cambiar_piezas",
   "ver_costo",
+  "crear_disenos_en_proyecto",
 ] as const;
 
 export type NombreHerramienta = (typeof NOMBRES_HERRAMIENTA)[number];
@@ -297,10 +336,50 @@ export const HERRAMIENTAS_CAD: HerramientaLlm[] = [
       "Necesita que el diseño tenga material (elegir_material).",
     parametros: SIN_ARGUMENTOS,
   },
+  {
+    nombre: "crear_disenos_en_proyecto",
+    descripcion:
+      "Crea un diseño nuevo por cada elemento de una lámina o plano que trae VARIOS productos distintos (por ejemplo cuatro letreros), " +
+      "todos dentro de un proyecto que los agrupa, y les copia los archivos adjuntos de la conversación y un mensaje inicial con su contexto. " +
+      "Úsala SOLO después de proponérselo a la persona y de que acepte, y no más de una vez por plano. NO genera geometría ni toca el diseño actual: " +
+      "cada diseño nuevo se abre y se trabaja con su propio chat. Si este diseño no está en un proyecto, se crea uno y este entra primero. " +
+      "Describe en `descripcion` todo lo que se sabe de ese elemento (medidas, materiales, cantidad, cómo se arma) para que no haya que releer el plano.",
+    parametros: {
+      type: "object",
+      properties: {
+        proyecto: {
+          type: "string",
+          description: "Nombre del proyecto, solo si hay que crearlo (por ejemplo «Hurley Trujillo»). Si este diseño ya está en uno, se ignora.",
+        },
+        disenos: {
+          type: "array",
+          description: "Un elemento por cada diseño nuevo (de 1 a 10).",
+          minItems: 1,
+          maxItems: 10,
+          items: {
+            type: "object",
+            properties: {
+              nombre: { type: "string", description: "Nombre corto del diseño, como se llama en el plano (máx. 120 caracteres)." },
+              descripcion: { type: "string", description: "Medidas, materiales, cantidad y construcción de este elemento, según el plano (máx. 2000 caracteres)." },
+            },
+            required: ["nombre", "descripcion"],
+            additionalProperties: false,
+          },
+        },
+        adjuntos: {
+          type: "array",
+          description: "Nombres de los archivos adjuntos a copiar a cada diseño. Sin ella, se copian todos (PDF e imágenes).",
+          items: { type: "string" },
+        },
+      },
+      required: ["disenos"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 /** Las herramientas del diseño libre: solo se ofrecen con el diseño libre activo. */
-export const NOMBRES_HERRAMIENTA_LIBRE = ["leer_referencia_cad", "ejecutar_build123d", "ver_render"] as const;
+export const NOMBRES_HERRAMIENTA_LIBRE = ["leer_referencia_cad", "ejecutar_build123d", "ver_render", "extraer_contorno_pdf"] as const;
 
 export type NombreHerramientaLibre = (typeof NOMBRES_HERRAMIENTA_LIBRE)[number];
 
@@ -335,6 +414,49 @@ export const HERRAMIENTAS_LIBRE: HerramientaLlm[] = [
       "Devuelve una imagen del diseño vigente con cuatro vistas (isométrica, frente, planta, lateral) para comprobar que se ve como se pidió.",
     parametros: SIN_ARGUMENTOS,
   },
+  {
+    nombre: "extraer_contorno_pdf",
+    descripcion:
+      "Saca el contorno VECTORIAL EXACTO de un logo (o cualquier forma) de un PDF adjunto y lo guarda con el diseño con un nombre. " +
+      "Después, en `ejecutar_build123d`, `from diseno import caras_de_contorno` lo da como caras planas en mm, con sus curvas reales. " +
+      "Úsala cuando el plano trae el logo del cliente y hay que reproducirlo (no lo dibujes a ojo, ni uses la tipografía de las plantillas). " +
+      "La región se da en FRACCIONES de la página (0 a 1), con el origen ARRIBA a la izquierda, tal como ves la página en la imagen: " +
+      "encierra el logo entero y nada más. Solo cuentan los rellenos vectoriales; una imagen incrustada no sirve. " +
+      "Devuelve la medida y una imagen del contorno: compruébala antes de seguir. Cada nombre se usa una sola vez por diseño.",
+    parametros: {
+      type: "object",
+      properties: {
+        adjunto: { type: "string", description: "El nombre del archivo PDF, como lo adjuntó la persona." },
+        pagina: { type: "integer", description: "Número de página, desde 1." },
+        region: {
+          type: "object",
+          description: "La caja que encierra el logo, en fracciones de la página (0 a 1), origen arriba a la izquierda.",
+          properties: {
+            x0: { type: "number", description: "Borde izquierdo." },
+            y0: { type: "number", description: "Borde de arriba." },
+            x1: { type: "number", description: "Borde derecho." },
+            y1: { type: "number", description: "Borde de abajo." },
+          },
+          required: ["x0", "y0", "x1", "y1"],
+          additionalProperties: false,
+        },
+        nombre: {
+          type: "string",
+          description: 'Cómo lo pedirá el código: minúsculas, números y guion bajo, empezando por letra, hasta 40. Ej.: "hurley".',
+        },
+        ancho_mm: {
+          type: "number",
+          description: "El ancho REAL del logo en milímetros (de las cotas del plano). El alto sale en proporción.",
+        },
+        incluir_trazos: {
+          type: "boolean",
+          description: "Solo si el logo es un contorno sin relleno (líneas): cuenta también los trazos. Por defecto no.",
+        },
+      },
+      required: ["adjunto", "pagina", "region", "nombre", "ancho_mm"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 /** Las herramientas que se le ofrecen al modelo en este turno. */
@@ -355,6 +477,32 @@ const esquemaGenerar = z.object({
 const esquemaReferencia = z.object({ nombre: z.string().trim().max(300).optional() });
 
 const esquemaCodigo = z.object({ codigo: z.string().min(1).max(60_000) });
+
+const esquemaCrearDisenos = z.object({
+  proyecto: z.string().trim().max(120).optional(),
+  disenos: z
+    .array(
+      z.object({
+        nombre: z.string().trim().min(1).max(120),
+        descripcion: z.string().trim().max(2000),
+      }),
+    )
+    .min(1)
+    .max(MAX_DISENOS_POR_LLAMADA),
+  adjuntos: z.array(z.string().trim().min(1).max(200)).max(20).optional(),
+});
+
+const fraccion = z.number().min(0).max(1);
+const esquemaExtraerContorno = z.object({
+  adjunto: z.string().trim().min(1).max(200),
+  pagina: z.number().int().min(1).max(1000),
+  region: z
+    .object({ x0: fraccion, y0: fraccion, x1: fraccion, y1: fraccion })
+    .refine((r) => r.x0 < r.x1 && r.y0 < r.y1, { message: "La región tiene que ir de x0 < x1 y de y0 < y1 (arriba a abajo)." }),
+  nombre: z.string().trim().regex(NOMBRE_CONTORNO, "Minúsculas, números y guion bajo; empieza por letra; hasta 40."),
+  ancho_mm: z.number().positive().max(100_000),
+  incluir_trazos: z.boolean().optional(),
+});
 
 const esquemaBuscarPlanchas = z.object({
   material: z.string().trim().max(80).optional(),
@@ -1070,6 +1218,31 @@ async function cambiarPiezas(args: unknown, deps: DependenciasCad): Promise<Resu
   );
 }
 
+async function crearDisenosEnProyectoHerramienta(args: unknown, deps: DependenciasCad): Promise<ResultadoHerramienta> {
+  if (!deps.crearDisenosEnProyecto) {
+    return fallo({ codigo: "no_disponible", mensaje: "No se pueden crear diseños en un proyecto en este momento." });
+  }
+  const a = esquemaCrearDisenos.safeParse(args ?? {});
+  if (!a.success) return argumentosInvalidos(a.error);
+  const nombres = a.data.disenos.map((d) => d.nombre.toLowerCase());
+  if (new Set(nombres).size !== nombres.length) {
+    return fallo({ codigo: "nombres_repetidos", mensaje: "Dos diseños tienen el mismo nombre. Dale a cada uno un nombre distinto." });
+  }
+  const r = await deps.crearDisenosEnProyecto(a.data);
+  return exito(
+    {
+      proyecto: r.proyecto.nombre,
+      proyecto_nuevo: r.proyecto.creado,
+      disenos: r.disenos.map((d) => ({ nombre: d.nombre, ruta: d.ruta, archivos_copiados: d.adjuntosCopiados })),
+      ...(r.adjuntosFallidos.length ? { no_se_pudieron_copiar: r.adjuntosFallidos } : {}),
+      nota:
+        "No se generó ninguna geometría: cada diseño se abre desde el proyecto y se trabaja con su propio chat, que ya tiene el contexto y el plano. " +
+        "Este diseño sigue siendo el que la persona tiene abierto. Dile cuántos diseños se crearon y cómo llegar a ellos.",
+    },
+    `${r.disenos.length === 1 ? "1 diseño creado" : `${r.disenos.length} diseños creados`} en «${r.proyecto.nombre}»`,
+  );
+}
+
 async function verCosto(deps: DependenciasCad): Promise<ResultadoHerramienta> {
   const actual = await deps.obtenerDisenoActual();
   if (!actual) return sinDiseno();
@@ -1387,6 +1560,39 @@ async function ejecutarBuild123d(args: unknown, deps: DependenciasCad): Promise<
   );
 }
 
+async function extraerContornoPdf(args: unknown, deps: DependenciasCad): Promise<ResultadoHerramienta> {
+  if (!deps.libre) return sinLibre("extraer_contorno_pdf");
+  if (!deps.libre.extraerContorno) {
+    return fallo({ codigo: "no_disponible", mensaje: "No se pueden extraer contornos de PDF en este momento." });
+  }
+  const a = esquemaExtraerContorno.safeParse(args ?? {});
+  if (!a.success) return argumentosInvalidos(a.error);
+  const r = await deps.libre.extraerContorno({
+    adjunto: a.data.adjunto,
+    pagina: a.data.pagina,
+    region: a.data.region,
+    nombre: a.data.nombre,
+    anchoMm: a.data.ancho_mm,
+    incluirTrazos: a.data.incluir_trazos,
+  });
+  if (!r.ok) return fallo({ codigo: r.codigo, mensaje: r.mensaje }, r.mensaje);
+  return exito(
+    {
+      nombre: a.data.nombre,
+      ancho_mm: r.anchoMm,
+      alto_mm: r.altoMm,
+      trazos: r.trazos,
+      segmentos: r.segmentos,
+      uso: `from diseno import caras_de_contorno\ncaras = caras_de_contorno("${a.data.nombre}")  # lista de caras en mm, de izquierda a derecha`,
+      nota:
+        "La imagen que sigue es el contorno extraído (negro sobre blanco). Compruébalo: si no es el logo completo, " +
+        `vuelve a llamar con otra región y OTRO nombre (p. ej. «${a.data.nombre}_2»). Un logo de varias formas devuelve varias caras.`,
+    },
+    `Contorno «${a.data.nombre}»: ${r.anchoMm} × ${r.altoMm} mm`,
+    { imagenes: [r.previsualizacion] },
+  );
+}
+
 async function verRender(deps: DependenciasCad): Promise<ResultadoHerramienta> {
   if (!deps.libre) return sinLibre("ver_render");
   const actual = await deps.obtenerDisenoActual();
@@ -1460,6 +1666,8 @@ export async function ejecutarHerramienta(
         return await cambiarPiezas(argumentos, deps);
       case "ver_costo":
         return await verCosto(deps);
+      case "crear_disenos_en_proyecto":
+        return await crearDisenosEnProyectoHerramienta(argumentos, deps);
     }
     switch (nombre as NombreHerramientaLibre) {
       case "leer_referencia_cad":
@@ -1468,6 +1676,8 @@ export async function ejecutarHerramienta(
         return await conSandbox(() => ejecutarBuild123d(argumentos, deps), deps);
       case "ver_render":
         return await conSandbox(() => verRender(deps), deps);
+      case "extraer_contorno_pdf":
+        return await extraerContornoPdf(argumentos, deps);
       default:
         return fallo(
           {

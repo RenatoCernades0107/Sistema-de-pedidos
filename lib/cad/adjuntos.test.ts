@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deAdjuntos, esquemaAdjuntos, rutaDeDiseno, rutaNueva, rutasAReenviar, type AdjuntoCad } from "./adjuntos";
+import { archivosParaCopiar, deAdjuntos, esquemaAdjuntos, rutaDeDiseno, rutaNueva, rutasAReenviar, type AdjuntoCad } from "./adjuntos";
 
 const DISENO = "6f1d2c3b-4a5e-4f60-8a7b-1c2d3e4f5a6b";
 
@@ -43,5 +43,29 @@ describe("adjuntos del chat de diseños", () => {
     const [a, b, c] = ["a", "b", "c"].map((r) => adjunto(r));
     expect(rutasAReenviar([[a], [], [b, c]], 2)).toEqual(new Set(["b", "c"]));
     expect(rutasAReenviar([[a]], 0)).toEqual(new Set());
+  });
+});
+
+describe("archivosParaCopiar", () => {
+  const nombrado = (nombre: string, n: number): AdjuntoCad => ({
+    ruta: `${DISENO}/00000000-0000-4000-8000-00000000000${n}.pdf`,
+    nombre,
+    mime: "application/pdf",
+    tamano: 100,
+  });
+  const todos = [nombrado("Plano.pdf", 1), nombrado("ficha.pdf", 2), nombrado("plano.PDF", 3)];
+
+  it("sin nombres, todos; un mismo nombre adjuntado dos veces se queda con el más reciente", () => {
+    // El orden es el de la primera vez que aparece cada nombre; el archivo, el último con ese nombre.
+    expect(archivosParaCopiar(todos).map((a) => a.ruta)).toEqual([todos[2].ruta, todos[1].ruta]);
+  });
+
+  it("con nombres, solo esos (sin distinguir mayúsculas ni espacios)", () => {
+    expect(archivosParaCopiar(todos, [" PLANO.pdf "]).map((a) => a.ruta)).toEqual([todos[2].ruta]);
+    expect(archivosParaCopiar(todos, ["otro.pdf"])).toEqual([]);
+  });
+
+  it("una lista de nombres vacía cuenta como sin nombres", () => {
+    expect(archivosParaCopiar(todos, [])).toHaveLength(2);
   });
 });
