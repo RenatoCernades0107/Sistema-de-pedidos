@@ -23,13 +23,13 @@ import structlog
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from starlette.concurrency import run_in_threadpool
 
 from motor import bitacora
 
 from . import VERSION
-from .ejecutor import ejecutar
+from .ejecutor import MAX_DISENOS_PROYECTO, ejecutar, ejecutar_proyecto
 from .render import ErrorRender, renderizar_glb
 from .verificador import MAX_CARACTERES
 
@@ -43,6 +43,9 @@ bitacora.instalar(app)
 RAIZ_REFERENCIAS = (Path(__file__).resolve().parent.parent / "skills" / "vibecad").resolve()
 EXTENSIONES_REFERENCIA = {".md", ".py"}
 
+
+#: Cuántas piezas distintas puede nombrar `solo`.
+MAX_SOLO = 200
 
 #: Cuántos contornos (logos) puede traer una solicitud y cuánto pesa cada uno.
 MAX_CONTORNOS = 20
@@ -87,6 +90,8 @@ class OpcionesDxf(BaseModel):
 
 class SolicitudDxf(SolicitudCodigo):
     opciones: OpcionesDxf = Field(default_factory=OpcionesDxf)
+    #: Solo estas copias (`{id de pieza: [copias]}`): lo que se corta aparte, el MDF. Sin él, todo.
+    solo: dict[str, list[int]] | None = Field(default=None, max_length=MAX_SOLO)
 
 
 class EntradaPiezaPlancha(BaseModel):
@@ -124,6 +129,49 @@ class SolicitudDxfPlanchas(SolicitudCodigo):
 
     opciones: OpcionesDxfPlanchas = Field(default_factory=OpcionesDxfPlanchas)
     planchas: list[EntradaPlancha] = Field(min_length=1, max_length=200)
+
+
+class EntradaDisenoProyecto(BaseModel):
+    """Un diseño de un proyecto: o su código libre (con sus contornos) o una plantilla con parámetros."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    #: La referencia corta con la que se prefijan sus piezas (`d1`): la misma de las planchas.
+    ref: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9]{0,15}$")
+    nombre: str | None = Field(None, max_length=120)
+    codigo: str | None = Field(None, min_length=1, max_length=MAX_CARACTERES)
+    contornos: dict[str, EntradaContorno] = Field(default_factory=dict, max_length=MAX_CONTORNOS)
+    plantilla: str | None = Field(None, pattern=r"^[a-z0-9_-]{1,80}$")
+    parametros: dict[str, Any] = Field(default_factory=dict, max_length=300)
+
+    @model_validator(mode="after")
+    def _uno_u_otro(self) -> "EntradaDisenoProyecto":
+        if bool(self.codigo) == bool(self.plantilla):
+            raise ValueError("Cada diseño trae `codigo` o `plantilla`, uno de los dos.")
+        return self
+
+
+class OpcionesDxfProyecto(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    kerf_mm: float = Field(0, ge=0, le=5)
+
+
+class SolicitudDxfProyecto(BaseModel):
+    """El DXF por planchas de varios diseños acomodados juntos (`lib/cad/proyecto-corte.ts`)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    disenos: list[EntradaDisenoProyecto] = Field(min_length=1, max_length=MAX_DISENOS_PROYECTO)
+    planchas: list[EntradaPlancha] = Field(min_length=1, max_length=200)
+    opciones: OpcionesDxfProyecto = Field(default_factory=OpcionesDxfProyecto)
+
+    @model_validator(mode="after")
+    def _refs_distintas(self) -> "SolicitudDxfProyecto":
+        refs = [d.ref for d in self.disenos]
+        if len(set(refs)) != len(refs):
+            raise ValueError("Dos diseños tienen la misma referencia.")
+        return self
 
 
 class SolicitudRender(BaseModel):
@@ -214,7 +262,10 @@ async def ejecutar_codigo(solicitud: SolicitudCodigo) -> dict[str, Any]:
 
 @app.post("/dxf", dependencies=protegido)
 async def dxf(solicitud: SolicitudDxf) -> Response:
-    r = await run_in_threadpool(ejecutar, solicitud.codigo, "dxf", solicitud.opciones.model_dump(), None, solicitud.datos_contornos())
+    opciones = solicitud.opciones.model_dump()
+    if solicitud.solo:
+        opciones["solo"] = solicitud.solo
+    r = await run_in_threadpool(ejecutar, solicitud.codigo, "dxf", opciones, None, solicitud.datos_contornos())
     if not r.ok or r.binario is None:
         raise _error_codigo(r.datos, solicitud.codigo)
     return Response(
@@ -247,6 +298,38 @@ async def dxf_planchas(solicitud: SolicitudDxfPlanchas) -> Response:
         content=r.binario,
         media_type="application/dxf",
         headers={"Content-Disposition": 'attachment; filename="diseno-libre-planchas.dxf"'},
+    )
+
+
+@app.post("/dxf/proyecto", dependencies=protegido)
+async def dxf_proyecto(solicitud: SolicitudDxfProyecto) -> Response:
+    disenos = [
+        {
+            "ref": d.ref,
+            "nombre": d.nombre,
+            "codigo": d.codigo,
+            "contornos": {n: c.model_dump() for n, c in d.contornos.items()},
+            "plantilla": d.plantilla,
+            "parametros": d.parametros,
+        }
+        for d in solicitud.disenos
+    ]
+    opciones = {"kerf_mm": solicitud.opciones.kerf_mm, "planchas": [p.model_dump() for p in solicitud.planchas]}
+    r = await run_in_threadpool(ejecutar_proyecto, disenos, opciones)
+    if not r.ok and isinstance(r.datos.get("acomodo"), dict):
+        acomodo = r.datos["acomodo"]
+        raise _error(
+            422,
+            "acomodo_invalido",
+            str(acomodo.get("mensaje") or "El acomodo en planchas no es válido."),
+            errores=acomodo.get("errores") or [],
+        )
+    if not r.ok or r.binario is None:
+        raise _error_codigo(r.datos, "")
+    return Response(
+        content=r.binario,
+        media_type="application/dxf",
+        headers={"Content-Disposition": 'attachment; filename="proyecto-planchas.dxf"'},
     )
 
 

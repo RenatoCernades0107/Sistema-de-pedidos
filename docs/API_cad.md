@@ -182,11 +182,25 @@ seguridad y despliegue en `cad/sandbox/README.md`). Cabecera `X-API-Key` si
   el sandbox no conserva nada entre ejecuciones.
 - `POST /ejecutar {codigo}` → lo de `/generar` sin `plantilla`/`parametros`:
   `{ codigo, nombre, dimensiones, glb_base64, piezas, validaciones, salida }`.
-- `POST /dxf {codigo, opciones?: {kerf_mm, separacion_mm}}` → `application/dxf`.
+- `POST /dxf {codigo, opciones?: {kerf_mm, separacion_mm}, solo?: {<id de pieza>: [copias]}}` →
+  `application/dxf`. Con `solo` dibuja nada más esas copias (de 1 a la cantidad de la pieza):
+  lo que se corta aparte, como el MDF, que no va en una plancha del catálogo. Una pieza o una
+  copia que no existe es un 422 `codigo_invalido` (tipo `contrato`).
 - `POST /dxf/planchas {codigo, planchas, opciones?: {kerf_mm}}` → `application/dxf`:
   ejecuta el código y dibuja sus piezas en las planchas, igual que
   `/dxf/planchas` del motor (mismas `planchas`, capa `PLANCHA`). Acomodo que no
   cuadra con las piezas: 422 `acomodo_invalido` con `errores`.
+- `POST /dxf/proyecto {disenos, planchas, opciones?: {kerf_mm}}` → `application/dxf`: el DXF por
+  planchas de VARIOS diseños acomodados juntos (un proyecto: `lib/cad/proyecto-corte.ts`). Cada
+  diseño es `{ref, nombre?, codigo + contornos?}` (libre) o `{ref, nombre?, plantilla,
+  parametros?}` (plantilla del motor, que el sandbox también sabe construir); `ref` es una
+  referencia corta (`d1`, `d2`…, distinta en cada uno) y de 1 a 10 diseños. Las piezas de cada
+  uno se unen con el id prefijado `<ref>__<id>` (`d2__lateral`), y `planchas` usa esos ids con la
+  misma forma de `/dxf/planchas`. La validación es parcial (las copias que se cortan aparte no van
+  en ninguna plancha): sigue exigiendo que ninguna copia se repita, que todas caigan dentro de su
+  plancha y que no mezclen espesores (422 `acomodo_invalido` con `errores`). Un diseño cuyo código
+  falla da 422 `codigo_invalido` con `error.diseno` = su `ref`. El tiempo y la CPU del proceso
+  crecen con el número de diseños (1 + 0,5 por diseño, tope 6×).
 - `POST /step {codigo}` → `application/step`.
 - `POST /render {glb_base64 | codigo}` → `{ png_base64, vistas, ancho, alto }`
   (PNG 960×960: isométrica, frente, planta, lateral).

@@ -33,6 +33,11 @@ export interface MaterialRef {
   variante: string;
   detalle: string;
   color: string | null;
+  /**
+   * Un material que no está en el catálogo de planchas (MDF, por ejemplo): la copia
+   * no se acomoda en planchas ni genera problema; se baja como corte suelto.
+   */
+  corteAparte?: true;
 }
 
 /** El material propio de cada copia, por nombre de nodo (`lateral_2`). */
@@ -49,6 +54,7 @@ export const esquemaMaterialRef = z.object({
   variante: texto(120),
   detalle: texto(120),
   color: texto(80).min(1).nullable(),
+  corteAparte: z.literal(true).optional(),
 });
 export const esquemaMaterialesGuardados = z.object({
   porCopia: z
@@ -149,6 +155,9 @@ export interface CopiaResuelta {
   espesorAjustado: boolean;
 }
 
+/** La copia se corta aparte, sin plancha del catálogo (MDF…): se baja como DXF suelto. */
+export const esCorteAparte = (c: Pick<CopiaResuelta, "material">) => c.material?.corteAparte === true;
+
 /** Cuánto puede diferir el espesor de una pieza del de la plancha elegida para cortarla en ella. */
 export const toleranciaEspesor = (mm: number) => Math.max(0.3, 0.1 * mm);
 
@@ -191,7 +200,8 @@ export function resolverCopias(
     nodosDe(pieza).map((nodo, i) => {
       const propio = porCopia[nodo] ?? null;
       const material = propio ?? refDefecto;
-      const exacto = material ? grupoPara(material, pieza.espesor_mm, catalogo) : null;
+      // Corte aparte (MDF…): no va en una plancha del catálogo aunque se llame igual que una.
+      const exacto = material && !material.corteAparte ? grupoPara(material, pieza.espesor_mm, catalogo) : null;
       const ajustado =
         !exacto && !propio && grupoDefecto ? grupoAjustado(grupoDefecto, pieza.espesor_mm, catalogo) : null;
       return {
@@ -316,44 +326,32 @@ function nombreCopia(c: CopiaResuelta): string {
 }
 
 /**
- * El diseño repartido en sus grupos de plancha, cada uno acomodado en su mejor
- * formato, y lo que impide cortarlo. Sin material del diseño ni propios, no
- * hay grupos ni problemas: falta elegirlo.
+ * Las copias ya resueltas (de uno o de varios diseños) repartidas en sus grupos
+ * de plancha, cada uno acomodado en su mejor formato, y lo que impide cortarlas.
+ * Las copias de corte aparte (MDF…) no entran en ningún grupo ni dan problema.
+ * Es la parte de `planchasDelDiseno` que no depende de un diseño en particular:
+ * el corte conjunto de un proyecto la usa con las copias de todos sus diseños.
  */
-export function planchasDelDiseno(entrada: {
-  catalogo: readonly GrupoPlancha[];
-  porDefecto: MaterialDiseno | null;
-  porCopia: MaterialesPorCopia;
-  parametros: ParametrosCad;
-  piezas: readonly PiezaCad[] | undefined;
-  corte: { kerfMm: number; margenMm: number };
-  /** Cuántas unidades del diseño se cortan juntas (la cantidad del pedido). Por defecto, 1. */
-  unidades?: number;
-  /** La política de sugerencia de Configuración y, si se puede, lo que cuesta cada acomodo. */
-  sugerencia?: {
-    politica: OrdenAcomodo["politica"];
-    costoDe?: (g: GrupoDelDiseno, r: ResultadoAcomodo) => number | null;
-  };
-  /** El formato elegido a mano en cada grupo, por su `clave`. */
-  formatosElegidos?: Readonly<Record<string, string>>;
-}): PlanchasDelDiseno {
-  const { catalogo, porDefecto, porCopia, parametros, corte } = entrada;
+export function planchasDeCopias(
+  copias: readonly CopiaResuelta[],
+  entrada: {
+    corte: { kerfMm: number; margenMm: number };
+    /** Cuántas unidades se cortan juntas. Por defecto, 1. */
+    unidades?: number;
+    sugerencia?: {
+      politica: OrdenAcomodo["politica"];
+      costoDe?: (g: GrupoDelDiseno, r: ResultadoAcomodo) => number | null;
+    };
+    /** El formato elegido a mano en cada grupo, por su `clave`. */
+    formatosElegidos?: Readonly<Record<string, string>>;
+  },
+): { grupos: PlanchasDeGrupo[]; problemas: string[]; avisos: string[] } {
+  const { corte } = entrada;
   const unidades = Math.max(1, Math.floor(entrada.unidades ?? 1));
   const problemas: string[] = [];
-  const grupoDefecto = porDefecto ? (catalogo.find((g) => g.id === porDefecto.grupoPlanchaId) ?? null) : null;
-
-  // El espesor del diseño tiene que ser el de la plancha elegida para el diseño.
-  const espesor = parametros[PARAMETRO_ESPESOR];
-  if (grupoDefecto && typeof espesor === "number" && !mismoEspesor(espesor, grupoDefecto.espesorMm)) {
-    problemas.push(
-      `El diseño tiene ${espesor} mm de espesor, pero la plancha elegida es de ${grupoDefecto.espesorMm} mm.`,
-    );
-  }
-
-  const copias = resolverCopias(entrada.piezas ?? [], porDefecto, porCopia, catalogo);
   const sinPlancha = new Map<string, string[]>();
   for (const c of copias) {
-    if (!c.material || c.grupo) continue;
+    if (!c.material || c.grupo || c.material.corteAparte) continue;
     const clave = `${nombreMaterial(c.material)} de ${espesorTexto(c.espesorMm)}`;
     sinPlancha.set(clave, [...(sinPlancha.get(clave) ?? []), nombreCopia(c)]);
   }
@@ -407,7 +405,48 @@ export function planchasDelDiseno(entrada: {
     };
   });
   for (const g of grupos) problemas.push(...g.problemas);
-  return { grupos, copias, problemas, avisos };
+  return { grupos, problemas, avisos };
+}
+
+
+/**
+ * El diseño repartido en sus grupos de plancha, cada uno acomodado en su mejor
+ * formato, y lo que impide cortarlo. Sin material del diseño ni propios, no
+ * hay grupos ni problemas: falta elegirlo.
+ */
+export function planchasDelDiseno(entrada: {
+  catalogo: readonly GrupoPlancha[];
+  porDefecto: MaterialDiseno | null;
+  porCopia: MaterialesPorCopia;
+  parametros: ParametrosCad;
+  piezas: readonly PiezaCad[] | undefined;
+  corte: { kerfMm: number; margenMm: number };
+  /** Cuántas unidades del diseño se cortan juntas (la cantidad del pedido). Por defecto, 1. */
+  unidades?: number;
+  /** La política de sugerencia de Configuración y, si se puede, lo que cuesta cada acomodo. */
+  sugerencia?: {
+    politica: OrdenAcomodo["politica"];
+    costoDe?: (g: GrupoDelDiseno, r: ResultadoAcomodo) => number | null;
+  };
+  /** El formato elegido a mano en cada grupo, por su `clave`. */
+  formatosElegidos?: Readonly<Record<string, string>>;
+}): PlanchasDelDiseno {
+  const { catalogo, porDefecto, porCopia, parametros } = entrada;
+  const problemas: string[] = [];
+  const grupoDefecto = porDefecto ? (catalogo.find((g) => g.id === porDefecto.grupoPlanchaId) ?? null) : null;
+
+  // El espesor del diseño tiene que ser el de la plancha elegida para el diseño.
+  const espesor = parametros[PARAMETRO_ESPESOR];
+  if (grupoDefecto && typeof espesor === "number" && !mismoEspesor(espesor, grupoDefecto.espesorMm)) {
+    problemas.push(
+      `El diseño tiene ${espesor} mm de espesor, pero la plancha elegida es de ${grupoDefecto.espesorMm} mm.`,
+    );
+  }
+
+  const copias = resolverCopias(entrada.piezas ?? [], porDefecto, porCopia, catalogo);
+  const r = planchasDeCopias(copias, entrada);
+  problemas.push(...r.problemas);
+  return { grupos: r.grupos, copias, problemas, avisos: r.avisos };
 }
 
 /** Las planchas de todos los grupos para `POST /dxf/planchas`, cada una con su rótulo. */

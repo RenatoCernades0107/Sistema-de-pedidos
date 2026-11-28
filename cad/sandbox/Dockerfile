@@ -15,6 +15,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /usr/local/bin/uv
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libgl1 libglib2.0-0 libx11-6 libxext6 libxrender1 libfontconfig1 libexpat1 \
+        fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
