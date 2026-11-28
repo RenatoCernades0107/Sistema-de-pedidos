@@ -17,7 +17,7 @@
 
 import { clienteServidor } from "@/lib/supabase-servidor";
 import { modoPdf, type ParteLlm } from "@/lib/llm/inferhub";
-import { BUCKET_CAD_ADJUNTOS, esImagenAdjunto, type AdjuntoCad } from "@/lib/cad/adjuntos";
+import { BUCKET_CAD_ADJUNTOS, esImagenAdjunto, rutaNueva, type AdjuntoCad } from "@/lib/cad/adjuntos";
 import { paginasDePdf } from "@/lib/pdf-texto";
 import { imagenesDePdf } from "@/lib/pdf-imagenes";
 
@@ -136,4 +136,30 @@ export async function partesDeAdjuntos(
     }),
   );
   return grupos.flat();
+}
+
+/**
+ * Copia archivos adjuntos a la carpeta de otro diseño (Storage `copy`, sin bajarlos):
+ * cada uno recibe una ruta nueva, así que borrar un diseño no deja al otro sin su
+ * plano. Un archivo que ya no está se omite y se nombra en `fallidos`.
+ */
+export async function copiarAdjuntos(
+  origen: readonly AdjuntoCad[],
+  disenoDestino: string,
+  bucket: string = BUCKET_CAD_ADJUNTOS,
+): Promise<{ copiados: AdjuntoCad[]; fallidos: string[] }> {
+  const supabase = await clienteServidor();
+  const copiados: AdjuntoCad[] = [];
+  const fallidos: string[] = [];
+  for (const a of origen) {
+    const ruta = rutaNueva(disenoDestino, a.mime);
+    const { error } = await supabase.storage.from(bucket).copy(a.ruta, ruta);
+    if (error) {
+      console.error("[cad] copiar adjunto", a.ruta, error.message);
+      fallidos.push(a.nombre);
+    } else {
+      copiados.push({ ...a, ruta });
+    }
+  }
+  return { copiados, fallidos };
 }

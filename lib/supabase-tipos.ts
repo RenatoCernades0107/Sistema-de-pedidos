@@ -646,6 +646,8 @@ export type Database = {
           creado_por: string | null
           id: string
           nombre: string
+          orden: number | null
+          proyecto_id: string | null
           version_actual: number
         }
         Insert: {
@@ -654,6 +656,8 @@ export type Database = {
           creado_por?: string | null
           id?: string
           nombre?: string
+          orden?: number | null
+          proyecto_id?: string | null
           version_actual?: number
         }
         Update: {
@@ -662,6 +666,8 @@ export type Database = {
           creado_por?: string | null
           id?: string
           nombre?: string
+          orden?: number | null
+          proyecto_id?: string | null
           version_actual?: number
         }
         Relationships: [
@@ -670,6 +676,13 @@ export type Database = {
             columns: ["creado_por"]
             isOneToOne: false
             referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cad_disenos_proyecto_id_fkey"
+            columns: ["proyecto_id"]
+            isOneToOne: false
+            referencedRelation: "cad_proyectos"
             referencedColumns: ["id"]
           },
         ]
@@ -711,6 +724,38 @@ export type Database = {
             columns: ["diseno_id"]
             isOneToOne: false
             referencedRelation: "cad_disenos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cad_proyectos: {
+        Row: {
+          actualizado_en: string
+          creado_en: string
+          creado_por: string | null
+          id: string
+          nombre: string
+        }
+        Insert: {
+          actualizado_en?: string
+          creado_en?: string
+          creado_por?: string | null
+          id?: string
+          nombre: string
+        }
+        Update: {
+          actualizado_en?: string
+          creado_en?: string
+          creado_por?: string | null
+          id?: string
+          nombre?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cad_proyectos_creado_por_fkey"
+            columns: ["creado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
             referencedColumns: ["id"]
           },
         ]
@@ -4092,6 +4137,7 @@ export type Database = {
         Returns: undefined
       }
       anular_transferencia: { Args: { p_id: string }; Returns: undefined }
+      aprobar_proyecto: { Args: { p_proyecto: string }; Returns: number }
       aprobar_version_diseno: {
         Args: { p_diseno_id: string; p_version: number }
         Returns: undefined

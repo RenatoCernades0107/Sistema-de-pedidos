@@ -63,9 +63,10 @@ import { PLANTILLA_LIBRE } from "@/lib/cad/tipos";
 import { promptDeTurno } from "@/lib/cad/prompt";
 import { NOMBRE_POR_DEFECTO, generarTitulo } from "@/lib/cad/titulo";
 import { esquemaReferencias, mensajeConReferencias } from "@/lib/cad/caras";
-import { esquemaAdjuntos, rutaDeDiseno, rutasAReenviar, type AdjuntoCad } from "@/lib/cad/adjuntos";
+import { archivosParaCopiar, esquemaAdjuntos, rutaDeDiseno, rutasAReenviar, type AdjuntoCad } from "@/lib/cad/adjuntos";
 import { AdjuntoNoDisponible, partesDeAdjuntos } from "@/lib/cad/adjuntos-servidor";
 import { extraerYGuardarContorno } from "@/lib/cad/contornos-servidor";
+import { crearDisenosEnProyecto } from "@/lib/cad/proyectos-servidor";
 import {
   ErrorLlm,
   LLM_NO_CONFIGURADO,
@@ -229,6 +230,19 @@ function dependencias(
     cargarPlanchas: () => cargarCatalogoPlanchas(true),
     cargarConfigCortes,
     ...(conPrecios ? { cargarPrecios: preciosDePlanchas } : {}),
+    crearDisenosEnProyecto: async (entrada) => {
+      const diseno = await obtenerDiseno(disenoId);
+      if (!diseno) throw new Error("El diseño ya no está disponible. Recarga la página.");
+      return crearDisenosEnProyecto(
+        {
+          disenoActualId: disenoId,
+          proyectoNombre: entrada.proyecto,
+          disenos: entrada.disenos,
+          adjuntos: archivosParaCopiar(adjuntos, entrada.adjuntos),
+        },
+        diseno.nombre,
+      );
+    },
     ...(libreActivo ? { libre: dependenciasLibre(disenoId, adjuntos) } : {}),
   };
 }

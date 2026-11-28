@@ -981,3 +981,74 @@ describe("extraer_contorno_pdf", () => {
     expect(leer(r.contenido).error.codigo).toBe("no_disponible");
   });
 });
+
+describe("crear_disenos_en_proyecto", () => {
+  const args = {
+    proyecto: "Hurley Trujillo",
+    disenos: [
+      { nombre: "Logo fachada", descripcion: "347 × 83 cm, acrílico blanco de 3 mm." },
+      { nombre: "Fitting room", descripcion: "125 × 50 cm, acrílico negro de 3 mm." },
+    ],
+  };
+  const hecho = {
+    proyecto: { id: "p1", nombre: "Hurley Trujillo", creado: true },
+    disenos: [
+      { id: "d1", nombre: "Logo fachada", ruta: "/disenos/d1", adjuntosCopiados: 1 },
+      { id: "d2", nombre: "Fitting room", ruta: "/disenos/d2", adjuntosCopiados: 1 },
+    ],
+    adjuntosFallidos: [] as string[],
+  };
+
+  it("se ofrece siempre (no necesita el sandbox)", () => {
+    expect(herramientasDisponibles(false).map((h) => h.nombre)).toContain("crear_disenos_en_proyecto");
+  });
+
+  it("pasa los diseños a quien los crea y le dice al modelo cómo llegar a ellos", async () => {
+    const crear = vi.fn(async () => hecho);
+    const r = await ejecutarHerramienta("crear_disenos_en_proyecto", args, dependencias({ crearDisenosEnProyecto: crear }));
+    expect(r.ok).toBe(true);
+    expect(crear).toHaveBeenCalledWith(args);
+    const datos = leer(r.contenido);
+    expect(datos).toMatchObject({ proyecto: "Hurley Trujillo", proyecto_nuevo: true });
+    expect(datos.disenos).toEqual([
+      { nombre: "Logo fachada", ruta: "/disenos/d1", archivos_copiados: 1 },
+      { nombre: "Fitting room", ruta: "/disenos/d2", archivos_copiados: 1 },
+    ]);
+    expect(datos.nota).toMatch(/No se generó ninguna geometría/);
+    expect(datos.no_se_pudieron_copiar).toBeUndefined();
+    expect(r.resumen).toBe("2 diseños creados en «Hurley Trujillo»");
+  });
+
+  it("avisa de los archivos que no se pudieron copiar", async () => {
+    const crear = vi.fn(async () => ({ ...hecho, adjuntosFallidos: ["plano.pdf"] }));
+    const r = await ejecutarHerramienta("crear_disenos_en_proyecto", args, dependencias({ crearDisenosEnProyecto: crear }));
+    expect(leer(r.contenido).no_se_pudieron_copiar).toEqual(["plano.pdf"]);
+  });
+
+  it("rechaza argumentos inválidos y nombres repetidos sin crear nada", async () => {
+    const crear = vi.fn(async () => hecho);
+    const deps = dependencias({ crearDisenosEnProyecto: crear });
+    for (const malos of [
+      {},
+      { disenos: [] },
+      { disenos: Array.from({ length: 11 }, (_, i) => ({ nombre: `d${i}`, descripcion: "" })) },
+      { disenos: [{ nombre: "  ", descripcion: "x" }] },
+      { disenos: [{ nombre: "A", descripcion: "x".repeat(2001) }] },
+    ]) {
+      const r = await ejecutarHerramienta("crear_disenos_en_proyecto", malos, deps);
+      expect(leer(r.contenido).error.codigo).toBe("argumentos_invalidos");
+    }
+    const repetidos = await ejecutarHerramienta(
+      "crear_disenos_en_proyecto",
+      { disenos: [{ nombre: "Logo", descripcion: "a" }, { nombre: "logo", descripcion: "b" }] },
+      deps,
+    );
+    expect(leer(repetidos.contenido).error.codigo).toBe("nombres_repetidos");
+    expect(crear).not.toHaveBeenCalled();
+  });
+
+  it("sin quien lo cree dice que no está disponible", async () => {
+    const r = await ejecutarHerramienta("crear_disenos_en_proyecto", args, dependencias());
+    expect(leer(r.contenido).error.codigo).toBe("no_disponible");
+  });
+});
