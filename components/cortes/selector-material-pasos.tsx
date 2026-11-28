@@ -288,7 +288,15 @@ export function Combo({
           </span>
           <ChevronsUpDown className="text-muted-foreground size-3.5 shrink-0" aria-hidden />
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-(--anchor-width) min-w-60 gap-0 p-0">
+        {/*
+          Ancho según el contenido: nunca más angosto que el botón (ni de 15rem),
+          hasta 26rem para que las medidas quepan en una línea, y nunca más
+          ancho que la pantalla (en un celular ocupa el ancho menos márgenes).
+        */}
+        <PopoverContent
+          align="start"
+          className="w-max max-w-[min(26rem,calc(100vw-2rem))] min-w-[min(max(15rem,var(--anchor-width)),calc(100vw-2rem))] gap-0 p-0"
+        >
           <Command shouldFilter={false} label={`Opciones: ${etiqueta.toLowerCase()}`}>
             <CommandInput
               placeholder={buscar}
@@ -315,9 +323,21 @@ export function Combo({
                       onSelect={() => alElegir(e.clave)}
                       className="items-start py-2 md:py-1.5"
                     >
-                      <span className="min-w-0 flex-1 break-words whitespace-normal">{e.texto}</span>
-                      {e.aviso && <span className="text-primary shrink-0 text-xs">{e.aviso}</span>}
-                      {e.detalle && <span className="text-muted-foreground shrink-0 text-xs">{e.detalle}</span>}
+                      {/*
+                        Fila que envuelve: el texto nunca se encoge por culpa del
+                        detalle (antes "3 mm" se partía letra por letra cuando las
+                        medidas eran largas). Si el detalle no cabe al lado, baja a
+                        la línea siguiente y ahí también puede partirse en varias.
+                      */}
+                      <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                        <span className="min-w-0 break-words whitespace-normal">{e.texto}</span>
+                        {e.aviso && <span className="text-primary text-xs whitespace-nowrap">{e.aviso}</span>}
+                        {e.detalle && (
+                          <span className="text-muted-foreground tnum ml-auto min-w-0 text-right text-xs break-words whitespace-normal">
+                            {e.detalle}
+                          </span>
+                        )}
+                      </span>
                     </CommandItem>
                   ))}
                 </CommandGroup>
